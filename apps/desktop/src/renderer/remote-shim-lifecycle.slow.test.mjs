@@ -31,19 +31,6 @@ ${child.stderr.slice(-3000)}`);
   return JSON.parse(child.stdout.slice(at + '@@TRACE@@'.length));
 };
 
-/**
- * The one declared difference of the lifecycle traces. While the first view sync is held open, Node's PC knows nothing of the phone's foreground
- * (setForeground leaves on the connection-ready event, after the sync: remote-shim-liveness.ts:161-164 at b6f10295a), whereas the phone's screen
- * reporter states it as soon as the connection is ready (apps/mobile/src/screen-reporter.ts, the `ready` listener). Nothing the user sees depends on
- * it; it is asserted exactly rather than waved through.
- */
-const FOREGROUND_BEFORE_SYNC = new Set([
-  'boot-reads-sync-held/sync-held',
-  'boot-reads-sync-held/mounted-while-blocked',
-  'boot-reads-sync-held/still-blocked',
-  'boot-reads-no-baseline-before-sync/sync-held-5s',
-]);
-
 for (const name of Object.keys(golden)) {
   test(`phone lifecycle replays the Node recording: ${name}`, () => {
     const got = run(runner, name);
@@ -53,9 +40,7 @@ for (const name of Object.keys(golden)) {
       want.map((c) => c.name)
     );
     want.forEach((expected, i) => {
-      const declared = FOREGROUND_BEFORE_SYNC.has(`${name}/${expected.name}`);
-      const wanted = declared ? { ...expected, core: { ...expected.core, foreground: true } } : expected;
-      assert.deepEqual(got[i], wanted, `${name} / ${expected.name}`);
+      assert.deepEqual(got[i], expected, `${name} / ${expected.name}`);
     });
   });
 }

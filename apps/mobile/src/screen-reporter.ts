@@ -31,17 +31,21 @@ export interface ScreenSink {
 export interface ScreenReporter {
   /** The page or the shown threads changed: send the new set if it differs from the last one the core has. */
   refresh(): void;
+  /** The connection that is up finished its view sync: state the screen on it (Node's setForeground leaves on the connection-ready event, after the sync). */
+  synced(): void;
   stop(): void;
 }
 
 /**
- * Sends the set on every change, and once again whenever the connection becomes ready: a new connection starts with the core
- * knowing nothing about this phone's screen, so a reconnect must not wait for the next change.
+ * Sends the set on every change, and once again whenever a connection finishes its view sync: a new connection starts with the core
+ * knowing nothing about this phone's screen, so a reconnect must not wait for the next change. Nothing is sent before that sync is done.
  */
 export function createScreenReporter(client: ScreenSink, source: ScreenSource): ScreenReporter {
   let sent: string | undefined;
+  let armed = false;
+  let stopped = false;
   const send = (): void => {
-    if (client.status.state !== 'ready') return;
+    if (!armed || client.status.state !== 'ready') return;
     const active = source.active();
     const sessionIds = active ? [...new Set(source.threads())] : [];
     const browserId = source.browserId()?.slice(0, BROWSER_ID_MAX);
@@ -63,11 +67,21 @@ export function createScreenReporter(client: ScreenSink, source: ScreenSource): 
   };
   const off = client.on((event) => {
     if (event.type !== 'status') return;
-    if (event.status.state === 'ready') {
+    if (event.status.state === 'ready') return;
+    armed = false;
+  });
+  return {
+    refresh: send,
+    synced() {
+      if (stopped) return;
+      armed = true;
       sent = undefined;
       send();
-    }
-  });
-  send();
-  return { refresh: send, stop: off };
+    },
+    stop() {
+      off();
+      armed = false;
+      stopped = true;
+    },
+  };
 }
