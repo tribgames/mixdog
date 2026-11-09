@@ -410,6 +410,6 @@ fn run_scenario(scenario: &Value) {
 fn the_host_behaves_as_nodes_did_in_every_recorded_scenario() {
     let recorded: Value = serde_json::from_str(HOST).unwrap();
     let scenarios = recorded["scenarios"].as_array().unwrap();
-    assert_eq!(scenarios.len(), 29);
+    assert_eq!(scenarios.len(), 30);
     scenarios.iter().for_each(run_scenario);
 }
