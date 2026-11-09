@@ -45,6 +45,9 @@ mod thread_list_overlay_tests;
 pub mod heartbeat_catalog;
 pub mod shell_jobs;
 pub mod thread_list;
+pub mod thread_edges;
+#[cfg(test)]
+mod thread_edges_tests;
 pub mod thread_context;
 pub mod tool_events;
 pub mod workspace_sight;

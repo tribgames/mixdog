@@ -1,0 +1,567 @@
+{
+  "note": "the roster Node pushed after each catalog write of each trigger (header-only records)",
+  "triggers": [
+    {
+      "name": "create",
+      "steps": [
+        {
+          "id": "s_new",
+          "record": {
+            "id": "s_new",
+            "updatedAt": 1000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": []
+          },
+          "roster": [],
+          "published": false
+        },
+        {
+          "id": "s_new",
+          "record": {
+            "id": "s_new",
+            "updatedAt": 1100,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "First prompt"
+          },
+          "roster": [
+            {
+              "id": "s_new",
+              "title": "First prompt",
+              "preview": "",
+              "updatedAt": 1100,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "fork",
+      "steps": [
+        {
+          "id": "s_base",
+          "record": {
+            "id": "s_base",
+            "updatedAt": 1000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Base"
+          },
+          "roster": [
+            {
+              "id": "s_base",
+              "title": "Base",
+              "preview": "",
+              "updatedAt": 1000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_fork",
+          "record": {
+            "id": "s_fork",
+            "updatedAt": 1200,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Base (fork)",
+            "inheritedFromSessionId": "s_base"
+          },
+          "roster": [
+            {
+              "id": "s_base",
+              "title": "Base",
+              "preview": "",
+              "updatedAt": 1000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            },
+            {
+              "id": "s_fork",
+              "title": "Base (fork)",
+              "preview": "",
+              "updatedAt": 1200,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "inheritedFromSessionId": "s_base"
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "inherit",
+      "steps": [
+        {
+          "id": "s_old",
+          "record": {
+            "id": "s_old",
+            "updatedAt": 1000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Old"
+          },
+          "roster": [
+            {
+              "id": "s_old",
+              "title": "Old",
+              "preview": "",
+              "updatedAt": 1000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_heir",
+          "record": {
+            "id": "s_heir",
+            "updatedAt": 1300,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Heir",
+            "inheritedFromSessionId": "s_old"
+          },
+          "roster": [
+            {
+              "id": "s_heir",
+              "title": "Heir",
+              "preview": "",
+              "updatedAt": 1300,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "inheritedFromSessionId": "s_old"
+            },
+            {
+              "id": "s_old",
+              "title": "Old",
+              "preview": "",
+              "updatedAt": 1000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_heir",
+          "record": {
+            "id": "s_heir",
+            "updatedAt": 1300,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Heir",
+            "inheritedFromSessionId": "s_old"
+          },
+          "roster": [
+            {
+              "id": "s_heir",
+              "title": "Heir",
+              "preview": "",
+              "updatedAt": 1300,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "inheritedFromSessionId": "s_old"
+            },
+            {
+              "id": "s_old",
+              "title": "Old",
+              "preview": "",
+              "updatedAt": 1000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": false
+        }
+      ]
+    },
+    {
+      "name": "import",
+      "steps": [
+        {
+          "id": "s_imp",
+          "record": {
+            "id": "s_imp",
+            "updatedAt": 1400,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Imported",
+            "sourceType": "import"
+          },
+          "roster": [],
+          "published": false
+        }
+      ]
+    },
+    {
+      "name": "schedule",
+      "steps": [
+        {
+          "id": "s_sch",
+          "record": {
+            "id": "s_sch",
+            "updatedAt": 1500,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Nightly",
+            "sourceType": "schedule",
+            "sourceName": "nightly"
+          },
+          "roster": [
+            {
+              "id": "s_sch",
+              "title": "Nightly",
+              "preview": "",
+              "updatedAt": 1500,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "webhook",
+      "steps": [
+        {
+          "id": "s_web",
+          "record": {
+            "id": "s_web",
+            "updatedAt": 1600,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Hook",
+            "sourceType": "webhook",
+            "sourceName": "hook"
+          },
+          "roster": [
+            {
+              "id": "s_web",
+              "title": "Hook",
+              "preview": "",
+              "updatedAt": 1600,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "agent-session",
+      "steps": [
+        {
+          "id": "s_ag",
+          "record": {
+            "id": "s_ag",
+            "updatedAt": 1700,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Worker",
+            "owner": "agent",
+            "agent": "worker",
+            "ownerSessionId": "s_a"
+          },
+          "roster": [
+            {
+              "id": "s_ag",
+              "title": "Worker",
+              "preview": "",
+              "updatedAt": 1700,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "never-listed",
+      "steps": [
+        {
+          "id": "s_exec",
+          "record": {
+            "id": "s_exec",
+            "updatedAt": 1000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "exec run",
+            "sourceType": "exec"
+          },
+          "roster": [],
+          "published": false
+        },
+        {
+          "id": "s_bot",
+          "record": {
+            "id": "s_bot",
+            "updatedAt": 1000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "by a bot",
+            "sourceType": "bot",
+            "sourceName": "newsbot"
+          },
+          "roster": [],
+          "published": false
+        },
+        {
+          "id": "s_foreign",
+          "record": {
+            "id": "s_foreign",
+            "updatedAt": 1000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "foreign",
+            "owner": "importer"
+          },
+          "roster": [],
+          "published": false
+        }
+      ]
+    },
+    {
+      "name": "update-and-quiet",
+      "steps": [
+        {
+          "id": "s_u",
+          "record": {
+            "id": "s_u",
+            "updatedAt": 1800,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Before"
+          },
+          "roster": [
+            {
+              "id": "s_u",
+              "title": "Before",
+              "preview": "",
+              "updatedAt": 1800,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_u",
+          "record": {
+            "id": "s_u",
+            "updatedAt": 1900,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "After"
+          },
+          "roster": [
+            {
+              "id": "s_u",
+              "title": "After",
+              "preview": "",
+              "updatedAt": 1900,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_u",
+          "record": {
+            "id": "s_u",
+            "updatedAt": 1900,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "After"
+          },
+          "roster": [
+            {
+              "id": "s_u",
+              "title": "After",
+              "preview": "",
+              "updatedAt": 1900,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": false
+        }
+      ]
+    },
+    {
+      "name": "stops-being-listed",
+      "steps": [
+        {
+          "id": "s_gone",
+          "record": {
+            "id": "s_gone",
+            "updatedAt": 2000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Here"
+          },
+          "roster": [
+            {
+              "id": "s_gone",
+              "title": "Here",
+              "preview": "",
+              "updatedAt": 2000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_gone",
+          "record": {
+            "id": "s_gone",
+            "updatedAt": 2100,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": []
+          },
+          "roster": [],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "two-sessions",
+      "steps": [
+        {
+          "id": "s_x",
+          "record": {
+            "id": "s_x",
+            "updatedAt": 2200,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "X"
+          },
+          "roster": [
+            {
+              "id": "s_x",
+              "title": "X",
+              "preview": "",
+              "updatedAt": 2200,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_y",
+          "record": {
+            "id": "s_y",
+            "updatedAt": 2300,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Y"
+          },
+          "roster": [
+            {
+              "id": "s_x",
+              "title": "X",
+              "preview": "",
+              "updatedAt": 2200,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            },
+            {
+              "id": "s_y",
+              "title": "Y",
+              "preview": "",
+              "updatedAt": 2300,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_x",
+          "record": {
+            "id": "s_x",
+            "updatedAt": 2400,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "X2"
+          },
+          "roster": [
+            {
+              "id": "s_x",
+              "title": "X2",
+              "preview": "",
+              "updatedAt": 2400,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            },
+            {
+              "id": "s_y",
+              "title": "Y",
+              "preview": "",
+              "updatedAt": 2300,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": true
+        }
+      ]
+    }
+  ]
+}
