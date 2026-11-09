@@ -1,0 +1,139 @@
+{
+  "cwd": "{cwd}",
+  "listing": {
+    "S": [
+      {
+        "tab": 1,
+        "id": "session-terminal:S",
+        "shell": "powershell",
+        "running": true,
+        "cwd": "{cwd}"
+      },
+      {
+        "tab": 2,
+        "id": "session-terminal:S:2",
+        "shell": "powershell",
+        "running": true,
+        "cwd": "{cwd}"
+      },
+      {
+        "tab": 3,
+        "id": "session-terminal:S:3",
+        "shell": "powershell",
+        "running": true,
+        "cwd": "{cwd}"
+      }
+    ],
+    "T": [
+      {
+        "tab": 1,
+        "id": "session-terminal:T",
+        "shell": "powershell",
+        "running": true,
+        "cwd": "{cwd}"
+      }
+    ],
+    "none": [],
+    "S:2": [
+      {
+        "tab": 1,
+        "id": "session-terminal:S:2",
+        "shell": "powershell",
+        "running": true,
+        "cwd": "{cwd}"
+      }
+    ]
+  },
+  "snapshots": {
+    "all": {
+      "text": "hello\r\nworld\r\nmore\r\n",
+      "cursor": 20,
+      "reset": false
+    },
+    "sinceFirstCursor": {
+      "text": "more\r\n",
+      "cursor": 20,
+      "reset": false
+    },
+    "sinceStart": {
+      "text": "hello\r\nworld\r\nmore\r\n",
+      "cursor": 20,
+      "reset": false
+    },
+    "sinceMiddle": {
+      "text": "world\r\nmore\r\n",
+      "cursor": 20,
+      "reset": false
+    },
+    "sinceEnd": {
+      "text": "",
+      "cursor": 20,
+      "reset": false
+    },
+    "belowWindow": {
+      "text": "hello\r\nworld\r\nmore\r\n",
+      "cursor": 20,
+      "reset": true
+    },
+    "pastEnd": {
+      "text": "hello\r\nworld\r\nmore\r\n",
+      "cursor": 20,
+      "reset": true
+    },
+    "unknown": null,
+    "other": {
+      "text": "",
+      "cursor": 1000,
+      "reset": false
+    }
+  },
+  "firstWrite": "hello\r\nworld\r\n",
+  "secondWrite": "more\r\n",
+  "exited": [
+    {
+      "tab": 1,
+      "id": "session-terminal:S",
+      "shell": "powershell",
+      "running": true,
+      "cwd": "{cwd}"
+    },
+    {
+      "tab": 2,
+      "id": "session-terminal:S:2",
+      "shell": "powershell",
+      "running": true,
+      "cwd": "{cwd}"
+    },
+    {
+      "tab": 3,
+      "id": "session-terminal:S:3",
+      "shell": "powershell",
+      "running": false,
+      "cwd": "{cwd}"
+    }
+  ],
+  "exitedSnapshot": {
+    "text": "\r\n[process exited with code 7]\r\n",
+    "cursor": 32,
+    "reset": false
+  },
+  "afterDispose": {
+    "tabs": [
+      {
+        "tab": 1,
+        "id": "session-terminal:S",
+        "shell": "powershell",
+        "running": true,
+        "cwd": "{cwd}"
+      },
+      {
+        "tab": 3,
+        "id": "session-terminal:S:3",
+        "shell": "powershell",
+        "running": false,
+        "cwd": "{cwd}"
+      }
+    ],
+    "snapshot": null
+  }
+}
