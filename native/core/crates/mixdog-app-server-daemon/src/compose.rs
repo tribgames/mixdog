@@ -370,6 +370,10 @@ impl ComposedCore {
     }
 
     /// Mixy's heartbeat on its timers; `serve` calls it once startup has finished.
+    pub fn start_sub_agent_retention(&self) {
+        self.real.start_sub_agent_retention();
+    }
+
     pub fn start_heartbeat(&self) {
         self.real.start_heartbeat();
     }
@@ -724,6 +728,9 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     core.on_stop(name, ended);
     let timer = resume_timer.clone();
     core.on_stop("quota resume timer", async move { timer.stop().await });
+    // The retention cycle reads and deletes sessions through the directory: it has ended before the directory shuts down.
+    let (name, retention) = core.real.sub_agent_retention_step();
+    core.on_stop(name, retention);
     core.on_stop("session directory shutdown", shutdown);
     for (name, step) in later {
         core.on_stop(name, step);

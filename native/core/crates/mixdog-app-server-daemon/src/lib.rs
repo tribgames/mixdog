@@ -63,6 +63,7 @@ pub mod project_workspaces;
 pub mod server;
 pub mod serving;
 pub mod server_ensure;
+pub mod session_retention;
 pub mod session_sweep;
 pub mod shell_name;
 pub mod signals;
@@ -190,6 +191,8 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
         mixdog_rt::spawn("event-pipeline", mixdog_rt::TaskClass::Work, core.event_pipeline().clone().run(started.clone(), stop.clone()));
         // Node's idle cleanup starts with the session runtime (`runtime-bootstrap.mjs:97`): first cycle one interval after the start, then every interval; it ends with the run token.
         mixdog_rt::spawn("idle-sweep", mixdog_rt::TaskClass::Work, session_sweep::run(started.clone(), core.sweep_store(&sweep_dir, stop.clone()), session_sweep::CLEANUP_INTERVAL, stop.clone()));
+        // The sub-agent retention is part of that same cycle in Node (`_retainSubAgents`): same start, same first delay, ended by the stop procedure before the directory shuts down.
+        core.start_sub_agent_retention();
         // Mixy's heartbeat (`daemon.mjs:1212`): after the session service and the routine host exist, before the recoveries.
         core.start_heartbeat();
         let serving = serving::attach(booting, core.clone(), outgoing).await?;

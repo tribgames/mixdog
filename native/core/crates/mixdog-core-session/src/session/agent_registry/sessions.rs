@@ -215,7 +215,10 @@ impl Sessions for AgentSessions {
         covered.push(session_id.to_owned());
         let _cancelling = self.registry.begin_cancellation(&covered);
         let thread = ThreadId::from(session_id);
-        if !matches!(crate::session::close::write_detach(&*self.threads, &thread, reason, options.owner_close, self.clock.now_ms()).await, Ok(true)) {
+        // `Ok(false)`: the record is already gone (deleted), which Node's close counts as closed
+        // (`finishClose`, `outcome.absent`), so releasing the tag of a deleted session goes on to
+        // forget the row and the tag can start a fresh session.
+        if crate::session::close::write_detach(&*self.threads, &thread, reason, options.owner_close, self.clock.now_ms()).await.is_err() {
             return false;
         }
         crate::session::close::stop_session_work(&self.directory, &*self.shells, &self.read_state, &thread, reason, "agent-close").await;
