@@ -290,3 +290,23 @@ pub fn seal_approval(material: &PairingMaterial, public_key: &str) -> Option<Val
     let sealed = crate::e2ee::seal_pairing(material, public_key).ok()?;
     serde_json::to_value(sealed).ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Node keeps `credentialId` on a client whose pairing was revoked and marks it screen-revoked apart
+    /// (`remote-relay-clients.ts:274`, `screen-access-publisher.ts:138,151`): what acts as the device, a native push
+    /// registration or a download lease, keeps naming it.
+    #[test]
+    fn a_revoked_client_keeps_the_device_it_acts_as_and_is_marked_apart() {
+        let mut table = ClientTable::default();
+        table.open("c1", "cred-a", &[]).unwrap();
+        table.open("c2", "cred-b", &[]).unwrap();
+        assert_eq!(table.revoke("cred-a"), vec!["c1".to_owned()]);
+        assert!(table.screen_revoked("c1") && !table.screen_revoked("c2"));
+        assert_eq!(table.credential_of("c1"), Some("cred-a"));
+        assert_eq!(table.media_device_of("c1").as_deref(), Some("cred-a"));
+        assert_eq!(table.media_device_of("c2").as_deref(), Some("cred-b"));
+    }
+}
