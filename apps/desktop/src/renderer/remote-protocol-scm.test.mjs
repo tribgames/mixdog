@@ -141,7 +141,9 @@ test('phone-scm keeps Node\'s barrier: a read submitted behind a slow write star
   const ctx = {};
   const answers = ordering.calls.map(({ call, params }) => adapter.calls[call](clone(params), { ctx, client: () => core }).then((value) => ({ ok: true, value: value === undefined ? null : clone(value) })));
   // The write signals from inside the operation, held: that is when Node's recording took the same snapshot.
-  await reached;
+  // A write that never started leaves nothing to signal: then every call finishes without reaching it, and that is the failure to name.
+  const outcome = await Promise.race([reached.then(() => 'held'), Promise.allSettled(answers).then(() => 'every call finished')]);
+  assert.equal(outcome, 'held', `the write ${ordering.heldStarts[0]} never started: every call finished without reaching it`);
   assert.deepEqual(log.map((entry) => entry.started), ordering.heldStarts);
   release();
   assert.deepEqual(await Promise.all(answers), ordering.answers);

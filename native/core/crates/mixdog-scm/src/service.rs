@@ -394,7 +394,11 @@ impl ScmService {
             .ok_or_else(|| ScmFailure::refused("UNKNOWN_FLOW", "Unknown GitHub login flow."))
     }
 
-    async fn login_start(self: &Arc<Self>) -> Result<Value, ScmFailure> {
+    async fn login_start(self: &Arc<Self>, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+        // githubCliLoginStart: `resolveGh` first, so a machine without `gh` is refused before anything is started.
+        if self.scm.gh_version(cancel).await?.is_none() {
+            return Err(ScmFailure::git("GitHub CLI is not installed."));
+        }
         let session: Arc<dyn LoginSession> = match self.login.start().await {
             Ok(session) => Arc::from(session),
             Err(mixdog_core_api::domain::login::LoginError::Failed(LoginFailure::Unavailable { .. })) => {
@@ -768,7 +772,7 @@ impl ScmService {
             "git/cli/install" => scm.git_cli_install(cancel).await?,
             "github/status" => { let p: p::GithubStatusParams = decode(req)?; scm.gh_status(cancel, p.refresh.unwrap_or(false)).await? }
             "github/account" => scm.gh_account(cancel).await?,
-            "github/login/start" => self.login_start().await?,
+            "github/login/start" => self.login_start(cancel).await?,
             "github/login/status" => {
                 let p: p::GithubLoginStatusParams = decode(req)?;
                 { let flow = self.flow(&p.flow_id)?; flow.json(&p.flow_id, &flow.session.state()) }

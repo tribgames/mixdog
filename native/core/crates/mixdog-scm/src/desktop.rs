@@ -65,7 +65,13 @@ impl Scm {
         } else {
             self.inspector.scan_without_line_stats(self.lane, reference).await
         }
-        .map_err(crate::mutate::scm_error)?;
+        // Only this answer tells a git that could not start apart (git-status.ts reads it as "not a repository"); every other
+        // caller of the inspector keeps the diagnostic `scm_error` has always given it.
+        .map_err(|error| match error {
+            mixdog_core_api::domain::repo::ScmError::Unavailable { capability } => ScmFailure::Unavailable { capability },
+            mixdog_core_api::domain::repo::ScmError::TimedOut { command, millis } => ScmFailure::TimedOut { command, millis },
+            other => crate::mutate::scm_error(other),
+        })?;
         // The scan is kept until something changes in the work tree; Node asked its remote list again once its minute was out.
         let (names, url) = crate::inspect::status::remote_metadata(&self.git, cancel, Path::new(&scan.json.root), &RunOptions::read()).await?;
         let mut value = to_value(&scan.json)?;

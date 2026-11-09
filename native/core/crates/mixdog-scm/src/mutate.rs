@@ -519,7 +519,9 @@ pub(crate) fn scm_error(error: mixdog_core_api::domain::repo::ScmError) -> ScmFa
             os_code,
             message: "io error".into(),
         },
-        ScmError::Unavailable { capability } => ScmFailure::Unavailable { capability },
+        // What every caller read before the status path told the fact apart: a git diagnostic, `COMMAND_FAILED`.
+        ScmError::Unavailable { capability } => ScmFailure::git(ScmFailure::Unavailable { capability }.to_string()),
+        ScmError::TimedOut { command, millis } => ScmFailure::git(ScmFailure::TimedOut { command, millis }.to_string()),
         ScmError::Corrupt { detail } => ScmFailure::git(scrub_credentials(&detail)),
     }
 }

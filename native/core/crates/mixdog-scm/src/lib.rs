@@ -14,6 +14,7 @@ pub mod inspect;
 pub mod locks;
 pub mod mutate;
 pub mod repo;
+pub(crate) mod seam;
 pub mod service;
 pub mod stage_select;
 pub mod tracked;

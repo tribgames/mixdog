@@ -243,6 +243,7 @@ impl From<ScmFailure> for ScmError {
             ScmFailure::ObjectMissing(id) => ScmError::ObjectMissing { id },
             ScmFailure::Io { os_code, .. } => ScmError::Io { os_code },
             ScmFailure::Unavailable { capability } => ScmError::Unavailable { capability },
+            ScmFailure::TimedOut { command, millis } => ScmError::TimedOut { command, millis },
             other => ScmError::Corrupt {
                 detail: other.to_string(),
             },

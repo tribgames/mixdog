@@ -305,17 +305,8 @@ pub(crate) async fn remote_metadata(
     root: &Path,
     options: &RunOptions,
 ) -> Result<(Vec<String>, String), ScmFailure> {
-    remote_metadata_at(git, cancel, root, options, std::time::Instant::now()).await
-}
-
-/// [remote_metadata] at a given moment, so a test moves the clock instead of waiting out the minute.
-pub(crate) async fn remote_metadata_at(
-    git: &Git,
-    cancel: &CancellationToken,
-    root: &Path,
-    options: &RunOptions,
-    now: std::time::Instant,
-) -> Result<(Vec<String>, String), ScmFailure> {
+    // The clock a replay of Node's recording moves by explicit skew (seam.rs), never by waiting out the minute.
+    let now = crate::seam::cache_clock();
     type Entry = (std::time::Instant, (Vec<String>, String));
     static CACHE: std::sync::OnceLock<std::sync::Mutex<HashMap<String, Entry>>> = std::sync::OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
@@ -470,7 +461,10 @@ pub async fn scan(
         max_output: Some(STATUS_MAX_BYTES),
         ..RunOptions::read()
     };
-    let (porcelain, staged, unstaged, remotes) = tokio::try_join!(
+    // git-status.ts starts every read at once (the listing, both numstats, the remote list, the work-tree root) and leaves the
+    // siblings of a failed one running, so a git that cannot start is attempted by each of them: `join!`, not `try_join!`,
+    // which would drop the others at the first failure. The first failure in this order is the one reported.
+    let (porcelain, staged, unstaged, remotes, top_level) = tokio::join!(
         git.text(
             cancel,
             &root,
@@ -500,7 +494,14 @@ pub async fn scan(
             }
         },
         remote_metadata(git, cancel, &root, &read),
-    )?;
+        // cachedGitRoot: asked for its failure only (a timeout or a git that cannot start); the root itself is the identity's.
+        git.text(cancel, &root, &["--no-optional-locks", "rev-parse", "--show-toplevel"], &read),
+    );
+    let (porcelain, staged, unstaged, remotes) = (porcelain?, staged?, unstaged?, remotes?);
+    match top_level {
+        Err(failure @ (ScmFailure::Unavailable { .. } | ScmFailure::TimedOut { .. })) => return Err(failure),
+        _ => {}
+    }
     let mut parsed = parse_porcelain(&porcelain);
     let staged = parse_numstat(&staged);
     let unstaged = parse_numstat(&unstaged);

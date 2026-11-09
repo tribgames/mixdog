@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs, { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
@@ -37,6 +37,7 @@ const identity = exactProductIdentity(tree, REF);
 const script = JSON.parse(readFileSync(join(FIXTURES, 'gh-script.json'), 'utf8'));
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
+const MACHINE_PATH = process.env.PATH;
 rmSync(WORK, { recursive: true, force: true });
 for (const dir of ['home', 'bin', 'data', 'ud', 'app']) mkdirSync(join(WORK, dir), { recursive: true });
 // One fixed identity and clock, so a repository built twice has the same objects; the global git config is the scratch one.
@@ -55,7 +56,14 @@ Object.assign(process.env, {
   // git's own clock for "10 months ago": 2026-11-02T03:04:05Z. The Rust side runs git with the same variable.
   GIT_TEST_DATE_NOW: '1793588645',
   MIXDOG_DATA_DIR: join(WORK, 'data'),
-  PATH: `${join(WORK, 'bin')};${process.env.PATH}`,
+  // Node's world is the core's world (the replay builds the same): this world's bin first, the Windows folders, and install places
+  // that are folders of this world, so no tool of this machine is found by either.
+  PATH: [join(WORK, 'bin'), join(process.env.SystemRoot, 'System32'), process.env.SystemRoot].join(';'),
+  LOCALAPPDATA: join(WORK, 'lad'),
+  APPDATA: join(WORK, 'appdata'),
+  ProgramFiles: join(WORK, 'pf'),
+  ProgramW6432: join(WORK, 'pf'),
+  'ProgramFiles(x86)': join(WORK, 'pf86'),
 });
 delete process.env.MIXDOG_FEATURE_GIT;
 
@@ -64,9 +72,9 @@ delete process.env.MIXDOG_FEATURE_GIT;
 // scripted-tool executable (lib/scripted-tool.rs), which runs the real git: both name the same path, on any machine.
 const shimExe = join(WORK, 'shim', 'scripted-tool.exe');
 mkdirSync(join(WORK, 'shim'), { recursive: true });
-const built = spawnSync('rustc', ['-O', '--edition', '2021', join(REPO_ROOT, 'benchmarks', 'rust-core', 'recorders', 'lib', 'scripted-tool.rs'), '-o', shimExe], { cwd: REPO_ROOT, encoding: 'utf8', env: { ...process.env, RUSTUP_HOME: join(REAL_HOME, '.rustup'), CARGO_HOME: join(REAL_HOME, '.cargo') } });
+const built = spawnSync('rustc', ['-O', '--edition', '2021', join(REPO_ROOT, 'benchmarks', 'rust-core', 'recorders', 'lib', 'scripted-tool.rs'), '-o', shimExe], { cwd: REPO_ROOT, encoding: 'utf8', env: { ...process.env, PATH: MACHINE_PATH, RUSTUP_HOME: join(REAL_HOME, '.rustup'), CARGO_HOME: join(REAL_HOME, '.cargo') } });
 assert.equal(built.status, 0, built.stderr);
-const realGit = process.env.PATH.split(';').filter((dir) => dir !== join(WORK, 'bin')).map((dir) => join(dir, 'git.exe')).find((file) => existsSync(file));
+const realGit = MACHINE_PATH.split(';').filter((dir) => dir !== join(WORK, 'bin')).map((dir) => join(dir, 'git.exe')).find((file) => existsSync(file));
 process.env.PHONE_SCM_REAL_GIT = realGit;
 if (!REPLAY) fs.copyFileSync(shimExe, join(WORK, 'bin', 'git.exe'));
 
@@ -74,10 +82,18 @@ if (!REPLAY) fs.copyFileSync(shimExe, join(WORK, 'bin', 'git.exe'));
 let clockSkew = 0;
 const realNow = Date.now;
 Date.now = () => realNow() + clockSkew;
-const PROVEN_BY_CLOCK_TEST = new Set(['gitStatus-remote-after-ttl']);
-// The core's run limit is 60 s and it has no knob to shorten it, so a deadline is recorded from Node with a shortened one and proven on
-// the core by a Rust test that reads this recording (mixdog-scm phone_parity_tests.rs, a_git_deadline_reads_as_the_recorded_one).
-const PROVEN_BY_DEADLINE_TEST = new Set(['gitStatus-git-timeout']);
+// A deadline Node's runner would wait 60 s for is shortened to `runLimitMs`, and Node's clock is skewed by `clockSkewMs`: the same
+// two changes are made to a built core through its debug-build seam file (mixdog-scm src/seam.rs), so the replay compares the
+// core's own timeout and its own 60 s remote-list cache with Node's, not a stand-in.
+const seam = { runLimitMs: 0, runLimitFor: '', clockSkewMs: 0 };
+const SEAM_FILE = join(WORK, 'seam.json');
+// Every attempt of the core to start a program, started or not, one JSON line each (debug seam, mixdog-scm src/seam.rs).
+const ATTEMPTS_FILE = join(WORK, 'attempts.jsonl');
+function setSeam(change) {
+  Object.assign(seam, change);
+  clockSkew = seam.clockSkewMs;
+  if (REPLAY) writeFileSync(SEAM_FILE, JSON.stringify({ clockSkewMs: seam.clockSkewMs, ...(seam.runLimitMs ? { runLimitMs: seam.runLimitMs, runLimitFor: seam.runLimitFor } : {}) }));
+}
 
 // `ghlogin_<pid>_<n>` (github-cli.ts): the scripted host has a fixed pid.
 Object.defineProperty(process, 'pid', { value: 4242 });
@@ -109,9 +125,24 @@ const { createDesktopOperations } = await main('desktop-operations');
 // The daemon that answers the phone starts git on its process-runner worker (desktop-service.ts:1052), so a failed command's text is\n// git-runner.ts gitFailure's (`Command failed: git commit ...`), not execFile's (which names the resolved git.exe).
 const { setGitProcessRunner } = await main('git-runner');
 const { runProcessOffThread } = await importFrom(tree, 'src/runtime/shared/process-runner.mjs');
-// A deadline Node's runner would wait 60 s for is shortened to shortDeadline ms while a case sets it: the same code kills the child and words the failure.
-let shortDeadline = 0;
-setGitProcessRunner((command, runArgs, options) => runProcessOffThread(command, runArgs, shortDeadline && options.timeoutMs > 0 ? { ...options, timeoutMs: shortDeadline } : options));
+// A deadline Node's runner would wait 60 s for is shortened to the seam's runLimitMs while a case sets it: the same code kills the child and words the failure.
+// A git that could not start (spawn ENOENT) is an attempt Node made and failed: it is recorded with the scripted tools' attempts.
+// The git children of a call that are still running when it answers (a read that failed early leaves its siblings behind) are
+// tracked, so the recorder waits for each one's own completion, not for a fixed time, before it takes the call's attempts.
+const gitInFlight = new Set();
+setGitProcessRunner((command, runArgs, options) => {
+  const limited = seam.runLimitMs && options.timeoutMs > 0 && runArgs.includes(seam.runLimitFor);
+  const run = runProcessOffThread(command, runArgs, limited ? { ...options, timeoutMs: seam.runLimitMs } : options).catch((error) => {
+    if (error?.code === 'ENOENT') processes.push({ tool: 'git', argv: clone(runArgs), cwd: options.cwd ?? null, reply: { code: -1, stderr: 'ENOENT' } });
+    throw error;
+  });
+  const settled = run.then(() => gitInFlight.delete(settled), () => gitInFlight.delete(settled));
+  gitInFlight.add(settled);
+  return run;
+});
+async function drainGit() {
+  while (gitInFlight.size) await Promise.all([...gitInFlight]);
+}
 const githubCli = await main('github-cli');
 githubCli.githubCliLoginTestHooks.pty = pty.module;
 // The sign-in ends when the continuation of its `gh auth setup-git` call has set the flow's state. Node has no event for that,
@@ -172,7 +203,7 @@ const host = {
 const methods = createRemoteMethods({ host });
 
 // ── scratch repositories ──
-const git = (cwd, ...gitArgs) => execFileSync('git', ['-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false', ...gitArgs], { cwd, encoding: 'utf8', stdio: 'pipe' });
+const git = (cwd, ...gitArgs) => execFileSync(realGit, ['-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false', ...gitArgs], { cwd, encoding: 'utf8', stdio: 'pipe' });
 const write = (root, rel, text) => {
   mkdirSync(join(root, rel, '..'), { recursive: true });
   writeFileSync(join(root, rel), text);
@@ -230,7 +261,9 @@ if (REPLAY) {
       ghOnPath: join(WORK, 'bin', 'gh.exe'),
       winget: join(WORK, 'bin', 'winget.exe'),
       git: join(WORK, 'bin', 'git.exe'),
-      soffice: join(pf, 'LibreOffice', 'program', 'soffice.com'),
+      // Node's probe tries the bare `soffice.com` first and finds it exactly when the world has LibreOffice; its other candidates
+      // are files of this world, which has none. The core's world has the same: the one soffice.com is on its PATH.
+      soffice: join(WORK, 'bin', 'soffice.com'),
     },
   });
   shims.sync();
@@ -252,6 +285,10 @@ if (REPLAY) {
     MIXDOG_HOME: join(WORK, 'home', '.mixdog'),
     MIXDOG_CONFIG_DIR: join(WORK, 'config'),
     MIXDOG_RUNTIME_ROOT: runtimeRoot,
+    MIXDOG_SCM_DEBUG_SEAM: SEAM_FILE,
+    MIXDOG_SCM_DEBUG_ATTEMPTS: ATTEMPTS_FILE,
+    // The core's JS workers run Node's own code for some tools (the LibreOffice probe and install): their attempts go to the same log.
+    NODE_OPTIONS: `--require ${join(REPO_ROOT, 'benchmarks', 'rust-core', 'recorders', 'lib', 'spawn-log.cjs').replaceAll('\\', '/')}`,
   });
   const inside = (file) => resolve(file).toLowerCase().startsWith(`${resolve(WORK).toLowerCase()}\\`);
   assert.equal(Object.keys(coreEnv).filter((key) => /^path$/i.test(key)).length, 1, 'the core gets exactly one Path');
@@ -336,7 +373,7 @@ async function finishReplay() {
   execFileSync('taskkill', ['/T', '/F', '/PID', String(replay.core.pid)], { stdio: 'ignore' });
   await exited;
   rmSync(WORK, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
-  console.log(`phone-scm replay over ${REPLAY}: ${replay.compared.length} compared, ${replay.differences.length} differ, ${replay.byName.size - replay.compared.length - PROVEN_BY_CLOCK_TEST.size - PROVEN_BY_DEADLINE_TEST.size} of the recording not replayed (${PROVEN_BY_CLOCK_TEST.size} proven by the core's injected-clock test, ${PROVEN_BY_DEADLINE_TEST.size} by its deadline test)`);
+  console.log(`phone-scm replay over ${REPLAY}: ${replay.compared.length} compared, ${replay.differences.length} differ, ${replay.byName.size - replay.compared.length} of the recording not replayed`);
   for (const difference of replay.differences) console.log(`DIFF ${difference.name}\n  node: ${JSON.stringify(difference.node)}\n  core: ${JSON.stringify(difference.core)}`);
   process.exit(replay.differences.length ? 1 : 0);
 }
@@ -379,6 +416,18 @@ function settled(flowId, ready) {
     `flow ${flowId} never showed what gh printed`,
   );
 }
+/** The attempts the core logged since the last call, as `{tool, argv, started}` (the program's own name, without folder or `.exe`). */
+let attemptsRead = 0;
+function coreAttemptsSince() {
+  const lines = existsSync(ATTEMPTS_FILE) ? readFileSync(ATTEMPTS_FILE, 'utf8').split('\n').filter(Boolean) : [];
+  const fresh = lines.slice(attemptsRead).map((line) => JSON.parse(line));
+  attemptsRead = lines.length;
+  return fresh.map(({ program, args, pty: terminal, started }) => ({
+    tool: terminal ? 'pty' : basename(program).toLowerCase().replace(/\.exe$/, ''),
+    argv: args,
+    started,
+  }));
+}
 function mapFlowIds(frame) {
   return JSON.parse(JSON.stringify(frame).replaceAll(`ghlogin_${replay.core.pid}_`, 'ghlogin_4242_'));
 }
@@ -393,12 +442,10 @@ async function rec(name, call, params, note) {
   if (replay) {
     const recorded = replay.byName.get(name);
     assert.ok(recorded, `${name} is not in the recording`);
-    if (PROVEN_BY_CLOCK_TEST.has(name) || PROVEN_BY_DEADLINE_TEST.has(name)) return;
     if (process.env.PHONE_SCM_VERBOSE) console.error('replay', name);
     replay.shims.sync();
     processes.length = 0;
-    // The tools that were on no path of the core's world when the call began.
-    const absentAtStart = ['gh', 'winget', 'git', 'soffice.com'].filter((tool) => replay.shims.absent(tool));
+    coreAttemptsSince();
     const settingsBefore = settingsChanges.length;
     const core = mapFlowIds(await replayCall(call, coreParams(params)));
     // The core starts gh on its own time (Node's scripted pty is synchronous): wait for each sign-in the recording started.
@@ -419,21 +466,18 @@ async function rec(name, call, params, note) {
     }
     const events = settingsChanges.slice(settingsBefore);
     if (!isDeepStrictEqual(events, recorded.events ?? [])) replay.differences.push({ name: `${name} (events)`, node: recorded.events ?? [], core: events });
-    // The tools the core ran, as Node ran them: the same programs with the same arguments, in the same order.
-    // A tool Node tried and could not start (spawn ENOENT) has no executable in the core's world, so the core's attempt leaves no
-    // process to list: it is compared against the world instead. Node's attempt must have met a tool that was on no path of the
-    // core's world when the call began, or the two products ran in different worlds.
-    for (const attempt of (recorded.processes ?? []).filter((entry) => entry.reply?.code === -1)) {
-      if (!absentAtStart.includes(attempt.tool)) replay.differences.push({ name: `${name} (${attempt.tool} attempted)`, node: 'spawn failed: the tool is absent', core: 'the tool was on a path of the core\'s world' });
-    }
+    // The programs the core tried to start, as Node tried them: the same program, arguments and outcome (started, or could not
+    // start: spawn ENOENT), in the same order, one for one. The core logs each attempt itself (debug seam), a failed one too.
+    // Node's recording lists the tools its host scripts (gh, winget, soffice, the sign-in's terminal child, `git --version`) and
+    // every git it could not start; a git that ran is a real git on a scratch repository, which Node's recording does not list.
     // `ghPrList` starts its four category queries at once (Promise.all there, join_all in the core): which process the OS starts
-    // first is not defined, so for that call alone the programs and arguments are compared as a set. Every other call is ordered.
-    const concurrent = call === 'ghPrList';
-    const ran = (list) => {
-      const done = (list ?? []).filter((entry) => entry.reply?.code !== -1).map(({ tool, argv }) => ({ tool, argv }));
-      return concurrent ? done.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))) : done;
-    };
-    if (!isDeepStrictEqual(ran(processes), ran(recorded.processes))) replay.differences.push({ name: `${name} (processes)`, node: ran(recorded.processes), core: ran(processes) });
+    // first is not defined, so for that call alone the attempts are compared as a set. Every other call is ordered.
+    // `gitStatus` likewise reads its four git outputs side by side (Promise.all there, try_join in the core).
+    const concurrent = call === 'ghPrList' || call === 'gitStatus';
+    const order = (list) => (concurrent ? [...list].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))) : list);
+    const nodeAttempts = (recorded.processes ?? []).map(({ tool, argv, reply }) => ({ tool, argv, started: reply?.code !== -1 }));
+    const coreAttempts = coreAttemptsSince().filter((entry) => entry.tool !== 'git' || !entry.started || entry.argv.join(' ') === '--version');
+    if (!isDeepStrictEqual(order(coreAttempts), order(nodeAttempts))) replay.differences.push({ name: `${name} (attempts)`, node: order(nodeAttempts), core: order(coreAttempts) });
     // A revision is the file system's own identity (size, times, inode): it differs per machine and per run, so Node answers these
     // again on the very files the core just read instead of the golden's scripted ones.
     const expected = LIVE_NODE.has(name) ? await nodeFrame(call, params) : recorded.frame;
@@ -447,6 +491,7 @@ async function rec(name, call, params, note) {
   processes.length = 0;
   const wire = JSON.parse(JSON.stringify(params));
   const frame = await executeRemoteFrame(methods, JSON.stringify({ id: 1, method: call, params }));
+  await drainGit();
   const { id: _id, ...answer } = JSON.parse(JSON.stringify(frame));
   if (process.env.PHONE_SCM_VERBOSE) console.log(name, JSON.stringify(answer).slice(0, 300));
   cases.push({
@@ -654,9 +699,8 @@ git(R, 'clean', '-q', '-fd');
 // ═══ 5. the remote ═══
 // The repository without a remote: Node answers 'remote' from a read it keeps for 60 s per directory and never drops earlier
 // (git-status.ts:179-207, TTL git-read-utils.ts:6), so a remote added right after a status shows only once that minute has
-// passed. Node's clock is virtual: the recorder moves Date.now past the TTL. The core's cache is proven at that point by its
-// injected-clock test (remote_metadata_expires_by_clock); the real mixdogd keeps no clock to move, so these cases have a
-// repository of their own and nothing else's status depends on the minute.
+// passed. Node's clock is virtual: the recorder moves Date.now past the TTL, and moves the built core's cache clock by the same
+// skew through its debug seam (setSeam). These cases have a repository of their own, so nothing else's status depends on the minute.
 const TEMP = join(WORK, 'bare-repo');
 mkdirSync(TEMP, { recursive: true });
 git(TEMP, 'init', '-q', '-b', 'main');
@@ -670,9 +714,9 @@ await rec('gitSync-no-remote', 'gitSync', [TEMP]);
 await rec('gitStatus-before-remote-add', 'gitStatus', [TEMP]);
 git(TEMP, 'remote', 'add', 'origin', ORIGIN);
 await rec('gitStatus-remote-just-added', 'gitStatus', [TEMP]);
-clockSkew += 61_000;
+setSeam({ clockSkewMs: 61_000 });
 await rec('gitStatus-remote-after-ttl', 'gitStatus', [TEMP]);
-clockSkew -= 61_000;
+setSeam({ clockSkewMs: 0 });
 await rec('gitPush-no-upstream', 'gitPush', [R]);
 git(R, 'push', '-q', '-u', 'origin', 'main');
 await rec('gitPush-up-to-date', 'gitPush', [R]);
@@ -881,9 +925,11 @@ git(BIG, 'add', '.');
 git(BIG, 'commit', '-q', '-m', 'first');
 write(BIG, 'big.txt', bigText('after'));
 await rec('gitDiff-output-too-large', 'gitDiff', [BIG, 'big.txt', false]);
-shortDeadline = 1;
+// Only the status listing gets the shortened deadline: its siblings (numstat, remote) run to their ends, so which read times out
+// first is not a race.
+setSeam({ runLimitMs: 1, runLimitFor: 'status' });
 await rec('gitStatus-git-timeout', 'gitStatus', [FAILING]);
-shortDeadline = 0;
+setSeam({ runLimitMs: 0, runLimitFor: '' });
 
 if (replay) await finishReplay();
 // ═══ 11. ordering: a read behind a slow write ═══
@@ -925,7 +971,9 @@ const running = scenario.map(([call, params], index) => queue.run(call, async ()
   answers[index] = answer;
 }));
 // Every call is submitted: the write is the one the queue ran. It signals when it is inside the operation and held.
-await reached;
+// A write that never started leaves nothing to signal: then every call finishes without reaching it, and that is the failure to name.
+const outcome = await Promise.race([reached.then(() => 'held'), Promise.allSettled(running).then(() => 'every call finished')]);
+if (outcome !== 'held') throw new Error('the write gitStage never started: every call finished without reaching it');
 const heldStarts = orderLog.map((entry) => entry.started);
 if (heldStarts.join() !== 'gitStage') throw new Error(`calls started while the write was held: ${heldStarts}`);
 release();
