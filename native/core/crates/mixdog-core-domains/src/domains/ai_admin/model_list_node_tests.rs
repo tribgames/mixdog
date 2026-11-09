@@ -61,7 +61,8 @@ const ENDPOINT: &str = "http://127.0.0.1:9";
 
 /// The local fake model endpoint: GET of a recorded path answers its body, any other path an empty list.
 struct Endpoint {
-    routes: BTreeMap<String, Value>,
+    /// What it answers; a test swaps it to move a provider's catalog without any mutation.
+    routes: std::sync::Mutex<BTreeMap<String, Value>>,
     /// Every request waits here until the gate is open; a test closes it to hold a load in flight.
     gate: tokio::sync::watch::Receiver<bool>,
     /// One permit per request that reached the gate.
@@ -93,7 +94,7 @@ impl HttpSend for Endpoint {
         self.hits.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.gate.clone().wait_for(|open| *open).await.expect("the gate outlives the rig");
         let path = path.split('?').next().unwrap_or(path);
-        let answer = self.routes.get(path).cloned().unwrap_or_else(|| json!({ "object": "list", "data": [] }));
+        let answer = self.routes.lock().unwrap().get(path).cloned().unwrap_or_else(|| json!({ "object": "list", "data": [] }));
         // `{ "__status": n }` is that HTTP status with an empty object.
         match answer.get("__status").and_then(Value::as_u64) {
             Some(status) => Ok(reply(status as u16, json!({}))),
@@ -205,6 +206,8 @@ pub(super) struct Rig {
     pub(super) loaded: Arc<LoadedConfig>,
     pub(super) service: Arc<ModelListService>,
     pub(super) host: ListHost,
+    /// The fake provider endpoint, whose answers a test may swap.
+    endpoint: Arc<Endpoint>,
     /// Closing it holds the endpoint's requests; `arrived` counts those held.
     pub(super) gate: tokio::sync::watch::Sender<bool>,
     pub(super) arrived: Arc<tokio::sync::Semaphore>,
@@ -257,7 +260,7 @@ pub(super) async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
     let arrived = Arc::new(tokio::sync::Semaphore::new(0));
     let hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let endpoint = Arc::new(Endpoint {
-        routes: scenario["stub"].as_object().map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default(),
+        routes: std::sync::Mutex::new(scenario["stub"].as_object().map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default()),
         gate: gate_rx,
         arrived: arrived.clone(),
         hits: hits.clone(),
@@ -265,7 +268,7 @@ pub(super) async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
     let link = Arc::new(ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap());
     let builder: Arc<dyn ProviderBuilder> = Arc::new(Builder {
         inner: DefaultProviderBuilder::new(BuilderEnv {
-            http: endpoint,
+            http: endpoint.clone(),
             bidi: link,
             dial: Arc::new(KeepaliveDialer::new(KeepaliveSchedule::SPEC)),
             keys: keys.clone(),
@@ -308,7 +311,14 @@ pub(super) async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
         unsupported: Arc::new(UnsupportedEfforts::default()),
         host: Some(host.clone()),
     });
-    Rig { config, catalog, registry, readiness, effective, loaded, service, host, gate, arrived, hits, vault_gate, vault_arrived, secret_reads, _dir: dir }
+    Rig { config, catalog, registry, readiness, effective, loaded, service, host, endpoint, gate, arrived, hits, vault_gate, vault_arrived, secret_reads, _dir: dir }
+}
+
+impl Rig {
+    /// From now on the endpoint answers `routes` (a recorded `serveCatalog` call): a provider's catalog moves on its own.
+    pub(super) fn serve(&self, routes: &Value) {
+        *self.endpoint.routes.lock().unwrap() = routes.as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    }
 }
 
 pub(super) fn node_calls(scenario: &Value) -> [&Value; 3] {

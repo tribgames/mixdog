@@ -72,8 +72,6 @@ pub struct ListHost {
     last: Arc<Mutex<serde_json::Map<String, Value>>>,
     /// The cache state; one lock, so an adoption cannot interleave with an invalidation.
     cache: Arc<Mutex<CacheState>>,
-    /// Told whenever a load fills the cache.
-    filled: Arc<tokio::sync::Notify>,
     /// Tests: one permit per caller that joined the load in flight, so a test waits for the reader instead of yielding.
     #[cfg(test)]
     pub(super) joined: Arc<tokio::sync::Semaphore>,
@@ -159,7 +157,6 @@ impl ListHost {
             route,
             last: Arc::new(Mutex::new(initial)),
             cache,
-            filled: Arc::default(),
             #[cfg(test)]
             joined: Arc::new(tokio::sync::Semaphore::new(0)),
             #[cfg(test)]
@@ -235,10 +232,7 @@ impl ListHost {
         let mut cache = self.cache();
         cache.sync(self.readiness.catalog_revision());
         if cache.seq == seq {
-            // Told when the cache becomes loaded, not at every adoption: a listener that reads the rows would wake itself.
-            if !std::mem::replace(&mut cache.loaded, true) {
-                self.filled.notify_one();
-            }
+            cache.loaded = true;
         }
     }
 
@@ -548,11 +542,6 @@ impl ModelListService {
         if let Some(host) = &self.host {
             host.settle_warm().await;
         }
-    }
-
-    /// Told whenever a load fills the cache; a host without a registry never loads, so never tells.
-    pub fn filled(&self) -> Arc<tokio::sync::Notify> {
-        self.host.as_ref().map_or_else(Arc::default, |host| host.filled.clone())
     }
 
     /// `Array.isArray(caches.providerModelsCache.models) || caches.providerModelsPromise`: nothing left for a warm to do.
