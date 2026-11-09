@@ -1,4 +1,4 @@
-// Records what Node's phone holds as its thread list through a desktop restart: Node's own attach baseline
+// Records what Node's phone holds as its thread list, action by action, and through a desktop restart: Node's own attach baseline
 // (remote-view-sync.ts registerAndSynchronizeRelayViews, view-synchronizer.ts) run unchanged from the exact export of b6f10295a,
 // with the phone's own roster decoder and cache (shared/list-delta.ts, shared/remote-roster-cache.ts) and its catalog
 // (shared/remote-catalog.ts). The desktop host is scripted; its rosters are Node's `desktopSessionSummaries` over raw rows.
@@ -6,7 +6,8 @@
 //   node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs src/renderer/remote-protocol-chat-roster.record.mjs <export dir> <out file>
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -40,53 +41,62 @@ const { createRelayCatalogs } = await load('main/remote-relay-catalog.ts');
 const { createKeyedListDeltaDecoder } = await load('shared/list-delta.ts');
 const { createRemoteRosterCache, readRosterStamp } = await load('shared/remote-roster-cache.ts');
 const { createRemoteCatalog } = await load('shared/remote-catalog.ts');
+const { _sessionSummary } = await import(pathToFileURL(join(exportDir, 'src/runtime/agent/orchestrator/session/store-summary-index.mjs')).href);
 const { desktopSessionSummaries } = await load('main/desktop-state.ts');
 const { DesktopSessionMetadata } = await load('main/desktop-session-metadata.ts');
 const { byActivityThenId } = await import(pathToFileURL(join(exportDir, 'src/runtime/agent/orchestrator/session/catalog-db/schema.mjs')).href);
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
-// Raw rows as the store lists them (newest activity first); the core's row is the same row with the stored
-// desktopSession flattened (`classification`, `projectPath`).
-const raw = (n, extra = {}) => ({
-  id: `sess_${n}`,
-  preview: `preview ${n}`,
-  title: `Title ${n}`,
-  updatedAt: 1000 - n,
-  messageCount: 4,
-  cwd: n % 2 ? 'C:\\proj\\a' : 'C:\\proj\\b',
-  desktopSession: { classification: 'project', projectPath: n % 2 ? 'C:\\proj\\a' : 'C:\\proj\\b' },
-  ...(n === 0 ? { working: true } : {}),
-  ...(n === 1 ? { agentWorking: true, lastUsedAt: 1500 } : {}),
-  ...(n === 2 ? { inheritedFromSessionId: 'sess_0' } : {}),
-  ...extra,
-});
-// The store lists newest activity first, then by id (the catalog's order; the core lists the same way).
-const ordered = (rows) => [...rows].sort((a, b) => (Number(b.lastUsedAt) || b.updatedAt) - (Number(a.lastUsedAt) || a.updatedAt) || (a.id < b.id ? -1 : 1));
-// What the host laid over the projection (session-host.ts sessionCatalog): Node's own DesktopSessionMetadata overlays, run unchanged
-// over the state a user left (archived, favorite, a deleted bot's home, a read cursor).
-const meta = new DesktopSessionMetadata(() => process.env.MIXDOG_DATA_DIR ?? '.');
-Object.assign(meta, {
-  titleMap: {}, nameMap: {}, archivedMap: { sess_3: 1 }, favoriteMap: { sess_2: 1 }, retiredMap: { sess_4: 1 },
-  readMap: { sess_1: { messageCount: 3, revision: 2 } },
-});
-const roster = (rows) =>
-  meta.withReadCursors(meta.withFavoriteFlags(meta.withRetiredFlags(meta.withArchiveFlags(desktopSessionSummaries(ordered(rows), meta.titles, meta.names, '')))));
-// The same rows as the core carries them (its `ThreadSummary`): the stored row flattened, the overlays as fields of the row.
-const coreOf = ({ desktopSession, inheritedFromSessionId, working, agentWorking, ...row }) => ({
-  ...row,
-  classification: desktopSession.classification,
-  projectPath: desktopSession.projectPath,
-  ...(inheritedFromSessionId ? { forkedFromId: inheritedFromSessionId } : {}),
-  activityAt: Number(row.lastUsedAt) || row.updatedAt,
-  ...(working || agentWorking ? { working: true } : {}),
-  ...(working ? { leadWorking: true } : {}),
-  ...(agentWorking ? { agentWorking: true } : {}),
-  ...(meta.archivedMap[row.id] ? { archived: true } : {}),
-  ...(meta.favoriteMap[row.id] ? { favorite: true } : {}),
-  ...(meta.retiredMap[row.id] ? { agentDeleted: true } : {}),
-  ...(meta.readMap[row.id] ? { readMessageCount: meta.readMap[row.id].messageCount, readRevision: meta.readMap[row.id].revision } : {}),
-});
+// ── The scenario: the same actions remote-protocol-chat-live.record.mjs makes against a running mixdogd ─────────────────────────────
+// Node's store rows are Node's own `_sessionSummary` (store-summary-index.mjs) of session records the way Node writes them, and the
+// sidebar overlays are Node's own DesktopSessionMetadata (rename, favorite, read cursor, archive, forget) over a scratch directory.
+// The clock is virtual: every store write takes the next tick, so the timestamps are Node's order of writes, nothing from the wall clock.
+//   session-record.mjs:199 / session-crud.mjs:237  a created session has lastUsedAt = updatedAt = its creation tick
+//   ask-turn-settle.mjs:134                         a settled turn sets lastUsedAt (and updatedAt) to its completion tick
+//   desktop-session-metadata.ts setName/setArchived/setFavorite/markRead: sidebar metadata, no write to the session record
+let clockTick = 1_000_000;
+const tick = () => (clockTick += 1000);
+const PROJECT = { a: 'C:\\proj\\a', b: 'C:\\proj\\b' };
+const sessions = new Map();
+const metaDir = mkdtempSync(join(tmpdir(), 'ph2-chat-node-meta-'));
+const meta = new DesktopSessionMetadata(() => metaDir);
+const create = (name, project, extra = {}) => {
+  const at = tick();
+  sessions.set(name, { id: name, cwd: PROJECT[project], desktopSession: { classification: 'project', projectPath: PROJECT[project] }, createdAt: at, updatedAt: at, lastUsedAt: at, messages: [], ...extra });
+};
+const ordered = (rows) => [...rows].sort(byActivityThenId);
+const roster = () =>
+  meta.withReadCursors(meta.withFavoriteFlags(meta.withRetiredFlags(meta.withArchiveFlags(desktopSessionSummaries(ordered([...sessions.values()].map(_sessionSummary)), meta.titles, meta.names, '')))));
+
+const ACTIONS = [
+  ['created', async () => {
+    for (const [name, project] of [['sess_0', 'b'], ['sess_1', 'a'], ['sess_3', 'a'], ['sess_4', 'b']]) {
+      create(name, project);
+      await meta.setName(name, `Title ${name.slice(-1)}`);
+    }
+    create('sess_2', 'b', { inheritedFromSessionId: 'sess_0' });
+    await meta.setName('sess_2', 'Title 2');
+    await meta.setFavorite('sess_2', true);
+    await meta.markRead('sess_1', 0, true, { messageCount: 0, compactCount: 0 });
+  }],
+  ['turns', async () => {
+    for (const name of ['sess_1', 'sess_0']) {
+      const s = sessions.get(name);
+      s.messages.push({ role: 'user', content: `hello ${name}` }, { role: 'assistant', content: 'ok' });
+      s.updatedAt = s.lastUsedAt = tick();
+    }
+  }],
+  ['archive', async () => { await meta.setArchived('sess_3', true); }],
+  ['unarchive', async () => { await meta.setArchived('sess_3', false); }],
+  ['archive-again', async () => { await meta.setArchived('sess_3', true); }],
+  ['delete', async () => {
+    create('sess_5', 'a');
+    await meta.setName('sess_5', 'Title 5');
+    sessions.delete('sess_5');
+    await meta.forget('sess_5');
+  }],
+];
 
 function desktop(rows) {
   const listeners = new Set();
@@ -99,7 +109,7 @@ function desktop(rows) {
         reached?.();
         await gate;
       }
-      return roster(host.rows);
+      return host.rows;
     },
     getSnapshot: () => ({ sessionId: null, status: 'idle', items: [], streamingTail: null }),
     listAgentPool: async () => [],
@@ -118,8 +128,8 @@ function desktop(rows) {
     /** A catalog change: the host's own listeners hear it, then the relay's live frame. */
     publish(next) {
       host.rows = next;
-      for (const listener of [...listeners]) listener(roster(next));
-      catalogs.publishSessions(roster(next));
+      for (const listener of [...listeners]) listener(next);
+      catalogs.publishSessions(next);
     },
     /** Holds the host's roster read; rrived resolves when a read has reached the hold. */
     hold() {
@@ -150,7 +160,17 @@ function desktop(rows) {
 
 const storage = (() => {
   let record;
-  return { load: async () => (record === undefined ? undefined : structuredClone(record)), save: async (v) => { record = structuredClone(v); }, clear: async () => { record = undefined; }, get record() { return record; } };
+  const saved = [];
+  return {
+    load: async () => (record === undefined ? undefined : structuredClone(record)),
+    save: async (v) => {
+      record = structuredClone(v);
+      saved.splice(0).forEach((resolve) => resolve());
+    },
+    clear: async () => { record = undefined; },
+    /** Resolves when the phone's roster cache has persisted its next roster (the completion of its debounced save). */
+    nextSave: () => new Promise((resolve) => saved.push(resolve)),
+  };
 })();
 
 /** The phone as remote-shim-dispatch.ts runs it: a `sessions` frame decodes and publishes to the catalog. */
@@ -176,82 +196,71 @@ function phone() {
 }
 const kind = (frames) => frames.filter((f) => f.event === 'sessions').map((f) => (f.payload.__listCatch ? 'catch-up' : f.payload.rows ? 'baseline' : 'delta'));
 
+
 const steps = [];
-// `edges` are the core's app-feed events for the scripted action of the step (what mixdogd announces for the same change), recorded beside
-// what Node's phone published for it: the replay feeds these, in this order, and compares the phone's catalog with Node's.
-const coreEdge = {
-  started: (row) => ({ method: 'thread/started', params: { thread: plain(coreOf(row)) } }),
-  updated: (row) => ({ method: 'thread/summary/updated', params: { thread: plain(coreOf(row)) } }),
-  deleted: (id) => ({ method: 'thread/deleted', params: { threadId: id } }),
-};
-const note = (name, core, p, frames, edges) => steps.push({ name, coreRows: plain(ordered(core).map(coreOf)), ...(edges ? { edges } : {}), frames: frames ? kind(frames) : undefined, published: p.published.splice(0), roster: plain(p.rows) });
-// Every frame a roster publication sends is delivered to the phone synchronously inside `publish` / `connect` (the relay's
-// `sendEncryptedFrame` is called, not queued, by remote-relay-catalog.ts publishRoster), so a step is complete when its call returns:
-// nothing here waits for time.
+const note = (name, p, frames, extra = {}) => steps.push({ name, ...extra, frames: frames ? kind(frames) : undefined, published: p.published.splice(0), roster: plain(p.rows) });
 
-const R1 = [0, 1, 2, 3, 4].map((n) => raw(n));
-let d = desktop(R1);
-let p = phone();
-note('attach-baseline', R1, p, await d.connect(p)(await p.claim()));
-
-// A live roster push (a row is worked on and moves to the top).
-const R1b = [raw(2, { updatedAt: 2000, messageCount: 6 }), ...R1.filter((r) => r.id !== 'sess_2')];
-d.publish(R1b);
-note('live-push', R1b, p, undefined, [coreEdge.updated(R1b[0])]);
-
-// The same roster published again: Node's catalog skips an unchanged roster, so the phone hears nothing.
-d.publish(R1b);
-note('live-push-unchanged', R1b, p, undefined, [coreEdge.updated(R1b[1])]);
-
-// The desktop restarts: another process (a fresh roster log epoch) with the same rows. The phone reconnects holding its persisted roster.
-d = desktop(R1b);
-p = phone();
-note('restart-same-roster', R1b, p, await d.connect(p)(await p.claim()));
-
-// The desktop restarts again after rows changed while it was away: one removed, one added, one renamed, one reordered.
-const R2 = [raw(7), raw(0, { title: 'Renamed 0', updatedAt: 3000 }), ...R1b.filter((r) => !['sess_0', 'sess_3'].includes(r.id))];
-d = desktop(R2);
-p = phone();
-note('restart-roster-changed', R2, p, await d.connect(p)(await p.claim()));
-
-// A change between the baseline's subscribe and its list: the host publishes while the read is held; the push outranks the listing.
-const R3 = [raw(8), ...R2];
-const R3b = R3.filter((r) => r.id !== 'sess_1');
-d = desktop(R2);
-p = phone();
-const { arrived, release } = d.hold();
-const syncing = d.connect(p)(await p.claim());
-await arrived;
-d.publish(R3b); // a new row appears and sess_1 is deleted while the listing is still being read
-release();
-note('change-between-subscribe-and-list', R3b, p, await syncing, [coreEdge.started(R3[0]), coreEdge.deleted('sess_1')]);
-
-// Live pushes keep applying after the baseline.
-const R4 = R3b.map((r) => (r.id === 'sess_4' ? { ...r, messageCount: 9 } : r));
-d.publish(R4);
-note('live-push-after-restart', R4, p, undefined, [coreEdge.updated(R4.find((r) => r.id === 'sess_4'))]);
-
-// Node's catalog order over ties, lastUsedAt over updatedAt, and rows with no activity at all (schema.mjs byActivityThenId).
-const tieRows = [
-  raw(10, { updatedAt: 500 }), raw(11, { updatedAt: 500 }), raw(12, { updatedAt: 500, id: 'sess_09' }), raw(13, { updatedAt: 100, lastUsedAt: 900 }),
-  raw(14, { updatedAt: 900 }), raw(15, { updatedAt: 0 }), raw(16, { updatedAt: 0, id: 'sess_A' }), raw(17, { updatedAt: 0, lastUsedAt: 0, id: 'sess_a' }),
-];
-// Announced one at a time in the reverse of Node's order, after an empty list.
-steps.push({ name: 'order-ties', coreRows: plain(tieRows.map(coreOf)), edges: [...tieRows].reverse().map(coreEdge.started), order: [...tieRows].sort(byActivityThenId).map((r) => r.id) });
-
-// The same five sessions at rest (nothing working, no bot retired): the roster Node holds for a scenario a running core can reproduce
-// (archive, favorite, read cursor and fork set through its protocol). The live replay maps its rows onto this one.
-{
-  const idle = [0, 1, 2, 3, 4].map((n) => {
-    const { working, agentWorking, lastUsedAt, ...row } = raw(n);
-    // A row Node's store lists carries its compaction count, and the last message's preview once the session has had a turn.
-    return { ...row, compactCount: 0, ...(n < 2 ? { lastMessagePreview: `last ${n}` } : {}) };
-  });
-  const retired = meta.retiredMap;
-  meta.retiredMap = {};
-  steps.push({ name: 'idle-roster', coreRows: plain(ordered(idle).map(coreOf)), roster: plain(roster(idle)) });
-  meta.retiredMap = retired;
+// The desktop and phone that stay connected through every action: each action ends with the host publishing its roster, as Node's catalog did.
+let live = desktop([]);
+let livePhone = phone();
+await live.connect(livePhone)(await livePhone.claim());
+livePhone.published.splice(0);
+const rosters = [{ name: 'start', roster: [] }];
+for (const [name, act] of ACTIONS) {
+  await act();
+  const next = plain(roster());
+  rosters.push({ name, roster: next });
+  live.publish(next);
+  note(`action:${name}`, livePhone, undefined);
 }
-const manifest = { exact: true, commit: COMMIT, tree: execFileSync('git', ['-C', NODE_CHECKOUT, 'rev-parse', `${COMMIT}^{tree}`]).toString().trim(), filesCompared: checked, crlfOnlyDifferences: eolOnly, source: 'git archive of the whole tree, every file compared with its git blob id; remote-view-sync.ts, remote-relay-catalog.ts, view-synchronizer.ts, list-delta.ts, remote-roster-cache.ts run unchanged' };
-writeFileSync(outFile, `${JSON.stringify({ manifest, steps }, null, 2)}\n`);
+
+// Per state: a fresh phone's baseline, a phone that restarts into it holding the previous state's persisted roster, and a change that
+// arrives while the baseline's read is still held.
+const withRows = (name) => rosters.find((r) => r.name === name).roster;
+for (let i = 1; i < rosters.length; i += 1) {
+  const { name } = rosters[i];
+  const prev = rosters[i - 1];
+  await storage.clear();
+  let d = desktop(withRows(name));
+  let p = phone();
+  note(`attach:${name}`, p, await d.connect(p)(await p.claim()));
+  if (i === 1) continue;
+  // The desktop restarts into this state; the phone holds the roster it persisted from the previous one.
+  await storage.clear();
+  d = desktop(withRows(prev.name));
+  p = phone();
+  const persisted = storage.nextSave();
+  await d.connect(p)(await p.claim());
+  await persisted;
+  d = desktop(withRows(name));
+  p = phone();
+  note(`restart:${prev.name}>${name}`, p, await d.connect(p)(await p.claim()));
+  // A change between the baseline's subscribe and its list: the host publishes the next state while the read is held.
+  await storage.clear();
+  d = desktop(withRows(prev.name));
+  p = phone();
+  const { arrived, release } = d.hold();
+  const syncing = d.connect(p)(await p.claim());
+  await arrived;
+  d.publish(withRows(name));
+  release();
+  note(`between:${prev.name}>${name}`, p, await syncing);
+}
+
+// Publishing a roster the phone already has: Node's catalog skips an unchanged roster, so nothing reaches the phone.
+live.publish(rosters.at(-1).roster);
+note('unchanged:delete', livePhone, undefined);
+
+// Node's catalog order over ties, lastUsedAt over updatedAt, and rows with no activity at all (schema.mjs byActivityThenId): the rows are
+// Node store rows (inputs); `order` is what Node's own comparator gives.
+const tieRows = [
+  { id: 'sess_10', updatedAt: 500 }, { id: 'sess_11', updatedAt: 500 }, { id: 'sess_09', updatedAt: 500 }, { id: 'sess_13', updatedAt: 100, lastUsedAt: 900 },
+  { id: 'sess_14', updatedAt: 900 }, { id: 'sess_15', updatedAt: 0 }, { id: 'sess_A', updatedAt: 0 }, { id: 'sess_a', updatedAt: 0, lastUsedAt: 0 },
+].map((row) => ({ preview: '', title: row.id, messageCount: 0, cwd: PROJECT.a, classification: 'project', projectPath: PROJECT.a, ...row, activityAt: Number(row.lastUsedAt) || row.updatedAt }));
+steps.push({ name: 'order-ties', coreRows: plain(tieRows), order: [...tieRows].sort(byActivityThenId).map((r) => r.id) });
+
+await meta.flush();
+const manifest = { exact: true, commit: COMMIT, tree: execFileSync('git', ['-C', NODE_CHECKOUT, 'rev-parse', `${COMMIT}^{tree}`]).toString().trim(), filesCompared: checked, crlfOnlyDifferences: eolOnly, source: 'git archive of the whole tree, every file compared with its git blob id; remote-view-sync.ts, remote-relay-catalog.ts, view-synchronizer.ts, list-delta.ts, remote-roster-cache.ts, desktop-session-metadata.ts, store-summary-index.mjs run unchanged', actions: ACTIONS.map(([name]) => name) };
+writeFileSync(outFile, `${JSON.stringify({ manifest, states: rosters, steps }, null, 2)}\n`);
 console.log(`recorded ${steps.length} steps over ${checked} verified files`);
+process.exit(0);

@@ -105,10 +105,12 @@ const folded = () => {
 };
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const steps = [];
-/** Ends a step: the core's list, then the wait until the feed's edges fold to exactly it. */
-async function step(name, action) {
+/** Ends a step: the core's list, then the wait until the feed's edges fold to exactly it (and `settled` holds of the folded rows). */
+async function step(name, action, settled = () => true) {
   const from = edges.length;
   await action();
+  // The settled state is awaited before the list is read, so the list is the settled one.
+  await until(() => settled(folded()), `the rows of ${name} to settle`);
   const listed = await call('thread/list', { limit: 1000 });
   const want = new Map(listed.data.map((row) => [row.id, row]));
   await until(() => {
@@ -137,6 +139,8 @@ try {
     await op('thread/readState/update', { threadId: made.sess_1, messageCount: 0, consumedUnread: true });
   });
   // A row reaches the index writer (and so the app feed's edges) when a turn is written: one answered turn on sess_1 and sess_0.
+  // A turn's last write (lastUsedAt = updatedAt = its completion) lands after `turn/completed`: the step is over when each turned row says so.
+  const turned = (rows) => ['sess_1', 'sess_0'].every((name) => { const row = rows.get(made[name]); return row && row.messageCount === 2 && row.activityAt === row.updatedAt; });
   await step('turns', async () => {
     for (const name of ['sess_1', 'sess_0']) {
       await call('thread/resume', { threadId: made[name], window: { lastItems: 200 } });
@@ -148,7 +152,7 @@ try {
       await deadline.race(completed ? Promise.resolve() : finished.promise, `the turn of ${name} to complete`);
       socket.off('message', onTurn);
     }
-  });
+  }, turned);
   await step('archive', () => op('thread/archive', { threadId: made.sess_3 }));
   await step('unarchive', () => op('thread/unarchive', { threadId: made.sess_3 }));
   await step('archive-again', () => op('thread/archive', { threadId: made.sess_3 }));
