@@ -532,13 +532,83 @@ async fn interrupt_cancels_the_run_while_the_control_lane_is_full() {
     assert_eq!(seen_rx.await.expect("the script observed the cancel"), expected);
 }
 
+/// The real review, told apart by when its seals return: a turn settles after at most
+/// `TURN_CLEANUP_SETTLE` of waiting for its seal, which then goes on detached, so a reader waits
+/// for the seal's own end and not for the turn's.
+struct SealWatch {
+    inner: Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>,
+    sealed: tokio::sync::Notify,
+}
+
+#[async_trait::async_trait]
+impl mixdog_core_api::turn_review::TurnReviewApi for SealWatch {
+    async fn record_call(&self, a: &str, b: &str, c: &str, d: Vec<mixdog_core_api::turn_review::CallChange>) {
+        self.inner.record_call(a, b, c, d).await
+    }
+    async fn record_tool_changes(&self, a: &str, b: &str, c: Vec<mixdog_core_api::turn_review::CallChange>) {
+        self.inner.record_tool_changes(a, b, c).await
+    }
+    fn take_call_diff(&self, a: &str) -> Option<String> {
+        self.inner.take_call_diff(a)
+    }
+    fn note_change(&self, a: Option<&[String]>) {
+        self.inner.note_change(a)
+    }
+    async fn begin_turn(&self, a: &str, b: &str, c: mixdog_core_api::turn_review::TurnOpen) -> Option<mixdog_core_api::turn_review::TurnToken> {
+        self.inner.begin_turn(a, b, c).await
+    }
+    async fn complete_turn(&self, a: &str, b: Option<&mixdog_core_api::turn_review::TurnToken>) -> bool {
+        let done = self.inner.complete_turn(a, b).await;
+        self.sealed.notify_one();
+        done
+    }
+    fn begin_agent_review(&self, a: &str, b: &str, c: &str, d: &str) -> Option<Box<dyn mixdog_core_api::turn_review::AgentReview>> {
+        self.inner.begin_agent_review(a, b, c, d)
+    }
+    fn forget_session(&self, a: &str) {
+        self.inner.forget_session(a)
+    }
+    async fn turn_review_diff(&self, a: &str, b: &str, c: mixdog_core_api::turn_review::ReviewRead) -> mixdog_core_api::turn_review::Reply {
+        self.inner.turn_review_diff(a, b, c).await
+    }
+    async fn turn_review_file_patch(&self, a: &str, b: &str, c: &str) -> mixdog_core_api::turn_review::Reply {
+        self.inner.turn_review_file_patch(a, b, c).await
+    }
+    async fn session_review_diff(&self, a: &str, b: &str) -> mixdog_core_api::turn_review::Reply {
+        self.inner.session_review_diff(a, b).await
+    }
+    async fn session_review_file_patch(&self, a: &str, b: &str, c: &str, d: &str) -> mixdog_core_api::turn_review::Reply {
+        self.inner.session_review_file_patch(a, b, c, d).await
+    }
+    async fn revert_turn_review(&self, a: &str, b: &str, c: &str) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+        self.inner.revert_turn_review(a, b, c).await
+    }
+    async fn revert_turn_review_file(&self, a: &str, b: &str, c: &str, d: &str) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+        self.inner.revert_turn_review_file(a, b, c, d).await
+    }
+    async fn turn_changes(&self, a: &str, b: mixdog_core_api::turn_review::ChangesRead) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+        self.inner.turn_changes(a, b).await
+    }
+    async fn revert_turn_changes(&self, a: &str, b: &str, c: Option<&str>, d: f64) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+        self.inner.revert_turn_changes(a, b, c, d).await
+    }
+    async fn reapply_turn_changes(&self, a: &str, b: &str, c: Option<&str>, d: f64) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+        self.inner.reapply_turn_changes(a, b, c, d).await
+    }
+    async fn clear_change_history(&self, a: &str) -> Result<mixdog_core_api::turn_review::Reply, mixdog_core_api::turn_review::ReviewError> {
+        self.inner.clear_change_history(a).await
+    }
+}
+
 /// The turn's review (`snapshot-tracker.mjs`): the run begins it once its workspace is final, a
-/// tool waits for the baseline, and the turn settles only after the seal, so its edit is the
-/// sealed turn's change record under the input row's checkpoint.
+/// tool waits for the baseline, and the turn settles after the seal or `turnCleanupSettleMs`,
+/// whichever comes first; once the seal has returned, its edit is the sealed turn's change record
+/// under the input row's checkpoint (a read before that answers `pending`, as in Node).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: a git workspace and the run's file edit")]
-async fn a_turn_that_edits_a_file_seals_its_review_before_it_settles() {
+async fn a_turn_that_edits_a_file_records_its_change_once_its_seal_returns() {
     use mixdog_core_api::turn_review::ChangesRead;
+    use mixdog_core_api::turn_review::TurnReviewApi;
     let rig = Rig::new();
     let ws = tempfile::tempdir().unwrap();
     let root = ws.path().canonicalize().unwrap().to_string_lossy().trim_start_matches(r"\\?\").to_owned();
@@ -547,8 +617,10 @@ async fn a_turn_that_edits_a_file_seals_its_review_before_it_settles() {
     let checkpoints: Arc<Mutex<Vec<String>>> = Arc::default();
     let seen = checkpoints.clone();
     let cwd = root.clone();
-    let deps = rig.deps();
-    let review = deps.turn_review.clone();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    let review = Arc::new(SealWatch { inner: deps.turn_review.clone(), sealed: tokio::sync::Notify::new() });
+    deps.turn_review = review.clone();
+    let deps = Arc::new(deps);
     let tool = review.clone();
     rig.set_script(Arc::new(move |run| {
         let (seen, cwd, tool) = (seen.clone(), cwd.clone(), tool.clone());
@@ -575,16 +647,12 @@ async fn a_turn_that_edits_a_file_seals_its_review_before_it_settles() {
     let directory = SessionDirectory::new(deps);
     let handle = start_thread(&directory).await;
     turn(&handle, "edit a.txt", "op-1").await;
-    // The baseline and the seal run real Git (a shadow repository); under a loaded suite they
-    // take longer than `eventually`'s 5 s (measured 7.7 s).
-    let started = std::time::Instant::now();
-    while !idle(&handle) {
-        assert!(started.elapsed() < std::time::Duration::from_secs(60), "the turn settles");
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-    }
+    // The baseline and the seal run real Git (a shadow repository), and a settled turn does not
+    // mean a sealed one (the seal outlives a turn's two-second wait): the record is readable once
+    // the seal itself has returned, which is the event waited for.
+    review.sealed.notified().await;
     let checkpoint = checkpoints.lock().unwrap()[0].clone();
     assert!(!checkpoint.is_empty());
-    // Settled means sealed: the record is readable at once.
     let read = ChangesRead { checkpoint_id: checkpoint, patch: true, file: None };
     let changes = review.turn_changes(handle.id.as_str(), read).await.expect("the turn's change record");
     let text = Value::Object(changes).to_string();

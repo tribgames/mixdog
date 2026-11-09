@@ -7,7 +7,7 @@
    ],
    "timeoutMs": 300,
    "code": "ETIMEDOUT",
-   "message": "git rev-parse --show-toplevel timed out after 300ms"
+   "message": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe rev-parse --show-toplevel timed out after 300ms"
   },
   {
    "args": [
@@ -16,7 +16,7 @@
    ],
    "timeoutMs": 450,
    "code": "ETIMEDOUT",
-   "message": "git rev-parse --show-object-format timed out after 450ms"
+   "message": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe rev-parse --show-object-format timed out after 450ms"
   },
   {
    "args": [
@@ -26,7 +26,7 @@
    ],
    "timeoutMs": 600,
    "code": "ETIMEDOUT",
-   "message": "git check-ignore -z --stdin timed out after 600ms"
+   "message": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe check-ignore -z --stdin timed out after 600ms"
   },
   {
    "args": [
@@ -36,39 +36,134 @@
    ],
    "timeoutMs": 250,
    "code": "ETIMEDOUT",
-   "message": "git cat-file -t abc123 timed out after 250ms"
+   "message": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe cat-file -t abc123 timed out after 250ms"
   }
  ],
+ "realKill": {
+  "args": [
+   "-c",
+   "alias.wedge=!sleep 600 > held.marker",
+   "wedge"
+  ],
+  "timeoutMs": 5000,
+  "code": "ETIMEDOUT",
+  "message": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe -c alias.wedge=!sleep 600 > held.marker wedge timed out after 5000ms",
+  "aliasReached": true,
+  "heldFileReleased": true
+ },
  "measured": {
+  "captures": {
+   "first": {
+    "hung": {
+     "verb": "write-tree",
+     "args": [
+      "-c",
+      "core.autocrlf=false",
+      "-c",
+      "core.safecrlf=false",
+      "-c",
+      "core.quotepath=false",
+      "--git-dir",
+      "<work>\\data\\turn-worktree-snapshots-v1\\<key>",
+      "--work-tree",
+      "<work>\\capture",
+      "write-tree"
+     ]
+    },
+    "code": "ETIMEDOUT",
+    "message": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe -c core.autocrlf=false -c core.safecrlf=false -c core.quotepath=false --git-dir <work>\\data\\turn-worktree-snapshots-v1\\<key> --work-tree <work>\\capture write-tree timed out after 30000ms",
+    "afterSeconds": 30
+   },
+   "second": {
+    "resolved": true,
+    "hasBaselineTree": true,
+    "afterSeconds": 31,
+    "startedGitOnlyAfterFirstTimedOut": true
+   }
+  },
   "begin": {
-   "settled": "resolved",
-   "value": {
+   "hung": {
+    "verb": "write-tree",
+    "args": [
+     "-c",
+     "core.autocrlf=false",
+     "-c",
+     "core.safecrlf=false",
+     "-c",
+     "core.quotepath=false",
+     "--git-dir",
+     "<work>\\data\\turn-worktree-snapshots-v1\\<key>",
+     "--work-tree",
+     "<work>\\begin",
+     "write-tree"
+    ]
+   },
+   "token": {
     "generation": 1,
     "checkpointId": "cp-1"
    },
-   "afterSeconds": 30
-  },
-  "firstCapture": {
-   "settled": "resolved",
-   "value": null,
-   "afterSeconds": 1
-  },
-  "secondCapture": {
-   "settled": "resolved",
-   "value": null,
-   "afterSeconds": 1
-  },
-  "objectFormat": {
-   "settled": "resolved",
-   "value": "sha1",
-   "afterSeconds": 60
+   "afterSeconds": 34
   },
   "apply": {
-   "settled": "rejected",
+   "hung": {
+    "verb": "apply",
+    "args": [
+     "-c",
+     "core.autocrlf=false",
+     "-c",
+     "core.eol=lf",
+     "-c",
+     "core.quotepath=false",
+     "apply",
+     "-R",
+     "--whitespace=nowarn",
+     "-"
+    ]
+   },
    "code": "ETIMEDOUT",
-   "message": "git rev-parse --show-toplevel timed out after 60000ms",
+   "message": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe -c core.autocrlf=false -c core.eol=lf -c core.quotepath=false apply -R --whitespace=nowarn - timed out after 60000ms",
    "afterSeconds": 60
-  }
+  },
+  "ignoredPaths": {
+   "hung": {
+    "verb": "check-ignore",
+    "args": [
+     "check-ignore",
+     "-z",
+     "--stdin"
+    ]
+   },
+   "status": "ready",
+   "files": [
+    "a.txt"
+   ],
+   "flaggedIgnored": 0,
+   "afterSeconds": 10
+  },
+  "gc": {
+   "hung": {
+    "verb": "gc",
+    "args": [
+     "-c",
+     "core.autocrlf=false",
+     "-c",
+     "core.safecrlf=false",
+     "-c",
+     "core.quotepath=false",
+     "--git-dir",
+     "<work>\\data\\turn-worktree-snapshots-v1\\<key>",
+     "--work-tree",
+     "<work>\\capture",
+     "gc",
+     "--auto",
+     "--prune=7.days.ago",
+     "--quiet"
+    ]
+   },
+   "startedSecondsAfterCapture": 60,
+   "killedAfterSeconds": 301
+  },
+  "hungChildrenGone": 9
  },
  "sourceLimits": {
   "commandTimeoutMs": 30000,
