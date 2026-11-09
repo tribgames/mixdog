@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 26367,
+      "bytes": 38050,
       "path": "golden.json",
-      "sha256": "4c0c8d020cd945152f833d81764c34991f808f0289d7fd43ae85de2c2cf4d0ef"
+      "sha256": "12ec25e79e0288aeffc2ba53af2395ad02d5fc48190fb1123d3e59ab6b42955f"
     }
   ],
   "product": {
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-capability-refusals.mjs",
   "set": "capability-refusals",
-  "totalBytes": 26367
+  "totalBytes": 38050
 }

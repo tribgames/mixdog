@@ -1440,5 +1440,658 @@
       "drained": null,
       "pendingAfterDrain": null
     }
-  ]
+  ],
+  "slash": {
+    "commands": [
+      {
+        "name": "clear",
+        "aliases": [
+          "new"
+        ]
+      },
+      {
+        "name": "project",
+        "aliases": [
+          "projects"
+        ]
+      },
+      {
+        "name": "compact",
+        "aliases": []
+      },
+      {
+        "name": "btw",
+        "aliases": []
+      },
+      {
+        "name": "goal",
+        "aliases": []
+      },
+      {
+        "name": "autoclear",
+        "aliases": []
+      },
+      {
+        "name": "resume",
+        "aliases": []
+      },
+      {
+        "name": "context",
+        "aliases": []
+      },
+      {
+        "name": "shells",
+        "aliases": []
+      },
+      {
+        "name": "stop",
+        "aliases": []
+      },
+      {
+        "name": "fork",
+        "aliases": [
+          "inherit"
+        ]
+      },
+      {
+        "name": "usage",
+        "aliases": []
+      },
+      {
+        "name": "model",
+        "aliases": []
+      },
+      {
+        "name": "websearch",
+        "aliases": []
+      },
+      {
+        "name": "workflow",
+        "aliases": []
+      },
+      {
+        "name": "outputstyle",
+        "aliases": [
+          "output-style",
+          "style"
+        ]
+      },
+      {
+        "name": "theme",
+        "aliases": []
+      },
+      {
+        "name": "agents",
+        "aliases": []
+      },
+      {
+        "name": "effort",
+        "aliases": []
+      },
+      {
+        "name": "fast",
+        "aliases": []
+      },
+      {
+        "name": "mcp",
+        "aliases": []
+      },
+      {
+        "name": "skills",
+        "aliases": []
+      },
+      {
+        "name": "memory",
+        "aliases": []
+      },
+      {
+        "name": "plugins",
+        "aliases": []
+      },
+      {
+        "name": "providers",
+        "aliases": []
+      },
+      {
+        "name": "settings",
+        "aliases": [
+          "setting",
+          "config"
+        ]
+      },
+      {
+        "name": "profile",
+        "aliases": []
+      },
+      {
+        "name": "update",
+        "aliases": []
+      },
+      {
+        "name": "doctor",
+        "aliases": []
+      },
+      {
+        "name": "quit",
+        "aliases": [
+          "exit",
+          "q"
+        ]
+      }
+    ],
+    "probes": [
+      {
+        "text": "/clear",
+        "token": "clear"
+      },
+      {
+        "text": "/CLEAR args",
+        "token": "clear"
+      },
+      {
+        "text": "  /clear\nmore",
+        "token": "clear"
+      },
+      {
+        "text": "/new",
+        "token": "new"
+      },
+      {
+        "text": "/NEW args",
+        "token": "new"
+      },
+      {
+        "text": "  /new\nmore",
+        "token": "new"
+      },
+      {
+        "text": "/project",
+        "token": "project"
+      },
+      {
+        "text": "/PROJECT args",
+        "token": "project"
+      },
+      {
+        "text": "  /project\nmore",
+        "token": "project"
+      },
+      {
+        "text": "/projects",
+        "token": "projects"
+      },
+      {
+        "text": "/PROJECTS args",
+        "token": "projects"
+      },
+      {
+        "text": "  /projects\nmore",
+        "token": "projects"
+      },
+      {
+        "text": "/compact",
+        "token": "compact"
+      },
+      {
+        "text": "/COMPACT args",
+        "token": "compact"
+      },
+      {
+        "text": "  /compact\nmore",
+        "token": "compact"
+      },
+      {
+        "text": "/btw",
+        "token": "btw"
+      },
+      {
+        "text": "/BTW args",
+        "token": "btw"
+      },
+      {
+        "text": "  /btw\nmore",
+        "token": "btw"
+      },
+      {
+        "text": "/goal",
+        "token": "goal"
+      },
+      {
+        "text": "/GOAL args",
+        "token": "goal"
+      },
+      {
+        "text": "  /goal\nmore",
+        "token": "goal"
+      },
+      {
+        "text": "/autoclear",
+        "token": "autoclear"
+      },
+      {
+        "text": "/AUTOCLEAR args",
+        "token": "autoclear"
+      },
+      {
+        "text": "  /autoclear\nmore",
+        "token": "autoclear"
+      },
+      {
+        "text": "/resume",
+        "token": "resume"
+      },
+      {
+        "text": "/RESUME args",
+        "token": "resume"
+      },
+      {
+        "text": "  /resume\nmore",
+        "token": "resume"
+      },
+      {
+        "text": "/context",
+        "token": "context"
+      },
+      {
+        "text": "/CONTEXT args",
+        "token": "context"
+      },
+      {
+        "text": "  /context\nmore",
+        "token": "context"
+      },
+      {
+        "text": "/shells",
+        "token": "shells"
+      },
+      {
+        "text": "/SHELLS args",
+        "token": "shells"
+      },
+      {
+        "text": "  /shells\nmore",
+        "token": "shells"
+      },
+      {
+        "text": "/stop",
+        "token": "stop"
+      },
+      {
+        "text": "/STOP args",
+        "token": "stop"
+      },
+      {
+        "text": "  /stop\nmore",
+        "token": "stop"
+      },
+      {
+        "text": "/fork",
+        "token": "fork"
+      },
+      {
+        "text": "/FORK args",
+        "token": "fork"
+      },
+      {
+        "text": "  /fork\nmore",
+        "token": "fork"
+      },
+      {
+        "text": "/inherit",
+        "token": "inherit"
+      },
+      {
+        "text": "/INHERIT args",
+        "token": "inherit"
+      },
+      {
+        "text": "  /inherit\nmore",
+        "token": "inherit"
+      },
+      {
+        "text": "/usage",
+        "token": "usage"
+      },
+      {
+        "text": "/USAGE args",
+        "token": "usage"
+      },
+      {
+        "text": "  /usage\nmore",
+        "token": "usage"
+      },
+      {
+        "text": "/model",
+        "token": "model"
+      },
+      {
+        "text": "/MODEL args",
+        "token": "model"
+      },
+      {
+        "text": "  /model\nmore",
+        "token": "model"
+      },
+      {
+        "text": "/websearch",
+        "token": "websearch"
+      },
+      {
+        "text": "/WEBSEARCH args",
+        "token": "websearch"
+      },
+      {
+        "text": "  /websearch\nmore",
+        "token": "websearch"
+      },
+      {
+        "text": "/workflow",
+        "token": "workflow"
+      },
+      {
+        "text": "/WORKFLOW args",
+        "token": "workflow"
+      },
+      {
+        "text": "  /workflow\nmore",
+        "token": "workflow"
+      },
+      {
+        "text": "/outputstyle",
+        "token": "outputstyle"
+      },
+      {
+        "text": "/OUTPUTSTYLE args",
+        "token": "outputstyle"
+      },
+      {
+        "text": "  /outputstyle\nmore",
+        "token": "outputstyle"
+      },
+      {
+        "text": "/output-style",
+        "token": "output-style"
+      },
+      {
+        "text": "/OUTPUT-STYLE args",
+        "token": "output-style"
+      },
+      {
+        "text": "  /output-style\nmore",
+        "token": "output-style"
+      },
+      {
+        "text": "/style",
+        "token": "style"
+      },
+      {
+        "text": "/STYLE args",
+        "token": "style"
+      },
+      {
+        "text": "  /style\nmore",
+        "token": "style"
+      },
+      {
+        "text": "/theme",
+        "token": "theme"
+      },
+      {
+        "text": "/THEME args",
+        "token": "theme"
+      },
+      {
+        "text": "  /theme\nmore",
+        "token": "theme"
+      },
+      {
+        "text": "/agents",
+        "token": "agents"
+      },
+      {
+        "text": "/AGENTS args",
+        "token": "agents"
+      },
+      {
+        "text": "  /agents\nmore",
+        "token": "agents"
+      },
+      {
+        "text": "/effort",
+        "token": "effort"
+      },
+      {
+        "text": "/EFFORT args",
+        "token": "effort"
+      },
+      {
+        "text": "  /effort\nmore",
+        "token": "effort"
+      },
+      {
+        "text": "/fast",
+        "token": "fast"
+      },
+      {
+        "text": "/FAST args",
+        "token": "fast"
+      },
+      {
+        "text": "  /fast\nmore",
+        "token": "fast"
+      },
+      {
+        "text": "/mcp",
+        "token": "mcp"
+      },
+      {
+        "text": "/MCP args",
+        "token": "mcp"
+      },
+      {
+        "text": "  /mcp\nmore",
+        "token": "mcp"
+      },
+      {
+        "text": "/skills",
+        "token": "skills"
+      },
+      {
+        "text": "/SKILLS args",
+        "token": "skills"
+      },
+      {
+        "text": "  /skills\nmore",
+        "token": "skills"
+      },
+      {
+        "text": "/memory",
+        "token": "memory"
+      },
+      {
+        "text": "/MEMORY args",
+        "token": "memory"
+      },
+      {
+        "text": "  /memory\nmore",
+        "token": "memory"
+      },
+      {
+        "text": "/plugins",
+        "token": "plugins"
+      },
+      {
+        "text": "/PLUGINS args",
+        "token": "plugins"
+      },
+      {
+        "text": "  /plugins\nmore",
+        "token": "plugins"
+      },
+      {
+        "text": "/providers",
+        "token": "providers"
+      },
+      {
+        "text": "/PROVIDERS args",
+        "token": "providers"
+      },
+      {
+        "text": "  /providers\nmore",
+        "token": "providers"
+      },
+      {
+        "text": "/settings",
+        "token": "settings"
+      },
+      {
+        "text": "/SETTINGS args",
+        "token": "settings"
+      },
+      {
+        "text": "  /settings\nmore",
+        "token": "settings"
+      },
+      {
+        "text": "/setting",
+        "token": "setting"
+      },
+      {
+        "text": "/SETTING args",
+        "token": "setting"
+      },
+      {
+        "text": "  /setting\nmore",
+        "token": "setting"
+      },
+      {
+        "text": "/config",
+        "token": "config"
+      },
+      {
+        "text": "/CONFIG args",
+        "token": "config"
+      },
+      {
+        "text": "  /config\nmore",
+        "token": "config"
+      },
+      {
+        "text": "/profile",
+        "token": "profile"
+      },
+      {
+        "text": "/PROFILE args",
+        "token": "profile"
+      },
+      {
+        "text": "  /profile\nmore",
+        "token": "profile"
+      },
+      {
+        "text": "/update",
+        "token": "update"
+      },
+      {
+        "text": "/UPDATE args",
+        "token": "update"
+      },
+      {
+        "text": "  /update\nmore",
+        "token": "update"
+      },
+      {
+        "text": "/doctor",
+        "token": "doctor"
+      },
+      {
+        "text": "/DOCTOR args",
+        "token": "doctor"
+      },
+      {
+        "text": "  /doctor\nmore",
+        "token": "doctor"
+      },
+      {
+        "text": "/quit",
+        "token": "quit"
+      },
+      {
+        "text": "/QUIT args",
+        "token": "quit"
+      },
+      {
+        "text": "  /quit\nmore",
+        "token": "quit"
+      },
+      {
+        "text": "/exit",
+        "token": "exit"
+      },
+      {
+        "text": "/EXIT args",
+        "token": "exit"
+      },
+      {
+        "text": "  /exit\nmore",
+        "token": "exit"
+      },
+      {
+        "text": "/q",
+        "token": "q"
+      },
+      {
+        "text": "/Q args",
+        "token": "q"
+      },
+      {
+        "text": "  /q\nmore",
+        "token": "q"
+      },
+      {
+        "text": "/",
+        "token": null
+      },
+      {
+        "text": "",
+        "token": null
+      },
+      {
+        "text": "/ clear",
+        "token": null
+      },
+      {
+        "text": "/nope",
+        "token": null
+      },
+      {
+        "text": "/clear/x",
+        "token": null
+      },
+      {
+        "text": "//clear",
+        "token": null
+      },
+      {
+        "text": "/İnstall",
+        "token": null
+      },
+      {
+        "text": "/ＣＬＥＡＲ",
+        "token": null
+      },
+      {
+        "text": "clear",
+        "token": null
+      },
+      {
+        "text": "  /clear",
+        "token": "clear"
+      },
+      {
+        "text": "﻿/clear",
+        "token": "clear"
+      }
+    ]
+  }
 }

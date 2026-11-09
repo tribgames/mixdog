@@ -96,7 +96,17 @@ for (const busy of [false, true]) {
 
 const finalDir = join(FIXTURES_ROOT, 'capability-refusals');
 const stage = stageSet(finalDir);
-writeJson(join(stage, 'golden.json'), { rewind, prioritize });
+// The registry `isSlashQueuedEntry` consults (`recognisedSlashToken`): a static table, `SLASH_COMMANDS`; no plugin, skill or
+// user command is added at runtime. Every name and alias is probed as typed, upper-cased and with arguments, and unregistered
+// and odd tokens are probed too.
+const { SLASH_COMMANDS, recognisedSlashToken } = await importFrom(tree, 'src/tui/app/slash-commands.mjs');
+const slashCommands = SLASH_COMMANDS.map((command) => ({ name: command.name, aliases: command.aliases ?? [] }));
+const tokens = slashCommands.flatMap((command) => [command.name, ...command.aliases]);
+const probes = [
+  ...tokens.flatMap((token) => [`/${token}`, `/${token.toUpperCase()} args`, `  /${token}\nmore`]),
+  '/', '', '/ clear', '/nope', '/clear/x', '//clear', '/İnstall', '/ＣＬＥＡＲ', 'clear', ' \u00a0/clear', '\ufeff/clear',
+].map((text) => ({ text, token: recognisedSlashToken(text) }));
+writeJson(join(stage, 'golden.json'), { rewind, prioritize, slash: { commands: slashCommands, probes } });
 writeSetManifest(stage, {
   set: 'capability-refusals',
   recorder: 'benchmarks/rust-core/recorders/record-capability-refusals.mjs',
