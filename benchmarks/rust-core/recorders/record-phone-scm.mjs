@@ -13,10 +13,13 @@
 //        benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of b6f10295a with node_modules>
 //
 // Scratch repositories live under D:\mixdog-build\tmp\phone-ph2-scm-rec and are deleted when the run ends.
-import { execFileSync } from 'node:child_process';
-import fs, { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
+import { execFileSync, spawn } from 'node:child_process';
+import fs, { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { installScriptedProcesses, scriptedPty } from './lib/phone-scm-world.mjs';
 
@@ -24,7 +27,11 @@ const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const WORK = 'D:\\mixdog-build\\tmp\\phone-ph2-scm-rec';
 const FIXTURES = join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'fixtures', 'phone-scm');
 const args = parseArgs();
-const tree = resolveTree(args);
+// `--replay <mixdogd.exe>`: the same scripted scenario, but each call goes through the phone's adapter to a built `mixdogd` and its
+// answer is compared in full with the recording (fixtures/phone-scm/golden.json) instead of being recorded. Only the calls that
+// ran no scripted process (`gh`, `winget`, `soffice.com`, `git --version`) are replayed: the core spawns its own tools, and no
+// scripted `gh` is put on its PATH. The replay ends where the scenario's GitHub half begins.
+const REPLAY = args.get('replay') ?? null;const tree = resolveTree(args);
 const identity = exactProductIdentity(tree, REF);
 const script = JSON.parse(readFileSync(join(FIXTURES, 'gh-script.json'), 'utf8'));
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -160,8 +167,94 @@ const gitVersion = script.rules.find((rule) => rule.tool === 'git' && !rule.when
 
 const cases = [];
 const covered = new Set();
+
+// ── replay: a built mixdogd, driven by the phone's adapter ──
+let replay = null;
+if (REPLAY) {
+  const golden = JSON.parse(readFileSync(join(FIXTURES, 'golden.json'), 'utf8'));
+  const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
+  const { adapter } = await here('apps/desktop/src/renderer/remote-protocol-scm.ts');
+  const { connect, sessionReducer } = await here('packages/protocol-client/src/index.ts');
+  const { createWsConnector } = await here('apps/desktop/src/main/protocol/ws-connector.ts');
+  const { parseDiscovery } = await here('apps/desktop/src/main/protocol/discovery.ts');
+  const runtimeRoot = join(WORK, 'runtime');
+  mkdirSync(runtimeRoot, { recursive: true });
+  // The install layout: the manifest beside the binary names the JS runtime (a build output has none of its own).
+  const manifest = join(REPLAY, '..', 'js-runtime.json');
+  if (!existsSync(manifest)) writeFileSync(manifest, JSON.stringify({ program: process.execPath, packageRoot: REPO_ROOT }));
+  const core = spawn(REPLAY, ['serve'], {
+    env: { ...process.env, MIXDOG_HOME: join(WORK, 'home', '.mixdog'), MIXDOG_CONFIG_DIR: join(WORK, 'config'), MIXDOG_RUNTIME_ROOT: runtimeRoot },
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  let stderr = '';
+  core.stderr.on('data', (chunk) => (stderr += chunk));
+  const endpoint = await (async () => {
+    for (let waited = 0; waited < 400_000; waited += 100) {
+      if (core.exitCode !== null) throw new Error(`mixdogd exited ${core.exitCode}:\n${stderr}`);
+      try {
+        return parseDiscovery(readFileSync(join(runtimeRoot, 'daemon.json'), 'utf8'));
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+    throw new Error(`mixdogd did not serve in 400 s:\n${stderr}`);
+  })();
+  const client = await connect({
+    target: { id: 'core' },
+    connector: createWsConnector(async () => endpoint),
+    clientInfo: { name: 'mixdog-phone', title: 'Mixdog Phone', version: '1.4.5', kind: 'phone' },
+    capabilities: { optOutNotificationMethods: [], experimentalApi: false },
+    threadReducer: sessionReducer,
+    clock: { sleep: (ms) => new Promise((done) => setTimeout(done, ms)) },
+    random: Math.random,
+  });
+  const host = { client: () => client };
+  const byName = new Map(golden.cases.map((entry) => [entry.name, entry]));
+  replay = { core, client, host, adapter, byName, compared: [], skipped: [], differences: [] };
+}
+
+/** The phone's adapter against the core: the frame the relay would carry. */
+async function replayCall(call, params) {
+  try {
+    const value = await replay.adapter.calls[call](params, replay.host);
+    return { ok: true, value: value === undefined ? null : clone(value) };
+  } catch (error) {
+    return { ok: false, error: error.message, ...(typeof error.code === 'string' && error.code ? { errorCode: error.code } : {}), ...(error.details === undefined ? {} : { errorParams: error.details }) };
+  }
+}
+
+// The answers that differ from the recording for a reason of the recording's machine or of Node's own cache, not of the core. Each is
+// listed with its reason and still compared: a different difference than the one named here fails the replay.
+const KNOWN_DIFFERENCES = {
+  gitReview: 'revision is the file system identity (size:mtimeNs:ctimeNs:ino); the recording scripted the file system, the core reads the real one',
+  'gitReview-uncommitted': 'revision, as above',
+  'gitCommit-nothing-staged': "Node's message names the machine's git.exe path (the recording scripted it); the core names `git` (mixdog-scm/src/git.rs:310)",
+  'gitStatus-behind': "Node answered `remote:false` from its cached remote read taken before the remote was added; the core reads it fresh",
+};
+
+async function finishReplay() {
+  replay.client.close?.();
+  const exited = new Promise((resolve) => replay.core.once('exit', resolve));
+  execFileSync('taskkill', ['/T', '/F', '/PID', String(replay.core.pid)], { stdio: 'ignore' });
+  await exited;
+  rmSync(WORK, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+  const unexpected = replay.differences.filter((difference) => !difference.known);
+  console.log(`phone-scm replay over ${REPLAY}: ${replay.compared.length} compared, ${replay.differences.length - unexpected.length} known machine/cache differences, ${unexpected.length} unexpected, ${replay.skipped.length} not replayed`);
+  for (const difference of replay.differences) if (!difference.known) console.log(`DIFF ${difference.name}\n  node: ${JSON.stringify(difference.node)}\n  core: ${JSON.stringify(difference.core)}`);
+  for (const difference of replay.differences) if (difference.known) console.log(`KNOWN ${difference.name}: ${difference.known}`);
+  process.exit(unexpected.length ? 1 : 0);
+}
 /** One phone call through the relay's frame executor. */
 async function rec(name, call, params, note) {
+  if (replay) {
+    const recorded = replay.byName.get(name);
+    assert.ok(recorded, `${name} is not in the recording`);
+    if (recorded.processes || recorded.world.ghInstalled) return replay.skipped.push(name), recorded.frame;
+    const core = await replayCall(call, JSON.parse(JSON.stringify(params)));
+    replay.compared.push(name);
+    if (!isDeepStrictEqual(core, recorded.frame)) replay.differences.push({ name, node: recorded.frame, core, known: KNOWN_DIFFERENCES[name] });
+    return core;
+  }
   covered.add(call);
   trace.length = 0;
   events.length = 0;
@@ -417,6 +510,7 @@ await rec('gitAbortOperation-merge', 'gitAbortOperation', [R]);
 await rec('gitPull-bad-cwd', 'gitPull', ['']);
 
 // ═══ 6. GitHub: the CLI is not installed yet ═══
+if (replay) await finishReplay();
 await rec('githubCliStatus-not-installed', 'githubCliStatus', []);
 await rec('githubStarStatus-no-gh', 'githubStarStatus', []);
 await rec('githubCliAccount-not-installed', 'githubCliAccount', []);

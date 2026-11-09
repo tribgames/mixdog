@@ -541,7 +541,17 @@ impl ScmService {
                         inspector.review_page(&summary.key, Some(&path), None).map_err(crate::mutate::scm_error)?
                     };
                     match cached {
-                        Cached::Ready(page) => {
+                        Cached::Ready(mut page) => {
+                            // Node's repository review serves an untracked file as its `untrackedPatch` does (every line added, no mode or
+                            // index header), not as a tree diff would.
+                            let asked_untracked = (params.path.as_deref() == Some(path.as_str()) && params.untracked == Some(true))
+                                || params.files.iter().flatten().any(|f| {
+                                    f.get("path").and_then(Value::as_str) == Some(path.as_str())
+                                        && f.get("untracked").and_then(Value::as_bool) == Some(true)
+                                });
+                            if base_name.is_some() && (asked_untracked || summary.files.iter().any(|f| f.path == path && f.status == ChangeKind::Untracked)) {
+                                page.patch = crate::inspect::history::untracked_patch(&root, &path);
+                            }
                             let length = page.patch.encode_utf16().count();
                             if batch && length > budget {
                                 omitted.push(path);

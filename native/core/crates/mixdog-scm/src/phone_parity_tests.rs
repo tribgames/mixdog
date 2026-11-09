@@ -202,3 +202,34 @@ async fn a_changed_global_git_identity_is_published_for_every_client() {
     assert_eq!(key, "gitConfig");
     assert_eq!(serde_json::from_slice::<Value>(bytes).unwrap(), saved);
 }
+
+#[tokio::test]
+async fn a_repository_review_serves_an_untracked_file_as_every_line_added() {
+    let (_guard, repo, _head) = crate::golden_tests::fixture_repo();
+    let (handle, _) = service();
+    let reply = call(
+        &handle,
+        "review/diff/get",
+        json!({ "scope": "repo", "cwd": repo.to_string_lossy(), "source": "uncommitted", "patch": true, "files": [{ "path": "new.txt", "untracked": true }] }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        reply["patches"][0]["patch"],
+        json!("diff --git a/new.txt b/new.txt\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,1 @@\n+untracked\n"),
+        "{reply}"
+    );
+}
+#[tokio::test]
+async fn a_repository_review_of_one_untracked_file_reads_every_line_added() {
+    let (_guard, repo, _head) = crate::golden_tests::fixture_repo();
+    let (handle, _) = service();
+    let reply = call(
+        &handle,
+        "review/diff/get",
+        json!({ "scope": "repo", "cwd": repo.to_string_lossy(), "source": "uncommitted", "patch": true, "path": "new.txt", "untracked": true }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(reply, json!("diff --git a/new.txt b/new.txt\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,1 @@\n+untracked\n"));
+}
