@@ -218,7 +218,7 @@ test('a revoked pairing is terminal: reported, closed, no retry', async () => {
   assert.deepEqual(states.map((s) => s.state), ['connecting', 'pairing-lost']);
 });
 
-test('a core close 4002 after ready reports update-required and closes the client', async () => {
+test('a close 4002 is the relay saying the PC is offline: reconnecting, never a terminal state', async () => {
   const identity = await generateRelayE2EEServerIdentity();
   const far = relayPair(identity, false);
   const states: PhoneConnection[] = [];
@@ -238,6 +238,7 @@ test('a core close 4002 after ready reports update-required and closes the clien
   await resumed;
   far.ws.onclose!({ code: 4002, reason: 'version' });
   await settle();
-  assert.deepEqual(states.map((s) => s.state), ['connecting', 'connected', 'update-required']);
-  assert.equal(phone.client.status.state, 'closed');
+  assert.deepEqual(states.map((s) => s.state), ['connecting', 'connected', 'reconnecting']);
+  assert.equal(phone.client.status.state, 'reconnecting');
+  await phone.client.close();
 });

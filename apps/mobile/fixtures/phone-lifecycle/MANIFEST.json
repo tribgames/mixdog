@@ -1,0 +1,31 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-phone-lifecycle.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 (src, apps) with node_modules>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 18040,
+      "path": "golden.json",
+      "sha256": "3bcb998bba6ded2fc14a48cae3c153201405a673401fb51832306c17b2264b28"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-phone-lifecycle.mjs",
+  "scenarios": 11,
+  "set": "phone-lifecycle",
+  "totalBytes": 18040
+}
