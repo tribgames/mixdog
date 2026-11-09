@@ -68,13 +68,25 @@ fn image_meta(entry: &Value) -> Vec<Value> {
         .map(|(index, part)| {
             let meta = named.get(index).filter(|meta| meta.is_object());
             let held = |key: &str| meta.and_then(|meta| meta.get(key)).filter(|value| !value.is_null());
-            let data = part.get("data").and_then(Value::as_str).unwrap_or_default();
-            let size = part.get("sizeBytes").and_then(Value::as_i64).filter(|size| *size != 0);
+            // `part.data` when it is a string, else `part.content` when that is (`queue-helpers.mjs:152-154`); its UTF-16 length is the fallback size.
+            let data = part.get("data").and_then(Value::as_str).or_else(|| part.get("content").and_then(Value::as_str)).unwrap_or_default();
+            // `Number(part.sizeBytes) || data.length`: a numeric string, a float or a boolean counts; NaN and 0 fall back.
+            let size = mixdog_js::to_number_of(part.get("sizeBytes"));
+            let bytes = if size.is_nan() || size == 0.0 { data.encode_utf16().count() as f64 } else { size };
+            // `String(a || b || c)`: the first truthy of the part's `mimeType`, its `mediaType`, the pasted image's `mediaType`.
+            let truthy = |value: &&Value| match value {
+                Value::Null => false,
+                Value::Bool(flag) => *flag,
+                Value::Number(number) => number.as_f64().is_some_and(|number| number != 0.0 && !number.is_nan()),
+                Value::String(text) => !text.is_empty(),
+                _ => true,
+            };
+            let mime = part.get("mimeType").filter(truthy).or_else(|| part.get("mediaType").filter(truthy)).or_else(|| held("mediaType").filter(truthy));
             let mut image = json!({
                 "id": held("id").cloned().unwrap_or(Value::Null),
-                "name": held("filename").and_then(Value::as_str).filter(|name| !name.is_empty()).map_or_else(|| format!("Image {}", index + 1), str::to_owned),
-                "mimeType": part.get("mimeType").and_then(Value::as_str).filter(|mime| !mime.is_empty()).or_else(|| held("mediaType").and_then(Value::as_str)).unwrap_or("image/png"),
-                "bytes": size.unwrap_or(data.encode_utf16().count() as i64),
+                "name": held("filename").filter(truthy).map_or_else(|| format!("Image {}", index + 1), mixdog_js::value_to_string),
+                "mimeType": mime.map_or_else(|| "image/png".to_owned(), mixdog_js::value_to_string),
+                "bytes": mixdog_js::json_number(bytes),
             });
             if let Some(reference) = part.get("attachmentRef").and_then(Value::as_str).filter(|reference| reference.len() == 64 && reference.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))) {
                 image["attachmentRef"] = json!(reference);

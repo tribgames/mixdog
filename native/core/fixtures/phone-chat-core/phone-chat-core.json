@@ -4191,6 +4191,704 @@
         "promptHistory": [],
         "busy": false
       }
+    },
+    {
+      "name": "data and mimeType",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png"
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "content and no data",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "content": "BBBBBBBB",
+          "mimeType": "image/jpeg"
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/jpeg",
+              "bytes": 8
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "data that is no string falls back to content",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": 7,
+          "content": "CCCCC",
+          "mimeType": "image/jpeg"
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/jpeg",
+              "bytes": 5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "neither data nor content",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "mimeType": "image/jpeg"
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/jpeg",
+              "bytes": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mediaType instead of mimeType",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mediaType": "image/webp"
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/webp",
+              "bytes": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mimeType wins over mediaType",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/gif",
+          "mediaType": "image/webp"
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/gif",
+              "bytes": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "an empty mimeType falls to mediaType",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "",
+          "mediaType": "image/webp"
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/webp",
+              "bytes": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "the pasted image names the type",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA"
+        }
+      ],
+      "pastedImages": {
+        "1": {
+          "id": 3,
+          "mediaType": "image/avif",
+          "filename": "p.avif"
+        }
+      },
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": 3,
+              "name": "p.avif",
+              "mimeType": "image/avif",
+              "bytes": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no type anywhere is a png",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA"
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes an integer",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": 4096
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 4096
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes a numeric string",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": "12"
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 12
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes a padded numeric string",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": " 0x10 "
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 16
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes a float",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": 12.5
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 12.5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes zero",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": 0
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes a word",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": "abc"
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes true",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": true
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes null",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": null
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes an object",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": {}
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sizeBytes infinite",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png",
+          "sizeBytes": "Infinity"
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a stored attachment keeps its reference",
+      "kind": "image-shape",
+      "content": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "mimeType": "image/png",
+          "sizeBytes": 99,
+          "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "pastedImages": null,
+      "projected": [
+        {
+          "id": "q1",
+          "submittedAt": 1,
+          "text": "see [Image #1]\n[Image]",
+          "displayText": "see [Image #1]\n[Image]",
+          "mode": "prompt",
+          "priority": "next",
+          "images": [
+            {
+              "id": null,
+              "name": "Image 1",
+              "mimeType": "image/png",
+              "bytes": 99,
+              "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ]
+        }
+      ]
     }
   ]
 }
