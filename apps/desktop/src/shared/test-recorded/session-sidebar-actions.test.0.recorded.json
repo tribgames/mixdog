@@ -40,14 +40,6 @@
    }
   ]
  },
- "order": {
-  "applySessionSidebarChange": [
-   "applySessionSidebarChange\u0000[\"sess_desktop_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",{\"favorite\":true}]",
-   "applySessionSidebarChange\u0000[\"sess_desktop_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",{\"archived\":false}]",
-   "applySessionSidebarChange\u0000[\"sess_desktop_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",{\"project\":\"\"}]",
-   "applySessionSidebarChange\u0000[\"sess_desktop_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",{\"favorite\":true}]"
-  ]
- },
  "opaque": [
   "registerSessionSidebarHost"
  ]

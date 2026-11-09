@@ -15,7 +15,14 @@
     "async": false
    }
   ],
-  "beginTurnSnapshot\u0000[\"D:\\\\mixdog-build\\\\tmp\\\\k1-desktop-route-tmp\\\\mixdog-test-scratch-V0ngee\\\\mixdog-preview-worker-o1JKjI\",\"desk-lead\",{\"checkpointId\":\"cp-1\"}]": [
+  "beginTurnSnapshot\u0000[\"<temp-dir>\",\"desk-lead\",{\"checkpointId\":\"cp-1\"}]": [
+   {
+    "result": {
+     "generation": 1,
+     "checkpointId": "cp-1"
+    },
+    "async": true
+   },
    {
     "result": {
      "generation": 1,
@@ -62,19 +69,27 @@
     "async": true
    }
   ],
-  "recordTurnDiffChanges\u0000[\"desk-lead-worker\",[{\"path\":\"D:\\\\mixdog-build\\\\tmp\\\\k1-desktop-route-tmp\\\\mixdog-test-scratch-V0ngee\\\\mixdog-preview-worker-o1JKjI\\\\design\\\\mockups\\\\x\\\\index.html\",\"displayPath\":\"design/mockups/x/index.html\",\"before\":null,\"after\":\"<html>x</html>\\n\"}]]": [
+  "recordTurnDiffChanges\u0000[\"desk-lead-worker\",[{\"path\":\"<temp-dir>\\\\design\\\\mockups\\\\x\\\\index.html\",\"displayPath\":\"design/mockups/x/index.html\",\"before\":null,\"after\":\"<html>x</html>\\n\"}]]": [
+   {
+    "result": "diff --git a/design/mockups/x/index.html b/design/mockups/x/index.html\nnew file mode 100644\n--- /dev/null\n+++ b/design/mockups/x/index.html\n@@ -0,0 +1,1 @@\n+<html>x</html>\n",
+    "async": false
+   },
    {
     "result": "diff --git a/design/mockups/x/index.html b/design/mockups/x/index.html\nnew file mode 100644\n--- /dev/null\n+++ b/design/mockups/x/index.html\n@@ -0,0 +1,1 @@\n+<html>x</html>\n",
     "async": false
    }
   ],
-  "recordTurnDiffChanges\u0000[\"desk-lead-worker\",[{\"path\":\"D:\\\\mixdog-build\\\\tmp\\\\k1-desktop-route-tmp\\\\mixdog-test-scratch-V0ngee\\\\mixdog-preview-worker-o1JKjI\\\\src\\\\app.ts\",\"displayPath\":\"src/app.ts\",\"before\":null,\"after\":\"export {};\\n\"}]]": [
+  "recordTurnDiffChanges\u0000[\"desk-lead-worker\",[{\"path\":\"<temp-dir>\\\\src\\\\app.ts\",\"displayPath\":\"src/app.ts\",\"before\":null,\"after\":\"export {};\\n\"}]]": [
+   {
+    "result": "diff --git a/design/mockups/x/index.html b/design/mockups/x/index.html\nnew file mode 100644\n--- /dev/null\n+++ b/design/mockups/x/index.html\n@@ -0,0 +1,1 @@\n+<html>x</html>\ndiff --git a/src/app.ts b/src/app.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/app.ts\n@@ -0,0 +1,1 @@\n+export {};\n",
+    "async": false
+   },
    {
     "result": "diff --git a/design/mockups/x/index.html b/design/mockups/x/index.html\nnew file mode 100644\n--- /dev/null\n+++ b/design/mockups/x/index.html\n@@ -0,0 +1,1 @@\n+<html>x</html>\ndiff --git a/src/app.ts b/src/app.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/app.ts\n@@ -0,0 +1,1 @@\n+export {};\n",
     "async": false
    }
   ],
-  "completeAgentTurnReview\u0000[{\"id\":\"agent-review-1\",\"ownerSessionId\":\"desk-lead\",\"generation\":1,\"historyEpoch\":0,\"sessionId\":\"desk-lead-worker\",\"agent\":\"worker\",\"tag\":null,\"completed\":true}]": [
+  "completeAgentTurnReview\u0000[{\"id\":\"agent-review-1\",\"ownerSessionId\":\"desk-lead\",\"generation\":1,\"historyEpoch\":0,\"sessionId\":\"desk-lead-worker\",\"agent\":\"worker\",\"tag\":null,\"completed\":false}]": [
    {
     "result": true,
     "async": false
@@ -84,7 +99,14 @@
     "async": false
    }
   ],
-  "beginTurnSnapshot\u0000[\"D:\\\\mixdog-build\\\\tmp\\\\k1-desktop-route-tmp\\\\mixdog-test-scratch-V0ngee\\\\mixdog-preview-worker-o1JKjI\",\"desk-lead\",{\"checkpointId\":\"wake-1\"}]": [
+  "beginTurnSnapshot\u0000[\"<temp-dir>\",\"desk-lead\",{\"checkpointId\":\"wake-1\"}]": [
+   {
+    "result": {
+     "generation": 2,
+     "checkpointId": "wake-1"
+    },
+    "async": true
+   },
    {
     "result": {
      "generation": 2,
@@ -109,7 +131,7 @@
      "status": "ready",
      "checkpointId": "wake-1",
      "revision": 1,
-     "root": "D:\\mixdog-build\\tmp\\k1-desktop-route-tmp\\mixdog-test-scratch-V0ngee\\mixdog-preview-worker-o1JKjI",
+     "root": "D:\\mixdog-build\\tmp\\k1-desktop-route-tmp\\mixdog-test-scratch-dcHAYf\\mixdog-preview-worker-eBgrwZ",
      "files": [
       {
        "path": "design/mockups/x/index.html",
@@ -138,7 +160,7 @@
      "status": "ready",
      "checkpointId": "wake-1",
      "revision": 2,
-     "root": "D:\\mixdog-build\\tmp\\k1-desktop-route-tmp\\mixdog-test-scratch-V0ngee\\mixdog-preview-worker-XdsYyV",
+     "root": "D:\\mixdog-build\\tmp\\k1-desktop-route-tmp\\mixdog-test-scratch-dcHAYf\\mixdog-preview-worker-puXF1K",
      "files": [
       {
        "path": "design/mockups/x/index.html",
@@ -162,82 +184,53 @@
     },
     "async": true
    }
-  ],
-  "beginTurnSnapshot\u0000[\"D:\\\\mixdog-build\\\\tmp\\\\k1-desktop-route-tmp\\\\mixdog-test-scratch-V0ngee\\\\mixdog-preview-worker-XdsYyV\",\"desk-lead\",{\"checkpointId\":\"cp-1\"}]": [
-   {
-    "result": {
-     "generation": 1,
-     "checkpointId": "cp-1"
-    },
-    "async": true
-   }
-  ],
-  "recordTurnDiffChanges\u0000[\"desk-lead-worker\",[{\"path\":\"D:\\\\mixdog-build\\\\tmp\\\\k1-desktop-route-tmp\\\\mixdog-test-scratch-V0ngee\\\\mixdog-preview-worker-XdsYyV\\\\design\\\\mockups\\\\x\\\\index.html\",\"displayPath\":\"design/mockups/x/index.html\",\"before\":null,\"after\":\"<html>x</html>\\n\"}]]": [
-   {
-    "result": "diff --git a/design/mockups/x/index.html b/design/mockups/x/index.html\nnew file mode 100644\n--- /dev/null\n+++ b/design/mockups/x/index.html\n@@ -0,0 +1,1 @@\n+<html>x</html>\n",
-    "async": false
-   }
-  ],
-  "recordTurnDiffChanges\u0000[\"desk-lead-worker\",[{\"path\":\"D:\\\\mixdog-build\\\\tmp\\\\k1-desktop-route-tmp\\\\mixdog-test-scratch-V0ngee\\\\mixdog-preview-worker-XdsYyV\\\\src\\\\app.ts\",\"displayPath\":\"src/app.ts\",\"before\":null,\"after\":\"export {};\\n\"}]]": [
-   {
-    "result": "diff --git a/design/mockups/x/index.html b/design/mockups/x/index.html\nnew file mode 100644\n--- /dev/null\n+++ b/design/mockups/x/index.html\n@@ -0,0 +1,1 @@\n+<html>x</html>\ndiff --git a/src/app.ts b/src/app.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/app.ts\n@@ -0,0 +1,1 @@\n+export {};\n",
-    "async": false
-   }
-  ],
-  "beginTurnSnapshot\u0000[\"D:\\\\mixdog-build\\\\tmp\\\\k1-desktop-route-tmp\\\\mixdog-test-scratch-V0ngee\\\\mixdog-preview-worker-XdsYyV\",\"desk-lead\",{\"checkpointId\":\"wake-1\"}]": [
-   {
-    "result": {
-     "generation": 2,
-     "checkpointId": "wake-1"
-    },
-    "async": true
-   }
   ]
  },
- "order": {
-  "_resetTurnSnapshotForTest": [
-   "_resetTurnSnapshotForTest\u0000[]",
-   "_resetTurnSnapshotForTest\u0000[]"
-  ],
-  "beginTurnSnapshot": [
-   "beginTurnSnapshot\u0000[\"D:\\\\mixdog-build\\\\tmp\\\\k1-desktop-route-tmp\\\\mixdog-test-scratch-V0ngee\\\\mixdog-preview-worker-o1JKjI\",\"desk-lead\",{\"checkpointId\":\"cp-1\"}]",
-   "beginTurnSnapshot\u0000[\"D:\\\\mixdog-build\\\\tmp\\\\k1-desktop-route-tmp\\\\mixdog-test-scratch-V0ngee\\\\mixdog-preview-worker-o1JKjI\",\"desk-lead\",{\"checkpointId\":\"wake-1\"}]",
-   "beginTurnSnapshot\u0000[\"D:\\\\mixdog-build\\\\tmp\\\\k1-desktop-route-tmp\\\\mixdog-test-scratch-V0ngee\\\\mixdog-preview-worker-XdsYyV\",\"desk-lead\",{\"checkpointId\":\"cp-1\"}]",
-   "beginTurnSnapshot\u0000[\"D:\\\\mixdog-build\\\\tmp\\\\k1-desktop-route-tmp\\\\mixdog-test-scratch-V0ngee\\\\mixdog-preview-worker-XdsYyV\",\"desk-lead\",{\"checkpointId\":\"wake-1\"}]"
-  ],
+ "services": {},
+ "stubs": {},
+ "opaque": [],
+ "normalize": {
   "beginAgentTurnReview": [
-   "beginAgentTurnReview\u0000[\"desk-lead\",\"desk-lead-worker\",{\"agent\":\"worker\"}]",
-   "beginAgentTurnReview\u0000[\"desk-lead\",\"desk-lead-worker\",{\"agent\":\"worker\"}]"
-  ],
-  "completeTurnSnapshot": [
-   "completeTurnSnapshot\u0000[\"desk-lead\",{\"generation\":1,\"checkpointId\":\"cp-1\"}]",
-   "completeTurnSnapshot\u0000[\"desk-lead\",{\"generation\":2,\"checkpointId\":\"wake-1\"}]",
-   "completeTurnSnapshot\u0000[\"desk-lead\",{\"generation\":1,\"checkpointId\":\"cp-1\"}]",
-   "completeTurnSnapshot\u0000[\"desk-lead\",{\"generation\":2,\"checkpointId\":\"wake-1\"}]"
-  ],
-  "recordTurnDiffChanges": [
-   "recordTurnDiffChanges\u0000[\"desk-lead-worker\",[{\"path\":\"D:\\\\mixdog-build\\\\tmp\\\\k1-desktop-route-tmp\\\\mixdog-test-scratch-V0ngee\\\\mixdog-preview-worker-o1JKjI\\\\design\\\\mockups\\\\x\\\\index.html\",\"displayPath\":\"design/mockups/x/index.html\",\"before\":null,\"after\":\"<html>x</html>\\n\"}]]",
-   "recordTurnDiffChanges\u0000[\"desk-lead-worker\",[{\"path\":\"D:\\\\mixdog-build\\\\tmp\\\\k1-desktop-route-tmp\\\\mixdog-test-scratch-V0ngee\\\\mixdog-preview-worker-o1JKjI\\\\src\\\\app.ts\",\"displayPath\":\"src/app.ts\",\"before\":null,\"after\":\"export {};\\n\"}]]",
-   "recordTurnDiffChanges\u0000[\"desk-lead-worker\",[{\"path\":\"D:\\\\mixdog-build\\\\tmp\\\\k1-desktop-route-tmp\\\\mixdog-test-scratch-V0ngee\\\\mixdog-preview-worker-XdsYyV\\\\design\\\\mockups\\\\x\\\\index.html\",\"displayPath\":\"design/mockups/x/index.html\",\"before\":null,\"after\":\"<html>x</html>\\n\"}]]",
-   "recordTurnDiffChanges\u0000[\"desk-lead-worker\",[{\"path\":\"D:\\\\mixdog-build\\\\tmp\\\\k1-desktop-route-tmp\\\\mixdog-test-scratch-V0ngee\\\\mixdog-preview-worker-XdsYyV\\\\src\\\\app.ts\",\"displayPath\":\"src/app.ts\",\"before\":null,\"after\":\"export {};\\n\"}]]"
-  ],
-  "completeAgentTurnReview": [
-   "completeAgentTurnReview\u0000[{\"id\":\"agent-review-1\",\"ownerSessionId\":\"desk-lead\",\"generation\":1,\"historyEpoch\":0,\"sessionId\":\"desk-lead-worker\",\"agent\":\"worker\",\"tag\":null,\"completed\":true}]",
-   "completeAgentTurnReview\u0000[{\"id\":\"agent-review-1\",\"ownerSessionId\":\"desk-lead\",\"generation\":1,\"historyEpoch\":0,\"sessionId\":\"desk-lead-worker\",\"agent\":\"worker\",\"tag\":null,\"completed\":true}]"
+   {
+    "placeholder": "<temp-dir>",
+    "flags": "g",
+    "pattern": "\\S*?mixdog-preview-worker-[A-Za-z0-9]+"
+   }
   ],
   "getTurnChanges": [
-   "getTurnChanges\u0000[\"desk-lead\",{\"checkpointId\":\"wake-1\"}]",
-   "getTurnChanges\u0000[\"desk-lead\",{\"checkpointId\":\"wake-1\"}]"
+   {
+    "placeholder": "<temp-dir>",
+    "flags": "g",
+    "pattern": "\\S*?mixdog-preview-worker-[A-Za-z0-9]+"
+   }
+  ],
+  "completeTurnSnapshot": [
+   {
+    "placeholder": "<temp-dir>",
+    "flags": "g",
+    "pattern": "\\S*?mixdog-preview-worker-[A-Za-z0-9]+"
+   }
+  ],
+  "completeAgentTurnReview": [
+   {
+    "placeholder": "<temp-dir>",
+    "flags": "g",
+    "pattern": "\\S*?mixdog-preview-worker-[A-Za-z0-9]+"
+   }
+  ],
+  "beginTurnSnapshot": [
+   {
+    "placeholder": "<temp-dir>",
+    "flags": "g",
+    "pattern": "\\S*?mixdog-preview-worker-[A-Za-z0-9]+"
+   }
+  ],
+  "recordTurnDiffChanges": [
+   {
+    "placeholder": "<temp-dir>",
+    "flags": "g",
+    "pattern": "\\S*?mixdog-preview-worker-[A-Za-z0-9]+"
+   }
   ]
- },
- "positional": [
-  "beginTurnSnapshot",
-  "beginAgentTurnReview",
-  "completeAgentTurnReview",
-  "completeTurnSnapshot",
-  "getTurnChanges",
-  "recordTurnDiffChanges",
-  "_resetTurnSnapshotForTest"
- ],
- "opaque": []
+ }
 }

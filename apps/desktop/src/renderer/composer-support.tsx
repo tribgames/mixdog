@@ -16,7 +16,7 @@ import { OpenSelect } from './OpenSelect';
 import { contentLocalStorage } from './remote-conversation-privacy';
 import { asRecord, displayProject } from './text-format';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
-import { formatPastedTextRef, pastedTextLineCount } from '../shared/core-src/tui/paste-text-policy.mjs';
+import { formatPastedTextRef, pastedTextLineCount } from '../../../../src/tui/paste-text-policy.mjs';
 
 /** Line count a paste chip reports, reused for attached text files. */
 export const textLineCount: (text: string) => number = pastedTextLineCount;

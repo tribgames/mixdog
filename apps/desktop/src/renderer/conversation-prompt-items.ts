@@ -3,7 +3,7 @@ import type { Snapshot, TranscriptItem } from './desktop-types';
 import { t } from './i18n';
 import { asRecord } from './text-format';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
-import { recognisedSlashToken } from '../shared/core-src/tui/app/slash-commands.mjs';
+import { recognisedSlashToken } from '../../../../src/tui/app/slash-commands.mjs';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { transcriptSourceFields } from '../shared/core-src/runtime/shared/transcript-metadata.mjs';
 

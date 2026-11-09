@@ -3,149 +3,7 @@
   "RETRY_CONTINUE_INSTRUCTION": "Continue from where you left off."
  },
  "calls": {
-  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950342}}]]": [
-   {
-    "result": [
-     "turn:u1",
-     "turn:u1",
-     "turn:u1",
-     "turn:u2",
-     "turn:u2"
-    ],
-    "async": false
-   }
-  ],
-  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950359}}]]": [
-   {
-    "result": [
-     "turn:u1",
-     "turn:u1",
-     "turn:u1",
-     "turn:u2",
-     "turn:u2"
-    ],
-    "async": false
-   }
-  ],
-  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950606}}]]": [
-   {
-    "result": [
-     "turn:u1",
-     "turn:u1",
-     "turn:u1",
-     "turn:u2",
-     "turn:u2"
-    ],
-    "async": false
-   }
-  ],
-  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950622}}]]": [
-   {
-    "result": [
-     "turn:u1",
-     "turn:u1",
-     "turn:u1",
-     "turn:u2",
-     "turn:u2"
-    ],
-    "async": false
-   }
-  ],
-  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950641}}]]": [
-   {
-    "result": [
-     "turn:u1",
-     "turn:u1",
-     "turn:u1",
-     "turn:u2",
-     "turn:u2"
-    ],
-    "async": false
-   },
-   {
-    "result": [
-     "turn:u1",
-     "turn:u1",
-     "turn:u1",
-     "turn:u2",
-     "turn:u2"
-    ],
-    "async": false
-   }
-  ],
-  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950662}}]]": [
-   {
-    "result": [
-     "turn:u1",
-     "turn:u1",
-     "turn:u1",
-     "turn:u2",
-     "turn:u2"
-    ],
-    "async": false
-   }
-  ],
-  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950677}}]]": [
-   {
-    "result": [
-     "turn:u1",
-     "turn:u1",
-     "turn:u1",
-     "turn:u2",
-     "turn:u2"
-    ],
-    "async": false
-   }
-  ],
-  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950706}}]]": [
-   {
-    "result": [
-     "turn:u1",
-     "turn:u1",
-     "turn:u1",
-     "turn:u2",
-     "turn:u2"
-    ],
-    "async": false
-   }
-  ],
-  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950717}}]]": [
-   {
-    "result": [
-     "turn:u1",
-     "turn:u1",
-     "turn:u1",
-     "turn:u2",
-     "turn:u2"
-    ],
-    "async": false
-   }
-  ],
-  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950727}}]]": [
-   {
-    "result": [
-     "turn:u1",
-     "turn:u1",
-     "turn:u1",
-     "turn:u2",
-     "turn:u2"
-    ],
-    "async": false
-   }
-  ],
-  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950752}}]]": [
-   {
-    "result": [
-     "turn:u1",
-     "turn:u1",
-     "turn:u1",
-     "turn:u2",
-     "turn:u2"
-    ],
-    "async": false
-   }
-  ],
-  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950770}}]]": [
+  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":\"<resetAt>\"}}]]": [
    {
     "result": [
      "turn:u1",
@@ -175,9 +33,157 @@
      "turn:u2"
     ],
     "async": false
-   }
-  ],
-  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950821}}]]": [
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
    {
     "result": [
      "turn:u1",
@@ -189,43 +195,7 @@
     "async": false
    }
   ],
-  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950850}}]]": [
-   {
-    "result": [
-     "turn:u1",
-     "turn:u1",
-     "turn:u1",
-     "turn:u2",
-     "turn:u2"
-    ],
-    "async": false
-   }
-  ],
-  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950868}}]]": [
-   {
-    "result": [
-     "turn:u1",
-     "turn:u1",
-     "turn:u1",
-     "turn:u2",
-     "turn:u2"
-    ],
-    "async": false
-   }
-  ],
-  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950877}}]]": [
-   {
-    "result": [
-     "turn:u1",
-     "turn:u1",
-     "turn:u1",
-     "turn:u2",
-     "turn:u2"
-    ],
-    "async": false
-   }
-  ],
-  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":null}},{\"kind\":\"user\",\"id\":\"u3\",\"text\":\"next\"}]]": [
+  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":\"<resetAt>\"}},{\"kind\":\"user\",\"id\":\"u3\",\"text\":\"next\"}]]": [
    {
     "result": [
      "turn:u1",
@@ -239,32 +209,12 @@
    }
   ]
  },
- "order": {
+ "opaque": [],
+ "normalize": {
   "transcriptTurnKeys": [
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950342}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950359}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950606}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950622}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950641}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950641}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950662}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950677}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950706}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950717}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950727}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950752}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950770}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950770}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950770}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950821}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950850}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950868}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":1794199950877}}]]",
-   "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":null}},{\"kind\":\"user\",\"id\":\"u3\",\"text\":\"next\"}]]"
+   {
+    "field": "resetAt"
+   }
   ]
- },
- "positional": [
-  "transcriptTurnKeys"
- ],
- "opaque": []
+ }
 }

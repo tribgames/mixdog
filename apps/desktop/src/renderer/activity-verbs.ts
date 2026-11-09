@@ -5,7 +5,7 @@
 // localized catalog entry.
 import { t, uiFormatLocale, type UiLanguage } from './i18n';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
-import { SPINNER_MODE_OVERRIDE_VERBS, SPINNER_VERBS, spinnerVerbFor } from '../shared/core-src/tui/spinner-verbs.mjs';
+import { SPINNER_MODE_OVERRIDE_VERBS, SPINNER_VERBS, spinnerVerbFor } from '../../../../src/tui/spinner-verbs.mjs';
 
 /** Pool used outside English: every entry is a catalog key in all 11 locales. */
 export const LOCALIZED_ACTIVITY_VERBS: string[] = [
