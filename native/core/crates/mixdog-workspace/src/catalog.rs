@@ -88,7 +88,9 @@ impl Catalog {
 
     pub async fn list(&self) -> WsResult<Vec<ProjectRow>> {
         let rows = self.state.projects().await.map_err(store)?;
-        let mut rows: Vec<ProjectRow> = rows.into_iter().filter(|p| Path::new(&p.path).is_absolute()).collect();
+        // A hidden row is the legacy tombstone of a removed project (Node's `hidden` list of desktop-projects.json): it keeps the alias
+        // and is no registered project, as `list` and `known` of desktop-project-registry.ts read the registry and never the tombstones.
+        let mut rows: Vec<ProjectRow> = rows.into_iter().filter(|p| !p.hidden && Path::new(&p.path).is_absolute()).collect();
         // Node's `compareProjects`: most recently selected first (a project never selected counts by when it was added, which is when
         // its row was made: `add` stamps it), then by name, then by path.
         rows.sort_by(|a, b| {
@@ -151,6 +153,8 @@ impl Catalog {
         // projects.mjs:121-126), and two projects of one millisecond tie and order by name, then path (`compareProjects`, :128-134).
         let row = match self.state.project(&path).await.map_err(store)? {
             // Node's `enter` and `register` both undo the legacy hidden tombstone (`unhide`) of the Project they register.
+            // A tombstoned project is made again: Node's store gets a fresh entry (`addedAt` now) while the alias of the preferences stays.
+            Some(existing) if existing.hidden => ProjectRow { hidden: false, hidden_rank: None, last_used_at: Some(now_ms()), ..existing },
             Some(existing) => ProjectRow { hidden: false, hidden_rank: None, ..existing },
             None => ProjectRow { path, alias: None, hidden: false, hidden_rank: None, last_used_at: Some(now_ms()) },
         };
@@ -181,8 +185,16 @@ impl Catalog {
     pub async fn remove(&self, path: &str, op: Option<OpRecord>) -> WsResult<Value> {
         let resolved = self.resolve(path).await.ok();
         let out = json!({ "removed": resolved.is_some() });
-        let delete = resolved.map(|p| p.to_string_lossy().into_owned());
-        self.commit(None, delete, op.map(|o| finish(o, &out))).await?;
+        // Node's `remove` puts the path first in `hidden` (desktop-project-registry.ts:116); hidden rows run in the order of that list.
+        let tombstone = match resolved {
+            Some(path) => {
+                let path = path.to_string_lossy().into_owned();
+                let front = self.state.projects().await.map_err(store)?.iter().filter(|p| p.hidden).filter_map(|p| p.hidden_rank).min();
+                self.state.project(&path).await.map_err(store)?.map(|row| ProjectRow { hidden: true, hidden_rank: Some(front.map_or(0, |rank| rank - 1)), ..row })
+            }
+            None => None,
+        };
+        self.commit(tombstone, None, op.map(|o| finish(o, &out))).await?;
         Ok(out)
     }
 

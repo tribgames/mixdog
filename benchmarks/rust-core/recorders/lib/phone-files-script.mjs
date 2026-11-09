@@ -308,6 +308,20 @@ export function filesScript(world = filesWorld()) {
       call('removeProject', [P2]),
       call('removeProject', [7]),
       call('listProjects', []),
+      // ── a removed project and what would bring it back ──
+      // Node keeps the removed path in the `hidden` list of desktop-projects.json and its alias in `aliases`; only `enter`/`register`
+      // (re-adding it) undo the tombstone. Each step lists the projects, so any visible effect of the tombstone shows.
+      call('addProject', [P2]),
+      call('renameProject', [P2, 'Second again']),
+      call('listProjects', []),
+      call('removeProject', [P2]),
+      call('listProjects', []),
+      call('renameProject', [P2, 'again']),
+      call('listProjects', []),
+      call('addProject', [P2]),
+      call('listProjects', []),
+      call('removeProject', [P2]),
+      call('listProjects', []),
     ],
   };
 }
@@ -328,6 +342,12 @@ export function filesRelayScript(world = filesWorld()) {
       call('searchProjectFiles', [gone, 'a', 5, false, false]),
       call('writeProjectFile', [gone, 'a.txt', 'x', '', null, null]),
       call('removeProject', [P2]),
+      call('readProjectFile', [P2, 'two.txt', null]),
+      // A removed project stays out of the phone's reach until it is added again (the tombstone is not a registration).
+      call('listProjectDir', [P2, '']),
+      call('listProjects', []),
+      call('addProject', [P2]),
+      call('listProjectDir', [P2, '']),
       call('readProjectFile', [P2, 'two.txt', null]),
       { op: 'grant', as: 'granted', path: join(O, 'granted.txt') },
       call('readProjectFile', [O, 'granted.txt', grant('granted')]),
