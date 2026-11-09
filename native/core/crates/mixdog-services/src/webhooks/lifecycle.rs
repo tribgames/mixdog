@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, Ordering};
 
 use async_trait::async_trait;
-use tokio_util::sync::CancellationToken;
 
 use super::handler::WebhookService;
 use super::listener::WebhookListener;
@@ -37,12 +36,7 @@ pub trait HookTunnel: Send {
 /// (`MIXDOG_RELAY_URL=off`); `Err` is a start that failed, which leaves the server local-only.
 #[async_trait]
 pub trait TunnelStarter: Send + Sync {
-    /// What the tunnel needs on disk before anything slow runs (the relay's hook identity), so a
-    /// reader of the public URL finds it as soon as the start is asked for.
-    async fn prepare(&self, _cancel: &CancellationToken) -> Result<(), String> {
-        Ok(())
-    }
-    async fn start(&self, local_port: LocalPort, cancel: &CancellationToken) -> Result<Option<Box<dyn HookTunnel>>, String>;
+    async fn start(&self, local_port: LocalPort) -> Result<Option<Box<dyn HookTunnel>>, String>;
 }
 
 pub struct WebhookServer {
@@ -61,22 +55,22 @@ impl WebhookServer {
 
     /// Binds the listener, then starts the tunnel. Starting a started server does nothing; a
     /// listener that cannot bind leaves the server stopped, with the error returned.
-    pub async fn start(&mut self, cancel: &CancellationToken) -> Result<(), String> {
+    pub async fn start(&mut self) -> Result<(), String> {
         if self.listener.is_some() {
             return Ok(());
         }
         let listener = WebhookListener::start(Arc::clone(&self.service), self.base_port).await?;
         self.port.0.store(listener.port(), Ordering::SeqCst);
         self.listener = Some(listener);
-        self.start_tunnel(cancel).await;
+        self.start_tunnel().await;
         Ok(())
     }
 
-    async fn start_tunnel(&mut self, cancel: &CancellationToken) {
+    async fn start_tunnel(&mut self) {
         if self.tunnel.is_some() {
             return;
         }
-        match self.tunnels.start(self.port.clone(), cancel).await {
+        match self.tunnels.start(self.port.clone()).await {
             Ok(None) => mixdog_rt::node_stderr!("mixdog webhook: hook tunnel disabled (MIXDOG_RELAY_URL=off)"),
             Ok(Some(tunnel)) => {
                 mixdog_rt::node_stderr!("mixdog webhook: public hook base: {}", tunnel.public_base());

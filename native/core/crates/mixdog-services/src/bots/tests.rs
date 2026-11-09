@@ -33,6 +33,9 @@ pub(crate) struct FakeHost {
     pub hold: Mutex<bool>,
     /// Executor runs wait for their cancellation, then fail.
     pub hold_executor: Mutex<bool>,
+    /// A stored routine's owner check (the listing of schedules and webhooks) waits for a permit
+    /// of this semaphore: a read stuck behind it until a test releases it.
+    pub listing_gate: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
     pub executor_runs: Mutex<Vec<ExecutorRun>>,
     pub executor_reply: Mutex<Option<Result<String, String>>>,
     pub delivered: Mutex<Vec<DeliveryItem>>,
@@ -46,7 +49,11 @@ pub(crate) struct FakeHost {
 
 #[async_trait]
 impl RoutineHost for FakeHost {
-    async fn owner_problem(&self, _owner: &str, _stored: bool) -> Result<Option<OwnerProblem>, String> {
+    async fn owner_problem(&self, _owner: &str, stored: bool) -> Result<Option<OwnerProblem>, String> {
+        let gate = self.listing_gate.lock().unwrap().clone();
+        if let (true, Some(gate)) = (stored, gate) {
+            gate.acquire().await.expect("the gate stays open").forget();
+        }
         Ok(*self.owner_problem.lock().unwrap())
     }
 
