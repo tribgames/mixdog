@@ -1,4 +1,4 @@
-// Node b6f10295a src/runtime/shared/llm/usage-ledger.mjs, recorded from the original test's run; replayed by call.
+// Node b6f10295a2f698afc85332467192de28500bd146 src/runtime/shared/llm/usage-ledger.mjs, recorded from apps/desktop/src/renderer/usage-request-log.test.mjs of that commit run against an exact export of it (record/record.mjs).
 import { readFileSync } from 'node:fs';
 import { replay } from './replay.mjs';
 

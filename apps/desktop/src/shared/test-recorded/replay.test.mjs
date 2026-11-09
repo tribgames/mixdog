@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
+import { NODE_COMMIT, NODE_TREE } from './record/node-source.mjs';
 import { callKey, normalizeArgs, replay } from './replay.mjs';
 
 const tables = readdirSync(new URL('.', import.meta.url))
@@ -99,4 +100,16 @@ test('only the parts a rule names are ignored: a wrong session id or transcript 
   const [items] = JSON.parse(quotaKey.slice(quotaKey.indexOf('\0') + 1));
   assert.throws(() => quota(items.map((item) => (item.kind === 'user' ? { ...item, text: `${item.text}!` } : item))), /was not recorded/);
   assert.equal(normalizeArgs({ timings_ms: 5, other: 1 }, [{ field: 'timings_ms' }]).other, 1);
+});
+
+test('every recording names the full Node commit it was taken from, in the table and in the module that replays it', () => {
+  assert.match(NODE_COMMIT, /^b6f10295a[0-9a-f]{31}$/);
+  assert.match(NODE_TREE, /^[0-9a-f]{40}$/);
+  assert.ok(tables.length > 40);
+  for (const [file, table] of tables) {
+    assert.equal(table.source?.commit, NODE_COMMIT, `${file} was not recorded from ${NODE_COMMIT}`);
+    assert.equal(table.source?.tree, NODE_TREE, `${file} names another tree`);
+    const module = readFileSync(new URL(file.replace(/\.json$/, '.mjs'), import.meta.url), 'utf8');
+    assert.ok(module.startsWith(`// Node ${NODE_COMMIT} ${table.source.module},`), `${file}: the replaying module does not name the commit and module`);
+  }
 });

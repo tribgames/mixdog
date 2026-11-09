@@ -1,4 +1,10 @@
 {
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/shared/developer-options.mjs",
+  "test": "apps/desktop/src/renderer/i18n.test.mjs"
+ },
  "constants": {
   "DEVELOPER_SECTIONS": [
    {
@@ -51,5 +57,7 @@
   ]
  },
  "calls": {},
+ "services": {},
+ "stubs": {},
  "opaque": []
 }

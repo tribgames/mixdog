@@ -1,4 +1,10 @@
 {
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/shared/review-diff.mjs",
+  "test": "apps/desktop/src/renderer/session-diff-model.test.mjs"
+ },
  "constants": {
   "PATCH_TOO_LARGE": "too_large",
   "REVIEW_FILE_PATCH_MAX_BYTES": 1048576,
@@ -16,5 +22,7 @@
    }
   ]
  },
+ "services": {},
+ "stubs": {},
  "opaque": []
 }

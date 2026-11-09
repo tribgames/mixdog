@@ -1,4 +1,10 @@
 {
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/tui/session/queue-helpers.mjs",
+  "test": "apps/desktop/src/renderer/attachment-bubbles.test.mjs"
+ },
  "constants": {
   "STEERING_SUPPRESSED_DISPLAY": "\u0000mixdog:suppress-steer-display\u0000"
  },
@@ -135,5 +141,7 @@
    }
   ]
  },
+ "services": {},
+ "stubs": {},
  "opaque": []
 }

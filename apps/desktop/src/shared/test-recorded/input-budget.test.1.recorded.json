@@ -1,4 +1,10 @@
 {
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/computer-bridge/limits.mjs",
+  "test": "apps/desktop/src/main/computer/backend/input-budget.test.mjs"
+ },
  "constants": {
   "MAX_COMPUTER_FOREGROUND_TEXT_CHARS": 4000,
   "MAX_COMPUTER_IMAGE_CHARS": 25165824,
@@ -7,5 +13,7 @@
   "MAX_COMPUTER_RESPONSE_BYTES": 33554432
  },
  "calls": {},
+ "services": {},
+ "stubs": {},
  "opaque": []
 }
