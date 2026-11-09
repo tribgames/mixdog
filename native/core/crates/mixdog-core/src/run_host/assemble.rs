@@ -153,6 +153,8 @@ pub struct HostServices {
     pub connectors: Arc<dyn ConnectorPermissions>,
     pub resolver: Arc<dyn ToolResolver>,
     pub gate_env: Arc<dyn GateEnv>,
+    /// Where a run's approval asks go (held for its owner, or the session's own card).
+    pub approvals: Arc<dyn super::run_approvals::RunApprovals>,
     pub blobs: Arc<dyn BlobReads>,
     /// The process-wide react targets: the same value the react tool (`ports::reactions::SessionReactions`)
     /// records into.
@@ -434,7 +436,7 @@ impl RunParts for HostRunParts {
             cwd: AbsPath::new(cwd.clone()).ok_or_else(|| refuse("the working directory is not absolute"))?,
             surface: if super::compaction_world::is_agent_owner(header) { SurfaceKind::Agent } else { SurfaceKind::Lead },
             io: s.io.clone(),
-            approvals: Arc::new(input.port.clone()),
+            approvals: s.approvals.gate_for(thread, Arc::new(input.port.clone())),
             files: s.files.clone(),
             processes: s.processes.clone(),
             progress: input.progress.clone(),
@@ -493,6 +495,7 @@ impl RunParts for HostRunParts {
             let session = Arc::new(SessionGate::new(thread.clone(), directory.live_header(thread), input.surface_rx.clone(), s.gate_env.clone()));
             let (thread, cwd) = (thread.clone(), cwd.clone());
             let observer = observer.clone();
+            let approvals = s.approvals.clone();
             Box::new(move |context: GateContext| {
                 // The run's observer shows the exclusion notices; the factory builds the gate before the first request.
                 let _ = observer.set(context.observer.clone());
@@ -502,7 +505,7 @@ impl RunParts for HostRunParts {
                     session,
                     tools: resolver,
                     grants,
-                    approvals: context.approvals,
+                    approvals: approvals.gate_for(&thread, context.approvals),
                     observer: context.observer,
                     guards: context.guards,
                     thread_id: thread,

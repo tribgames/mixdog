@@ -842,8 +842,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         b.tokens.interactive_io,
         b.data_dir.clone(),
         held_notifier,
+        grants.clone(), // the store the tool gate audits in: an answered held request is audited in it too
     );
-    // The held-request registry Mixy's heartbeat counts (pendingHeldRequests). Its approval entry point HeldRequests::gate_for has no production caller yet (see flip-6.md).
+    // The held-request registry: Mixy's heartbeat counts it (pendingHeldRequests) and every run's approval asks pass its gate (`TurnPathParts.approvals`).
     let held_requests = crate::held_requests::HeldRequests::new(held_home.clone(), now_ms.clone());
 
     // The one bridge fact: the skill gate (`McpInputs.bridges`) and `DomainSeams.feature_activity` both read this value.
@@ -1917,6 +1918,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(mixdog_core_session::session::gateway_usage::TokioScheduler),
     );
     let owed = Owed {
+        approvals: Arc::new(crate::held_requests::HeldGates(held_requests.clone())),
         liveness: liveness.clone(),
         search_usage,
         tokens: b.tokens.clone(),

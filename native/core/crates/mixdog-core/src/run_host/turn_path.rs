@@ -72,6 +72,8 @@ pub struct TurnPathParts {
     pub resolver: Arc<dyn ToolResolver>,
     /// The unattended runs' stamps (the session record's `run` object, WP-SESSION).
     pub unattended: Arc<UnattendedRunRegistry>,
+    /// Where a run's approval asks go: the held-request layer of the composition.
+    pub approvals: Arc<dyn super::run_approvals::RunApprovals>,
     /// The provider tool exclusions the turns record into: the SAME value the tool pool's `SessionCatalog` and the sessions' tool surfaces take (the pool is
     /// built before this path, so the path cannot make it).
     pub exclusions: Arc<mixdog_core_session::session::SessionToolExclusions>,
@@ -152,7 +154,7 @@ pub struct TurnPath {
 impl TurnPath {
     pub fn new(parts: TurnPathParts) -> Result<Self, TurnPathError> {
         let TurnPathParts {
-            tokens, clock, paths, registry, effort_judge, side, next, files, processes, policy, connectors, resolver, unattended, exclusions, agents, allow_all, hub, blobs, tool_pool, mcp,
+            tokens, clock, paths, registry, effort_judge, side, next, files, processes, policy, connectors, resolver, unattended, approvals, exclusions, agents, allow_all, hub, blobs, tool_pool, mcp,
             skills_listed, skill_names, ext_pool, hook_bus, hook_common, goals, todos, work, cycles, config, settings, ladder, deps, compactors, hops, shells, liveness, search_usage,
         } = parts;
         let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
@@ -172,6 +174,7 @@ impl TurnPath {
             connectors,
             resolver,
             gate_env,
+            approvals,
             blobs,
             reaction_targets: reaction_targets.clone(),
             reuses: reuses.clone(),
