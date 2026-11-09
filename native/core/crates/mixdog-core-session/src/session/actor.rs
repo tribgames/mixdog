@@ -1877,7 +1877,7 @@ impl SessionActor {
     fn release(&mut self, entry: Entry, ordinal: Option<u64>, notes: &mut Vec<Note>) {
         let title = self.acked.sections.title.clone();
         let prompts = self.acked.prompt_history.clone();
-        let queue_len = self.acked.queue.len();
+        let queue_rows = self.acked.queued_rows();
         let asked = |acked: &SessionState| acked.sections.approvals.as_ref().and_then(|approvals| approvals.handoff_questions.clone());
         let asked_before = asked(&self.acked);
         self.acked.apply(&entry.change, ordinal);
@@ -1932,7 +1932,7 @@ impl SessionActor {
             self.deps.agent_signals.session_record(self.id.as_str());
         }
         notes.extend(entry.notes);
-        self.derived_notes(&entry.change, &title, queue_len, notes);
+        self.derived_notes(&entry.change, &title, &queue_rows, notes);
         if let Some(change) = prompt_history::change(&prompts, &self.acked.prompt_history) {
             notes.push(Note::new(
                 "thread/promptHistory/updated",
@@ -1951,7 +1951,7 @@ impl SessionActor {
         &self,
         change: &Change,
         title_before: &Option<String>,
-        queue_before: usize,
+        queue_before: &[Value],
         notes: &mut Vec<Note>,
     ) {
         let thread = &self.id;
@@ -1976,9 +1976,9 @@ impl SessionActor {
                         }
                     }
                 }
-                // An entry edited where it stands changes no row of the queue.
-                Record::Queue(queue) if queue.action != QueueAction::Update => {
-                    let _ = queue_before;
+                // An entry edited where it stands changes no row of the queue, and a queued completion or notification is no row of it:
+                // Node publishes `queued` only when it changes (`isQueuedEntryVisible`, `drain-enqueue.mjs`).
+                Record::Queue(queue) if queue.action != QueueAction::Update && self.acked.queued_rows() != queue_before => {
                     notes.push(Note::new(
                         "thread/queue/changed",
                         &ThreadQueueChangedParams {

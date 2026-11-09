@@ -39,6 +39,51 @@ mod transcript_convert;
 mod transcript_divider;
 #[path = "transcript_live.rs"]
 mod transcript_live;
+/// `promptDisplayText` (`queue-helpers.mjs`) of a prompt with no stored attachment: `promptContentText` over the parts that are not media
+/// references (`prompt-utils.mjs:10`): the text of a text part, `[Image]` for an image, the text of any other part, one per line.
+/// `None` for a prompt holding a stored attachment, whose text Node reads from the store.
+fn inline_prompt_text(message: &Value) -> Option<String> {
+    let Some(parts) = message.as_array() else { return None };
+    if parts.iter().any(|part| part.get("attachmentRef").is_some()) {
+        return None;
+    }
+    let lines: Vec<&str> = parts
+        .iter()
+        .filter(|part| !(part.get("type").and_then(Value::as_str) == Some("text") && part.get("attachmentReference").is_some_and(|held| held.as_bool() != Some(false) && !held.is_null()) && part.get("text").is_some_and(Value::is_string)))
+        .map(|part| if part.get("type").and_then(Value::as_str) == Some("image") { "[Image]" } else { part.get("text").and_then(Value::as_str).unwrap_or_default() })
+        .filter(|line| !line.is_empty())
+        .collect();
+    Some(lines.join("\n"))
+}
+
+/// `promptContentImageMeta` (`queue-helpers.mjs:146`): the image parts of a queued prompt, byte-free, each named by the pasted image
+/// at its position (`options.pastedImages`, in the order Node's `Object.values` gives).
+fn image_meta(entry: &Value) -> Vec<Value> {
+    let Some(parts) = entry.get("message").and_then(Value::as_array) else { return Vec::new() };
+    let named: Vec<&Value> = entry.pointer("/options/pastedImages").and_then(Value::as_object).map(|map| map.values().collect()).unwrap_or_default();
+    parts
+        .iter()
+        .filter(|part| part.get("type").and_then(Value::as_str) == Some("image"))
+        .enumerate()
+        .map(|(index, part)| {
+            let meta = named.get(index).filter(|meta| meta.is_object());
+            let held = |key: &str| meta.and_then(|meta| meta.get(key)).filter(|value| !value.is_null());
+            let data = part.get("data").and_then(Value::as_str).unwrap_or_default();
+            let size = part.get("sizeBytes").and_then(Value::as_i64).filter(|size| *size != 0);
+            let mut image = json!({
+                "id": held("id").cloned().unwrap_or(Value::Null),
+                "name": held("filename").and_then(Value::as_str).filter(|name| !name.is_empty()).map_or_else(|| format!("Image {}", index + 1), str::to_owned),
+                "mimeType": part.get("mimeType").and_then(Value::as_str).filter(|mime| !mime.is_empty()).or_else(|| held("mediaType").and_then(Value::as_str)).unwrap_or("image/png"),
+                "bytes": size.unwrap_or(data.encode_utf16().count() as i64),
+            });
+            if let Some(reference) = part.get("attachmentRef").and_then(Value::as_str).filter(|reference| reference.len() == 64 && reference.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))) {
+                image["attachmentRef"] = json!(reference);
+            }
+            image
+        })
+        .collect()
+}
+
 #[cfg(test)]
 #[path = "transcript_golden.rs"]
 mod transcript_golden;
@@ -214,11 +259,34 @@ impl Transcript for RecordTranscript {
         let text = match shown {
             Some(text) => text.to_owned(),
             None => {
-                let mut budget = PASTED_LINE_READ_BUDGET_BYTES;
-                user_display_text(entry.get("message").unwrap_or(&Value::Null), &mut NoAttachments, &mut budget)
+                let message = entry.get("message").unwrap_or(&Value::Null);
+                match inline_prompt_text(message) {
+                    Some(text) => text,
+                    None => {
+                        let mut budget = PASTED_LINE_READ_BUDGET_BYTES;
+                        user_display_text(message, &mut NoAttachments, &mut budget)
+                    }
+                }
             }
         };
-        let mut row = json!({ "id": qid, "text": text });
+        // The fields Node's client projection reads of a queue entry (`session-state-projection.mjs:33-49`): the text cut to 2000 UTF-16
+        // units, the mode (`prompt` when the entry names none), the priority (`next` when none, `defaultQueuePriority`), the sender's
+        // source fields (`transcriptSourceFields`) and the image list when the prompt has images (`promptContentImageMeta`).
+        let mut row = json!({
+            "id": qid,
+            "text": mixdog_js::slice_utf16(&text, 2_000),
+            "mode": entry.get("mode").and_then(Value::as_str).filter(|mode| !mode.is_empty()).unwrap_or("prompt"),
+            "priority": entry.get("priority").and_then(Value::as_str).filter(|priority| !priority.is_empty()).unwrap_or("next"),
+        });
+        for key in ["sender", "device", "fromAgent"] {
+            if let Some(held) = entry.pointer(&format!("/transcriptMeta/{key}")).and_then(Value::as_str).filter(|held| !held.is_empty()) {
+                row[key] = json!(held);
+            }
+        }
+        let images = image_meta(entry);
+        if !images.is_empty() {
+            row["images"] = Value::Array(images);
+        }
         if let Some(at) = entry.get("enqueuedAt").filter(|at| at.is_number()) {
             row["enqueuedAt"] = at.clone();
         }

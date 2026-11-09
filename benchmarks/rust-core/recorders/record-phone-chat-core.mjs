@@ -63,6 +63,7 @@ const { createTranscriptRouteMetadata } = await importFrom(tree, 'src/runtime/sh
 const { flushTuiSteeringPersist } = await importFrom(tree, 'src/tui/session/tui-steering-persist.mjs');
 const { pendingMessagesPath } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/manager/pending-spool-path.mjs');
 const { saveSessionAsync } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/store.mjs');
+const { projectSessionState } = await importFrom(tree, 'src/standalone/session-state-projection.mjs');
 const { rewindSessionMessagesTo } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/manager/session-crud.mjs');
 
 /** A value as the fixture keeps it: callbacks have no JSON form, so they read as a marker. */
@@ -140,7 +141,8 @@ function boot(sessionId) {
   // `bag.drain` is not yet built when the store is: a release of `busy` re-kicks it (local-session-runtime.mjs).
   const store = createSessionDraftStore({
     draft,
-    listeners: new Set([() => publications.push({ at: now, state: plain({ ...store.getPublishedState(), cwd: '<cwd>' }) })]),
+    // `projected` is what the daemon sends a client of that snapshot's queue (`projectSessionState`, session-state-projection.mjs).
+    listeners: new Set([() => publications.push({ at: now, state: plain({ ...store.getPublishedState(), cwd: '<cwd>' }), projectedQueued: plain(projectSessionState({}, store.getPublishedState()).queued) })]),
     isDisposed: () => flags.disposed === true,
     onBusyReleased: () => {
       void bag.drain?.();
@@ -335,6 +337,21 @@ await submitting('a prompt of text is accepted and queued', { prompt: 'hello', b
 await submitting('a closing session still takes a user prompt', { prompt: 'hello', admission: 'closing', busy: true });
 await submitting('a closed session takes nothing', { prompt: 'hello', admission: 'terminal', busy: true });
 await submitting('a repeated submission id is one prompt', { prompt: 'hello', repeat: 2, busy: true });
+// An image prompt: the content carries an image part, the pasted image names it (`promptContentImageMeta`).
+await submitting('a prompt with a pasted image is queued with its image', {
+  prompt: [{ type: 'text', text: 'see [Image #1]' }, { type: 'image', data: 'AAAA', mimeType: 'image/png' }],
+  options: { pastedImages: { 1: { id: 1, type: 'image', content: 'AAAA', mediaType: 'image/png', filename: 'a.png' } } },
+  busy: true,
+});
+// A pasted text: the composer's chip in the prompt, the text in the option (`mergePastedField`, queue-helpers.mjs:166).
+await submitting('a prompt with a pasted text is queued with its text', {
+  prompt: 'see [Pasted text #1 +2 lines]',
+  options: { pastedTexts: { 1: { id: 1, text: 'a\nb\nc' } } },
+  busy: true,
+});
+await submitting('a prompt with a later priority is queued at it', { prompt: 'hello', options: { priority: 'later' }, busy: true });
+// A channel message queued as a task notification (`channel-session-router.mjs`): no submission id, no device, mode and origin set.
+await submitting('a channel message is queued as a task notification', { prompt: 'Build finished', options: { id: undefined, transcriptMeta: null, mode: 'task-notification', origin: 'channel' }, busy: true });
 
 /**
  * Node's store guards and coalesces (`frame-batched-store.mjs`): a change followed by two immediate flushes in one synchronous chain,
