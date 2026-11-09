@@ -58,6 +58,82 @@
    "theme": null
   },
   {
+   "name": "a marker-less data dir with scoped backups restores nothing, whatever else is on disk",
+   "theme": null
+  },
+  {
+   "name": "a scoped backup wins over a newer unscoped one",
+   "theme": "gruvbox"
+  },
+  {
+   "name": "an incomplete newest scoped backup falls through to the older scoped one, then to the unscoped",
+   "theme": "kanagawa"
+  },
+  {
+   "name": "backup names sort as text: the later sequence number wins within a millisecond",
+   "theme": "dracula"
+  },
+  {
+   "name": "a config with only agent and ui keys counts as complete",
+   "theme": "nord"
+  },
+  {
+   "name": "a backup whose manifest lacks the incarnation is not restored for an initialized data dir",
+   "theme": null
+  },
+  {
+   "name": "a newest backup without a config file is skipped for the older one",
+   "theme": "gruvbox"
+  },
+  {
+   "name": "a newest backup with a damaged config is skipped for the older one",
+   "theme": "gruvbox"
+  },
+  {
+   "name": "an unreadable newest backup config ends the lookup: the older backup is not used",
+   "theme": null
+  },
+  {
+   "name": "an unreadable manifest ends the lookup",
+   "theme": null
+  },
+  {
+   "name": "a scope path that is a file has no backups",
+   "theme": "kanagawa"
+  },
+  {
+   "name": "a legacy backup with a damaged config is skipped for the next legacy one",
+   "theme": "rosepine"
+  },
+  {
+   "name": "a legacy backup with an unreadable config is skipped for the next legacy one",
+   "theme": "rosepine"
+  },
+  {
+   "name": "legacy backups of both roots: the newest name wins whichever root holds it",
+   "theme": "dracula"
+  },
+  {
+   "name": "legacy backups of both roots with the same name: the current root comes first",
+   "theme": "gruvbox"
+  },
+  {
+   "name": "an initialized data dir looks only in the current root",
+   "theme": null
+  },
+  {
+   "name": "a legacy marker in the legacy root names the data dir, a backup in the current root is restored",
+   "theme": "dracula"
+  },
+  {
+   "name": "a legacy marker found by the data dir it names",
+   "theme": "dracula"
+  },
+  {
+   "name": "a legacy backup that names another data dir is ignored",
+   "theme": null
+  },
+  {
    "name": "a damaged init marker makes the read fail",
    "theme": "THROW"
   }

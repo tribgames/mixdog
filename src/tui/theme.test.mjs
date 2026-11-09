@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { SCENARIOS } from './theme-golden/scenarios.mjs';
+import { SCENARIOS, themeLayout } from './theme-golden/scenarios.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'mixdog-theme-'));
 process.env.MIXDOG_HOME = join(root, 'home');
@@ -30,10 +30,17 @@ for (const scenario of SCENARIOS) {
     const base = mkdtempSync(join(tmpdir(), 'mixdog-theme-state-'));
     t.after(() => rmSync(base, { recursive: true, force: true }));
     const dataDir = join(base, 'data');
-    const backupRoot = join(base, 'backups');
-    scenario.setup({ dataDir, backupRoot });
-    process.env.MIXDOG_USER_DATA_BACKUP_ROOT = backupRoot;
-    t.after(() => delete process.env.MIXDOG_USER_DATA_BACKUP_ROOT);
+    const layout = themeLayout(base, scenario);
+    scenario.setup({ dataDir, backupRoot: layout.backupRoot, legacyRoot: layout.legacyRoot });
+    const saved = Object.fromEntries(['MIXDOG_HOME', 'MIXDOG_CONFIG_DIR', 'MIXDOG_USER_DATA_BACKUP_ROOT'].map((name) => [name, process.env[name]]));
+    Object.assign(process.env, layout.env);
+    for (const name of layout.unset) delete process.env[name];
+    t.after(() => {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    });
     const before = snapshot(base);
     // A read that fails leaves the default palette, as Node's boot did.
     const recorded = golden.scenarios.find((s) => s.name === scenario.name).theme;
