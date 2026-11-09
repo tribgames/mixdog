@@ -27,20 +27,20 @@ const BIG = (n) => ({ id: 7, method: 'oracle/big', oracle: 'big', n, pad: 'x'.re
 export const ORACLE_SCENARIOS = {
   // A message of three records over a slow socket: the page's send of it completes when its last record has left (Node: transport.send() resolves after
   // the last record is sealed and admitted, remote-shim-calls.ts:148 -- the point a call's deadline restarts and its silence is measured), not at the
-  // first. The three records leave 400 ms apart (short enough that no keepalive ping interleaves, so the trace's order is the products' and not a race between concurrent seals).
+  // first. The three records leave 3 s apart.
   'transport-large-message-slow-socket': [
     { op: 'boot' },
     { op: 'accept' },
     { op: 'mark', name: 'ready' },
     { op: 'hold-seal' },
     { op: 'out-big', n: 1 },
-    { op: 'advance', ms: 400 },
+    { op: 'advance', ms: 3000 },
     { op: 'release-seal', count: 1 },
     { op: 'mark', name: 'record-1-left' },
-    { op: 'advance', ms: 400 },
+    { op: 'advance', ms: 3000 },
     { op: 'release-seal', count: 1 },
     { op: 'mark', name: 'record-2-left' },
-    { op: 'advance', ms: 400 },
+    { op: 'advance', ms: 3000 },
     { op: 'release-seal', count: 1 },
     { op: 'mark', name: 'record-3-left' },
     { op: 'release-seal' },
