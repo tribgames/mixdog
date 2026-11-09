@@ -591,6 +591,17 @@ test('settings writers answer the saved DesktopSettings, read back after the wri
   assert.equal((await lane.invoke('updateNotificationVolume', [40])).notificationVolume, 40);
 });
 
+test('the two agent settings are written where Node stored them, not under desktop', () => {
+  assert.deepEqual(routeDesktopOperation('updateSetting', ['autoClear', false]), {
+    method: 'config/value/write',
+    params: { path: 'agent.autoClear.enabled', value: false },
+  });
+  assert.deepEqual(routeDesktopOperation('updateSetting', ['autoCompact', true]), {
+    method: 'config/value/write',
+    params: { path: 'agent.compaction.auto', value: true },
+  });
+});
+
 test('updateZoom, writeMarkdownDefaultView and updateActivityRailPins answer the stored value', async () => {
   const { lane } = laneWith({
     'config/value/write': (params) =>

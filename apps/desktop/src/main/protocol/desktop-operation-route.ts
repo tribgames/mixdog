@@ -212,7 +212,12 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   writeMarkdownDefaultView: ([, view]) => configWrite('desktop.editor.markdownDefaultView', view),
   updateActivityRailPins: ([pins, initializeIfMissing]) =>
     configWrite('desktop.activityRailPins', pins, initializeIfMissing === true ? 'initializeIfMissing' : undefined),
-  updateSetting: ([key, enabled]) => configWrite(`desktop.${String(key)}`, enabled === true),
+  // Node's store wrote `agent.autoClear.enabled` and `agent.compaction.auto` for these two; the rest are `desktop.<key>`.
+  updateSetting: ([key, enabled]) =>
+    configWrite(
+      key === 'autoClear' ? 'agent.autoClear.enabled' : key === 'autoCompact' ? 'agent.compaction.auto' : `desktop.${String(key)}`,
+      enabled === true
+    ),
   updateNotificationVolume: ([volume]) => configWrite('desktop.notificationVolume', Number(volume)),
   updateBrowserPermissions: ([policy]) =>
     configWrite('desktop.browserPermissions', normalizeBrowserPermissionPolicy(policy)),
