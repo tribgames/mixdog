@@ -419,6 +419,20 @@ pub(super) fn summary_of_list_row(id: &ThreadId, list: &Value, archived: bool) -
     if let Some(activity) = list["lastUsedAt"].as_f64().filter(|at| *at > 0.0) {
         out["activityAt"] = json!(activity as i64);
     }
+    if let Some(created) = list["createdAt"].as_f64().filter(|at| *at > 0.0) {
+        out["createdAt"] = json!(created as i64);
+    }
+    // `withFavoriteFlags`, `withReadCursors`, `withRetiredFlags` of `desktop-session-metadata.ts`.
+    if list["favoriteAt"].as_f64().is_some_and(|at| at > 0.0) {
+        out["favorite"] = json!(true);
+    }
+    if list["retiredAt"].as_f64().is_some_and(|at| at > 0.0) {
+        out["agentDeleted"] = json!(true);
+    }
+    if let Some(cursor) = super::thread_settings::settle_read_cursor(list["readState"].as_object(), list.get("compactCount"), list.get("messageCount")) {
+        out["readMessageCount"] = json!(cursor.get("messageCount").and_then(Value::as_f64).unwrap_or(0.0) as i64);
+        out["readRevision"] = json!(cursor.get("revision").and_then(Value::as_f64).unwrap_or(0.0) as i64);
+    }
     serde_json::from_value(out).expect("summary shape")
 }
 
