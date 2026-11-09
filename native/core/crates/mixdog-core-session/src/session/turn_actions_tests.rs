@@ -386,7 +386,6 @@ async fn staged_originals_expire_on_their_own_deadline() {
     let tokens = mixdog_rt::testing::tokens();
     let root = dir.path().join("prompt-attachments");
     let mut passes = originals.passes();
-    let mut expected_passes = 0_u64;
     for recorded in doc["deadline"].as_array().unwrap() {
         let step = &recorded["step"];
         let name = format!("{step}");
@@ -396,10 +395,10 @@ async fn staged_originals_expire_on_their_own_deadline() {
                 stage_bytes(&originals, text(step, "text").as_bytes().to_vec(), limits).await.unwrap();
             }
             "start" => {
+                let before = *passes.borrow();
                 originals.start_prune(tokens.durability_io, clock.clone(), mixdog_rt::CancellationToken::new());
                 // The task has read the index and armed its first deadline.
-                expected_passes += 1;
-                passes.wait_for(|n| *n >= expected_passes).await.unwrap();
+                passes.wait_for(|n| *n > before).await.unwrap();
             }
             "claim" => {
                 let refs: Vec<String> = step["refs"].as_array().unwrap().iter().map(|t| sha(t.as_str().unwrap().as_bytes())).collect();
@@ -408,12 +407,16 @@ async fn staged_originals_expire_on_their_own_deadline() {
             }
             "tick" => {
                 let ms = step["ms"].as_u64().unwrap();
-                clock.0.fetch_add(i64::try_from(ms).unwrap(), std::sync::atomic::Ordering::SeqCst);
+                // Whether this tick reaches the armed deadline is decided before the clock moves: the
+                // prune task clears the deadline once its timer fires. The deadline passing runs one
+                // prune pass; a deadline not yet reached runs none.
+                let target = clock.0.load(std::sync::atomic::Ordering::SeqCst) + i64::try_from(ms).unwrap();
+                let due = originals.earliest_at().is_some_and(|at| at + STAGED_ORIGINALS_TTL_MS as f64 + 1.0 <= target as f64);
+                let before = *passes.borrow();
+                clock.0.store(target, std::sync::atomic::Ordering::SeqCst);
                 tokio::time::advance(Duration::from_millis(ms)).await;
-                // The deadline passing runs one prune pass; a deadline not yet due runs none.
-                if originals.earliest_at().is_some_and(|at| at + STAGED_ORIGINALS_TTL_MS as f64 + 1.0 <= clock.0.load(std::sync::atomic::Ordering::SeqCst) as f64) {
-                    expected_passes += 1;
-                    passes.wait_for(|n| *n >= expected_passes).await.unwrap();
+                if due {
+                    passes.wait_for(|n| *n > before).await.unwrap();
                 }
                 if let Some(at) = recorded.get("stagedAt") {
                     let limits = StageLimits { now_ms: at.as_i64().unwrap(), ..FRESH };

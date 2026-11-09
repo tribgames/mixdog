@@ -220,10 +220,8 @@ async fn a_closed_session_publishes_no_expiry() {
 
     handle.cell.close();
     handle.cell.ctl_tx.try_send(Ctl::Unsubscribed).expect("the control lane has room");
-    // The actor's last step; yielding moves no clock.
-    while !rig.snapshots.0.lock().unwrap().contains(&stopped) {
-        tokio::task::yield_now().await;
-    }
+    // The actor's last step, announced by the snapshot sink.
+    eventually_on(&[&rig.snapshots.1], || rig.snapshots.0.lock().unwrap().contains(&stopped).then_some(())).await;
 
     tokio::time::advance(Duration::from_millis(3000)).await;
     tokio::task::yield_now().await;
