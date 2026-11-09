@@ -882,6 +882,12 @@ jobs:
         env:
           CARGO_BUILD_JOBS: "3"
         run: node scripts/rust-core/k1-lanes.mjs
+      - name: Boot mixdogd and answer a first call (replaces boot-smoke and smoke-loop)
+        env:
+          CARGO_BUILD_JOBS: "3"
+        run: |
+          cargo build --locked --manifest-path native/core/Cargo.toml -p mixdog-cli --bin mixdogd
+          node scripts/rust-core/smoke-mixdogd.mjs --mixdogd native/core/target/debug/mixdogd
 
   complete:
     if: always()
