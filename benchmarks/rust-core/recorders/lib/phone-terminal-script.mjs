@@ -105,6 +105,80 @@ export function terminalScript(root) {
   };
 }
 
+/**
+ * The size-claim cases, on one timeline: five tabs, each case on its own tab, claims by the phone and by a second connection
+ * (`from: 'other'`). `advance` moves time on: Node's recording moves a virtual clock, a real core has none and waits that long.
+ * Every checkpoint sits 3 s or more from a lease edge, and every lapse is awaited on its event, so only the order is compared.
+ *
+ *   L1 lapse     the phone claims at 0 s and never renews: the claim lapses at 30 s.
+ *   L2 renewal   claims at 1 s, renews at 10 s and 20 s: still held at 37 s, lapses at 50 s (30 s after the last renewal).
+ *   L4 close     the other connection claims at 2 s and closes at 12 s: Node does nothing at close, the lease lapses it at 32 s.
+ *   L5 release   a claim with a zero size frees the size at once.
+ *   L6 two       the phone claims at 4 s, the other connection at 5 s and owns; its zero size at 10 s hands the size back to the phone,
+ *                whose claim lapses at 34 s.
+ */
+export function sizeClaimScript(root) {
+  const cwd = join(root, 'cwd');
+  const [L1, L2, L4, L5, L6] = ['term_ph2_l1', 'term_ph2_l2', 'term_ph2_l4', 'term_ph2_l5', 'term_ph2_l6'];
+  const tabs = [L1, L2, L4, L5, L6];
+  const claim = (tab, cols, rows, from) => ({ op: 'fire', name: 'termResize', params: [tab, cols, rows, true], ...(from ? { from } : {}) });
+  const owner = (id, cols, rows, own, count) => ({ op: 'until', kind: 'sizeOwner', event: { id, cols, rows, own }, ...(count ? { count } : {}) });
+  const attachAll = (list) => list.map((tab) => ({ op: 'call', name: 'termAttach', params: [tab] }));
+  return {
+    cwd,
+    ops: [
+      { op: 'lane', lane: 'terminal', on: true },
+      ...tabs.map((tab) => ({ op: 'call', name: 'termEnsure', params: [tab, cwd, null] })),
+      // From here the leases are timed.
+      { op: 'clock' },
+      claim(L1, 100, 30),
+      owner(L1, 100, 30, true),
+      { op: 'advance', ms: 1000 },
+      claim(L2, 101, 31),
+      owner(L2, 101, 31, true),
+      { op: 'advance', ms: 1000 },
+      claim(L4, 102, 32, 'other'),
+      owner(L4, 102, 32, false),
+      { op: 'advance', ms: 1000 },
+      claim(L5, 104, 34),
+      owner(L5, 104, 34, true),
+      claim(L5, 0, 0),
+      owner(L5, 0, 0, false),
+      { op: 'advance', ms: 1000 },
+      claim(L6, 103, 33),
+      owner(L6, 103, 33, true),
+      { op: 'advance', ms: 1000 },
+      claim(L6, 83, 24, 'other'),
+      owner(L6, 83, 24, false),
+      { op: 'advance', ms: 5000 },
+      claim(L2, 101, 31),
+      claim(L6, 0, 0, 'other'),
+      owner(L6, 103, 33, true, 2),
+      { op: 'call', name: 'termAttach', params: [L2] },
+      { op: 'advance', ms: 2000 },
+      { op: 'close', who: 'other' },
+      { op: 'advance', ms: 8000 },
+      claim(L2, 101, 31),
+      { op: 'call', name: 'termAttach', params: [L2] },
+      { op: 'advance', ms: 5000 },
+      // 25 s: every claim still stands except the released one.
+      ...attachAll(tabs),
+      { op: 'advance', ms: 12000 },
+      owner(L1, 0, 0, false),
+      owner(L4, 0, 0, false),
+      owner(L6, 0, 0, false),
+      // 37 s: L1, L4 and L6 lapsed; L2's last renewal was at 20 s.
+      ...attachAll(tabs),
+      { op: 'advance', ms: 18000 },
+      owner(L2, 0, 0, false),
+      // 55 s.
+      ...attachAll(tabs),
+      ...tabs.map((tab) => ({ op: 'call', name: 'termDispose', params: [tab] })),
+      { op: 'lane', lane: 'terminal', on: false },
+    ],
+  };
+}
+
 /** What a terminal reply says without the shell's own text: the reply with `replay` reduced to the facts the script controls. */
 export function replayFacts(replay) {
   return { hasMark: replay.includes(MARK), leakedMarker: replay.includes(']697;') };
@@ -130,8 +204,14 @@ export async function play(script, driver) {
         steps.push({ call: op.name, params: op.params, error: error instanceof Error ? error.message : String(error) });
       }
     } else if (op.op === 'fire') {
-      driver.fire(op.name, op.params);
+      driver.fire(op.name, op.params, op.from);
       steps.push({ fire: op.name });
+    } else if (op.op === 'clock') {
+      driver.clock();
+    } else if (op.op === 'advance') {
+      await driver.advance(op.ms);
+    } else if (op.op === 'close') {
+      driver.close(op.who);
     } else if (op.op === 'lane') {
       driver.lane(op.lane, op.on);
       steps.push({ lane: op.lane, on: op.on });

@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 25110,
+      "bytes": 35475,
       "path": "golden.json",
-      "sha256": "aa4984cb5a5795794d660908f1e013220f0fafbe73dc506e0ab82384223154e7"
+      "sha256": "fa344dddd36890e0e3834f2590c2c0f6707b1b690f6405c92b5180a98a2bbcc6"
     }
   ],
   "product": {
@@ -28,5 +28,5 @@
   "recorder": "benchmarks/rust-core/recorders/record-phone-terminal.mjs",
   "set": "phone-terminal",
   "steps": 44,
-  "totalBytes": 25110
+  "totalBytes": 35475
 }

@@ -8,7 +8,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 import { createPhoneWorld, protocolDialect } from '../../../../benchmarks/rust-core/recorders/lib/phone-world.mjs';
-import { play, terminalScript } from '../../../../benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs';
+import { play, sizeClaimScript, terminalScript } from '../../../../benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs';
 
 // The world replaces the timers with a virtual clock; this scenario's own deadlines are real.
 const realSetTimeout = globalThis.setTimeout;
@@ -61,10 +61,12 @@ async function main() {
   // The last app-feed stamp the core sent: a reveal injected below continues that feed.
   let appStamp = null;
   let seqShift = 0;
+  let initializeParams = null;
   const dialect = {
     ...protocolDialect({}),
     onFrame(current, frame, log) {
       leg = current;
+      if (frame.method === 'initialize') initializeParams ??= frame.params;
       opened ??= new Promise((resolve, reject) => {
         const ws = new WebSocket(core.url, { headers: { Authorization: `Bearer ${core.token}` }, perMessageDeflate: false });
         ws.once('open', () => resolve(ws));
@@ -130,9 +132,42 @@ async function main() {
   };
   const held = new Map();
 
+  // The second connection of the size-claim cases: a client of its own on the same core, started with the phone's own initialize.
+  let peer = null;
+  const peerSend = (frame) => {
+    peer ??= (async () => {
+      const ws = new WebSocket(core.url, { headers: { Authorization: `Bearer ${core.token}` }, perMessageDeflate: false });
+      await new Promise((resolve, reject) => {
+        ws.once('error', reject);
+        ws.on('message', (data) => {
+          if (JSON.parse(data.toString('utf8')).id === 1) resolve();
+        });
+        ws.once('open', () => ws.send(JSON.stringify({ id: 1, method: 'initialize', params: initializeParams })));
+      });
+      ws.send(JSON.stringify({ method: 'initialized' }));
+      return ws;
+    })();
+    peer = peer.then((ws) => {
+      if (frame) ws.send(JSON.stringify(frame));
+      return ws;
+    });
+  };
+
   const driver = {
     call: (name, params) => rawCall(name, params),
-    fire: (name, params) => rawFire(name, params),
+    fire: (name, params, from) => {
+      if (from !== 'other') return rawFire(name, params);
+      // Node's termResize(id, cols, rows, phoneOwner) as the protocol frame the adapter sends for it.
+      const [tabId, cols, rows] = params;
+      peerSend({ method: 'terminal/resize', params: { tabId, cols, rows, claim: true } });
+    },
+    clock() {},
+    // A real core has no virtual clock: the lease runs on the wall clock, so time moves on by waiting it out. Everything compared is
+    // awaited on its own event; this wait only lets a lease age.
+    advance: (ms) => wait(ms),
+    close(who) {
+      if (who === 'other') void peer?.then((ws) => ws.close());
+    },
     lane(lane, on) {
       if (on) held.set(lane, lanes[lane]());
       else for (const stop of held.get(lane) ?? []) stop();
@@ -165,10 +200,14 @@ async function main() {
     events: () => events,
   };
   try {
-    const trace = await play(script, driver);
+    const trace = JSON.parse(JSON.stringify(await play(script, driver)));
+    for (const list of Object.values(events)) if (Array.isArray(list)) list.length = 0;
+    const claims = await play(sizeClaimScript(ROOT), driver);
+    trace.claims = { steps: claims.steps, sizeOwner: claims.sizeOwner };
     process.stdout.write(`\n@@TRACE@@${JSON.stringify(trace)}\n`);
   } finally {
     for (const stop of off) stop();
+    void peer?.then((ws) => ws.close());
     stopCore(core);
   }
 }
