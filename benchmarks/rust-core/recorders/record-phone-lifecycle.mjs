@@ -9,7 +9,7 @@
 // Each scenario runs in its own process: the shim keeps module-level state (boot reads, the connection timeline) that a second boot
 // in the same process would inherit.
 import { spawnSync } from 'node:child_process';
-import { REPO_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { REPO_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { createPhoneWorld, nodeDialect } from './lib/phone-world.mjs';
 import { SCENARIOS, play } from './lib/phone-scenarios.mjs';
 import { join } from 'node:path';
@@ -76,8 +76,7 @@ writeSetManifest(out, {
   set: 'phone-lifecycle',
   recorder: 'benchmarks/rust-core/recorders/record-phone-lifecycle.mjs',
   command: `node benchmarks/rust-core/recorders/record-phone-lifecycle.mjs --tree <git archive of ${REF} (src, apps) with node_modules>`,
-  identityTree: tree,
-  identityRef: REF,
+  identity: exactProductIdentity(tree, REF),
   extra: { scenarios: Object.keys(recorded).length },
 });
 commitStage(out, finalOut);
