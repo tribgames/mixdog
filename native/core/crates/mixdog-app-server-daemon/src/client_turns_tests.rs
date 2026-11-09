@@ -10,10 +10,20 @@
 //! assembled once, at `start`, with the clients present, as the assembly does at the start of a turn, and the card is the thread's own
 //! gate, waiting for the script's answer as the session's queue does.
 //!
-//! Compared with Node, the whole trace but three things, which have no counterpart in this layer:
-//!  - `patches`: the key names of Node's TUI state store that a step touched. Each is a function of the `card` and `outcome` that are
-//!    compared (a card shown is `toolApproval`, a card answered is `toolApproval` and `toolApprovalResult`); Rust's own publication is the
-//!    protocol's server request, covered by the app server's tests;
+//! The card is replayed twice: over the stand-in card (every scenario), and, for the scenario that detaches and reattaches, over the real
+//! path (`a_card_pending_on_the_real_thread_gate_survives_its_clients`): the thread's own gate is the session actor's `RunPort`, the card
+//! is the `item/tool/requestApproval` the actor publishes into the app server's `Outgoing`, the client is a real connection that is
+//! dropped while the card is pending (`connection_close.rs`) and reopened, is sent the very pending request (`server.rs:176-180`),
+//! and answers it over the wire.
+//!
+//! Compared with Node, the whole trace but these, which have no counterpart in this layer:
+//!  - `patches`: the key names of Node's TUI state store that a step touched. They come only from the two `set(...)` calls that show and
+//!    settle a card (`src/tui/session/tool-approval.mjs:108,155`: `{toolApproval, toolApprovalResult}`), so each is a function of the
+//!    `card` and `outcome` that are compared; Rust's own publication is the protocol's server request;
+//!  - the `args`, `reason` and `timeoutMs` of a card, and `at`, `expired`, `interrupted` of an outcome: the TUI store's presentation
+//!    of the ask (`at` is `Date.now()`, `expired`/`interrupted` are set only by the turn-abort path at `tool-approval.mjs:200-206` and the opt-in expiry, none
+//!    of which the default scenarios reach); the tool's name and the absence of an expiry are compared, and the real-path test
+//!    additionally asserts the reattached client is sent the identical request frame;
 //!  - the text of an allowed call in `toolMessages`: it is the `read` tool's output, not the approval's; every denial is compared exactly;
 //!  - the two scenarios that set `MIXDOG_TOOL_APPROVAL_TIMEOUT_MS`, the opt-in limit (its source says "tests and ops use"): Rust has no such
 //!    setting, its cards carry no expiry (`expires_after: None`), which is Node's default; they are asserted to be exactly those two.
@@ -194,4 +204,245 @@ async fn a_client_turn_whose_clients_leave_keeps_its_card_as_node_does() {
         }
         assert_eq!(got.len(), want.len(), "{}", scenario["name"]);
     }
+}
+
+// ---- the real path: the thread's own gate (`RunPort` over the session actor), the app server's connections and the real directory ----
+
+struct RealCore {
+    mock: Arc<mixdog_core_api::mock::MockCore>,
+    directory: Arc<mixdog_core_session::session::SessionDirectory>,
+}
+
+/// The core of the composition for what this test reads: the real session directory behind `threads()`, the mock for the rest.
+impl mixdog_core_api::CoreHandle for RealCore {
+    fn threads(&self) -> &dyn mixdog_core_api::ThreadDirectory {
+        &*self.directory
+    }
+    fn app_feed(&self) -> Arc<dyn mixdog_core_api::FeedSource> {
+        self.mock.app_feed()
+    }
+    fn scoped_feed(&self, id: &mixdog_core_api::ids::FeedId) -> Option<Arc<dyn mixdog_core_api::FeedSource>> {
+        self.mock.scoped_feed(id)
+    }
+    fn ops(&self) -> &dyn mixdog_core_api::OpIndex {
+        self.mock.ops()
+    }
+    fn domain_for(&self, method: &str) -> Option<&dyn mixdog_core_api::DomainService> {
+        self.mock.domain_for(method)
+    }
+    fn host_media(&self) -> &dyn mixdog_core_api::HostMediaSink {
+        self.mock.host_media()
+    }
+    fn lifecycle(&self) -> watch::Receiver<mixdog_core_api::CoreState> {
+        self.mock.lifecycle()
+    }
+    fn connection_closed(&self, connection: mixdog_core_api::ids::ConnectionId) {
+        self.mock.connection_closed(connection);
+    }
+    fn connection_opened(&self, connection: mixdog_core_api::ids::ConnectionId, origin: mixdog_protocol::Origin, device: &str, kind: ConnectionKind) {
+        self.mock.connection_opened(connection, origin, device, kind);
+    }
+    fn request_started(&self) -> mixdog_core_api::handle::RequestGuard {
+        self.mock.request_started()
+    }
+}
+
+/// The server-request sink the session actor publishes into: the app server's `Outgoing`, counting what the actor published.
+struct Published {
+    outgoing: Arc<mixdog_app_server::Outgoing>,
+    arrived: tokio::sync::Semaphore,
+    frames: Mutex<Vec<Value>>,
+}
+
+impl mixdog_core_api::ServerRequestSink for Published {
+    fn publish(&self, req: mixdog_core_api::server_request::PendingServerRequest) {
+        self.frames.lock().unwrap().push(serde_json::from_slice(&req.frame).expect("a frame"));
+        self.outgoing.publish(req);
+        self.arrived.add_permits(1);
+    }
+    fn resolved(&self, id: &mixdog_core_api::ids::ServerRequestId, frame: bytes::Bytes) {
+        self.outgoing.resolved(id, frame);
+    }
+    fn response_rejected(&self, to: mixdog_core_api::ids::ConnectionId, error: mixdog_core_api::CoreError) {
+        self.outgoing.response_rejected(to, error);
+    }
+}
+
+async fn connect(server: &mixdog_app_server::AppServer, id: u64, thread: &str) -> Client {
+    use mixdog_core_api::mock::MockConnection;
+    use mixdog_core_api::mock::MockLimits;
+
+    let wire = Arc::new(MockConnection::new(mixdog_core_api::ids::ConnectionId(id), MockLimits::default()));
+    let client = Client::new(server.open(mixdog_core_api::ids::ConnectionId(id), wire.clone()), wire);
+    client.request(0, "initialize", json!({ "clientInfo": { "name": "Pixel", "version": env!("CARGO_PKG_VERSION"), "kind": "desktop" }, "capabilities": { "approvalsInbox": false } }));
+    client.response(0).await;
+    client.request(1, "thread/resume", json!({ "threadId": thread, "window": { "lastItems": 10 } }));
+    client.response(1).await;
+    client
+}
+
+/// Scenario 0 of the recording (the clients leave before the tool is asked; a hundred years pass; a client returns and approves) on the
+/// real path: the gate of the turn is the thread's own, a `RunPort` that sends its ask to the session actor, which publishes it to the
+/// app server's connections; the clients are real connections of the real server (`ConnectionHandle`, dropped as a transport drops them),
+/// and the answer is the client's response frame, routed by the server to the actor (`server.rs` `on_response`).
+#[tokio::test(start_paused = true)]
+async fn a_card_pending_on_the_real_thread_gate_survives_its_clients() {
+    use mixdog_core_api::call::CallContext;
+    use mixdog_core_api::call::CoreRequest;
+    use mixdog_core_api::ids::Method;
+    use mixdog_core_api::ids::OpId;
+    use mixdog_core_api::mock::MockCore;
+    use mixdog_core_api::mock::MockLimits;
+    use mixdog_core_session::session::RunOutcome;
+    use mixdog_core_session::session::SessionDirectory;
+    use mixdog_core_session::session::approval_surfaces::ThreadApprovalSurfaces;
+    use mixdog_core_session::session::testing::Rig;
+
+    let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
+    let scenario = &golden["scenarios"][0];
+    assert_eq!(scenario["env"], json!({}));
+    let member = scenario["session"].as_str().expect("the session").to_owned();
+    let outgoing = mixdog_app_server::Outgoing::new();
+    let rig = Rig::new();
+    let published = Arc::new(Published { outgoing: outgoing.clone(), arrived: tokio::sync::Semaphore::new(0), frames: Mutex::default() });
+    let mut parts = rig.deps_parts(rig.store.clone());
+    parts.server_requests = published.clone();
+    let directory = Arc::new(SessionDirectory::new(Arc::new(parts)));
+    let core = Arc::new(RealCore { mock: Arc::new(MockCore::new(&[], MockLimits::default())), directory: directory.clone() });
+    let server = mixdog_app_server::AppServer::new(core, outgoing.clone(), Arc::new(|_| Some(mixdog_protocol::Origin::Local)), crate::server::server_config(mixdog_app_protocol::limits::Limits::default(), Default::default()))
+        .expect("the default limits are valid");
+    let surfaces = Arc::new(ThreadApprovalSurfaces::new(directory.clone(), outgoing.clone()));
+    let mut scene = Scene::over(scenario["now"].as_i64().expect("now"), Arc::new(AtomicBool::new(false)), surfaces);
+    *scene.hook.lock().unwrap() = Some(HookDecision { action: HookAction::Ask, reason: Some("needs approval".into()), name: None, args: None });
+
+    // The turn: its gate is assembled when the run starts, over the run's own port, and then serves the calls the test sends it.
+    let kit = scene.kit();
+    let (calls, wanted) = mpsc::unbounded_channel::<(String, GateCall)>();
+    let (settled, mut results) = mpsc::unbounded_channel::<Value>();
+    let (ready, mut started) = mpsc::unbounded_channel::<()>();
+    let wanted = Arc::new(Mutex::new(Some(wanted)));
+    rig.set_script(Arc::new(move |run| {
+        let (kit, wanted, settled, ready) = (kit.clone(), wanted.clone(), settled.clone(), ready.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let gate = kit.gate_over(run.thread.as_str(), Arc::new(run.port.clone()));
+            let mut wanted = wanted.lock().unwrap().take().expect("one run");
+            ready.send(()).expect("the test waits");
+            while let Some((id, call)) = wanted.recv().await {
+                let outcome = present(&call, gate.check_call(&id, &call).await);
+                settled.send(outcome).expect("the test waits");
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    directory.create_with_id(ThreadId::from(member.as_str()), serde_json::Map::new(), json!({})).await.expect("the thread");
+
+    let mut trace = Vec::new();
+    let mut client = None;
+    let mut sends = 0;
+    let mut outcome = Value::Null;
+    let mut tool_messages: Vec<String> = Vec::new();
+    let mut shown: Option<Value> = None;
+    let replies = scenario["replies"].as_array().unwrap();
+    let mut released = 0;
+    let mut turn_done = false;
+    for op in scenario["script"].as_array().unwrap() {
+        match op["op"].as_str().unwrap() {
+            "start" => {
+                client = Some(connect(&server, 1, &member).await);
+                let handle = directory.handle(&ThreadId::from(member.as_str())).expect("loaded");
+                use mixdog_core_api::ThreadHandle;
+                handle
+                    .request(CoreRequest { method: Method("turn/start"), params: json!({ "threadId": member, "opId": "op-1", "input": { "prompt": "go" } }), op: Some(OpId::from("op-1")), ctx: CallContext::internal("test") })
+                    .await
+                    .expect("turn/start");
+                started.recv().await.expect("the run started");
+                sends = 1;
+                trace.push(json!({ "op": "start", "sends": sends }));
+            }
+            "detach" => {
+                // The transport drops the connection: `ConnectionHandle` drops, as on every end path.
+                client = None;
+                trace.push(json!({ "op": "detach", "card": shown.as_ref().map(real_card) }));
+            }
+            "reattach" => {
+                client = Some(connect(&server, 2, &member).await);
+                trace.push(json!({ "op": "reattach", "card": shown.as_ref().map(real_card) }));
+            }
+            "release" => {
+                let reply = &replies[released];
+                released += 1;
+                if let Some(tool) = reply["toolCalls"].get(0) {
+                    let call = GateCall::new(tool["name"].as_str().unwrap().to_owned(), tool["arguments"].clone());
+                    calls.send((tool["id"].as_str().unwrap().to_owned(), call)).expect("the run waits");
+                    tokio::select! {
+                        arrived = published.arrived.acquire() => arrived.expect("the card").forget(),
+                        outcome = results.recv() => panic!("{}: the call settled without a card: {outcome:?}", scenario["name"]),
+                        push = scene.waiting.recv() => panic!("{}: the ask was held, not published to the clients: {push:?}", scenario["name"]),
+                    }
+                    shown = published.frames.lock().unwrap().last().cloned();
+                } else {
+                    turn_done = true;
+                }
+                trace.push(json!({ "op": "release", "sends": sends, "turnDone": turn_done, "card": shown.as_ref().map(real_card), "outcome": outcome }));
+            }
+            "facts" => {
+                let facts = FactSources { catalog: Arc::new(EmptyCatalog), watches: Arc::new(NoWatches), held: scene.held.clone(), routines: Arc::new(NoRoutines) }.collect(0).await.expect("the facts");
+                trace.push(json!({ "op": "facts", "approvals": facts.approvals, "card": shown.as_ref().map(real_card) }));
+            }
+            "advance" => {
+                let ms = op["ms"].as_u64().unwrap();
+                tokio::time::advance(Duration::from_millis(ms)).await;
+                trace.push(json!({ "op": "advance", "ms": ms, "card": shown.as_ref().map(real_card) }));
+            }
+            "answer" => {
+                let client = client.as_ref().expect("a client has returned");
+                // The card is still there: the reattached connection is sent the very request the actor published.
+                let frame = client.approval_request().await;
+                assert_eq!(Some(&frame), shown.as_ref(), "{}: the returning client is sent the pending card", scenario["name"]);
+                let decision = &op["decision"];
+                client.handle.on_message(
+                    serde_json::from_value(json!({ "id": frame["id"], "result": { "approved": decision["approved"], "response": if decision["approved"] == true { "approve" } else { "deny" }, "reason": decision["reason"] } })).expect("a response"),
+                );
+                let settled = results.recv().await.expect("the call settles");
+                tool_messages.push(settled["denial"].as_str().map_or_else(|| "allowed".to_owned(), str::to_owned));
+                sends += 1;
+                outcome = json!({ "approved": decision["approved"], "device": "Pixel" });
+                shown = None;
+                trace.push(json!({ "op": "answer", "card": Value::Null, "outcome": outcome }));
+            }
+            other => panic!("unknown op {other}"),
+        }
+    }
+    trace.push(json!({ "op": "end", "answer": replies[released - 1]["content"], "sends": sends, "toolMessages": tool_messages, "card": Value::Null, "outcome": outcome }));
+    drop(calls);
+    drop(client);
+
+    // Compared with the recording: the steps, and of each step the fields the real request carries (see `real_card`); the recording's
+    // `waiting` and `patches` are the TUI store's, and its `outcome.at`, `expired` and `interrupted` are not on a wire answer.
+    let want: Vec<Value> = recorded(scenario).into_iter().map(|step| project(&step)).collect();
+    assert_eq!(trace.iter().map(project).collect::<Vec<_>>(), want);
+}
+
+/// The card of a published request, in the recording's terms: the tool it names and that it carries no expiry.
+fn real_card(frame: &Value) -> Value {
+    json!({ "name": frame["params"]["name"], "expiresAt": frame["params"]["expiresAt"] })
+}
+
+/// The fields of a step both sides have: its shape, the card's tool and (no) expiry, the heartbeat count, the answer and what the model was told.
+fn project(step: &Value) -> Value {
+    let card = |c: &Value| if c.is_null() { Value::Null } else { json!({ "name": c["name"], "expiresAt": c["expiresAt"] }) };
+    let mut out = json!({ "op": step["op"] });
+    for key in ["sends", "turnDone", "approvals", "answer", "toolMessages", "ms"] {
+        if let Some(v) = step.get(key) {
+            out[key] = v.clone();
+        }
+    }
+    if let Some(c) = step.get("card") {
+        out["card"] = card(c);
+    }
+    if let Some(o) = step.get("outcome").filter(|o| !o.is_null()) {
+        out["outcome"] = json!({ "approved": o["approved"], "device": o["device"] });
+    }
+    out
 }
