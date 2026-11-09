@@ -42,6 +42,9 @@ export const MODELS = [
   ['Grok 4.7', 'opencode-go', 'grok-4.7'],
 ];
 
+/** The model list as results.json records it: every model with the route and model id it is measured through. */
+export const recordedModels = () => MODELS.map(([name, provider, model, effort]) => ({ name, provider, model, ...(effort ? { effort } : {}) }));
+
 /** The prompt-side token total of the first model request in `mixdogd exec --json` output. */
 export function inputTokensOfFirstRequest(stdout, provider) {
   for (const line of String(stdout).split(/\r?\n/)) {
@@ -162,7 +165,8 @@ async function main(args) {
   const table = renderTable(results);
   // Figures (cards + heatmap) are rendered from results.json by chart.mjs.
   mkdirSync(OUT, { recursive: true });
-  writeFileSync(RESULTS_JSON, JSON.stringify({ sentences: N, results }, null, 2));
+  const unmeasured = MODELS.filter(([name]) => !byName.has(name)).map(([name]) => ({ name, reason: 'the run produced no row for this model (see the FAILED line of that run)' }));
+  writeFileSync(RESULTS_JSON, JSON.stringify({ sentences: N, results, models: recordedModels(), unmeasured }, null, 2));
   writeFileSync(join(OUT, 'table.md'), `${table}\n`);
   console.log(table);
 }

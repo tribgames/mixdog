@@ -13,12 +13,18 @@ test('the table is the one Node measured: rendering results.json gives table.md'
   assert.equal(`${renderTable(results)}\n`, readFileSync(new URL('./results/table.md', import.meta.url), 'utf8'));
 });
 
-// The comparison drops "Qwen 3.8 Flash" on purpose: MODELS lists it, but results/results.json (the recorded run)
-// holds only the other eight models, so there is no recorded row to compare it against.
-test('every model results.json holds is measured, in its order (results.json predates Qwen)', () => {
+// results.json records the whole model list (`models`: name, route, model id, effort) and names the models it has no
+// measurement for (`unmeasured`, with the reason: Qwen 3.8 Flash has no row in the Node run). The test compares the
+// complete list, so a removed, renamed, remapped or added model fails it; nothing is filtered out.
+test('results.json records the whole model list, and every model has a row or a stated reason', () => {
   const recorded = JSON.parse(readFileSync(new URL('./results/results.json', import.meta.url), 'utf8'));
-  // Dropped: Qwen 3.8 Flash (in MODELS, absent from results/results.json's model list); Node's measure.mjs never recorded it.
-  assert.deepEqual(MODELS.map(([name]) => name).filter((name) => recorded.results.some((row) => row.name === name)), recorded.results.map((row) => row.name));
+  assert.deepEqual(recorded.models, MODELS.map(([name, provider, model, effort]) => ({ name, provider, model, ...(effort ? { effort } : {}) })));
+  const measured = recorded.results.map((row) => row.name);
+  const unmeasured = recorded.unmeasured.map((row) => row.name);
+  assert.deepEqual(unmeasured, ['Qwen 3.8 Flash']);
+  assert.ok(recorded.unmeasured.every((row) => row.reason.length > 20));
+  assert.deepEqual(MODELS.map(([name]) => name), recorded.models.map((model) => model.name));
+  assert.deepEqual(MODELS.map(([name]) => name).filter((name) => !unmeasured.includes(name)), measured, 'rows are the models without a stated gap, in order');
   assert.deepEqual(LANGS.map(([lang]) => lang), Object.keys(recorded.results[0].net));
 });
 

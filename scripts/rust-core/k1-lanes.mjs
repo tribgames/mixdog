@@ -3,11 +3,14 @@
 // `cargo test` run per filter over tests that already exist in native/core. cargo passes a filter that matches
 // nothing, so each run first lists what the filter selects (`-- --list`) and fails on zero; k1-lanes.test.mjs
 // proves the same for every filter.
-// Usage: node scripts/rust-core/k1-lanes.mjs [--list] [--runner "cargo test"] [lane...]   (no lane: all)
+// Usage: node scripts/rust-core/k1-lanes.mjs [--list] [--dry-run] [--runner "cargo test"] [lane...]   (no lane: all;
+// --dry-run prints each lane, filter and command without running cargo)
 import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// On Windows cargo may be a .cmd shim (a wrapper that queues builds), which only a shell resolves.
+const SHELL = process.platform === 'win32';
 const CORE = resolve(dirname(fileURLToPath(import.meta.url)), '../../native/core');
 
 // package.json scripts and workflow steps each lane stands in for.
@@ -32,16 +35,31 @@ export function commandOf(lane, runner = 'cargo test', filter = null) {
 /** The tests one lane filter selects, from libtest's own `--list`. cargo runs a filter that matches nothing and
  *  reports success, so a lane must see at least one name here before it runs. */
 export function selectedTests(lane, filter = null, cwd = CORE) {
-  const result = spawnSync('cargo', ['test', '-p', LANES[lane].pkg, '--locked', ...(filter ? [filter] : []), '--', '--list'], { cwd, encoding: 'utf8', maxBuffer: 64 << 20 });
+  const result = spawnSync('cargo', ['test', '-p', LANES[lane].pkg, '--locked', ...(filter ? [filter] : []), '--', '--list'], { cwd, encoding: 'utf8', maxBuffer: 64 << 20, shell: SHELL });
   if (result.status !== 0) throw new Error(`cargo test --list failed for ${lane} ${filter ?? ''}\n${result.stderr}`);
   return result.stdout.split(/\r?\n/).filter((line) => line.endsWith(': test')).map((line) => line.slice(0, -': test'.length));
 }
 
+/** The command line: lane names (positional), `--runner <cmd>`, `--list`, `--dry-run`. */
+export function parseArgs(argv) {
+  const options = { runner: 'cargo test', list: false, dryRun: false, names: [] };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === '--runner') {
+      i += 1;
+      if (argv[i] === undefined) throw new Error('--runner needs a command');
+      options.runner = argv[i];
+    } else if (arg === '--list') options.list = true;
+    else if (arg === '--dry-run') options.dryRun = true;
+    else if (arg.startsWith('--')) throw new Error(`unknown option ${arg}`);
+    else options.names.push(arg);
+  }
+  return options;
+}
+
 function main(argv) {
-  const runnerAt = argv.indexOf('--runner');
-  const runner = runnerAt >= 0 ? argv[runnerAt + 1] : 'cargo test';
-  const names = argv.filter((arg, i) => !arg.startsWith('--') && i !== runnerAt + 1);
-  if (argv.includes('--list')) {
+  const { runner, list, dryRun, names } = parseArgs(argv);
+  if (list) {
     for (const [name, lane] of Object.entries(LANES)) console.log(`${name}\t${lane.replaces}`);
     return 0;
   }
@@ -51,13 +69,17 @@ function main(argv) {
     const { filters } = LANES[name];
     for (const filter of filters.length ? filters : [null]) {
       const run = commandOf(name, runner, filter);
+      if (dryRun) {
+        console.log(`${name}\t${filter ?? '(all)'}\t${run.program} ${run.args.join(' ')}`);
+        continue;
+      }
       const count = selectedTests(name, filter).length;
       if (count === 0) {
         console.error(`lane ${name}: filter ${filter ?? '(all)'} selects no test`);
         return 1;
       }
       console.log(`== ${name}: ${run.program} ${run.args.join(' ')}  (${count} tests)`);
-      const result = spawnSync(run.program, run.args, { cwd: CORE, stdio: 'inherit' });
+      const result = spawnSync(run.program, run.args, { cwd: CORE, stdio: 'inherit', shell: SHELL });
       if (result.status !== 0) return result.status ?? 1;
     }
   }
