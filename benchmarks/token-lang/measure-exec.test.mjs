@@ -24,6 +24,7 @@ test('results.json records the whole model list, and every model has a row or a 
   assert.deepEqual(unmeasured, ['Qwen 3.8 Flash']);
   assert.ok(recorded.unmeasured.every((row) => row.reason.length > 20));
   assert.deepEqual(MODELS.map(([name]) => name), recorded.models.map((model) => model.name));
+  // The only name dropped is the one asserted above, Qwen 3.8 Flash; Node's measure.mjs run has no row for it either.
   assert.deepEqual(MODELS.map(([name]) => name).filter((name) => !unmeasured.includes(name)), measured, 'rows are the models without a stated gap, in order');
   assert.deepEqual(LANGS.map(([lang]) => lang), Object.keys(recorded.results[0].net));
 });
