@@ -92,17 +92,6 @@ impl HostRuntime for LiveHostRuntime {
         self.header_text(id, "cwd").unwrap_or_default()
     }
 
-    /// The committed messages (`session.messages`, `refreshSessionWorkspaceContext`'s `hasUserConversationMessage`): a turn that
-    /// has settled leaves nothing live, so only the stored rows tell an idle session's conversation.
-    async fn has_messages(&self, id: &str) -> Result<bool, ScmFailure> {
-        self.directory.holds_user_conversation(&ThreadId::from(id)).await.map_err(port)
-    }
-
-    /// The committed rows or the running turn's (`session-view.mjs`: `messages` or `liveTurnMessages`).
-    async fn has_conversation(&self, id: &str) -> Result<bool, ScmFailure> {
-        self.directory.holds_conversation(&ThreadId::from(id)).await.map_err(port)
-    }
-
     /// Node `applyResolvedCwd`: `writeLastSessionCwd(cwd, session.clientHostPid)`, then `moveLeadRow` (`update_lead_worker_cwd`, which cannot throw; Node swallows its
     /// throws). The header `cwd` is `SessionWorkspaceHost::save`'s. NOT here (no Rust call yet, run-host): the folder-exists check, the `CwdChanged` hook, the code-graph prewarm.
     async fn set_runtime_cwd(&self, id: &str, cwd: &str) -> Result<(), ScmFailure> {

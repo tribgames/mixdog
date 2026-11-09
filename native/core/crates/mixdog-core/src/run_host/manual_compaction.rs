@@ -352,16 +352,18 @@ impl ManualCompaction for HostManualCompaction {
     }
 
     /// `compactConversationForHeir`: the source's whole transcript through the source's own compactor, sized by the heir's
-    /// budget. Nothing is committed: the result is returned and the source keeps every message. A pass that is asked to
-    /// `summarize` runs on a copy of the source's header whose conversation threshold is the floor (1).
+    /// budget. The compactor sees the system blocks the source's requests lead with (`source.messages` holds them), so
+    /// its protected head and its budget count them; only the conversation half of the result travels. Nothing is
+    /// committed: the source keeps every message. A pass that is asked to `summarize` runs on a copy of the source's
+    /// header whose conversation threshold is the floor (1).
     async fn compact_for_heir(&self, source: &ThreadId, budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, CoreError> {
         let parts = &self.parts;
-        let Some(snapshot) = parts.world.snapshot(Some(source)).await? else { return Ok(None) };
+        let Ok(stored) = parts.threads.header(source).await else { return Ok(None) };
         let Some(directory) = parts.next.bound().and_then(|(directory, _)| directory.upgrade()) else { return Ok(None) };
         let context = directory.model_context(source).read().await?;
         let rows: Vec<Value> = context.iter().map(|(_, row)| row.clone()).collect();
-        let messages = rows.iter().map(|row| message_of(row).map_err(|e| failed(DOMAIN, e))).collect::<Result<Vec<_>, _>>()?;
-        let mut header = snapshot.header.clone();
+        let messages = super::factory::session_messages(&stored, &rows).map_err(|e| failed(DOMAIN, e))?;
+        let mut header = stored;
         if summarize {
             let mut compaction = header.get("compaction").and_then(Value::as_object).cloned().unwrap_or_default();
             compaction.insert("conversationThresholdTokens".into(), json!(1));

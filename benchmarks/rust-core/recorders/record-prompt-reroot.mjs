@@ -9,11 +9,15 @@
 // (`snapshotPrompt`, transition-steps.mjs) restores the `before` state exactly.
 //
 //   node <repo>/benchmarks/rust-core/recorders/record-prompt-reroot.mjs --tree <tree>
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { FIXTURES_ROOT, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, REPO_ROOT, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
+
+// The Node release the Rust port is compared with.
+const NODE_COMMIT = execFileSync('git', ['rev-parse', 'b6f10295a^{commit}'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
 
 const repo = resolveTree(parseArgs());
 const sandbox = mkdtempSync(join(tmpdir(), 'prompt-reroot-'));
@@ -29,6 +33,7 @@ const { composeSystemPrompt } = await at('src/runtime/agent/orchestrator/context
 const { refreshSessionBp3Environment, refreshSessionWorkspaceContext } = await at(
   'src/runtime/agent/orchestrator/session/manager/prompt-utils.mjs'
 );
+const { estimateMessagesTokens } = await at('src/runtime/agent/orchestrator/session/context-utils.mjs');
 
 const SEP = '\n\n---\n\n';
 const LANGUAGE = '# Language\n\n- Always respond in Korean.';
@@ -81,6 +86,9 @@ const state = (session) =>
       tier3: tier(session, 'tier3'),
       env: tier(session, 'env'),
       systemOnly: session.messages.every((m) => m.role === 'system'),
+      // The prompt blocks a workspace move rewrites, priced as the context gauge prices them.
+      promptTokens: estimateMessagesTokens(session.messages.filter((m) => m.cacheTier === 'tier3' || m.cacheTier === 'env')),
+      conversation: session.messages.filter((m) => m.role !== 'system').map(({ role, content }) => ({ role, content })),
     })
   );
 
@@ -106,6 +114,11 @@ const scenarios = [
   ['split, staged change applied first', () => staged({}), FULL],
   ['legacy, staged change applied first', () => staged({ split: false }), { cwd: WORKTREE, instructionFilesContext: FULL.instructionFilesContext }],
   ['model without date', () => sessionFor('C:/repo', { model: 'claude-opus-4-1' }), { cwd: WORKTREE }],
+  // A session with a conversation keeps its prompt byte for byte (the provider's cache): the change is staged, not applied.
+  ['conversation, split, full change', () => sessionFor('C:/repo', { conversation: true }), FULL],
+  ['conversation, legacy, full change', () => sessionFor('C:/repo', { split: false, conversation: true }), FULL],
+  ['conversation, split, cwd only', () => sessionFor('C:/repo', { conversation: true }), { cwd: WORKTREE }],
+  ['conversation, agent owner', () => sessionFor('C:/repo', { owner: 'agent', conversation: true }), { ...FULL, coreMemoryContext: undefined }],
 ];
 
 const cases = scenarios.map(([name, build, context]) => {
@@ -125,6 +138,7 @@ writeSetManifest(set, {
   recorder: 'benchmarks/rust-core/recorders/record-prompt-reroot.mjs',
   command: 'node <repo>/benchmarks/rust-core/recorders/record-prompt-reroot.mjs --tree <tree>',
   identityTree: repo,
+  identityRef: NODE_COMMIT,
 });
 console.log(`recorded ${cases.length} cases`);
 process.exit(0);

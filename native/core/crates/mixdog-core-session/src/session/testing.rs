@@ -101,12 +101,17 @@ pub struct TestCompaction {
     /// What `compact_for_heir` answers (the rows of the compacted conversation), and each ask: the budget and `summarize`.
     pub heir_rows: Mutex<Option<Vec<Value>>>,
     pub heir_asked: Mutex<Vec<(u64, bool)>>,
+    /// `compact_for_heir` fails (the compactor threw).
+    pub heir_fails: std::sync::atomic::AtomicBool,
 }
 
 #[async_trait::async_trait]
 impl super::turn_ops::ManualCompaction for TestCompaction {
     async fn compact_for_heir(&self, _: &ThreadId, budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, mixdog_core_api::CoreError> {
         lock(&self.heir_asked).push((budget_tokens, summarize));
+        if self.heir_fails.load(Ordering::SeqCst) {
+            return Err(mixdog_core_api::CoreError::Internal { incident_id: "compactor-failed".into() });
+        }
         Ok(lock(&self.heir_rows).clone())
     }
     async fn compact(&self, _: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, mixdog_core_api::CoreError> {
@@ -155,13 +160,15 @@ pub struct TestInherit {
     pub asked: Mutex<Vec<(String, String, Option<u64>, Option<ThreadId>, usize)>>,
     /// `inheritanceCompactionPlan(target).budgetTokens`; `None` is a route with no boundary to compact toward.
     pub budget: Mutex<Option<u64>>,
+    /// What a conversation of that many messages measures (`limit`, `used`, `compactable`), before `basis` answers.
+    pub measured: Mutex<std::collections::HashMap<usize, (u64, u64, bool)>>,
 }
 
 #[async_trait::async_trait]
 impl super::inheritance::InheritanceFit for TestInherit {
     async fn basis(&self, target: &super::inheritance::InheritTarget, messages: &[Value]) -> Option<super::inheritance::FitBasis> {
         lock(&self.asked).push((target.provider.clone(), target.model.clone(), target.selected_context_window, target.tools_of.clone(), messages.len()));
-        let (limit, used, compactable) = (*lock(&self.basis))?;
+        let (limit, used, compactable) = lock(&self.measured).get(&messages.len()).copied().or(*lock(&self.basis))?;
         Some(super::inheritance::FitBasis { limit, used, compactable })
     }
     async fn compaction_budget(&self, _: &super::inheritance::InheritTarget) -> Option<u64> {
@@ -227,6 +234,8 @@ pub struct MemStore {
     pub head_reads: AtomicU64,
     /// The next barrier fails (rolled back).
     pub fail_next: Arc<AtomicBool>,
+    /// The next read of a thread's model context fails.
+    pub fail_context: AtomicBool,
     /// The catalog lists every session (session_meta answers a bare row, not None).
     pub listed: AtomicBool,
     /// The next `create_log` tells `.0` it arrived, then waits for `.1` before it commits.
@@ -387,6 +396,9 @@ impl ThreadStore for MemStore {
         id: &ThreadId,
         _read: Option<ContextRead>,
     ) -> Result<ContextRead, CoreError> {
+        if self.fail_context.swap(false, Ordering::SeqCst) {
+            return Err(CoreError::Internal { incident_id: "context-read-failed".into() });
+        }
         Ok(ContextRead(Box::new(self.records(id))))
     }
 

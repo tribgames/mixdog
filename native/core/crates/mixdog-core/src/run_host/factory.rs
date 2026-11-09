@@ -851,6 +851,15 @@ impl mixdog_agent::env::McpCatalog for ThreadMcp {
     }
 }
 
+/// `session.messages`: the system blocks the session's requests lead with, then its stored conversation rows.
+pub(crate) fn session_messages(header: &mixdog_store::schema::record::Header, rows: &[Value]) -> Result<Vec<AgentMessage>, String> {
+    let mut messages = system_messages(header);
+    for row in rows {
+        messages.push(super::message_row::message_of(row)?);
+    }
+    Ok(messages)
+}
+
 /// The request's system messages: the header's prompt fields, in Node's order and tiers (WP-PROMPT).
 pub(crate) fn system_messages(header: &mixdog_store::schema::record::Header) -> Vec<AgentMessage> {
     mixdog_core_prompt::prompt::blocks::request_system_messages(header)

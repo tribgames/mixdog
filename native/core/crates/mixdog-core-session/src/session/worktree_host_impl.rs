@@ -49,10 +49,6 @@ pub trait HostRuntime: Send + Sync + 'static {
     async fn attended(&self, session_id: &str) -> bool;
     /// The cwd the session's tools run in.
     fn runtime_cwd(&self, session_id: &str) -> String;
-    /// The session's committed messages hold a user conversation message (`hasUserConversationMessage(session.messages)`).
-    async fn has_messages(&self, session_id: &str) -> Result<bool, ScmFailure>;
-    /// The session has a conversation, committed or in the running turn (`session-view.mjs`).
-    async fn has_conversation(&self, session_id: &str) -> Result<bool, ScmFailure>;
     /// Retarget the runtime cwd, the cwd override, the last-session cwd and the Lead's pool row.
     async fn set_runtime_cwd(&self, session_id: &str, cwd: &str) -> Result<(), ScmFailure>;
     /// The prompt's `presentedWorkspace`: `{cwd, environmentContext, coreMemoryContext,
@@ -174,7 +170,8 @@ impl WorkspaceHost for SessionWorkspaceHost {
     }
 
     async fn has_conversation(&self, session_id: &str) -> Result<bool, ScmFailure> {
-        self.runtime.has_conversation(session_id).await
+        // `session-view.mjs`: the committed messages or the running turn's.
+        self.directory.holds_conversation(&ThreadId::from(session_id)).await.map_err(port)
     }
 
     async fn ensure_session(&self, session_id: &str) -> Result<(), ScmFailure> {
@@ -239,7 +236,16 @@ impl WorkspaceHost for SessionWorkspaceHost {
                     return Err(error);
                 }
             };
-            if self.runtime.has_messages(session_id).await? {
+            // `refreshSessionWorkspaceContext` reads the committed messages (`session.messages`): a settled turn leaves
+            // nothing live, so only the stored rows tell an idle session's conversation.
+            let has_messages = match self.directory.holds_user_conversation(&ThreadId::from(session_id)).await {
+                Ok(has_messages) => has_messages,
+                Err(error) => {
+                    run_undos(undos).await;
+                    return Err(port(error));
+                }
+            };
+            if has_messages {
                 let presented = self.runtime.presented_workspace(session_id).await;
                 let from = change.moved.as_ref().map(|m| (m.from.as_str(), m.changes.as_deref()));
                 let staged = staged_reroot(header.get("workspaceReroot"), &presented, &change.cwd, &context, from);

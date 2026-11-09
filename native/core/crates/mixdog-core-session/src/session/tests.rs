@@ -1211,180 +1211,118 @@ async fn a_turn_creates_the_session_of_a_thread_that_has_none() {
     assert_eq!(*lock(&steps), [json!(["adopt", "sess_control"]), json!(["seat", "sess_control"])]);
 }
 
-/// `inheritFrom` into a session that exists (`lifecycle/inheritance.mjs`): the checks run in Node's order and carry its texts
-/// (the heir is not the source, it holds no conversation, the source has one), and the conversation lands in the heir, which
-/// keeps its own record, route and title and names the source (`inheritedFromSessionId`).
+/// `inheritFrom` into an existing heir as Node did it (`fixtures/inheritance-carry`, recorded by
+/// `record-inheritance-carry.mjs` from the real `createInheritance` over scripted sessions): the checks in its order and
+/// their texts, what travels and what the heir keeps, what the compactor is asked, and the measured sentence of a refusal.
+/// The scripted fit answers what Node measured for the conversation of that size; the compactor answers what it answered Node.
 #[tokio::test(start_paused = true)]
-async fn an_inherit_into_an_existing_heir_carries_the_conversation_as_node_does() {
-    let rig = Rig::new();
-    let directory = SessionDirectory::new(rig.deps());
-    let header = |value: Value| value.as_object().cloned().expect("header");
-    let route = json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model" });
-    for id in ["sess_source", "sess_empty", "sess_heir"] {
-        directory.create_with_id(ThreadId::from(id), header(route.clone()), json!({})).await.expect("create");
-    }
+async fn an_inherit_into_an_existing_heir_does_what_node_recorded() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/inheritance-carry/golden.json")).expect("golden");
     let ctx = CallContext::internal("test");
-    let append = |id: &'static str, messages: Value| {
-        let directory = &directory;
-        let ctx = ctx.clone();
-        async move {
-            let handle = directory.open_handle(&ThreadId::from(id), &ctx).await.expect("open");
-            let request = CoreRequest { method: mixdog_core_api::ids::Method("thread/roomRows/append"), params: json!({ "messages": messages }), op: None, ctx };
-            handle.request(request).await.expect("append");
-        }
-    };
-    let message = |role: &str, text: &str, id: &str| json!({ "role": role, "content": text, "meta": { "transcript": { "messageId": id, "at": 1 } } });
-    append("sess_source", json!([message("user", "hello", "m1"), message("assistant", "hi", "m2")])).await;
-    let inherit = |source: &'static str, heir: &'static str| {
-        let params = json!({ "threadId": source, "intoThreadId": heir, "opId": "op-inherit" });
-        directory.request(request("thread/fork", params, "op-inherit"))
-    };
-    let refusal = |result: Result<Reply, CoreError>| format!("{:?}", result.err().expect("refused"));
-    assert!(refusal(inherit("sess_source", "sess_source").await).contains("inheritFrom: a session cannot inherit from itself"));
-    assert!(refusal(inherit("sess_empty", "sess_heir").await).contains("inheritFrom: the source session has no conversation to carry"));
-    let Reply::Value(done) = inherit("sess_source", "sess_heir").await.expect("inherit") else { panic!("a value") };
-    assert_eq!((done["messages"].clone(), done["thread"]["id"].clone(), done["provider"].clone(), done["model"].clone()),
-        (json!(2), json!("sess_heir"), json!("custom-harness"), json!("harness-model")));
-    let heir = directory.open_handle(&ThreadId::from("sess_heir"), &ctx).await.expect("open");
-    assert_eq!(heir.cell.header.load().get("inheritedFromSessionId"), Some(&json!("sess_source")));
-    let carried: Vec<String> = directory.rows_of("sess_heir").await.expect("rows").iter().map(|m| m["content"].as_str().unwrap_or_default().to_owned()).collect();
-    assert_eq!(carried, ["hello", "hi"]);
-    assert!(refusal(inherit("sess_source", "sess_heir").await).contains("inheritFrom: this session already holds a conversation"));
-}
-
-/// A directory with a `sess_source` that holds `messages` and the empty `sess_heir`, both on the harness route.
-async fn heir_fixture(rig: &Rig, messages: Value) -> SessionDirectory {
-    let directory = SessionDirectory::new(rig.deps());
-    let route = json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model" });
-    for id in ["sess_source", "sess_heir"] {
-        directory.create_with_id(ThreadId::from(id), route.as_object().cloned().expect("header"), json!({})).await.expect("create");
+    let conversation = |messages: &Value| -> Vec<Value> { messages.as_array().expect("messages").iter().filter(|m| m["role"] != "system").cloned().collect() };
+    async fn append(directory: &SessionDirectory, id: String, messages: Vec<Value>) {
+        let ctx = CallContext::internal("test");
+        let handle = directory.open_handle(&ThreadId::from(id), &ctx).await.expect("open");
+        let request = CoreRequest { method: mixdog_core_api::ids::Method("thread/inheritedRows/append"), params: json!({ "messages": messages }), op: None, ctx };
+        handle.request(request).await.expect("append");
     }
-    let source = directory.open_handle(&ThreadId::from("sess_source"), &CallContext::internal("test")).await.expect("open");
-    // Loaded whole, as a source that holds these rows is (the room post would drop the ones sharing an id).
-    let append = CoreRequest { method: mixdog_core_api::ids::Method("thread/inheritedRows/append"), params: json!({ "messages": messages }), op: None, ctx: CallContext::internal("test") };
-    source.request(append).await.expect("append");
-    directory
+    let mut ran = 0;
+    for case in golden["cases"].as_array().expect("cases") {
+        let name = case["name"].as_str().expect("name");
+        let rig = Rig::new();
+        let directory = SessionDirectory::new(rig.deps());
+        let (source, heir) = (&case["setup"]["source"], &case["setup"]["heir"]);
+        let heir_id = heir["id"].as_str().expect("heir id").to_owned();
+        let header = |title: &Value| json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model", "title": title }).as_object().cloned().expect("header");
+        directory.create_with_id(ThreadId::from(heir_id.clone()), header(&heir["title"]), json!({})).await.expect("create the heir");
+        let heir_rows = conversation(&heir["messages"]);
+        if !heir_rows.is_empty() {
+            append(&directory, heir_id.clone(), heir_rows.clone()).await;
+        }
+        let live = conversation(&heir["liveTurnMessages"]);
+        if !live.is_empty() {
+            let handle = directory.open_handle(&ThreadId::from(heir_id.clone()), &ctx).await.expect("open");
+            handle.cell.turn_messages.send_replace(Arc::new(live));
+        }
+        let source_rows = source.as_object().map(|_| conversation(&source["messages"])).unwrap_or_default();
+        if source["id"] != heir["id"] && source.is_object() {
+            let id = source["id"].as_str().expect("source id").to_owned();
+            directory.create_with_id(ThreadId::from(id.clone()), header(&source["title"]), json!({})).await.expect("create the source");
+            append(&directory, id, source_rows.clone()).await;
+        }
+        for fit in [&case["fit"], &case["fitCompacted"]].into_iter().filter(|fit| fit["known"] == true) {
+            let count = fit["messages"].as_u64().expect("count") as usize;
+            lock(&rig.inherit.measured).insert(count, (fit["limit"].as_u64().expect("limit"), fit["used"].as_u64().expect("used"), case["budgetTokens"].is_u64()));
+        }
+        *lock(&rig.inherit.budget) = case["budgetTokens"].as_u64();
+        match &case["compactorAnswer"] {
+            Value::Array(rows) => *lock(&rig.compaction.heir_rows) = Some(rows.clone()),
+            Value::String(_) => rig.compaction.heir_fails.store(true, std::sync::atomic::Ordering::SeqCst),
+            _ => {}
+        }
+
+        let params = json!({ "threadId": case["sourceId"], "intoThreadId": heir_id, "compact": case["options"]["compact"] == true, "opId": "op-inherit" });
+        let result = directory.request(request("thread/fork", params, "op-inherit")).await;
+        match (&case["outcome"]["ok"], &case["outcome"]["error"]) {
+            (ok, _) if ok.is_object() => {
+                let Reply::Value(done) = result.unwrap_or_else(|error| panic!("{name}: {error:?}")) else { panic!("{name}: a value") };
+                assert_eq!(
+                    (done["messages"].clone(), done["thread"]["id"].clone(), done["provider"].clone(), done["model"].clone()),
+                    (ok["messages"].clone(), ok["sessionId"].clone(), ok["provider"].clone(), ok["model"].clone()),
+                    "{name}"
+                );
+            }
+            // A source that is not stored is the typed `ThreadNotFound` (Node's text: "session <id> was not found").
+            (_, error) if error.as_str().is_some_and(|text| text.ends_with("was not found")) => {
+                assert!(matches!(result, Err(CoreError::ThreadNotFound { .. })), "{name}: {result:?}");
+            }
+            (_, error) => {
+                let refused = format!("{:?}", result.err().unwrap_or_else(|| panic!("{name}: refused")));
+                assert!(refused.contains(error.as_str().expect("the error text")), "{name}: {refused}");
+            }
+        }
+        let held = directory.rows_of(&heir_id).await.expect("rows");
+        let carried: Vec<Value> = held[heir_rows.len()..].iter().map(|m| json!({ "role": m["role"], "content": m["content"] })).collect();
+        let want: Vec<Value> = case["carried"].as_array().expect("carried").iter().map(|m| json!({ "role": m["role"], "content": m["content"] })).collect();
+        assert_eq!(carried, want, "{name}: what travelled");
+        let asked: Vec<(u64, bool)> = case["compactorCalls"].as_array().expect("calls").iter().map(|call| (call["budgetTokens"].as_u64().expect("budget"), call["conversationThresholdTokens"] == 1)).collect();
+        assert_eq!(*lock(&rig.compaction.heir_asked), asked, "{name}: what the compactor was asked");
+        let heir = directory.open_handle(&ThreadId::from(heir_id), &ctx).await.expect("open");
+        let header = heir.cell.header.load();
+        assert_eq!(header.get("title").unwrap_or(&Value::Null), &case["title"], "{name}: title");
+        assert_eq!(header.get("inheritedFromSessionId").unwrap_or(&Value::Null), &case["inheritedFromSessionId"], "{name}: inheritedFromSessionId");
+        if source.is_object() && source["id"] != case["setup"]["heir"]["id"] {
+            assert_eq!(directory.rows_of(source["id"].as_str().expect("id")).await.expect("rows").len(), source_rows.len(), "{name}: the source keeps every message");
+        }
+        ran += 1;
+    }
+    assert_eq!(ran, 13);
 }
 
-async fn inherit_into_heir(directory: &SessionDirectory, compact: bool) -> Result<Reply, CoreError> {
-    let params = json!({ "threadId": "sess_source", "intoThreadId": "sess_heir", "compact": compact, "opId": "op-inherit" });
-    directory.request(request("thread/fork", params, "op-inherit")).await
-}
-
-fn user_and_reply() -> Value {
-    json!([
-        { "role": "user", "content": "hello", "meta": { "transcript": { "messageId": "m1", "at": 1 } } },
-        { "role": "assistant", "content": "hi", "meta": { "transcript": { "messageId": "m2", "at": 1 } } }
-    ])
-}
-
-/// `target.messages.push(...carried)`: every message of the source lands in the heir, whether or not it has an id and
-/// however many share one (the room post's `messageId` dedupe does not apply to a carry).
+/// The reads that decide a workspace move, as Node answered them over committed and running-turn messages
+/// (`hasUserConversationMessage(session.messages)` of `refreshSessionWorkspaceContext`; the intent view of
+/// `worktree-intents.mjs`: committed or live): an idle session whose turn settled still has its conversation.
 #[tokio::test(start_paused = true)]
-async fn an_inherit_carries_every_message_whatever_its_id() {
-    let rig = Rig::new();
-    let directory = heir_fixture(&rig, json!([
-        { "role": "user", "content": "one" },
-        { "role": "assistant", "content": "two" },
-        { "role": "user", "content": "three", "meta": { "transcript": { "messageId": "same" } } },
-        { "role": "assistant", "content": "four", "meta": { "transcript": { "messageId": "same" } } }
-    ])).await;
-    assert_eq!(directory.rows_of("sess_source").await.expect("rows").len(), 4);
-    let Reply::Value(done) = inherit_into_heir(&directory, false).await.expect("inherit") else { panic!("a value") };
-    let carried: Vec<String> = directory.rows_of("sess_heir").await.expect("rows").iter().map(|m| m["content"].as_str().unwrap_or_default().to_owned()).collect();
-    assert_eq!((done["messages"].clone(), carried), (json!(4), ["one", "two", "three", "four"].map(String::from).to_vec()));
-}
-
-/// `hasUserConversationMessage(target.messages) || hasUserConversationMessage(target.liveTurnMessages)`: a heir whose first
-/// turn is running holds a conversation before anything is committed.
-#[tokio::test(start_paused = true)]
-async fn an_inherit_into_a_heir_with_a_turn_in_flight_is_refused() {
-    let rig = Rig::new();
-    let directory = heir_fixture(&rig, user_and_reply()).await;
-    let heir = directory.open_handle(&ThreadId::from("sess_heir"), &CallContext::internal("test")).await.expect("open");
-    heir.cell.turn_messages.send_replace(Arc::new(vec![json!({ "role": "user", "content": "typing" })]));
-    let refused = inherit_into_heir(&directory, false).await.err().expect("refused");
-    assert!(format!("{refused:?}").contains("inheritFrom: this session already holds a conversation"), "{refused:?}");
-    assert!(directory.rows_of("sess_heir").await.expect("rows").is_empty(), "nothing was carried");
-}
-
-/// `fitConversationForHeir` (`inheritance.mjs`): an explicit `compact` summarizes whatever the size and carries the
-/// compacted conversation; one that cannot be compacted is a refusal; a conversation that cannot fit, and cannot be
-/// compacted, is refused in the measured sentence (`inheritanceFitMessage`).
-#[tokio::test(start_paused = true)]
-async fn an_inherit_compacts_as_node_does() {
-    let message = |role: &str, text: &str| json!({ "role": role, "content": text, "meta": { "transcript": { "messageId": text, "at": 1 } } });
-    let refusal = |result: Result<Reply, CoreError>| format!("{:?}", result.err().expect("refused"));
-
-    // compact: true summarizes (threshold floor) on the heir's budget, and the compacted conversation is what travels.
-    let rig = Rig::new();
-    let directory = heir_fixture(&rig, user_and_reply()).await;
-    *lock(&rig.inherit.basis) = Some((1000, 100, true));
-    *lock(&rig.inherit.budget) = Some(4000);
-    *lock(&rig.compaction.heir_rows) = Some(vec![message("system", "prompt"), message("user", "summary of hello")]);
-    let Reply::Value(done) = inherit_into_heir(&directory, true).await.expect("inherit") else { panic!("a value") };
-    assert_eq!(*lock(&rig.compaction.heir_asked), [(4000, true)]);
-    assert_eq!(done["messages"], json!(1), "system blocks never travel");
-    assert_eq!(directory.rows_of("sess_heir").await.expect("rows")[0]["content"], json!("summary of hello"));
-
-    // compact: true with nothing compacted is refused before the heir is touched.
-    let rig = Rig::new();
-    let directory = heir_fixture(&rig, user_and_reply()).await;
-    *lock(&rig.inherit.basis) = Some((1000, 100, true));
-    *lock(&rig.inherit.budget) = Some(4000);
-    assert!(refusal(inherit_into_heir(&directory, true).await).contains("inheritFrom: the conversation could not be compacted for the new session"));
-    assert!(directory.rows_of("sess_heir").await.expect("rows").is_empty());
-
-    // Too large without compact: compacted on the heir's budget (summarize off); a result that still does not fit is refused.
-    let rig = Rig::new();
-    let directory = heir_fixture(&rig, user_and_reply()).await;
-    *lock(&rig.inherit.basis) = Some((500, 900, true));
-    *lock(&rig.inherit.budget) = Some(4000);
-    *lock(&rig.compaction.heir_rows) = Some(vec![message("user", "summary of hello")]);
-    let text = refusal(inherit_into_heir(&directory, false).await);
-    assert_eq!(*lock(&rig.compaction.heir_asked), [(4000, false)]);
-    assert!(text.contains("inheritFrom: the full conversation needs 900 tokens but custom-harness/harness-model allows 500 before compaction"), "{text}");
-
-    // A route with no boundary to compact toward cannot compact: the same sentence.
-    let rig = Rig::new();
-    let directory = heir_fixture(&rig, user_and_reply()).await;
-    *lock(&rig.inherit.basis) = Some((500, 900, true));
-    assert!(refusal(inherit_into_heir(&directory, false).await).contains("allows 500 before compaction"));
-    assert!(lock(&rig.compaction.heir_asked).is_empty());
-}
-
-/// The workspace move decides on the committed messages (`refreshSessionWorkspaceContext` reads `session.messages`), so a
-/// session whose turn has settled - its live turn messages are gone - still has its conversation; the intent's view
-/// (`session-view.mjs`) also counts a running turn's messages.
-#[tokio::test(start_paused = true)]
-async fn an_idle_session_with_committed_rows_holds_a_conversation() {
+async fn the_conversation_reads_of_a_workspace_move_equal_nodes() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/inheritance-carry/golden.json")).expect("golden");
     let rig = Rig::new();
     let directory = SessionDirectory::new(rig.deps());
     let header = json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model" }).as_object().cloned().expect("header");
-    for id in ["sess_idle", "sess_live", "sess_empty"] {
-        directory.create_with_id(ThreadId::from(id), header.clone(), json!({})).await.expect("create");
+    let cases = golden["conversation"].as_array().expect("conversation");
+    for (n, case) in cases.iter().enumerate() {
+        let id = ThreadId::from(format!("sess_{n}"));
+        directory.create_with_id(id.clone(), header.clone(), json!({})).await.expect("create");
+        let handle = directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+        let committed = case["messages"].as_array().expect("messages").clone();
+        if !committed.is_empty() {
+            let append = CoreRequest { method: mixdog_core_api::ids::Method("thread/inheritedRows/append"), params: json!({ "messages": committed }), op: None, ctx: CallContext::internal("test") };
+            handle.request(append).await.expect("append");
+        }
+        handle.cell.turn_messages.send_replace(Arc::new(case["liveTurnMessages"].as_array().expect("live").clone()));
+        let got = (directory.holds_user_conversation(&id).await.expect("read"), directory.holds_conversation(&id).await.expect("read"));
+        assert_eq!(got, (case["hasUserConversationMessage"] == true, case["intentView"] == true), "{}", case["name"]);
     }
-    let handle = |id: &str| {
-        let directory = &directory;
-        let id = ThreadId::from(id);
-        async move { directory.open_handle(&id, &CallContext::internal("test")).await.expect("open") }
-    };
-    let committed = CoreRequest {
-        method: mixdog_core_api::ids::Method("thread/inheritedRows/append"),
-        params: json!({ "messages": [{ "role": "user", "content": "hello" }, { "role": "assistant", "content": "hi" }] }),
-        op: None,
-        ctx: CallContext::internal("test"),
-    };
-    handle("sess_idle").await.request(committed).await.expect("append");
-    handle("sess_live").await.cell.turn_messages.send_replace(Arc::new(vec![json!({ "role": "user", "content": "typing" })]));
-    let ask = |id: &str| {
-        let id = ThreadId::from(id);
-        let directory = &directory;
-        async move { (directory.holds_user_conversation(&id).await.expect("read"), directory.holds_conversation(&id).await.expect("read")) }
-    };
-    assert_eq!(ask("sess_idle").await, (true, true), "committed rows, no live turn");
-    assert_eq!(ask("sess_live").await, (false, true), "only the running turn's messages");
-    assert_eq!(ask("sess_empty").await, (false, false));
+    assert_eq!(cases.len(), 6);
 }
 
 /// `runtime.clear` answers false for a runtime with no session, which the host's reset turns into a refusal when it

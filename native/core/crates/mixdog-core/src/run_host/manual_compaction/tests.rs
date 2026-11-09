@@ -146,3 +146,44 @@ fn a_header_change_names_what_was_set_and_what_went() {
     assert_eq!(Value::Object(change.set), json!({ "b": 5, "d": 4 }));
     assert_eq!(change.unset, ["c"]);
 }
+
+/// `compactConversationForHeir` hands the compactor the source's whole transcript: the system blocks its requests lead with
+/// (`source.messages` holds them), then the conversation. Each case is what Node's `compactConversation` received
+/// (fixtures/inheritance-carry/golden.json, `record-inheritance-carry.mjs`).
+#[test]
+fn the_compactor_of_an_heir_sees_the_source_transcript_with_its_system_blocks() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/inheritance-carry/golden.json")).expect("golden json");
+    let wire = |message: &AgentMessage| {
+        let role = match message.message.role {
+            mixdog_core_api::domain::provider::Role::System => "system",
+            mixdog_core_api::domain::provider::Role::User => "user",
+            mixdog_core_api::domain::provider::Role::Assistant => "assistant",
+            other => panic!("a role the golden has none of: {other:?}"),
+        };
+        let mixdog_core_api::domain::provider::Content::Text(content) = &message.message.content else { panic!("text content") };
+        let tier = message.message.cache_tier.map(|tier| match tier {
+            mixdog_core_api::domain::provider::CacheTier::Tier3 => "tier3",
+            mixdog_core_api::domain::provider::CacheTier::Env => "env",
+        });
+        match tier {
+            Some(tier) => json!({ "role": role, "content": content, "cacheTier": tier }),
+            None => json!({ "role": role, "content": content }),
+        }
+    };
+    let mut compared = 0;
+    for case in golden["cases"].as_array().expect("cases") {
+        let Some(call) = case["compactorCalls"].as_array().expect("calls").first() else { continue };
+        let source = case["setup"]["source"]["messages"].as_array().expect("source messages");
+        let block = |tier: Option<&str>| source.iter().find(|m| m["role"] == "system" && m["cacheTier"].as_str() == tier).map(|m| m["content"].clone()).expect("the system block");
+        let mut header = Header::new();
+        header.insert("bp3EnvSplit".into(), json!(true));
+        header.insert("promptBase".into(), block(None));
+        header.insert("bp3CoreContext".into(), block(Some("tier3")));
+        header.insert("promptEnv".into(), block(Some("env")));
+        let rows: Vec<Value> = source.iter().filter(|m| m["role"] != "system").cloned().collect();
+        let got: Vec<Value> = super::super::factory::session_messages(&header, &rows).expect("messages").iter().map(wire).collect();
+        assert_eq!(Value::Array(got), call["messages"], "{}", case["name"]);
+        compared += 1;
+    }
+    assert_eq!(compared, 6);
+}

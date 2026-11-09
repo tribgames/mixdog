@@ -29,7 +29,6 @@ use mixdog_core_session::session::thread_context::ContextWorld;
 use mixdog_protocol::ProviderId;
 use serde_json::Value;
 
-use super::message_row::message_of;
 use super::session_cache_opts::is_agent_mode_session;
 use super::tool_surface::parse_tool_selection;
 use super::tool_exposure::native_provider_family;
@@ -210,10 +209,7 @@ impl ContextWorld for LiveContextWorld {
         let active = self.session.has_user_conversation(&rows) || rows.iter().any(is_summary_anchor);
         // Node's `session.messages` lead with the system blocks the request is sent with; the turn builds its request from the
         // same header fields (`system_messages`), so the status counts that request, not the transcript alone.
-        let mut messages = super::factory::system_messages(&header);
-        for row in &rows {
-            messages.push(message_of(row).map_err(|e| failed(DOMAIN, e))?);
-        }
+        let messages = super::factory::session_messages(&header, &rows).map_err(|e| failed(DOMAIN, e))?;
         let provider = Some(text(&header, "provider")).filter(|p| !p.is_empty()).unwrap_or_else(|| text(&route, "provider"));
         let model = Some(text(&header, "model")).filter(|m| !m.is_empty()).unwrap_or_else(|| text(&route, "model"));
         let docs: Vec<Value> = header.get("tools").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -664,57 +660,6 @@ mod tests {
         fn refresh_statusline_usage(&self, _: &ThreadId, _: &Route) {}
     }
 
-    /// What Node's answer for the task session holds because its seed turn ran: the turn's own conversation (system prompt, tool
-    /// schemas, user prompt) and the compaction record its pre-send check wrote. This replay has no turn machinery, no prompt
-    /// assembly and no tool pool, so these cannot be reproduced here; a difference anywhere else fails the test.
-    const TURN_WRITTEN: &[&str] = &[
-        "$.usedTokens",
-        "$.usedSource",
-        "$.currentEstimatedTokens",
-        "$.freeTokens",
-        "$.compaction.currentEstimatedTokens",
-        "$.compaction.requestReserveTokens",
-        // The status spreads the stored record; this key sits in the pre-send check's write (`send_check.rs`), after `bufferRatio`.
-        "$.compaction.handoffTimeoutMs",
-        "$.compaction.lastCheckedAt",
-        "$.compaction.lastBeforeTokens",
-        "$.compaction.lastAfterTokens",
-        "$.compaction.lastPressureTokens",
-        "$.compaction.lastStage",
-        "$.compaction.lastTrigger",
-        "$.compaction.lastFreshContextError",
-        "$.compaction.lastHandoffSource",
-        "$.compaction.lastError",
-        "$.compaction.lastDurationMs",
-        "$.compaction.lastChanged",
-        "$.compaction.lastFreshContext",
-        "$.compaction.compactCount",
-        "$.compaction.singleShotConsumed",
-        "$.compaction.recentChecks",
-        "$.compaction.pressureTokens",
-        "$.messages.count",
-        "$.messages.estimatedTokens",
-        "$.messages.roles.system.count",
-        "$.messages.roles.system.tokens",
-        "$.messages.roles.user.count",
-        "$.messages.roles.user.tokens",
-        "$.messages.semantic.system.count",
-        "$.messages.semantic.system.tokens",
-        "$.messages.semantic.chat.count",
-        "$.messages.semantic.chat.tokens",
-        "$.messages.semantic.workflow.tokens",
-        "$.request.toolSchemaTokens",
-        "$.request.toolSchemaBreakdown.code",
-        "$.request.toolSchemaBreakdown.mutation",
-        "$.request.toolSchemaBreakdown.other",
-        "$.request.toolSchemaBreakdown.agents",
-        "$.request.toolSchemaBreakdown.web",
-        "$.request.toolSchemaBreakdown.skills",
-        "$.request.toolSchemaBreakdown.control",
-        "$.request.toolSchemaBreakdown.setup",
-        "$.request.reserveTokens",
-    ];
-
     /// The paths at which two answers differ, in document order.
     fn differences(got: &Value, want: &Value, path: &str, out: &mut Vec<String>) {
         match (got, want) {
@@ -759,6 +704,8 @@ mod tests {
         usage: Arc<mixdog_core_domains::domains::ai_account::usage::session_usage::SessionUsageService>,
         main: Route,
         ids: HashMap<String, ThreadId>,
+        /// The folder the recorded second session ran in, which the seed turn's prompt names; the status shows it as `$workspace`.
+        workspace: Option<String>,
         /// The real route service over the recording's config and the catalog it states: `setFast` goes through it.
         service: mixdog_core_domains::domains::ai_admin::route_service::RouteService,
         _config_dir: tempfile::TempDir,
@@ -813,7 +760,7 @@ mod tests {
             });
             let writer = Arc::new(Writer { cells: cells.clone(), session: session_port, config: config.clone(), catalog });
             let service = mixdog_core_domains::domains::ai_admin::route_service::RouteService { config, facts, writer, session: follow.clone(), models, controls: directory.clone() };
-            Self { _rig: rig, _dir: dir, directory, threads, cells, follow, status: LiveContextStatus::new(Arc::new(world)), usage, main, ids: HashMap::new(), service, _config_dir: config_dir }
+            Self { _rig: rig, _dir: dir, directory, threads, cells, follow, status: LiveContextStatus::new(Arc::new(world)), usage, main, ids: HashMap::new(), workspace: None, service, _config_dir: config_dir }
         }
 
         fn id(&self, name: &str) -> ThreadId {
@@ -825,6 +772,18 @@ mod tests {
             let mut text = value.to_string();
             for (name, id) in &self.ids {
                 text = text.replace(&format!("\"{}\"", id.as_str()), &format!("\"${name}\""));
+            }
+            if let Some(raw) = &self.workspace {
+                let raw = serde_json::to_string(raw).expect("json");
+                text = text.replace(&raw, "\"$workspace\"");
+            }
+            serde_json::from_str(&text).expect("json")
+        }
+
+        fn tokenized_back(&self, value: &Value) -> Value {
+            let mut text = value.to_string();
+            for (name, id) in &self.ids {
+                text = text.replace(&format!("\"${name}\""), &format!("\"{}\"", id.as_str()));
             }
             serde_json::from_str(&text).expect("json")
         }
@@ -861,12 +820,60 @@ mod tests {
             self.follow.follow(&id, &options).await.expect("follow");
         }
 
-        /// The user prompt a submit stores on the session.
-        async fn seed(&self, name: &str, prompt: &str) {
+        /// The user prompt a submit stores on the session, and what Node's seed turn wrote into it that this replay has no
+        /// machinery for (the prompt assembly, the tool surface, the pre-send check): `stored` is the recorded session, and
+        /// each of its header fields the replay's own steps did not produce is installed as the turn left it.
+        async fn seed(&mut self, name: &str, prompt: &str, stored: &Value) {
+            use mixdog_core_ports::ports::threads::HeaderUpdates;
             use mixdog_core_session::session::room_log::RoomLog;
             let row = json!({ "role": "user", "content": prompt, "meta": { "transcript": { "messageId": "seed" } } });
             // The turn creates the session on the route it has (`turn-prepare.mjs`: `createCurrentSession`).
             self.follow.seat(&self.id(name)).await.expect("the turn's session");
+            let mut recorded = self.tokenized_back(stored);
+            // Node keeps the system prompt as the session's leading messages; the header here holds the blocks they are
+            // built from (`SystemBlocks`): the two untiered messages are `promptBase` and `promptStable`, the `env` one `promptEnv`.
+            let text_of = |row: &Value| row["content"].as_str().expect("a text block").to_owned();
+            let system: Vec<&Value> = stored["messages"].as_array().expect("messages").iter().filter(|row| row["role"] == "system").collect();
+            let untiered: Vec<String> = system.iter().filter(|row| row.get("cacheTier").is_none()).map(|row| text_of(row)).collect();
+            let [base, stable] = untiered.as_slice() else { panic!("two untiered system messages") };
+            let env = system.iter().find(|row| row["cacheTier"] == "env").map(|row| text_of(row)).expect("the env message");
+            let blocks = recorded.as_object_mut().expect("the stored header");
+            // The prompt names the folder, and a route change rebuilds its `# Session` block from the header's cwd.
+            let raw = stored["cwd"].as_str().expect("the cwd").to_owned();
+            blocks.insert("cwd".into(), Value::String(raw.clone()));
+            self.workspace = Some(raw);
+            for (key, text) in [("promptBase", base), ("promptStable", stable), ("promptEnv", &env)] {
+                blocks.insert(key.into(), Value::String(text.clone()));
+            }
+            self.threads
+                .update_header(
+                    &self.id(name),
+                    Box::new(move |header| {
+                        let mut set = serde_json::Map::new();
+                        for (key, value) in recorded.as_object().expect("the stored header") {
+                            match (header.get(key), value) {
+                                (None, _) if key != "messages" => {
+                                    set.insert(key.clone(), value.clone());
+                                }
+                                (Some(_), _) if key == "cwd" => {
+                                    set.insert(key.clone(), value.clone());
+                                }
+                                // The record the pre-send check wrote joins the one the install made.
+                                (Some(Value::Object(held)), Value::Object(turn)) if key == "compaction" => {
+                                    let mut joined = held.clone();
+                                    for (field, value) in turn {
+                                        joined.entry(field.clone()).or_insert_with(|| value.clone());
+                                    }
+                                    set.insert(key.clone(), Value::Object(joined));
+                                }
+                                _ => {}
+                            }
+                        }
+                        mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }
+                    }),
+                )
+                .await
+                .expect("the turn's writes");
             let log = mixdog_core_session::session::room_log::SessionRoomLog::new(self.directory.clone());
             assert_eq!(log.append_rows(self.id(name).as_str(), vec![row]).await.expect("store the prompt"), 1);
         }
@@ -910,7 +917,7 @@ mod tests {
                 "setRoute" => replay.set_route(name, &args[0]).await,
                 // The seed turn: its prompt is stored as the turn stores it, which makes the session an active conversation; the
                 // system prompt, tool surface and pre-send check are the turn machinery's, which this replay has none of.
-                "submit" => replay.seed(name, args[0].as_str().expect("the prompt")).await,
+                "submit" => replay.seed(name, args[0].as_str().expect("the prompt"), &golden["stored"]).await,
                 "contextStatus" if name == "control" => {
                     assert_eq!(replay.context_status(name).await, step["value"], "{at}");
                     control_reads += 1;
@@ -919,7 +926,6 @@ mod tests {
                     let (got, want) = (replay.context_status(name).await, &step["value"]);
                     let mut differing = Vec::new();
                     differences(&got, want, "$", &mut differing);
-                    differing.retain(|line| !TURN_WRITTEN.iter().any(|path| line.starts_with(&format!("{path}: "))));
                     assert!(differing.is_empty(), "{at}: {differing:#?}");
                     task_reads += 1;
                 }

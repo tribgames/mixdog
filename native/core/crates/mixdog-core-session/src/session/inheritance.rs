@@ -26,6 +26,9 @@ pub struct InheritTarget {
     /// A window picked on this route (`selectedContextWindow`), kept only when the route is the
     /// session's own.
     pub selected_context_window: Option<u64>,
+    /// The heir as the session it is (`inheritFrom` measures its `target` session): its own window fields and installed
+    /// compaction settings are the policy, not the route's catalog windows with `compaction: { auto: true }`.
+    pub session: Option<ThreadId>,
     /// The session whose tool surface sizes the heir's request reserve (`session.tools`).
     pub tools_of: Option<ThreadId>,
     /// The session whose conversation is measured (`sourceSessionId`): the host prices its media
@@ -116,16 +119,16 @@ impl SessionDirectory {
         let target = InheritTarget {
             provider: clean(held.get("provider")),
             model: clean(held.get("model")),
-            selected_context_window: mixdog_agent::agent_tool::scope::positive_int(held.get("selectedContextWindow")),
+            selected_context_window: None,
+            session: Some(heir.clone()),
             tools_of: Some(heir.clone()),
             source: Some(source.clone()),
         };
         let fit_of = |basis: Option<FitBasis>| basis.filter(|basis| basis.limit > 0);
-        let named = !target.provider.is_empty() && !target.model.is_empty();
-        let fit = if named { fit_of(self.deps().inherit.basis(&target, &carried).await) } else { None };
+        let fit = fit_of(self.deps().inherit.basis(&target, &carried).await);
         if compact || fit.as_ref().is_some_and(|fit| fit.used >= fit.limit) {
             // `fitConversationForHeir`: a compaction that cannot run is a refusal, not a half-carry.
-            let budget = if named { self.deps().inherit.compaction_budget(&target).await } else { None };
+            let budget = self.deps().inherit.compaction_budget(&target).await;
             let compacted = match budget {
                 Some(budget) => match self.deps().compaction.compact_for_heir(source, budget, compact).await {
                     Ok(rows) => Some(inheritable(rows.unwrap_or_default())).filter(|rows| super::route_session::has_user_conversation(rows)),
@@ -210,6 +213,7 @@ impl SessionDirectory {
                 provider: provider.clone(),
                 model: model.clone(),
                 selected_context_window,
+                session: None,
                 tools_of: current.cloned(),
                 source: id.clone().map(ThreadId::from),
             };

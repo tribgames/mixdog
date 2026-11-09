@@ -1,9 +1,10 @@
 //! The real [`InheritanceFit`]: what the target route's compaction policy says of a conversation
 //! (`inheritanceFit` and `inheritanceCompactionPlan` of `session-runtime/inheritance-fit.mjs`).
 //!
-//! The heir has no session yet, so its policy is resolved from the route's windows
+//! A preflight has no heir session yet, so its policy is resolved from the route's windows
 //! (`inheritanceRouteTarget`: the catalog's window fields, `compaction: { auto: true }` never synced
-//! with the saved configuration) over the tools the opening session already sends. The
+//! with the saved configuration) over the tools the opening session already sends; a carry into an
+//! existing heir measures the heir session itself (its window fields and installed compaction). The
 //! conversation is priced as `estimateMessagesTokens` prices it, and the gauge value is
 //! `currentContextEstimateTokens`: the estimate plus the request reserve, on the route's
 //! calibration.
@@ -23,6 +24,7 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_core_run::run_host::session_context_meta::{ContextMeta, session_context_meta};
 use mixdog_core_session::session::inheritance::{FitBasis, InheritTarget, InheritanceFit};
 use mixdog_protocol::ProviderId;
+use mixdog_store::agent_mode::session_mode_of;
 use mixdog_store::schema::record::Header;
 use serde_json::{Value, json};
 
@@ -42,9 +44,11 @@ impl RouteWindows for mixdog_ai::catalog::CatalogService {
     }
 }
 
-/// The compaction inputs of a route that has no session: the saved settings are not applied.
+/// The compaction inputs of a route that has no session (the saved settings are not applied) and of a session that has
+/// one (its own header, `resolveWorkerCompactPolicy(session, tools)`).
 pub trait RouteSettings: Send + Sync {
     fn settings(&self, route: &Header) -> CompactSettings;
+    fn session(&self, header: &Header) -> CompactSettings;
 }
 
 impl RouteSettings for ConfigRunSeams {
@@ -53,12 +57,18 @@ impl RouteSettings for ConfigRunSeams {
         compaction.insert("auto".into(), Value::Bool(true));
         self.compact_settings_with(route, false, compaction)
     }
+
+    fn session(&self, header: &Header) -> CompactSettings {
+        self.compact_settings(header, session_mode_of(header) == "agent")
+    }
 }
 
 /// What the measured threads give: the tools a request of the session sends, and the media meter of
 /// the session whose conversation is measured.
 #[async_trait]
 pub trait MeasuredThreads: Send + Sync {
+    /// The header of a loaded session.
+    async fn header(&self, thread: &ThreadId) -> Option<Header>;
     /// `session.tools`; none for a session that is not loaded.
     async fn tools(&self, thread: &ThreadId) -> Vec<ToolDefinition>;
     /// The meter of `thread`'s attachments for `rows`; `None` when the thread is not loaded.
@@ -97,11 +107,17 @@ impl HostInheritanceFit {
 }
 
 impl HostInheritanceFit {
-    /// The compaction inputs of the heir's route (`inheritanceRouteTarget`) over the tools the opening session sends.
+    /// The compaction inputs of the heir over the tools it sends: the session's own (`inheritFrom` measures its `target`
+    /// session) or, for a route with no session, the route's windows (`inheritanceRouteTarget`).
     async fn route_settings(&self, target: &InheritTarget) -> Option<CompactSettings> {
-        let seed = target.selected_context_window.map_or_else(|| json!({}), |window| json!({ "selectedContextWindow": window }));
-        let meta = self.windows.window(&target.provider, &target.model, &seed)?;
-        let mut settings = self.settings.settings(&Self::route_header(target, meta));
+        let mut settings = match &target.session {
+            Some(heir) => self.settings.session(&self.threads.header(heir).await?),
+            None => {
+                let seed = target.selected_context_window.map_or_else(|| json!({}), |window| json!({ "selectedContextWindow": window }));
+                let meta = self.windows.window(&target.provider, &target.model, &seed)?;
+                self.settings.settings(&Self::route_header(target, meta))
+            }
+        };
         let tools = match &target.tools_of {
             Some(thread) => self.threads.tools(thread).await,
             None => Vec::new(),
@@ -157,6 +173,11 @@ struct DirectoryThreads {
 
 #[async_trait]
 impl MeasuredThreads for DirectoryThreads {
+    async fn header(&self, thread: &ThreadId) -> Option<Header> {
+        let (directory, _) = self.next.bound()?;
+        Some(directory.upgrade()?.handle(thread)?.live_header().header().as_ref().clone())
+    }
+
     async fn tools(&self, thread: &ThreadId) -> Vec<ToolDefinition> {
         let Some((directory, parts)) = self.next.bound() else { return Vec::new() };
         let Some(handle) = directory.upgrade().and_then(|directory| directory.handle(thread)) else { return Vec::new() };

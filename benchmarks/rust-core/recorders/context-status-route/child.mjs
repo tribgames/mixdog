@@ -88,6 +88,13 @@ try {
   await call('control', 'session.configure', 'setRoute', [route], controlOpen);
   await call('control', 'session.read', 'contextStatus', [{}], controlOpen);
 
+  // What the seed turn left in the second session (its system prompt, tool surface and pre-send check record): the part of
+  // the answer below that the turn machinery wrote, kept raw (the token counts price the real folder paths).
+  const { readSessionLogSync, sessionFromLog } = await import(pathToFileURL(join(nodeTree, 'src', 'runtime', 'agent', 'orchestrator', 'session', 'store', 'session-log-reader.mjs')).href);
+  const log = readSessionLogSync(join(process.env.MIXDOG_DATA_DIR, 'sessions', `${out.ids.second}.log.jsonl`));
+  if (!log?.valid) throw new Error('the second session has no readable log');
+  out.stored = sessionFromLog(log);
+
   // The harness sends the control session's `open` hints with every call, the second session's included.
   await call('second', 'session.read', 'contextStatus', [{}], controlOpen);
   await call('second', 'session.configure', 'setRoute', [route], controlOpen);
