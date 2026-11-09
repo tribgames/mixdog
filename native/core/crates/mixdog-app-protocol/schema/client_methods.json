@@ -16353,6 +16353,13 @@
             "null"
           ]
         },
+        "snapshotUserMessage": {
+          "description": "With snapshot: the user message the snapshot's request carries as its last turn, as the send of that message would; a thread with no user turn yet cannot be encoded by every provider (Gemini refuses a request with nothing to send).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "threadId": {
           "type": [
             "string",
