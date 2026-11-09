@@ -14,7 +14,8 @@
 //!
 //! Which runs reach the hold is decided upstream, per ask: the policy gate never asks for a
 //! schedule or webhook run (`ToolPolicy::ask`, Node `isGrantedRun`), so only a room member's ask
-//! arrives, and `HeldApprovals::request` holds it when no approval UI is attached to its thread.
+//! arrives, and `HeldApprovals::request` holds it when no approval UI was attached to its thread
+//! when its turn was assembled (Node's hook belongs to the turn, not to the ask).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -54,8 +55,8 @@ pub struct RunInfo {
 pub trait HeldHome: Send + Sync {
     /// The unattended run that owns `thread` (`unattendedRunOf`).
     async fn run_of(&self, thread: &ThreadId) -> Option<RunInfo>;
-    /// An approval UI is attached to the thread's surface (Node: the run has a
-    /// `toolApprovalHook`). A held request is used only when none is.
+    /// An approval UI is attached to the thread's surface (Node: the turn has a
+    /// `toolApprovalHook`). Read once per turn, when its gate is assembled; a held request is used only when none is.
     fn ui_attached(&self, thread: &ThreadId) -> bool;
     /// Posts the row into the agent's home thread (`deliverHeldRequest`). A failure is logged
     /// and never fails the hold.
@@ -135,7 +136,8 @@ impl HeldRequests {
     /// The approval entry point of one thread's run: held when the thread is an unattended run
     /// with no approval UI, the session's own otherwise.
     pub fn gate_for(self: &Arc<Self>, thread: ThreadId, inner: Arc<dyn ApprovalGate>) -> Arc<dyn ApprovalGate> {
-        Arc::new(HeldApprovals { held: Arc::clone(self), thread, inner })
+        let attended = self.home.ui_attached(&thread);
+        Arc::new(HeldApprovals { held: Arc::clone(self), thread, inner, attended })
     }
 
     /// The held requests still waiting (`pendingHeldRequests`).
@@ -403,12 +405,16 @@ struct HeldApprovals {
     held: Arc<HeldRequests>,
     thread: ThreadId,
     inner: Arc<dyn ApprovalGate>,
+    /// Whether an approval UI was attached when the turn was assembled. Node installs `toolApprovalHook` on the session for the whole
+    /// turn when a client starts it (`ask-turn-execute.mjs:284-288`, restored at `:334-338`), so the clients leaving mid-turn changes
+    /// nothing: the card waits in the turn's own queue. A turn assembled with none has none for all of its asks.
+    attended: bool,
 }
 
 #[async_trait]
 impl ApprovalGate for HeldApprovals {
     async fn request(&self, ask: ApprovalAsk) -> ApprovalResolution {
-        if !self.held.home.ui_attached(&self.thread)
+        if !self.attended
             && let Some(run) = self.held.home.run_of(&self.thread).await
         {
             return self.held.hold(&self.thread, run, &ask).await;
@@ -724,9 +730,22 @@ mod tests {
 
     #[tokio::test]
     async fn an_attached_ui_keeps_its_own_approval() {
-        let (home, _held, gate) = setup();
+        let (home, held, _) = setup();
         home.attached.store(true, Ordering::SeqCst);
+        let gate = held.gate_for(ThreadId::from("sess_rmem_abcdef_ann"), Arc::new(Inner));
         assert_eq!(gate.request(ask()).await, ApprovalResolution::Unavailable { at: 7 });
         assert!(home.rows.lock().unwrap().is_empty());
+    }
+
+    /// Node's hook belongs to the turn: the clients leaving mid-turn leaves the turn's asks with its own card.
+    #[tokio::test]
+    async fn a_turn_assembled_with_a_ui_keeps_its_own_approval_after_the_ui_leaves() {
+        let (home, held, _) = setup();
+        home.attached.store(true, Ordering::SeqCst);
+        let gate = held.gate_for(ThreadId::from("sess_rmem_abcdef_ann"), Arc::new(Inner));
+        home.attached.store(false, Ordering::SeqCst);
+        assert_eq!(gate.request(ask()).await, ApprovalResolution::Unavailable { at: 7 });
+        assert!(home.rows.lock().unwrap().is_empty());
+        assert!(held.pending().is_empty());
     }
 }

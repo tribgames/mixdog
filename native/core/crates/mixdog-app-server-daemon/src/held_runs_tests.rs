@@ -167,7 +167,7 @@ impl ToolResolver for Tools {
     fn resolve(&self, _: Option<&str>, name: &str) -> Option<Arc<dyn Tool>> {
         let kind = match name {
             "github" => Some(ActionKind::Comment),
-            "shell" => None,
+            "shell" | "read" => None,
             _ => return None,
         };
         let spec = ToolSpec {
@@ -201,11 +201,31 @@ impl PreToolHook for Hook {
 struct Card {
     answer: Mutex<Option<ApprovalResolution>>,
     asked: Mutex<Vec<ApprovalAsk>>,
+    /// A card that waits for a client (the client turn's queue): the asks waiting, in order, each with the sender its answer comes through,
+    /// and one permit per ask that arrived.
+    waiting: Mutex<Vec<(ApprovalAsk, tokio::sync::oneshot::Sender<ApprovalResolution>)>>,
+    arrived: Arrivals,
+    waits: AtomicBool,
+}
+
+struct Arrivals(tokio::sync::Semaphore);
+
+impl Default for Arrivals {
+    fn default() -> Self {
+        Self(tokio::sync::Semaphore::new(0))
+    }
 }
 
 #[async_trait]
 impl ApprovalGate for Card {
     async fn request(&self, ask: ApprovalAsk) -> ApprovalResolution {
+        if self.waits.load(Ordering::SeqCst) {
+            let (answer, answered) = tokio::sync::oneshot::channel();
+            self.asked.lock().unwrap().push(ask.clone());
+            self.waiting.lock().unwrap().push((ask, answer));
+            self.arrived.0.add_permits(1);
+            return answered.await.unwrap_or(ApprovalResolution::Cancelled { at: 0 });
+        }
         // A surface without a card is no hook in Node: nothing is asked, the call is denied.
         let answer = self.answer.lock().unwrap().clone();
         if answer.is_some() {
@@ -635,6 +655,9 @@ async fn every_run_node_holds_is_held_and_every_run_it_does_not_hold_is_not() {
     }
 }
 
+#[path = "client_turns_tests.rs"]
+mod client_turns;
+
 /// A connection of the real app server over the mock core, as the transport would hand it in.
 struct Client {
     handle: mixdog_app_server::ConnectionHandle,
@@ -690,10 +713,10 @@ const DESKTOP_ON_MEMBER: Attendee = Attendee { kind: "desktop", inbox: false, wa
 ///    connected but not watching the thread, one watching another thread, a thread that is not loaded: held;
 ///  - Node: headless/exec passes no `onToolApproval` and runs `approvalMode: "implicit"` (`headless-exec.mjs:422`) <-> Rust: an
 ///    implicit header, whoever watches it: held;
-///  - Node: the hook is read at each ask (`tool-helpers.mjs:214-216`), so a turn whose clients left holds its next ask (the golden's
-///    "attached, detached, attached" scenario) <-> Rust: the predicate is read per ask, shown by the second ask after the clients dropped.
-/// Not equal: a Node client turn whose clients all went away keeps its hook and waits in the turn's own queue (`armToolApprovalTimeout`),
-/// where Rust holds the ask; no recording drives a client turn, so that difference is reported, not proved.
+///  - Node: the hook is the session's for the whole turn (`ask-turn-execute.mjs:284-288`, restored at `:334-338`), so a client turn whose
+///    clients all left keeps asking its card (`fixtures/client-turns`) <-> Rust: the gate samples the predicate when the turn is
+///    assembled (`HeldGates::gate_for`), shown by a turn assembled with the clients present asking after they dropped (its card), and
+///    the next turn, assembled with none, being held.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_member_is_held_exactly_when_no_client_can_show_its_card() {
     use mixdog_core_api::ids::ConnectionId;
@@ -775,6 +798,8 @@ async fn a_member_is_held_exactly_when_no_client_can_show_its_card() {
         });
         *scene.hook.lock().unwrap() = Some(HookDecision { action: HookAction::Ask, reason: Some("needs approval".into()), name: None, args: None });
         let gate = scene.gate(&member);
+        // The same turn's gate for an ask made after the clients have gone (assembled with them present).
+        let turn_gate = scene.gate(&member);
         let call = GateCall::new("shell".to_owned(), json!({ "command": "echo hi" }));
         let mut task = tokio::spawn(async move { present(&call, gate.check_call("call_a", &call).await) });
         let held = tokio::select! {
@@ -788,8 +813,14 @@ async fn a_member_is_held_exactly_when_no_client_can_show_its_card() {
             task.abort();
         }
         if case.attended {
-            // The predicate is read at each ask: once every client has gone the same session's next ask is held.
+            // Node's hook belongs to the turn: once every client has gone, the turn already running keeps asking its card
+            // (the approval waits in the turn's own queue), and only the next turn, assembled with no client, is held.
             clients.clear();
+            let call = GateCall::new("shell".to_owned(), json!({ "command": "echo later" }));
+            let decision = present(&call, turn_gate.check_call("call_c", &call).await);
+            assert_eq!(decision["allowed"], true, "{}: the running turn asks its own card after the clients left", case.name);
+            assert_eq!(scene.card.asked.lock().unwrap().len(), 2, "{}: asks on the card", case.name);
+            assert!(scene.held.pending().is_empty(), "{}: nothing held for the running turn", case.name);
             let gate = scene.gate(&member);
             let call = GateCall::new("shell".to_owned(), json!({ "command": "echo again" }));
             let mut task = tokio::spawn(async move { present(&call, gate.check_call("call_b", &call).await) });
