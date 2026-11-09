@@ -4,9 +4,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 5548,
+      "bytes": 162675,
       "path": "golden.json",
-      "sha256": "ea1be37b7e264b9b6a1efefc1dab3c7eba68833d8b2d2abca2a040874dd50c1d"
+      "sha256": "5734afb64f643195eac4a2878217f45de90fdaef7d6820f6b7dc3a2ab8d5782c"
     }
   ],
   "product": {
@@ -27,5 +27,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-gateway-usage-failures.mjs",
   "set": "gateway-usage-failures",
-  "totalBytes": 5548
+  "totalBytes": 162675
 }
