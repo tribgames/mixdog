@@ -5046,16 +5046,20 @@ impl SessionActor {
         let input_body = body.clone();
         let hidden = std::mem::take(&mut self.retry_hidden);
         let input_display = if hidden { Display::None } else { self.row_display(Some("user"), &input_body) };
+        // A user's prompt of blank text and a display text shows as that display text (`promptDisplayText` is the row's text,
+        // drain.mjs `renderBatchItems`), though the model's content reads blank.
+        let shown = display_text(&input);
+        let shown_blank = submitter.is_some() && !facts.visible && facts.prompt.is_none() && !shown.is_empty();
         let input_row = ItemRecord {
             iid: id(input_iid.as_str()),
             turn: Some(id(turn.as_str())),
             role: Some(Text::try_from("user").expect("short")),
             form: Form::Message,
             model: true,
-            visible: facts.visible && !hidden,
+            visible: (facts.visible || shown_blank) && !hidden,
             archive: None,
             op: op_ref,
-            prompt: facts.prompt.map(Slot::Inline),
+            prompt: facts.prompt.or_else(|| shown_blank.then_some(shown)).map(Slot::Inline),
             refs: Vec::new().try_into().expect("empty list fits"),
             body: Slot::Inline(body),
         };
