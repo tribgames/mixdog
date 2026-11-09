@@ -98,6 +98,29 @@ async fn the_turns_close_leaves_its_toast_in_the_runtime_state() {
     let held = handle.cell.view.load_full().state.runtime.clone().expect("runtime").toasts;
     assert_eq!(held, shown);
 }
+/// The notice a sign-in or sign-out posts (`pushNotice(text, 'info')` of the session extensions API) is a toast of the session it
+/// was made on, with the text polished as Node's surface polished it (`fixtures/mcp-login-notices`); a thread no loaded session
+/// hosts shows nothing.
+#[tokio::test(start_paused = true)]
+async fn a_posted_notice_is_the_toast_node_showed() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/mcp-login-notices/golden.json")).expect("fixture");
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let mut posted = 0;
+    for flow in golden["flows"].as_array().expect("flows") {
+        let Some(notice) = flow["events"].as_array().expect("events").iter().find_map(|event| event.get("notice")) else { continue };
+        let handle = start_thread(&directory).await;
+        assert!(directory.push_toast(&handle.id, notice["text"].as_str().unwrap(), notice["tone"].as_str().unwrap()).await, "{}", flow["name"]);
+        let shown = published_toasts(&rig, &handle.id).expect("published");
+        let without_ids: Vec<Value> = shown.iter().map(|toast| json!({ "text": toast["text"], "tone": toast["tone"] })).collect();
+        assert_eq!(Value::Array(without_ids), flow["toasts"], "{}", flow["name"]);
+        assert!(shown.iter().all(|toast| toast["id"].as_str().is_some_and(|id| !id.is_empty()) && toast.get("owner").is_none()));
+        posted += 1;
+    }
+    assert!(posted > 0, "the recording holds notices");
+    assert!(!directory.push_toast(&ThreadId::from("not-loaded"), "x", "info").await);
+}
+
 /// `thread/clear` empties the queue and cancels the timers: past the toast's 3 s nothing more is published.
 #[tokio::test(start_paused = true)]
 async fn a_cleared_session_publishes_no_expiry() {

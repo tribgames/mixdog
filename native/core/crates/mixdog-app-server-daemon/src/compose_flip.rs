@@ -1145,6 +1145,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             surface_generation.clone(),
         ),
         scoped_feeds: b.scoped_feeds.clone(),
+        toasts: Arc::new(crate::compose_mcp::LateSessionToasts(late.clone())),
         bridges: bridges.clone(),
         hooks: hook_status.clone(),
         hook_observer: hook_log.clone(),

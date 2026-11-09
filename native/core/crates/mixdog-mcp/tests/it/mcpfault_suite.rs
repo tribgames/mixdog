@@ -255,6 +255,13 @@ impl SecretOps for Ops {
     }
 }
 
+struct NoToasts;
+
+#[async_trait]
+impl mixdog_mcp::mcp_service::SessionToasts for NoToasts {
+    async fn toast(&self, _: &str, _: &str, _: &str) {}
+}
+
 struct Fixture {
     host: Arc<Host>,
     service: McpService,
@@ -283,7 +290,7 @@ fn fixture_over(servers: Value, host: Host) -> Fixture {
     });
     let secrets = Arc::new(McpServerSecrets::new(ops.clone(), Default::default()));
     let host = Arc::new(host);
-    let service = McpService::new(config.clone(), host.clone(), Arc::new(Runtime(Arc::clone(&config))), secrets, home.path().join("home"));
+    let service = McpService::new(config.clone(), host.clone(), Arc::new(Runtime(Arc::clone(&config))), secrets, home.path().join("home"), Arc::new(NoToasts));
     Fixture { host, service, config, ops, _home: home }
 }
 
