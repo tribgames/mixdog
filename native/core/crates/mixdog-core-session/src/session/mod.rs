@@ -29,6 +29,7 @@ mod cards;
 pub mod close;
 mod completions;
 mod control;
+mod stop;
 #[cfg(test)]
 mod resumed_tools_tests;
 #[cfg(test)]

@@ -1,0 +1,1348 @@
+{
+  "recorder": "benchmarks/rust-core/recorders/record-phone-chat-core.mjs",
+  "epoch": 1700000000000,
+  "cases": [
+    {
+      "name": "own device, prompt handed back",
+      "kind": "abort",
+      "prompt": "draft",
+      "submit": {
+        "id": "sub1",
+        "transcriptMeta": {
+          "device": "PC"
+        }
+      },
+      "steering": null,
+      "output": null,
+      "options": {},
+      "accepted": true,
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "draft"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      },
+      "result": {
+        "aborted": true,
+        "restoreText": "draft",
+        "pastedImages": null,
+        "discardPastedImages": null,
+        "pastedTexts": null,
+        "discardPastedTexts": null,
+        "restoredSubmissionIds": [
+          "sub1"
+        ]
+      },
+      "abortReasons": [
+        "user-cancel"
+      ],
+      "after": {
+        "items": [],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "own device, restorePrompt false keeps the prompt",
+      "kind": "abort",
+      "prompt": "draft",
+      "submit": {
+        "id": "sub1",
+        "transcriptMeta": {
+          "device": "PC"
+        }
+      },
+      "steering": null,
+      "output": null,
+      "options": {
+        "restorePrompt": false,
+        "device": "PC"
+      },
+      "accepted": true,
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "draft"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      },
+      "result": {
+        "aborted": true,
+        "restoreText": "",
+        "pastedImages": null,
+        "discardPastedImages": null,
+        "pastedTexts": null,
+        "discardPastedTexts": null,
+        "restoredSubmissionIds": []
+      },
+      "abortReasons": [
+        "user-cancel-keep-prompt"
+      ],
+      "after": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "draft"
+          },
+          {
+            "kind": "turndone",
+            "id": "abort-1-item-1",
+            "status": "cancelled"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "own device named, prompt handed back",
+      "kind": "abort",
+      "prompt": "draft",
+      "submit": {
+        "id": "sub1",
+        "transcriptMeta": {
+          "device": "PC"
+        }
+      },
+      "steering": null,
+      "output": null,
+      "options": {
+        "device": "PC"
+      },
+      "accepted": true,
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "draft"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      },
+      "result": {
+        "aborted": true,
+        "restoreText": "draft",
+        "pastedImages": null,
+        "discardPastedImages": null,
+        "pastedTexts": null,
+        "discardPastedTexts": null,
+        "restoredSubmissionIds": [
+          "sub1"
+        ]
+      },
+      "abortReasons": [
+        "user-cancel"
+      ],
+      "after": {
+        "items": [],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "another device cancels: the prompt travels through the state",
+      "kind": "abort",
+      "prompt": "draft",
+      "submit": {
+        "id": "sub1",
+        "transcriptMeta": {
+          "device": "PC"
+        }
+      },
+      "steering": null,
+      "output": null,
+      "options": {
+        "device": "Phone"
+      },
+      "accepted": true,
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "draft"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      },
+      "result": {
+        "aborted": true,
+        "restoreText": "",
+        "pastedImages": null,
+        "discardPastedImages": null,
+        "pastedTexts": null,
+        "discardPastedTexts": null,
+        "restoredSubmissionIds": []
+      },
+      "abortReasons": [
+        "user-cancel"
+      ],
+      "after": {
+        "items": [],
+        "queued": [],
+        "pending": [],
+        "promptRestore": {
+          "id": "restore-1700000000450-sub1",
+          "ids": [
+            "sub1"
+          ],
+          "text": "draft",
+          "device": "PC",
+          "at": 1700000000450
+        },
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "another device cancels a prompt with pasted images",
+      "kind": "abort",
+      "prompt": "see [Image #1]",
+      "submit": {
+        "id": "sub1",
+        "transcriptMeta": {
+          "device": "PC"
+        },
+        "pastedImages": {
+          "1": {
+            "data": "AAAA",
+            "mimeType": "image/png"
+          }
+        }
+      },
+      "steering": null,
+      "output": null,
+      "options": {
+        "device": "Phone"
+      },
+      "accepted": true,
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "see [Image #1]"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      },
+      "result": {
+        "aborted": true,
+        "restoreText": "",
+        "pastedImages": null,
+        "discardPastedImages": null,
+        "pastedTexts": null,
+        "discardPastedTexts": null,
+        "restoredSubmissionIds": []
+      },
+      "abortReasons": [
+        "user-cancel-keep-prompt"
+      ],
+      "after": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "see [Image #1]"
+          },
+          {
+            "kind": "turndone",
+            "id": "abort-4-item-1",
+            "status": "cancelled"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "own device cancels a prompt with pasted images",
+      "kind": "abort",
+      "prompt": "see [Image #1]",
+      "submit": {
+        "id": "sub1",
+        "transcriptMeta": {
+          "device": "PC"
+        },
+        "pastedImages": {
+          "1": {
+            "data": "AAAA",
+            "mimeType": "image/png"
+          }
+        }
+      },
+      "steering": null,
+      "output": null,
+      "options": {
+        "device": "PC"
+      },
+      "accepted": true,
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "see [Image #1]"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      },
+      "result": {
+        "aborted": true,
+        "restoreText": "see [Image #1]",
+        "pastedImages": {
+          "1": {
+            "data": "AAAA",
+            "mimeType": "image/png"
+          }
+        },
+        "discardPastedImages": null,
+        "pastedTexts": null,
+        "discardPastedTexts": null,
+        "restoredSubmissionIds": [
+          "sub1"
+        ]
+      },
+      "abortReasons": [
+        "user-cancel"
+      ],
+      "after": {
+        "items": [],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "own device cancels a prompt with pasted texts",
+      "kind": "abort",
+      "prompt": "see [Text #1]",
+      "submit": {
+        "id": "sub1",
+        "transcriptMeta": {
+          "device": "PC"
+        },
+        "pastedTexts": {
+          "1": {
+            "text": "inline text"
+          }
+        }
+      },
+      "steering": null,
+      "output": null,
+      "options": {},
+      "accepted": true,
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "see [Text #1]"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      },
+      "result": {
+        "aborted": true,
+        "restoreText": "see [Text #1]",
+        "pastedImages": null,
+        "discardPastedImages": null,
+        "pastedTexts": {
+          "1": {
+            "text": "inline text"
+          }
+        },
+        "discardPastedTexts": null,
+        "restoredSubmissionIds": [
+          "sub1"
+        ]
+      },
+      "abortReasons": [
+        "user-cancel"
+      ],
+      "after": {
+        "items": [],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "a queued steering prompt: the turn is only interrupted",
+      "kind": "abort",
+      "prompt": "draft",
+      "submit": {
+        "id": "sub1",
+        "transcriptMeta": {
+          "device": "PC"
+        }
+      },
+      "steering": {
+        "id": "sub2",
+        "text": "redirect"
+      },
+      "output": null,
+      "options": {
+        "device": "PC"
+      },
+      "accepted": true,
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "draft"
+          }
+        ],
+        "queued": [
+          "sub2"
+        ],
+        "pending": [
+          "sub2"
+        ],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      },
+      "result": {
+        "aborted": true,
+        "restoreText": "",
+        "pastedImages": null,
+        "discardPastedImages": null,
+        "pastedTexts": null,
+        "discardPastedTexts": null,
+        "restoredSubmissionIds": []
+      },
+      "abortReasons": [
+        "interrupt"
+      ],
+      "after": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "draft"
+          },
+          {
+            "kind": "turndone",
+            "id": "abort-7-item-1",
+            "status": "cancelled"
+          },
+          {
+            "kind": "user",
+            "id": "sub2",
+            "text": "redirect"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      }
+    },
+    {
+      "name": "a queued steering prompt, pasted images discarded",
+      "kind": "abort",
+      "prompt": "see [Image #1]",
+      "submit": {
+        "id": "sub1",
+        "transcriptMeta": {
+          "device": "PC"
+        },
+        "pastedImages": {
+          "1": {
+            "data": "AAAA",
+            "mimeType": "image/png"
+          }
+        }
+      },
+      "steering": {
+        "id": "sub2",
+        "text": "redirect"
+      },
+      "output": null,
+      "options": {},
+      "accepted": true,
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "see [Image #1]"
+          }
+        ],
+        "queued": [
+          "sub2"
+        ],
+        "pending": [
+          "sub2"
+        ],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      },
+      "result": {
+        "aborted": true,
+        "restoreText": "",
+        "pastedImages": null,
+        "discardPastedImages": {
+          "1": {
+            "data": "AAAA",
+            "mimeType": "image/png"
+          }
+        },
+        "pastedTexts": null,
+        "discardPastedTexts": null,
+        "restoredSubmissionIds": []
+      },
+      "abortReasons": [
+        "interrupt"
+      ],
+      "after": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "see [Image #1]"
+          },
+          {
+            "kind": "turndone",
+            "id": "abort-8-item-1",
+            "status": "cancelled"
+          },
+          {
+            "kind": "user",
+            "id": "sub2",
+            "text": "redirect"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      }
+    },
+    {
+      "name": "output already produced: nothing to hand back",
+      "kind": "abort",
+      "prompt": "draft",
+      "submit": {
+        "id": "sub1",
+        "transcriptMeta": {
+          "device": "PC"
+        }
+      },
+      "steering": null,
+      "output": {
+        "callback": "onTextDelta",
+        "text": "partial answer"
+      },
+      "options": {
+        "device": "PC"
+      },
+      "accepted": true,
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "draft"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      },
+      "result": {
+        "aborted": true,
+        "restoreText": "",
+        "pastedImages": null,
+        "discardPastedImages": null,
+        "pastedTexts": null,
+        "discardPastedTexts": null,
+        "restoredSubmissionIds": []
+      },
+      "abortReasons": [
+        "user-cancel"
+      ],
+      "after": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "draft"
+          },
+          {
+            "kind": "assistant",
+            "id": "abort-9-item-1",
+            "text": "partial answer"
+          },
+          {
+            "kind": "turndone",
+            "id": "abort-9-item-2",
+            "status": "cancelled"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "whitespace output is not output",
+      "kind": "abort",
+      "prompt": "draft",
+      "submit": {
+        "id": "sub1",
+        "transcriptMeta": {
+          "device": "PC"
+        }
+      },
+      "steering": null,
+      "output": {
+        "callback": "onTextDelta",
+        "text": "  \n"
+      },
+      "options": {
+        "device": "PC"
+      },
+      "accepted": true,
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "draft"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      },
+      "result": {
+        "aborted": true,
+        "restoreText": "draft",
+        "pastedImages": null,
+        "discardPastedImages": null,
+        "pastedTexts": null,
+        "discardPastedTexts": null,
+        "restoredSubmissionIds": [
+          "sub1"
+        ]
+      },
+      "abortReasons": [
+        "user-cancel"
+      ],
+      "after": {
+        "items": [],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "a kickoff prompt is never restorable",
+      "kind": "abort",
+      "prompt": "draft",
+      "submit": {
+        "id": "sub1",
+        "transcriptMeta": {
+          "device": "PC"
+        },
+        "kickoff": true
+      },
+      "steering": null,
+      "output": null,
+      "options": {
+        "device": "PC"
+      },
+      "accepted": true,
+      "before": {
+        "items": [],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      },
+      "result": {
+        "aborted": true,
+        "restoreText": "",
+        "pastedImages": null,
+        "discardPastedImages": null,
+        "pastedTexts": null,
+        "discardPastedTexts": null,
+        "restoredSubmissionIds": []
+      },
+      "abortReasons": [
+        "user-cancel"
+      ],
+      "after": {
+        "items": [],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      }
+    },
+    {
+      "name": "a named non-user reason with no restore",
+      "kind": "abort",
+      "prompt": "draft",
+      "submit": {
+        "id": "sub1",
+        "transcriptMeta": {
+          "device": "PC"
+        }
+      },
+      "steering": null,
+      "output": null,
+      "options": {
+        "reason": "agent-watchdog",
+        "restorePrompt": false
+      },
+      "accepted": true,
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "draft"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      },
+      "result": {
+        "aborted": true,
+        "restoreText": "",
+        "pastedImages": null,
+        "discardPastedImages": null,
+        "pastedTexts": null,
+        "discardPastedTexts": null,
+        "restoredSubmissionIds": []
+      },
+      "abortReasons": [
+        "agent-watchdog"
+      ],
+      "after": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "draft"
+          },
+          {
+            "kind": "turndone",
+            "id": "abort-12-item-1",
+            "status": "cancelled"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "no device named by the canceller",
+      "kind": "abort",
+      "prompt": "draft",
+      "submit": {
+        "id": "sub1",
+        "transcriptMeta": {
+          "device": "PC"
+        }
+      },
+      "steering": null,
+      "output": null,
+      "options": {},
+      "accepted": true,
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "draft"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      },
+      "result": {
+        "aborted": true,
+        "restoreText": "draft",
+        "pastedImages": null,
+        "discardPastedImages": null,
+        "pastedTexts": null,
+        "discardPastedTexts": null,
+        "restoredSubmissionIds": [
+          "sub1"
+        ]
+      },
+      "abortReasons": [
+        "user-cancel"
+      ],
+      "after": {
+        "items": [],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "a prompt submitted without a device, cancelled from a device",
+      "kind": "abort",
+      "prompt": "draft",
+      "submit": {
+        "id": "sub1",
+        "transcriptMeta": {}
+      },
+      "steering": null,
+      "output": null,
+      "options": {
+        "device": "Phone"
+      },
+      "accepted": true,
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "draft"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      },
+      "result": {
+        "aborted": true,
+        "restoreText": "draft",
+        "pastedImages": null,
+        "discardPastedImages": null,
+        "pastedTexts": null,
+        "discardPastedTexts": null,
+        "restoredSubmissionIds": [
+          "sub1"
+        ]
+      },
+      "abortReasons": [
+        "user-cancel"
+      ],
+      "after": {
+        "items": [],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "a queued submission is handed back by its id",
+      "kind": "idle",
+      "queue": [
+        {
+          "id": "sub1",
+          "text": "queued one"
+        },
+        {
+          "id": "sub2",
+          "text": "queued two"
+        }
+      ],
+      "abortOptions": {
+        "submissionId": "sub1"
+      },
+      "accepted": [
+        true,
+        true
+      ],
+      "before": {
+        "items": [],
+        "queued": [
+          "sub1",
+          "sub2"
+        ],
+        "pending": [
+          "sub1",
+          "sub2"
+        ],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      },
+      "raw": {
+        "aborted": false,
+        "restoreText": "queued one",
+        "pastedImages": null,
+        "pastedTexts": null,
+        "restoredSubmissionIds": [
+          "sub1"
+        ]
+      },
+      "reply": {
+        "aborted": false,
+        "restoreText": "queued one",
+        "pastedImages": null,
+        "pastedTexts": null,
+        "restoredSubmissionIds": [
+          "sub1"
+        ]
+      },
+      "after": {
+        "items": [],
+        "queued": [
+          "sub2"
+        ],
+        "pending": [
+          "sub2"
+        ],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "an id that is not queued",
+      "kind": "idle",
+      "queue": [
+        {
+          "id": "sub1",
+          "text": "queued one"
+        }
+      ],
+      "abortOptions": {
+        "submissionId": "zz"
+      },
+      "accepted": [
+        true
+      ],
+      "before": {
+        "items": [],
+        "queued": [
+          "sub1"
+        ],
+        "pending": [
+          "sub1"
+        ],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      },
+      "raw": false,
+      "reply": {
+        "aborted": false
+      },
+      "after": {
+        "items": [],
+        "queued": [
+          "sub1"
+        ],
+        "pending": [
+          "sub1"
+        ],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "no id names nothing",
+      "kind": "idle",
+      "queue": [
+        {
+          "id": "sub1",
+          "text": "queued one"
+        }
+      ],
+      "abortOptions": {},
+      "accepted": [
+        true
+      ],
+      "before": {
+        "items": [],
+        "queued": [
+          "sub1"
+        ],
+        "pending": [
+          "sub1"
+        ],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      },
+      "raw": false,
+      "reply": {
+        "aborted": false
+      },
+      "after": {
+        "items": [],
+        "queued": [
+          "sub1"
+        ],
+        "pending": [
+          "sub1"
+        ],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "nothing queued",
+      "kind": "idle",
+      "queue": [],
+      "abortOptions": {
+        "submissionId": "sub1"
+      },
+      "accepted": [],
+      "before": {
+        "items": [],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      },
+      "raw": false,
+      "reply": {
+        "aborted": false
+      },
+      "after": {
+        "items": [],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "a queued prompt with pasted images",
+      "kind": "idle",
+      "queue": [
+        {
+          "id": "sub1",
+          "text": "see [Image #1]",
+          "options": {
+            "pastedImages": {
+              "1": {
+                "data": "AAAA",
+                "mimeType": "image/png"
+              }
+            }
+          }
+        }
+      ],
+      "abortOptions": {
+        "submissionId": "sub1"
+      },
+      "accepted": [
+        true
+      ],
+      "before": {
+        "items": [],
+        "queued": [
+          "sub1"
+        ],
+        "pending": [
+          "sub1"
+        ],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      },
+      "raw": {
+        "aborted": false,
+        "restoreText": "see [Image #1]",
+        "pastedImages": {
+          "1": {
+            "data": "AAAA",
+            "mimeType": "image/png"
+          }
+        },
+        "pastedTexts": null,
+        "restoredSubmissionIds": [
+          "sub1"
+        ]
+      },
+      "reply": {
+        "aborted": false,
+        "restoreText": "see [Image #1]",
+        "pastedImages": {
+          "1": {
+            "data": "AAAA",
+            "mimeType": "image/png"
+          }
+        },
+        "pastedTexts": null,
+        "restoredSubmissionIds": [
+          "sub1"
+        ]
+      },
+      "after": {
+        "items": [],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "a prompt of blank text parts is refused",
+      "kind": "submit",
+      "prompt": [
+        {
+          "type": "text",
+          "text": " \n "
+        }
+      ],
+      "options": {},
+      "admission": "open",
+      "repeat": 1,
+      "busy": false,
+      "answers": [
+        false
+      ],
+      "after": {
+        "items": [],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "a prompt whose display text is blank is refused",
+      "kind": "submit",
+      "prompt": [
+        {
+          "type": "text",
+          "text": ""
+        }
+      ],
+      "options": {
+        "displayText": "  "
+      },
+      "admission": "open",
+      "repeat": 1,
+      "busy": false,
+      "answers": [
+        false
+      ],
+      "after": {
+        "items": [],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "a blank display text is replaced by the one given",
+      "kind": "submit",
+      "prompt": [
+        {
+          "type": "text",
+          "text": " "
+        }
+      ],
+      "options": {
+        "displayText": "shown"
+      },
+      "admission": "open",
+      "repeat": 1,
+      "busy": false,
+      "answers": [
+        true
+      ],
+      "after": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "shown"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": true
+      }
+    },
+    {
+      "name": "a prompt of text is accepted and queued",
+      "kind": "submit",
+      "prompt": "hello",
+      "options": {},
+      "admission": "open",
+      "repeat": 1,
+      "busy": true,
+      "answers": [
+        true
+      ],
+      "after": {
+        "items": [],
+        "queued": [
+          "sub1"
+        ],
+        "pending": [
+          "sub1"
+        ],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "a closing session still takes a user prompt",
+      "kind": "submit",
+      "prompt": "hello",
+      "options": {},
+      "admission": "closing",
+      "repeat": 1,
+      "busy": true,
+      "answers": [
+        true
+      ],
+      "after": {
+        "items": [],
+        "queued": [
+          "sub1"
+        ],
+        "pending": [
+          "sub1"
+        ],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "a closed session takes nothing",
+      "kind": "submit",
+      "prompt": "hello",
+      "options": {},
+      "admission": "terminal",
+      "repeat": 1,
+      "busy": true,
+      "answers": [
+        false
+      ],
+      "after": {
+        "items": [],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "a repeated submission id is one prompt",
+      "kind": "submit",
+      "prompt": "hello",
+      "options": {},
+      "admission": "open",
+      "repeat": 2,
+      "busy": true,
+      "answers": [
+        true,
+        true
+      ],
+      "after": {
+        "items": [],
+        "queued": [
+          "sub1"
+        ],
+        "pending": [
+          "sub1"
+        ],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    }
+  ]
+}

@@ -30,7 +30,11 @@ use mixdog_core_api::ids::QueuedId;
 use mixdog_core_api::ids::SubscriptionId;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::ids::TurnId;
+use mixdog_core_api::call::CallContext;
+use mixdog_core_api::ids::Method;
 use mixdog_core_api::thread::Decision;
+use mixdog_core_api::thread::Stop;
+use mixdog_core_api::thread::stop_reply;
 use mixdog_core_base::support::on_lane;
 use mixdog_rt::LaneToken;
 use mixdog_rt::Scope;
@@ -48,6 +52,8 @@ use super::control::Ctl;
 use super::directory::CreateSpec;
 use super::directory::DirInner;
 use super::run::ProducerMsg;
+use super::state::Queued;
+use super::stop;
 use mixdog_core_ports::ports::threads::Section;
 use super::view::SnapshotParams;
 use mixdog_core_base::approvals::Lineage;
@@ -648,10 +654,119 @@ impl RunControl for SessionHandle {
     }
 }
 
+impl SessionHandle {
+    /// `abort` while nothing runs (`reclaimIdleSubmission`, `abort.mjs:84`): the queued submission the client names is handed
+    /// back to its composer (`restoreQueued('', submissionId)`); naming none, or one that is not queued, stops nothing.
+    async fn stop_idle(&self, submission: Option<String>, ctx: CallContext) -> Result<Value, CoreError> {
+        let nothing = || Ok(stop_reply(None, false));
+        let Some(submission) = submission.filter(|id| !id.is_empty()) else {
+            return nothing();
+        };
+        let queued = self
+            .cell
+            .queue
+            .load()
+            .iter()
+            .find(|queued| queued.entry.pointer("/options/clientSubmissionId").and_then(Value::as_str) == Some(submission.as_str()))
+            .map(|queued| queued.qid.clone());
+        let Some(qid) = queued else {
+            return nothing();
+        };
+        let Reply::Value(restored) = self
+            .request(CoreRequest {
+                method: Method("thread/queue/delete"),
+                params: json!({ "threadId": self.id, "opId": format!("stop:{}", super::new_id()), "queuedId": qid, "restore": true }),
+                op: None,
+                ctx,
+            })
+            .await?
+        else {
+            return nothing();
+        };
+        if restored["count"].as_u64().unwrap_or(0) == 0 {
+            return nothing();
+        }
+        let mut reply = stop_reply(None, false);
+        reply["restoreText"] = restored["text"].clone();
+        reply["pastedImages"] = restored["pastedImages"].clone();
+        reply["pastedTexts"] = restored["pastedTexts"].clone();
+        reply["restoredSubmissionIds"] = json!([submission]);
+        for key in ["content", "notice"] {
+            if let Some(value) = restored.get(key) {
+                reply[key] = value.clone();
+            }
+        }
+        Ok(reply)
+    }
+}
+
 #[async_trait]
 impl ThreadHandle for SessionHandle {
     fn id(&self) -> &ThreadId {
         &self.id
+    }
+
+    /// Node's `abortSession` over the run's prompt (`abort.mjs`): see [`super::stop`].
+    async fn stop(&self, request: Stop) -> Result<Value, CoreError> {
+        let Stop { turn: named, restore_prompt, submission_id, ctx } = request;
+        let named_turn = named.is_some();
+        let run = match (named, self.cell.run.load_full()) {
+            (Some(turn), Some(run)) if run.turn == turn => run,
+            (Some(turn), _) => return Err(CoreError::TurnNotActive { thread_id: self.id.clone(), turn_id: Some(turn) }),
+            (None, Some(run)) => run,
+            (None, None) => return self.stop_idle(submission_id, ctx).await,
+        };
+        let canceller = match &ctx.caller {
+            Caller::Connection(connection) => self.deps.devices.describe(*connection).device,
+            Caller::Internal(_) => String::new(),
+        };
+        let facts = run.prompt.snapshot();
+        let steering = self.cell.queue.load().iter().any(|queued| super::control::is_editable_entry(&queued.entry));
+        // A handed-back prompt's attachments are read before the turn is stopped, so a read that fails keeps the prompt
+        // (`hydrateTolerantly`). A prompt with none reads nothing and the stop is not delayed.
+        let mut restored = None;
+        let mut unreadable = None;
+        if stop::wants_restore(&facts, restore_prompt, &canceller, steering) && facts.has_attachments() {
+            let queued = Queued { qid: String::new(), entry: facts.entry.clone(), display: Value::Null };
+            let raw = super::actor::restored_reply(&[super::actor::Taken::of(&queued)], None);
+            let store = self.deps.attachments.clone();
+            let read = on_lane(self.deps.lanes.io, &mixdog_rt::CancellationToken::new(), move |lane| super::restore_hydrate::hydrate(&store, lane, raw)).await;
+            match read {
+                Ok(Ok(hydrated)) => restored = Some(hydrated),
+                Ok(Err(error)) | Err(error) => unreadable = Some(error.to_string()),
+            }
+        }
+        let decision = stop::decide(&facts, restore_prompt, &canceller, steering, unreadable.is_some());
+        // The hand-back is recorded first: the actor reads it when the turn ends, which this abort may bring at once.
+        run.prompt.record(decision.reclaim.clone());
+        let name = match decision.reason {
+            stop::Reason::Interrupt => "interrupt",
+            stop::Reason::KeepPrompt => "user-cancel-keep-prompt",
+            stop::Reason::UserCancel => mixdog_agent::cancel::CLI_ABORT,
+        };
+        if let Err(error) = self.cell.abort(&run.turn, &mixdog_agent::cancel::Abort::runtime_abort(self.id.as_str(), name)) {
+            run.prompt.record(None);
+            return if named_turn { Err(error) } else { Ok(stop_reply(None, false)) };
+        }
+        let mut reply = stop_reply(Some(&run.turn), true);
+        reply["restoreText"] = json!(decision.restore_text);
+        reply["restoredSubmissionIds"] = json!(decision.restored_ids);
+        if let Some(restored) = &restored {
+            for key in ["pastedImages", "pastedTexts", "content", "notice"] {
+                if let Some(value) = restored.get(key) {
+                    reply[key] = value.clone();
+                }
+            }
+        }
+        if let Some(message) = unreadable {
+            reply["notice"] = json!(format!("Could not restore the attachments ({message}); the prompt was kept."));
+        }
+        for (key, pointer, discard) in [("discardPastedImages", "/options/pastedImages", decision.discard_images), ("discardPastedTexts", "/options/pastedTexts", decision.discard_texts)] {
+            if discard {
+                reply[key] = facts.entry.pointer(pointer).cloned().unwrap_or(Value::Null);
+            }
+        }
+        Ok(reply)
     }
 
     async fn request(&self, req: CoreRequest) -> Result<Reply, CoreError> {
