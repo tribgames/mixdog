@@ -114,6 +114,33 @@ fn every_launch_environment_is_nodes() {
     }
 }
 
+/// The environment SCM hands a git child: what a caller sets (`extra_env`, `GIT_*`) or removes
+/// first, the launcher's transformations over the result. Node's `gitChildEnv(env)` takes the
+/// whole environment, so a caller's PATH, MSYSTEM and MSYS are transformed like inherited ones.
+#[test]
+fn the_callers_environment_is_transformed_by_the_launcher_as_nodes_is() {
+    let recorded = recording();
+    let layouts = recorded["layouts"].as_array().unwrap();
+    let cases = recorded["merges"].as_array().unwrap();
+    assert!(cases.len() >= 10);
+    for case in cases {
+        let definition = layouts.iter().find(|l| l["id"] == case["layout"]).unwrap();
+        let folder = Folder::new();
+        folder.fill(&strings(&definition["files"]), definition["config"].as_str());
+        let pairs = |value: &Value| -> Vec<(String, String)> { value.as_object().unwrap().iter().map(|(k, v)| (k.clone(), folder.insert(v.as_str().unwrap()))).collect() };
+        let process = pairs(&case["process"]);
+        let mut spec = crate::exec::ExecSpec::new("git", Path::new(&folder.root));
+        spec.env_set = pairs(&case["set"]);
+        spec.env_remove = strings(&case["remove"]);
+        let base = crate::git::child_base(&spec, process.clone());
+        crate::git::apply_launch(&mut spec, super::launch_for(&base));
+        let env: BTreeMap<String, String> = crate::git::child_base(&spec, process).into_iter().map(|(k, v)| (k, folder.mask(&v))).collect();
+        let want: BTreeMap<String, String> = case["env"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();
+        assert_eq!(folder.mask(&spec.program), case["command"].as_str().unwrap(), "{}", case["id"]);
+        assert_eq!(env, want, "{}", case["id"]);
+    }
+}
+
 /// libuv's `realpath`: a UNC final path name loses `\\?\UNC\` for `\\`, a drive path its `\\?\`.
 #[test]
 fn a_verbatim_unc_path_is_normalized_as_libuv_does() {

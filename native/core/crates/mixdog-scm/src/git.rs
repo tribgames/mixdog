@@ -61,6 +61,51 @@ impl RunOptions {
     }
 }
 
+/// The environment a git child would have: this process's, less what `spec` removes, with what
+/// `spec` sets applied (`gitChildEnv(env)` takes exactly this as `env`).
+pub(crate) fn child_base(spec: &ExecSpec, process: git_launch::Env) -> git_launch::Env {
+    let mut base = process;
+    base.retain(|(key, _)| !spec.env_remove.iter().any(|name| name.eq_ignore_ascii_case(key)));
+    for (name, value) in &spec.env_set {
+        match base.iter_mut().find(|(key, _)| key.eq_ignore_ascii_case(name)) {
+            Some(entry) => entry.1 = value.clone(),
+            None => base.push((name.clone(), value.clone())),
+        }
+    }
+    base
+}
+
+/// Hands `spec` the launch: its program, and the launcher's variables as they came out of
+/// `gitLaunchEnvironment` over the caller's environment, so they win over what the caller set
+/// under the same name (Node transforms the caller's PATH, MSYSTEM and MSYS, it does not skip them).
+pub(crate) fn apply_launch(spec: &mut ExecSpec, launch: git_launch::Launch) {
+    spec.program = launch.program;
+    for (name, value) in launch.env {
+        spec.env_set.retain(|(set, _)| !set.eq_ignore_ascii_case(&name));
+        spec.env_set.push((name, value));
+    }
+}
+
+/// Runs `spec` as git: with the program PATH's `git` resolves to and the environment its launcher
+/// would have built (`git-launch.mjs` `startGit`), and once more with a fresh resolution when the
+/// resolved binary is gone (an uninstalled or moved Git, where bare `git` would find whatever PATH
+/// holds now).
+pub async fn start_git(exec: &Exec, lane: MaintenanceIo, spec: ExecSpec, cancel: &CancellationToken) -> Result<ExecOutput, ScmFailure> {
+    match launch_once(exec, lane, spec.clone(), cancel).await {
+        Err(ScmFailure::Unavailable { capability }) if git_launch::forget_missing(&capability) => launch_once(exec, lane, spec, cancel).await,
+        other => other,
+    }
+}
+
+async fn launch_once(exec: &Exec, lane: MaintenanceIo, mut spec: ExecSpec, cancel: &CancellationToken) -> Result<ExecOutput, ScmFailure> {
+    if cfg!(windows) {
+        let base = child_base(&spec, git_launch::process_env());
+        let launch = on_lane(lane, cancel, move || git_launch::launch_for(&base)).await?;
+        apply_launch(&mut spec, launch);
+    }
+    exec.run(spec, cancel).await
+}
+
 #[derive(Clone)]
 pub struct Git {
     exec: Arc<Exec>,
@@ -115,39 +160,9 @@ impl Git {
         spec.stdin = options.input.clone();
         spec.time_limit = options.time_limit.or(options.read_limit.then_some(GIT_READ_LIMIT));
         spec.max_output = options.max_output.unwrap_or(RUN_MAX_BYTES);
-        let mut output = match self.start(spec.clone(), cancel).await {
-            // `startGit`: the resolved binary is gone (an uninstalled or moved Git): once more
-            // with a fresh resolution, where bare `git` would find whatever PATH holds now.
-            Err(ScmFailure::Unavailable { capability }) if git_launch::forget_missing(&capability) => {
-                self.start(spec, cancel).await?
-            }
-            other => other?,
-        };
+        let mut output = start_git(&self.exec, self.lane, spec, cancel).await?;
         output.stderr = scrub_credentials(&output.stderr_text()).into_bytes();
         Ok(output)
-    }
-
-    /// Runs `spec` with the program PATH's `git` resolves to and the environment its launcher
-    /// would have built (`git-launch.mjs`), on top of the environment `spec` already asks for.
-    async fn start(&self, mut spec: ExecSpec, cancel: &CancellationToken) -> Result<ExecOutput, ScmFailure> {
-        if cfg!(windows) {
-            let mut base = git_launch::process_env();
-            base.retain(|(key, _)| !spec.env_remove.iter().any(|name| name.eq_ignore_ascii_case(key)));
-            for (name, value) in &spec.env_set {
-                match base.iter_mut().find(|(key, _)| key.eq_ignore_ascii_case(name)) {
-                    Some(entry) => entry.1 = value.clone(),
-                    None => base.push((name.clone(), value.clone())),
-                }
-            }
-            let launch = on_lane(self.lane, cancel, move || git_launch::launch_for(&base)).await?;
-            spec.program = launch.program;
-            // Variables the caller set stay as the caller set them; the launcher's go first.
-            let mut env = launch.env;
-            env.retain(|(key, _)| !spec.env_set.iter().any(|(name, _)| name.eq_ignore_ascii_case(key)));
-            env.append(&mut spec.env_set);
-            spec.env_set = env;
-        }
-        self.exec.run(spec, cancel).await
     }
 
     /// stdout of a command that must exit 0; a failure carries the scrubbed stderr.

@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 13699,
+      "bytes": 18135,
       "path": "launch.json",
-      "sha256": "f4007255c215edf820708d0fa61907e8d604e7b5e250b7b72ef6af6abc7cc191"
+      "sha256": "79c2fafd5d364cdcb492a5f130e22bda7dfa5563fb4943b7e9b65b6dcc8ba0f0"
     }
   ],
   "product": {
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-git-launch.mjs",
   "set": "git-launch",
-  "totalBytes": 13699
+  "totalBytes": 18135
 }
