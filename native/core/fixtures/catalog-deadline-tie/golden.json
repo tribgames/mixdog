@@ -1,0 +1,97 @@
+{
+  "now": 1800000000000,
+  "scenarios": [
+    {
+      "name": "tie-alone",
+      "providers": [
+        {
+          "name": "tie",
+          "answersAfterMs": 4000
+        }
+      ],
+      "first": [
+        {
+          "name": "tie",
+          "models": [],
+          "error": {
+            "code": "ETIMEDOUT",
+            "message": "provider \"tie\" catalog list did not finish within 4000ms"
+          },
+          "retryAfterMs": 30000
+        }
+      ],
+      "callsAfterFirst": {
+        "tie": 1
+      },
+      "second": [
+        {
+          "name": "tie",
+          "models": [],
+          "error": {
+            "code": "ETIMEDOUT",
+            "message": "provider \"tie\" catalog list did not finish within 4000ms"
+          },
+          "retryAfterMs": 30000
+        }
+      ],
+      "callsAfterSecond": {
+        "tie": 2
+      }
+    },
+    {
+      "name": "tie-beside-a-fast-provider",
+      "providers": [
+        {
+          "name": "fast",
+          "answersAfterMs": 10
+        },
+        {
+          "name": "tie",
+          "answersAfterMs": 4000
+        }
+      ],
+      "first": [
+        {
+          "name": "fast",
+          "models": [
+            "m"
+          ]
+        },
+        {
+          "name": "tie",
+          "models": [],
+          "error": {
+            "code": "ETIMEDOUT",
+            "message": "provider \"tie\" catalog list did not finish within 4000ms"
+          },
+          "retryAfterMs": 30000
+        }
+      ],
+      "callsAfterFirst": {
+        "fast": 1,
+        "tie": 1
+      },
+      "second": [
+        {
+          "name": "fast",
+          "models": [
+            "m"
+          ]
+        },
+        {
+          "name": "tie",
+          "models": [],
+          "error": {
+            "code": "ETIMEDOUT",
+            "message": "provider \"tie\" catalog list did not finish within 4000ms"
+          },
+          "retryAfterMs": 30000
+        }
+      ],
+      "callsAfterSecond": {
+        "fast": 1,
+        "tie": 1
+      }
+    }
+  ]
+}
