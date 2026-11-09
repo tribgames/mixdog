@@ -26,7 +26,7 @@ export interface PhoneProtocolAdapter {
   /** Calls that answer. */
   readonly calls?: Readonly<Record<string, NodeCall>>;
   /** Calls the page does not wait for; a method only in `calls` is also accepted here. */
-  readonly fires?: Readonly<Record<string, (params: unknown[], host: PhoneProtocolHost) => void>>;
+  readonly fires?: Readonly<Record<string, (params: unknown[], host: PhoneProtocolHost) => void | Promise<void>>>;
   /** Wires the group's pushed events into the context's listener sets (`ctx.fanOut(ctx.termListeners, ...)`); returns its teardown. */
   install?(host: PhoneProtocolHost): (() => void) | undefined;
 }
@@ -102,7 +102,7 @@ export function createProtocolRouter(
 ): ProtocolRouter {
   const owners = new Map<string, string>();
   const calls = new Map<string, NodeCall>();
-  const fires = new Map<string, (params: unknown[], host: PhoneProtocolHost) => void>();
+  const fires = new Map<string, (params: unknown[], host: PhoneProtocolHost) => void | Promise<void>>();
   for (const adapter of adapters) {
     for (const name of new Set([...Object.keys(adapter.calls ?? {}), ...Object.keys(adapter.fires ?? {})])) {
       const owner = owners.get(name);

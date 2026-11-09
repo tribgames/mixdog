@@ -27,14 +27,6 @@ const FILES_LANE = 'files';
 /** How many request ids are remembered; the core re-delivers app-feed events after a reconnect. */
 const REMEMBERED_RUNS = 256;
 
-/** Node ran the terminal methods of one connection one at a time, in arrival order (remote-call-queue.ts). */
-const queues = new WeakMap<object, Promise<unknown>>();
-function inTerminalLane<T>(host: PhoneProtocolHost, work: () => Promise<T>): Promise<T> {
-  const last = queues.get(host.ctx) ?? Promise.resolve();
-  const next = last.then(work, work);
-  queues.set(host.ctx, next.catch(() => undefined));
-  return next;
-}
 
 /** A path argument as Node's `absoluteLocalPath` checked it; the host resolves it. A Windows drive, a UNC share or a root is absolute. */
 function absoluteHostPath(value: unknown): string {
@@ -163,28 +155,27 @@ export const adapter: PhoneProtocolAdapter = {
   group: 'terminal',
   install,
   calls: {
-    termEnsure: ([id, cwd, shell], host) =>
-      inTerminalLane(host, async () => {
-        const { method, params } = terminalEnsureRequest(id, cwd, shell);
-        const reply = await rpc(host.client(), method, params);
-        remembered.get(host.ctx)?.(reply);
-        return terminalReply(reply);
-      }),
-    termAttach: ([id], host) =>
-      inTerminalLane(host, async () => {
-        const reply = await rpc(host.client(), 'terminal/attach', { tabId: requiredString(id, 'terminal id', 128) });
-        if (reply == null) return null;
-        remembered.get(host.ctx)?.(reply);
-        // The output subscription is the adapter's own: Node's answer carries none.
-        const { subscription: _subscription, ...answer } = reply;
-        return terminalReply(answer);
-      }),
-    termProfiles: (_params, host) => inTerminalLane(host, () => rpc(host.client(), 'terminal/profiles', {})),
-    termDispose: ([id], host) =>
-      inTerminalLane(host, async () => {
-        await rpc(host.client(), 'terminal/dispose', { tabId: requiredString(id, 'terminal id', 128) });
-        return null;
-      }),
+    // The six terminal-lane methods (termEnsure, termAttach, termProfiles, termWrite, termResize, termDispose) are ordered by the
+    // connection's one call queue (remote-protocol-queue.ts), which the router enters for every call; the adapter has no lane of its own.
+    termEnsure: async ([id, cwd, shell], host) => {
+      const { method, params } = terminalEnsureRequest(id, cwd, shell);
+      const reply = await rpc(host.client(), method, params);
+      remembered.get(host.ctx)?.(reply);
+      return terminalReply(reply);
+    },
+    termAttach: async ([id], host) => {
+      const reply = await rpc(host.client(), 'terminal/attach', { tabId: requiredString(id, 'terminal id', 128) });
+      if (reply == null) return null;
+      remembered.get(host.ctx)?.(reply);
+      // The output subscription is the adapter's own: Node's answer carries none.
+      const { subscription: _subscription, ...answer } = reply;
+      return terminalReply(answer);
+    },
+    termProfiles: (_params, host) => rpc(host.client(), 'terminal/profiles', {}),
+    termDispose: async ([id], host) => {
+      await rpc(host.client(), 'terminal/dispose', { tabId: requiredString(id, 'terminal id', 128) });
+      return null;
+    },
     termActivity: async (_params, host) => terminalActivityRows(sectionValue(host.client(), 'terminalActivity')),
     termFocus: async ([id, focused], host) => {
       await rpc(host.client(), 'terminal/focus', { tabId: requiredString(id, 'terminal id', 128), focused: focused === true });
@@ -223,24 +214,20 @@ export const adapter: PhoneProtocolAdapter = {
     },
   },
   fires: {
-    // Keystrokes and size go in the terminal lane, behind a `termEnsure` still spawning, and wait for the synced connection as the
-    // phone's fire did; a lost one is dropped.
-    termWrite: ([id, data], host) => {
-      void inTerminalLane(host, async () => {
-        await host.ctx.phone.synced();
-        host.client().notify('terminal/input', { tabId: String(id || ''), data: String(data ?? '') });
-      }).catch(() => undefined);
+    // Keystrokes and size wait for the synced connection as the phone's fire did; the router queues them in the terminal lane, behind
+    // a `termEnsure` still spawning, and drops a lost one. The returned promise is what holds the lane until they are sent.
+    termWrite: async ([id, data], host) => {
+      await host.ctx.phone.synced();
+      host.client().notify('terminal/input', { tabId: String(id || ''), data: String(data ?? '') });
     },
-    termResize: ([id, cols, rows, phoneOwner], host) => {
-      void inTerminalLane(host, async () => {
-        await host.ctx.phone.synced();
-        host.client().notify('terminal/resize', {
-          tabId: String(id || ''),
-          cols: Number(cols),
-          rows: Number(rows),
-          ...(phoneOwner === true ? { claim: true } : {}),
-        });
-      }).catch(() => undefined);
+    termResize: async ([id, cols, rows, phoneOwner], host) => {
+      await host.ctx.phone.synced();
+      host.client().notify('terminal/resize', {
+        tabId: String(id || ''),
+        cols: Number(cols),
+        rows: Number(rows),
+        ...(phoneOwner === true ? { claim: true } : {}),
+      });
     },
   },
 };
