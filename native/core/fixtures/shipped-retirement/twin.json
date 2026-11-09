@@ -23,6 +23,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -199,6 +200,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -244,6 +246,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -294,6 +297,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -339,6 +343,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -381,6 +386,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -423,6 +429,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -468,6 +475,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -518,6 +526,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -563,6 +572,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -605,6 +615,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -647,6 +658,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -702,6 +714,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -752,6 +765,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -831,6 +845,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -910,6 +925,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -1086,6 +1102,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -1233,6 +1250,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -1381,6 +1399,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -1461,6 +1480,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -1541,6 +1561,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -1642,6 +1663,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -1745,6 +1767,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -1894,6 +1917,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -2043,6 +2067,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -2192,6 +2217,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -2341,6 +2367,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -2490,6 +2517,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -2639,6 +2667,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -2788,6 +2817,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -2937,6 +2967,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -3086,6 +3117,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -3235,6 +3267,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -3316,6 +3349,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -3397,6 +3431,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -3478,6 +3513,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -3559,6 +3595,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -3640,6 +3677,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -3721,6 +3759,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -3798,6 +3837,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -3875,6 +3915,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -3952,6 +3993,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -4029,6 +4071,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -4110,6 +4153,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -4191,6 +4235,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -4268,6 +4313,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -4345,6 +4391,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -4422,6 +4469,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -4499,6 +4547,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -4580,6 +4629,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -4661,6 +4711,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -4738,6 +4789,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -4815,6 +4867,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -4892,6 +4945,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -4969,6 +5023,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -5050,6 +5105,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -5131,6 +5187,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -5208,6 +5265,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -5285,6 +5343,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -5362,6 +5421,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -5439,6 +5499,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -5520,6 +5581,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -5601,6 +5663,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -5678,6 +5741,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -5755,6 +5819,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -5832,6 +5897,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -5909,6 +5975,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -5990,6 +6057,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -6071,6 +6139,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -6159,6 +6228,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -6205,6 +6275,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -6251,6 +6322,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -6292,6 +6364,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -6341,6 +6414,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -6387,6 +6461,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -6423,6 +6498,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -6464,6 +6540,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -6505,6 +6582,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -6538,6 +6616,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -6583,6 +6662,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -6670,6 +6750,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -6712,6 +6793,7 @@
       "noDataDir": false,
       "clock": "2026-01-02T03:04:05.678Z",
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -6770,6 +6852,7 @@
       "noDataDir": false,
       "clock": "2026-01-02T03:04:05.678Z",
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -6836,6 +6919,7 @@
       "noDataDir": false,
       "clock": "2026-01-02T03:04:05.678Z",
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -6902,6 +6986,7 @@
       "noDataDir": false,
       "clock": "2026-01-02T03:04:05.678Z",
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -7002,6 +7087,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -7111,6 +7197,7 @@
           "linked"
         ]
       ],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -7168,6 +7255,7 @@
       "noDataDir": false,
       "clock": "2026-01-02T03:04:05.678Z",
       "links": [],
+      "symlinks": [],
       "crossVolume": true,
       "locks": [],
       "before": {
@@ -7275,6 +7363,7 @@
           "linked"
         ]
       ],
+      "symlinks": [],
       "crossVolume": true,
       "locks": [],
       "before": {
@@ -7337,6 +7426,7 @@
       "noDataDir": false,
       "clock": "2026-01-02T03:04:05.678Z",
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [
         [
@@ -7453,6 +7543,7 @@
       "noDataDir": false,
       "clock": "2026-01-02T03:04:05.678Z",
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [
         [
@@ -7548,6 +7639,7 @@
       "noDataDir": false,
       "clock": "2026-01-02T03:04:05.678Z",
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [
         [
@@ -7656,6 +7748,7 @@
       "noDataDir": false,
       "clock": "2026-01-02T03:04:05.678Z",
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [
         [
@@ -7704,6 +7797,7 @@
       "noDataDir": false,
       "clock": "2026-01-02T03:04:05.678Z",
       "links": [],
+      "symlinks": [],
       "crossVolume": true,
       "locks": [
         [
@@ -7759,11 +7853,400 @@
       "logs": []
     },
     {
+      "name": "failed-copy-agent-stray-first",
+      "root": {},
+      "noDataDir": false,
+      "clock": "2026-01-02T03:04:05.678Z",
+      "links": [],
+      "symlinks": [],
+      "crossVolume": false,
+      "locks": [
+        [
+          "agents/maintainer/0.bak",
+          "None"
+        ]
+      ],
+      "before": {
+        "agents/maintainer/AGENT.md": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n",
+        "agents/maintainer/agent.json": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n",
+        "agents/maintainer/0.bak": "stray\n"
+      },
+      "runs": 2,
+      "after": [
+        [
+          {
+            "path": "agents/"
+          },
+          {
+            "path": "agents/maintainer/"
+          },
+          {
+            "path": "agents/maintainer/0.bak",
+            "content": {
+              "unreadable": "EBUSY"
+            }
+          },
+          {
+            "path": "agents/maintainer/AGENT.md",
+            "content": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n"
+          },
+          {
+            "path": "agents/maintainer/agent.json",
+            "content": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n"
+          },
+          {
+            "path": "backups/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/agents/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/agents/maintainer/"
+          }
+        ],
+        [
+          {
+            "path": "agents/"
+          },
+          {
+            "path": "agents/maintainer/"
+          },
+          {
+            "path": "agents/maintainer/0.bak",
+            "content": {
+              "unreadable": "EBUSY"
+            }
+          },
+          {
+            "path": "agents/maintainer/AGENT.md",
+            "content": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n"
+          },
+          {
+            "path": "agents/maintainer/agent.json",
+            "content": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n"
+          },
+          {
+            "path": "backups/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>-2/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>-2/agents/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>-2/agents/maintainer/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/agents/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/agents/maintainer/"
+          }
+        ]
+      ],
+      "externalAfter": [
+        null,
+        null
+      ],
+      "error": null,
+      "logs": []
+    },
+    {
+      "name": "failed-copy-agent-stray-middle",
+      "root": {},
+      "noDataDir": false,
+      "clock": "2026-01-02T03:04:05.678Z",
+      "links": [],
+      "symlinks": [],
+      "crossVolume": false,
+      "locks": [
+        [
+          "agents/maintainer/AGENT.md.BAK",
+          "None"
+        ]
+      ],
+      "before": {
+        "agents/maintainer/AGENT.md": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n",
+        "agents/maintainer/agent.json": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n",
+        "agents/maintainer/AGENT.md.BAK": "stray\n",
+        "agents/maintainer/zz.orig": "stray\n"
+      },
+      "runs": 2,
+      "after": [
+        [
+          {
+            "path": "agents/"
+          },
+          {
+            "path": "agents/maintainer/"
+          },
+          {
+            "path": "agents/maintainer/AGENT.md",
+            "content": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n"
+          },
+          {
+            "path": "agents/maintainer/AGENT.md.BAK",
+            "content": {
+              "unreadable": "EBUSY"
+            }
+          },
+          {
+            "path": "agents/maintainer/agent.json",
+            "content": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n"
+          },
+          {
+            "path": "agents/maintainer/zz.orig",
+            "content": "stray\n"
+          },
+          {
+            "path": "backups/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/agents/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/agents/maintainer/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/agents/maintainer/AGENT.md",
+            "content": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/agents/maintainer/agent.json",
+            "content": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n"
+          }
+        ],
+        [
+          {
+            "path": "agents/"
+          },
+          {
+            "path": "agents/maintainer/"
+          },
+          {
+            "path": "agents/maintainer/AGENT.md",
+            "content": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n"
+          },
+          {
+            "path": "agents/maintainer/AGENT.md.BAK",
+            "content": {
+              "unreadable": "EBUSY"
+            }
+          },
+          {
+            "path": "agents/maintainer/agent.json",
+            "content": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n"
+          },
+          {
+            "path": "agents/maintainer/zz.orig",
+            "content": "stray\n"
+          },
+          {
+            "path": "backups/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>-2/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>-2/agents/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>-2/agents/maintainer/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>-2/agents/maintainer/AGENT.md",
+            "content": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>-2/agents/maintainer/agent.json",
+            "content": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/agents/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/agents/maintainer/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/agents/maintainer/AGENT.md",
+            "content": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/agents/maintainer/agent.json",
+            "content": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n"
+          }
+        ]
+      ],
+      "externalAfter": [
+        null,
+        null
+      ],
+      "error": null,
+      "logs": []
+    },
+    {
+      "name": "failed-copy-workflow-stray-middle",
+      "root": {},
+      "noDataDir": false,
+      "clock": "2026-01-02T03:04:05.678Z",
+      "links": [],
+      "symlinks": [],
+      "crossVolume": false,
+      "locks": [
+        [
+          "workflows/headless/WORKFLOW.md.BAK",
+          "None"
+        ]
+      ],
+      "before": {
+        "workflows/headless/WORKFLOW.md": "---\nid: headless\nname: Headless\ndescription: \"No user mid-run; requests are approved. Complete, then report.\"\nhidden: true\n---\n\n# Headless\n\nThe user does not intervene during the run. Treat the request as approved,\ncarry it out to the end, and report the result.\n",
+        "workflows/headless/WORKFLOW.md.BAK": "stray\n",
+        "workflows/headless/zz.tmp": "stray\n"
+      },
+      "runs": 1,
+      "after": [
+        [
+          {
+            "path": "backups/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/workflows/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/workflows/headless/"
+          },
+          {
+            "path": "backups/defaults-separation-<iso>/workflows/headless/WORKFLOW.md",
+            "content": "---\nid: headless\nname: Headless\ndescription: \"No user mid-run; requests are approved. Complete, then report.\"\nhidden: true\n---\n\n# Headless\n\nThe user does not intervene during the run. Treat the request as approved,\ncarry it out to the end, and report the result.\n"
+          },
+          {
+            "path": "workflows/"
+          },
+          {
+            "path": "workflows/headless/"
+          },
+          {
+            "path": "workflows/headless/WORKFLOW.md",
+            "content": "---\nid: headless\nname: Headless\ndescription: \"No user mid-run; requests are approved. Complete, then report.\"\nhidden: true\n---\n\n# Headless\n\nThe user does not intervene during the run. Treat the request as approved,\ncarry it out to the end, and report the result.\n"
+          },
+          {
+            "path": "workflows/headless/WORKFLOW.md.BAK",
+            "content": {
+              "unreadable": "EBUSY"
+            }
+          },
+          {
+            "path": "workflows/headless/zz.tmp",
+            "content": "stray\n"
+          }
+        ]
+      ],
+      "externalAfter": [
+        null
+      ],
+      "error": null,
+      "logs": []
+    },
+    {
+      "name": "failed-copy-agent-stray-cross-volume",
+      "root": {},
+      "noDataDir": false,
+      "clock": "2026-01-02T03:04:05.678Z",
+      "links": [],
+      "symlinks": [],
+      "crossVolume": true,
+      "locks": [
+        [
+          "agents/maintainer/AGENT.md.BAK",
+          "None"
+        ]
+      ],
+      "before": {
+        "agents/maintainer/AGENT.md": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n",
+        "agents/maintainer/agent.json": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n",
+        "agents/maintainer/AGENT.md.BAK": "stray\n",
+        "agents/maintainer/zz.orig": "stray\n"
+      },
+      "runs": 1,
+      "after": [
+        [
+          {
+            "path": "agents/"
+          },
+          {
+            "path": "agents/maintainer/"
+          },
+          {
+            "path": "agents/maintainer/AGENT.md",
+            "content": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n"
+          },
+          {
+            "path": "agents/maintainer/AGENT.md.BAK",
+            "content": {
+              "unreadable": "EBUSY"
+            }
+          },
+          {
+            "path": "agents/maintainer/agent.json",
+            "content": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n"
+          },
+          {
+            "path": "agents/maintainer/zz.orig",
+            "content": "stray\n"
+          },
+          {
+            "path": "backups",
+            "link": "<external>"
+          }
+        ]
+      ],
+      "externalAfter": [
+        [
+          {
+            "path": "defaults-separation-<iso>/"
+          },
+          {
+            "path": "defaults-separation-<iso>/agents/"
+          },
+          {
+            "path": "defaults-separation-<iso>/agents/maintainer/"
+          },
+          {
+            "path": "defaults-separation-<iso>/agents/maintainer/AGENT.md",
+            "content": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n"
+          },
+          {
+            "path": "defaults-separation-<iso>/agents/maintainer/agent.json",
+            "content": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n"
+          }
+        ]
+      ],
+      "error": null,
+      "logs": []
+    },
+    {
       "name": "no-data-dir",
       "root": {},
       "noDataDir": true,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {},
@@ -7788,6 +8271,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {},
@@ -7814,6 +8298,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -7918,6 +8403,7 @@
       "noDataDir": false,
       "clock": null,
       "links": [],
+      "symlinks": [],
       "crossVolume": false,
       "locks": [],
       "before": {

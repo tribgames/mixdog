@@ -520,8 +520,7 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     if std::fs::symlink_metadata(from)?.is_symlink() {
         let target = std::fs::read_link(from)?;
-        let resolved = if target.is_absolute() { target } else { from.parent().unwrap_or(Path::new("")).join(target) };
-        return std::os::unix::fs::symlink(resolved, to);
+        return std::os::unix::fs::symlink(weakly_canonical(&from.parent().unwrap_or(Path::new("")).join(target)), to);
     }
     if from.is_dir() {
         std::fs::create_dir_all(to)?;
@@ -534,6 +533,32 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
     let mut source = std::fs::File::open(from)?;
     let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(to)?;
     std::io::copy(&mut source, &mut file).map(drop)
+}
+
+/// `std::filesystem::weakly_canonical` (what Node's native copy writes for a symbolic link): the longest leading part of the path that
+/// exists is resolved like `canonicalize` (links followed, `..` physical), the rest is appended and normalised lexically.
+#[cfg(unix)]
+fn weakly_canonical(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let parts: Vec<Component<'_>> = path.components().collect();
+    let (mut resolved, rest) = (0..=parts.len())
+        .rev()
+        .find_map(|count| {
+            let prefix: PathBuf = parts[..count].iter().collect();
+            let probe = if prefix.as_os_str().is_empty() { PathBuf::from(".") } else { prefix };
+            std::fs::canonicalize(&probe).ok().map(|resolved| (resolved, count))
+        })
+        .map_or_else(|| (PathBuf::new(), 0), |(resolved, count)| (resolved, count));
+    for part in &parts[rest..] {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                resolved.pop();
+            }
+            other => resolved.push(other.as_os_str()),
+        }
+    }
+    resolved
 }
 
 /// `makeBackup(dataDir)`: the lazily claimed `backups/defaults-separation-<time>` folder that moved
