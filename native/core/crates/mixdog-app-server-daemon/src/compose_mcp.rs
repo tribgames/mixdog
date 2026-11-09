@@ -1069,15 +1069,50 @@ mod tests {
 
     /// The composed MCP service publishes its sign-in flows on the core's scoped feeds: a sign-in begun
     /// through `mcp/beginMcpOAuthLogin` opens `login:<flowId>`, whose snapshot is what the flow's status read
-    /// answers (a configured server whose address refuses the connection fails the flow at once, so the feed holds
-    /// its final state). A server that is not configured is refused before any flow exists, so it opens no feed.
+    /// answers (a configured server that has no discovery document and registers no client fails the flow at once,
+    /// so the feed holds its final state). A server that is not configured is refused before any flow exists, so it
+    /// opens no feed.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_sign_in_begun_through_the_composition_publishes_its_login_feed() {
         let Composed { composed, extensions, feeds, .. } = compose_over(Arc::new(Quiet)).await;
         let owner = composed.mcp_domain.clone();
-        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!("http://{}/mcp", closed.local_addr().unwrap());
-        drop(closed);
+        // The server is there and answers 404 to everything. A closed port would fail the flow the same way, but
+        // each of the flow's eleven requests then waits two seconds for Windows to refuse the connection.
+        let nothing = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/mcp", nothing.local_addr().unwrap());
+        tokio::spawn(async move {
+            use tokio::io::AsyncReadExt as _;
+            use tokio::io::AsyncWriteExt as _;
+            while let Ok((mut socket, _)) = nothing.accept().await {
+                tokio::spawn(async move {
+                    let mut request = Vec::new();
+                    let mut chunk = [0u8; 4096];
+                    let mut more = async |request: &mut Vec<u8>| match socket.read(&mut chunk).await {
+                        Ok(read) if read > 0 => {
+                            request.extend_from_slice(&chunk[..read]);
+                            true
+                        }
+                        _ => false,
+                    };
+                    let body_at = loop {
+                        if let Some(at) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                            break at + 4;
+                        }
+                        if !more(&mut request).await {
+                            return;
+                        }
+                    };
+                    let head = String::from_utf8_lossy(&request[..body_at]).to_ascii_lowercase();
+                    let length = head.lines().find_map(|line| line.strip_prefix("content-length:")?.trim().parse::<usize>().ok()).unwrap_or(0);
+                    while request.len() < body_at + length {
+                        if !more(&mut request).await {
+                            return;
+                        }
+                    }
+                    let _ = socket.write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await;
+                });
+            }
+        });
         let mut agent = extensions.agent();
         agent.insert("mcpServers".to_owned(), serde_json::json!({"remote": {"type": "http", "url": url}}));
         extensions.save_agent(&extensions.agent(), &agent).await.unwrap();
