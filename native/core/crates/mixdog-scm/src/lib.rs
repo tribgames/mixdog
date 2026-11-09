@@ -13,6 +13,7 @@ pub mod git_launch;
 pub mod inspect;
 pub mod locks;
 pub mod mutate;
+pub mod phone_review;
 pub mod repo;
 pub(crate) mod seam;
 pub mod service;

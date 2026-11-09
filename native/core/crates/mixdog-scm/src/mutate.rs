@@ -55,14 +55,16 @@ impl Repo {
     /// cached inspection: the work tree may have changed with no evidence delivered yet.
     pub async fn dirty_paths(&self) -> Result<Vec<String>, ScmFailure> {
         self.touched();
-        let repo = self.repo_ref()?;
-        let scan = self
-            .scm
-            .inspector
-            .scan(self.scm.lane, repo)
-            .await
-            .map_err(scm_error)?;
-        Ok(scan.json.files.iter().map(|file| file.path.clone()).collect())
+        // `gitStatus(cwd)`: Node's own read of the directory the call was given (git-branches.ts assertCleanWorktree).
+        let status = crate::inspect::status::node_status(&self.scm.git, self.scm.lane, &self.cancel, &self.cwd, false, false).await?;
+        if !status.repository {
+            // Node reads "no repository" as an empty list; every caller of this core has been told why instead (a git that could
+            // not start, a folder that is no repository), so that answer is kept: the inspector's read names the cause.
+            let repo = self.repo_ref()?;
+            let scan = self.scm.inspector.scan(self.scm.lane, repo).await.map_err(scm_error)?;
+            return Ok(scan.json.files.iter().map(|file| file.path.clone()).collect());
+        }
+        Ok(status.files.iter().map(|file| file.path.clone()).collect())
     }
 
     async fn assert_no_operation(&self, action: &str) -> Result<(), ScmFailure> {
@@ -175,7 +177,9 @@ impl Repo {
             format!("/{}", escape_ignore_literal(normalized))
         };
         let _scope = self.write_scope().await?;
-        let ignore_path = self.root()?.join(".gitignore");
+        // gitIgnore asks git for the repository root each time (git-mutations.ts): the file goes where it names, else beside `cwd`.
+        let top = self.run(&["rev-parse", "--show-toplevel"]).await?;
+        let ignore_path = if top.trim().is_empty() { self.cwd.join(".gitignore") } else { std::path::PathBuf::from(top.trim()).join(".gitignore") };
         on_lane(self.scm.lane, &self.cancel, move || append_ignore(&ignore_path, &pattern)).await?
     }
 
@@ -441,12 +445,25 @@ impl Repo {
         self.assert_no_operation(&action).await?;
         self.assert_clean(&action).await?;
         let mainline = self.parent_count(&commit).await > 1;
-        let mut args = vec!["cherry-pick", "--allow-empty", "--keep-redundant-commits"];
+        let mut args = vec!["cherry-pick", "--empty=keep"];
         if mainline {
             args.extend(["-m", "1"]);
         }
         args.push(&commit);
-        match self.run(&args).await {
+        // runCherryPick: a git that does not know `--empty=keep` is asked again with the legacy pair.
+        let outcome = match self.run(&args).await {
+            Err(failure) if {
+                let text = failure.to_string().to_lowercase();
+                text.contains("unknown option") || text.contains("usage: git cherry-pick")
+            } =>
+            {
+                let mut legacy = vec!["cherry-pick", "--allow-empty", "--keep-redundant-commits"];
+                legacy.extend(&args[2..]);
+                self.run(&legacy).await
+            }
+            other => other,
+        };
+        match outcome {
             Ok(out) => Ok(out),
             Err(failure) => Err(self
                 .sequencer_failure(RepoOperation::CherryPick, "Cherry-picking", &commit, failure)

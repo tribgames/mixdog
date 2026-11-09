@@ -24,7 +24,6 @@ use mixdog_core_api::domain::login::LoginFailure;
 use mixdog_core_api::domain::login::LoginFlow;
 use mixdog_core_api::domain::login::LoginSession;
 use mixdog_core_api::domain::login::LoginState;
-use mixdog_core_api::domain::repo::Cached;
 use mixdog_core_api::domain::repo::ChangeKind;
 use mixdog_core_api::domain::repo::InspectorKey;
 use mixdog_core_api::domain::repo::ObjectId;
@@ -58,7 +57,6 @@ use crate::engine::Scm;
 use crate::error::GITHUB_DOMAIN;
 use crate::error::ScmFailure;
 use crate::feeds::FeedPublisher;
-use crate::inspect::review;
 
 /// The `git` plugin gate: GitHub actions are refused while Git & GitHub is off in Extensions.
 #[async_trait]
@@ -84,60 +82,6 @@ pub trait ReviewBases: Send + Sync {
 pub trait ThreadWorktrees: Send + Sync {
     /// `Ok(None)`: no such thread. `Err`: the record read never ran.
     async fn cwd(&self, thread: &ThreadId) -> Result<Option<String>, CoreError>;
-}
-
-/** Untracked rows a review lists (`git-history.ts` `REVIEW_UNTRACKED_LIMIT`); the rest are only counted. */
-const REVIEW_UNTRACKED_LIMIT: usize = 256;
-/// Patch text one `gitReviewDiffs` batch returns before the remaining files are omitted (`REVIEW_BATCH_PATCH_CHARS`).
-const REVIEW_BATCH_PATCH_CHARS: usize = 8_000_000;
-/// Pathspec text one batch passes on the command line (`REVIEW_BATCH_ARGS_CHARS`).
-const REVIEW_BATCH_ARGS_CHARS: usize = 20_000;
-
-/// How many times a repository review is read again when its cached result is dropped between the summary and the patch.
-const REVIEW_READ_ATTEMPTS: usize = 3;
-
-/// Runs `attempt` until it answers (`Some`), at most [`REVIEW_READ_ATTEMPTS`] times.
-pub(crate) async fn until_ready<T, F, Fut>(mut attempt: F) -> Result<T, ScmFailure>
-where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = Result<Option<T>, ScmFailure>>,
-{
-    for _ in 0..REVIEW_READ_ATTEMPTS {
-        if let Some(value) = attempt().await? {
-            return Ok(value);
-        }
-    }
-    Err(ScmFailure::git("The review changed while it was being read. Try again."))
-}
-
-/// The files a `gitReviewDiffs` batch serves, in Node's order (tracked, then untracked; a repeated path once). A path
-/// git would quote in a diff header, or past the command-line budget, goes to `omitted` (`git-history.ts` gitReviewDiffs).
-fn batch_paths(files: &[Value], omitted: &mut Vec<String>) -> Vec<String> {
-    let mut unique: Vec<(String, bool)> = Vec::new();
-    for file in files {
-        let Some(path) = file.get("path").and_then(Value::as_str) else { continue };
-        let untracked = file.get("untracked").and_then(Value::as_bool) == Some(true);
-        match unique.iter_mut().find(|(seen, _)| seen == path) {
-            Some(entry) => entry.1 = untracked,
-            None => unique.push((path.to_owned(), untracked)),
-        }
-    }
-    let (mut tracked, mut untracked) = (Vec::new(), Vec::new());
-    let mut arg_chars = 0;
-    for (path, is_untracked) in unique {
-        if is_untracked {
-            untracked.push(path);
-            continue;
-        }
-        arg_chars += path.encode_utf16().count() + 3;
-        if path.chars().any(|c| c == '"' || c == '\\' || c < ' ') || arg_chars > REVIEW_BATCH_ARGS_CHARS {
-            omitted.push(path);
-        } else {
-            tracked.push(path);
-        }
-    }
-    tracked.extend(untracked);
-    tracked
 }
 
 /// `hostState` key of the global git identity (`{name, email, defaultBranch}`), published after each write.
@@ -220,7 +164,7 @@ fn unit() -> Value {
     Value::Null
 }
 
-fn kind_letter(kind: ChangeKind) -> &'static str {
+pub(crate) fn kind_letter(kind: ChangeKind) -> &'static str {
     match kind {
         ChangeKind::Added => "A",
         ChangeKind::Deleted => "D",
@@ -474,187 +418,21 @@ impl ScmService {
         Ok(Value::Object(reply))
     }
 
+    /// The repository review of the phone (`scope: repo`): `gitReview`, `gitReviewDiff` or `gitReviewDiffs`, by request form. Their
+    /// reads are git-history.ts's own (`phone_review`), not the pushed review's.
     async fn review_get(self: &Arc<Self>, params: ReviewDiffGetParams, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
-        // A repository review (`scope: repo`) answers in the pane's own shapes, by request form;
-        // `base_name` is set for it alone.
         let dir = cwd(params.cwd.as_deref().unwrap_or(""))?;
-        let repo = self.scm.open(&dir, cancel).await?;
-        let root = repo.root()?.to_path_buf();
-        let (name, base) = review::repo_base(&self.scm.git, cancel, &root, params.source.as_deref().unwrap_or("branch")).await?;
-        let base_name = Some(name);
-        let repo = self.scm.open(&root, cancel).await?;
-        let request = ReviewRequest {
-            repo: repo.repo_ref()?,
-            scope: ReviewScope::Session { thread_id: params.thread_id.clone().unwrap_or_else(|| ThreadId::from("")) },
-            base,
-        };
-        let inspector = &self.scm.inspector;
-        let summary = inspector
-            .review_summary(self.scm.lane, request.clone())
-            .await
-            .map_err(crate::mutate::scm_error)?;
-        let key = key_text(&summary.key);
-        if params.known.as_deref() == Some(key.as_str()) {
-            return Ok(json!({ "key": key, "unchanged": true }));
+        let source = params.source.as_deref().unwrap_or("branch");
+        let git = &self.scm.git;
+        if let Some(files) = &params.files {
+            return crate::phone_review::git_review_diffs(git, cancel, &dir, files, source).await;
         }
-        let files: Vec<Value> = summary
-            .files
-            .iter()
-            .map(|f| json!({ "path": f.path, "status": kind_letter(f.status), "additions": f.adds, "deletions": f.dels, "untracked": f.status == ChangeKind::Untracked }))
-            .collect();
-        let (adds, dels) = summary.files.iter().fold((0, 0), |(a, d), f| (a + f.adds, d + f.dels));
-        let mut out = json!({ "key": key, "files": files, "totals": { "files": summary.files.len(), "additions": adds, "deletions": dels } });
-        let mut omitted: Vec<String> = Vec::new();
-        let wants_patch = params.patch == Some(true) || params.path.is_some() || params.files.is_some() || params.cursor.is_some();
-        if wants_patch {
-            let mut pages = Vec::new();
-            // `gitReviewDiffs` serves a bounded batch; what it cannot serve comes back in `omitted` (`git-history.ts`).
-            let batch = base_name.is_some() && params.files.is_some();
-            let mut paths: Vec<String> = if batch {
-                batch_paths(params.files.as_deref().unwrap_or_default(), &mut omitted)
-            } else {
-                params.files.iter().flatten().filter_map(|f| f.get("path").and_then(Value::as_str).map(str::to_owned)).collect()
-            };
-            let mut budget = REVIEW_BATCH_PATCH_CHARS;
-            if let Some(path) = &params.path {
-                paths.push(path.clone());
-            }
-            if paths.is_empty() {
-                match inspector.review_page(&summary.key, None, params.cursor.as_deref()).map_err(crate::mutate::scm_error)? {
-                    Cached::Ready(page) => {
-                        out["patch"] = json!(page.patch);
-                        out["nextCursor"] = json!(page.next_cursor);
-                    }
-                    Cached::Pending { key } => out["pending"] = json!({ "key": key_text(&key) }),
-                }
-            } else {
-                for path in paths {
-                    // Node reads the patch whenever it is asked: a repository review whose cached read was dropped meanwhile is read
-                    // again, never answered as "pending".
-                    let cached = if base_name.is_some() {
-                        let page = until_ready(|| async {
-                            let fresh = inspector.review_summary(self.scm.lane, request.clone()).await.map_err(crate::mutate::scm_error)?;
-                            match inspector.review_page(&fresh.key, Some(&path), None).map_err(crate::mutate::scm_error)? {
-                                Cached::Ready(page) => Ok(Some(page)),
-                                Cached::Pending { .. } => Ok(None),
-                            }
-                        })
-                        .await?;
-                        Cached::Ready(page)
-                    } else {
-                        inspector.review_page(&summary.key, Some(&path), None).map_err(crate::mutate::scm_error)?
-                    };
-                    match cached {
-                        Cached::Ready(mut page) => {
-                            // Node's repository review serves an untracked file as its `untrackedPatch` does (every line added, no mode or
-                            // index header), not as a tree diff would.
-                            let asked_untracked = (params.path.as_deref() == Some(path.as_str()) && params.untracked == Some(true))
-                                || params.files.iter().flatten().any(|f| {
-                                    f.get("path").and_then(Value::as_str) == Some(path.as_str())
-                                        && f.get("untracked").and_then(Value::as_bool) == Some(true)
-                                });
-                            if base_name.is_some() && (asked_untracked || summary.files.iter().any(|f| f.path == path && f.status == ChangeKind::Untracked)) {
-                                page.patch = crate::inspect::history::untracked_patch(&root, &path);
-                            }
-                            let length = page.patch.encode_utf16().count();
-                            if batch && length > budget {
-                                omitted.push(path);
-                                continue;
-                            }
-                            budget = budget.saturating_sub(length);
-                            pages.push(json!({ "path": path, "patch": page.patch }));
-                        }
-                        Cached::Pending { key } => {
-                            out["pending"] = json!({ "key": key_text(&key) });
-                        }
-                    }
-                }
-                if params.files.is_some() {
-                    out["patches"] = Value::Array(pages);
-                } else if let Some(page) = pages.into_iter().next() {
-                    out["patch"] = page["patch"].clone();
-                }
-            }
+        if let Some(path) = &params.path {
+            let patch = crate::phone_review::git_review_diff(git, cancel, &dir, path, params.untracked == Some(true), source).await?;
+            return Ok(Value::String(patch));
         }
-        if let Some(name) = base_name {
-            // `gitReviewDiffs`: `{patches, omitted}`.
-            if params.files.is_some() {
-                let mut shaped = json!({ "patches": out["patches"], "omitted": omitted });
-                if let Some(pending) = out.get("pending") {
-                    shaped["pending"] = pending.clone();
-                }
-                return Ok(shaped);
-            }
-            // `gitReviewDiff`: the patch text itself.
-            if params.path.is_some() {
-                return Ok(match out.get("patch") {
-                    Some(patch) => patch.clone(),
-                    None => json!({ "pending": out["pending"] }),
-                });
-            }
-            // `gitReview`: the rows with the repository, its base branch, each row's work-tree
-            // identity and the untracked files past the cap that are not listed.
-            // In Node's order: `files.sort((a, b) => a.path.localeCompare(b.path))` (`git-history.ts`), a stable sort by the process
-            // locale's collation; the summary's own order is by bytes.
-            let mut rows: Vec<Value> = out["files"].as_array().cloned().unwrap_or_default();
-            // The review diffs trees, so an untracked file is an added one there. Node reads the untracked files from its status scan
-            // (`reviewStatus`: the same command, the `?` records in git's order, bytes of the path): it lists the first
-            // `REVIEW_UNTRACKED_LIMIT` of them as rows (`untracked: true`) and only counts the rest in `untrackedOmitted`. Tracked rows
-            // are never capped.
-            let options = crate::git::RunOptions { max_output: Some(crate::git::STATUS_MAX_BYTES), ..crate::git::RunOptions::read() };
-            let scan = self
-                .scm
-                .git
-                .text(
-                    cancel,
-                    &root,
-                    &["--no-optional-locks", "status", "--porcelain=v2", "-z", "--branch", "--no-ahead-behind", "--untracked-files=all", "--no-renames"],
-                    &options,
-                )
-                .await?;
-            let listed: Vec<&str> = scan.split('\0').filter_map(|record| record.strip_prefix("? ")).collect();
-            let all: std::collections::HashSet<&str> = listed.iter().copied().collect();
-            let kept: std::collections::HashSet<&str> = listed.iter().take(REVIEW_UNTRACKED_LIMIT).copied().collect();
-            rows.retain(|row| row["path"].as_str().is_none_or(|path| !all.contains(path) || kept.contains(path)));
-            // A nested repository is one `name/` record. The tree build sees it as a gitlink `name` (or nothing, with no commit), so its
-            // row is Node's own: `reviewStatus` lists the record and `untrackedStat` of a folder counts no lines (`A`, 0, 0, untracked).
-            for folder in all.iter().filter(|path| path.ends_with('/')) {
-                let bare = &folder[..folder.len() - 1];
-                rows.retain(|row| row["path"].as_str() != Some(bare));
-                if kept.contains(folder) {
-                    rows.push(json!({ "path": folder, "status": "A", "additions": 0, "deletions": 0, "untracked": true }));
-                }
-            }
-            rows.sort_by(|a, b| mixdog_js::locale_compare(a["path"].as_str().unwrap_or_default(), b["path"].as_str().unwrap_or_default()));
-            for row in &mut rows {
-                let untracked = row["path"].as_str().is_some_and(|path| kept.contains(path));
-                row["untracked"] = json!(untracked);
-            }
-            let omitted = listed.len().saturating_sub(REVIEW_UNTRACKED_LIMIT);
-            let paths: Vec<String> = rows.iter().filter_map(|row| row["path"].as_str().map(str::to_owned)).collect();
-            let stat_root = root.clone();
-            let revisions = crate::repo::on_lane(self.scm.lane, cancel, move || {
-                paths.iter().map(|path| crate::inspect::status::worktree_revision(&stat_root, path)).collect::<Vec<_>>()
-            })
-            .await?;
-            for (row, revision) in rows.iter_mut().zip(revisions) {
-                row["revision"] = json!(revision);
-            }
-            out["files"] = Value::Array(rows);
-            out["untrackedOmitted"] = json!(omitted);
-            // Node's `gitReview` answers `{repository, root, base, files, untrackedOmitted}` (`git-history.ts` `GitReviewResult`): no `key`
-            // (the cache key `known` is asked against) and no `totals`, which are the thread review's.
-            if let Some(fields) = out.as_object_mut() {
-                fields.shift_remove("key");
-                fields.shift_remove("totals");
-            }
-            out["repository"] = json!(true);
-            out["root"] = json!(root.to_string_lossy());
-            out["base"] = json!(name);
-        }
-        Ok(out)
+        crate::phone_review::git_review(git, self.scm.lane, cancel, &dir, source).await
     }
-
     /// Computes the review of `thread` and publishes its summary (the `reviewDiff` section);
     /// called after a run ends and after repository evidence, so clients never poll.
     pub async fn publish_review(
@@ -710,7 +488,7 @@ impl ScmService {
             };
         }
         let value: Value = match method {
-            "git/status" => { let p: p::GitStatusParams = decode(req)?; scm.git_status_counting(&cwd(&p.cwd)?, cancel, p.skip_line_stats != Some(true)).await? }
+            "git/status" => { let p: p::GitStatusParams = decode(req)?; scm.git_status_counting(&cwd(&p.cwd)?, cancel, p.skip_line_stats != Some(true), p.reuse_line_stats == Some(true)).await? }
             "git/branches" => { let p: p::GitBranchesParams = decode(req)?; scm.git_branches(&cwd(&p.cwd)?, cancel).await? }
             "git/log" => { let p: p::GitLogParams = decode(req)?; scm.git_log(&cwd(&p.cwd)?, cancel, p.query.as_deref().unwrap_or(""), p.skip.unwrap_or(0), p.limit.unwrap_or(40)).await? }
             "git/show" => { let p: p::GitShowParams = decode(req)?; scm.git_show(&cwd(&p.cwd)?, cancel, &p.hash).await? }

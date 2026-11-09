@@ -12,7 +12,6 @@ use crate::engine::Scm;
 use crate::error::ScmFailure;
 use crate::git::RunOptions;
 use crate::inspect::history;
-use crate::inspect::status::not_a_repository;
 use crate::inspect::status::path_text;
 use crate::repo::on_lane;
 
@@ -34,52 +33,21 @@ fn clip(text: String, limit: usize) -> String {
 impl Scm {
     /// `git/status`: a folder outside any repository answers `repository: false`.
     pub async fn git_status(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
-        self.git_status_counting(cwd, cancel, true).await
+        self.git_status_counting(cwd, cancel, true, false).await
     }
 
-    /// `git/status` with the pane's line-stats hint: `skipLineStats` answers without add/delete
-    /// counts (`line_stats` false). `reuseLineStats` needs no branch: the inspector already
-    /// serves the counted scan of an unchanged repository from its cache.
+    /// `git/status` with the pane's line-stats hints: `skipLineStats` answers without add/delete counts (`line_stats` false),
+    /// `reuseLineStats` keeps the counts of the last read while the listed files stand. The reads are `gitStatus`'s own
+    /// (`inspect::status::node_status`), kept per directory as Node keeps them.
     pub async fn git_status_counting(
         self: &Arc<Self>,
         cwd: &Path,
         cancel: &CancellationToken,
         line_stats: bool,
+        reuse_line_stats: bool,
     ) -> Result<Value, ScmFailure> {
-        // git-status.ts: any failure of the scan but a deadline or an overflow reads as "not a repository", a git that cannot start too.
-        match self.git_status_scan(cwd, cancel, line_stats).await {
-            Err(ScmFailure::Unavailable { .. }) => to_value(not_a_repository()),
-            other => other,
-        }
+        to_value(crate::inspect::status::node_status(&self.git, self.lane, cancel, cwd, !line_stats, reuse_line_stats).await?)
     }
-
-    async fn git_status_scan(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken, line_stats: bool) -> Result<Value, ScmFailure> {
-        let repo = match self.open(cwd, cancel).await {
-            Ok(repo) => repo,
-            Err(ScmFailure::NotARepository) => return to_value(not_a_repository()),
-            Err(other) => return Err(other),
-        };
-        let reference = repo.repo_ref()?;
-        let scan = if line_stats {
-            self.inspector.scan(self.lane, reference).await
-        } else {
-            self.inspector.scan_without_line_stats(self.lane, reference).await
-        }
-        // Only this answer tells a git that could not start apart (git-status.ts reads it as "not a repository"); every other
-        // caller of the inspector keeps the diagnostic `scm_error` has always given it.
-        .map_err(|error| match error {
-            mixdog_core_api::domain::repo::ScmError::Unavailable { capability } => ScmFailure::Unavailable { capability },
-            mixdog_core_api::domain::repo::ScmError::TimedOut { command, millis } => ScmFailure::TimedOut { command, millis },
-            other => crate::mutate::scm_error(other),
-        })?;
-        // The scan is kept until something changes in the work tree; Node asked its remote list again once its minute was out.
-        let (names, url) = crate::inspect::status::remote_metadata(&self.git, cancel, Path::new(&scan.json.root), &RunOptions::read()).await?;
-        let mut value = to_value(&scan.json)?;
-        value["remote"] = Value::Bool(!names.is_empty());
-        value["remoteUrl"] = Value::String(url);
-        Ok(value)
-    }
-
     pub async fn git_branches(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         to_value(history::branches(&self.git, cancel, cwd).await?)
     }
@@ -132,8 +100,8 @@ impl Scm {
         worktree_only: bool,
         untracked: bool,
     ) -> Result<Value, ScmFailure> {
-        let repo = self.open(cwd, cancel).await?;
-        let root = repo.root()?.to_path_buf();
+        // gitDiff asks git for the root (cachedGitRoot) before anything else.
+        let root = std::path::PathBuf::from(crate::inspect::status::cached_git_root(&self.git, cancel, cwd).await?);
         to_value(history::diff(&self.git, cancel, &root, path, staged, worktree_only, untracked).await?)
     }
 
@@ -202,13 +170,13 @@ impl Scm {
                 "truncated": truncated,
             })
         }));
-        let (status_short, diff_stat, subjects, branch_commits, branch_diff_stat, files, pr) = tokio::join!(
+        let (status_short, diff_stat, files, subjects, branch_commits, branch_diff_stat, pr) = tokio::join!(
             status_short,
             diff_stat,
+            file_patches,
             subjects,
             branch_commits,
             branch_diff_stat,
-            file_patches,
             self.current_pull_request(cwd, cancel),
         );
         Ok(json!({

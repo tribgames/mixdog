@@ -156,20 +156,6 @@ async fn a_review_batch_names_the_files_it_cannot_serve_in_omitted() {
     assert_eq!(served, ["a.txt"]);
 }
 
-#[tokio::test]
-async fn a_repository_review_read_again_when_its_cached_result_was_dropped() {
-    let attempts = std::sync::atomic::AtomicUsize::new(0);
-    let page = crate::service::until_ready(|| async {
-        let n = attempts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        Ok((n >= 2).then_some("patch text"))
-    })
-    .await
-    .unwrap();
-    assert_eq!((page, attempts.into_inner()), ("patch text", 3));
-    let never: Result<(), ScmFailure> = crate::service::until_ready(|| async { Ok(None) }).await;
-    assert_eq!(never.unwrap_err().to_string(), "The review changed while it was being read. Try again.");
-}
-
 #[test]
 fn a_finished_or_failed_sign_in_keeps_the_code_and_the_page_it_showed() {
     let id = LoginFlowId("ghlogin_1_1".into());

@@ -316,11 +316,13 @@ pub async fn show(
     let metadata_args = ["show", "-s", "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%P", hash];
     let status_args = ["show", "--format=", "--name-status", "-z", "--find-renames", "--first-parent", hash];
     let numstat_args = ["show", "--format=", "--numstat", "-z", "--find-renames", "--first-parent", hash];
-    let (metadata, status_raw, numstat_raw) = tokio::try_join!(
+    // Promise.all starts the three and leaves the others running when one fails: join!, the first failure in this order is reported.
+    let (metadata, status_raw, numstat_raw) = tokio::join!(
         git.read(cancel, cwd, &metadata_args),
         git.read(cancel, cwd, &status_args),
         git.read(cancel, cwd, &numstat_args),
-    )?;
+    );
+    let (metadata, status_raw, numstat_raw) = (metadata?, status_raw?, numstat_raw?);
     let mut fields = metadata.trim().split('\u{1f}');
     let full_hash = fields.next().unwrap_or(hash).to_owned();
     let short_hash = fields
@@ -452,7 +454,8 @@ pub async fn diff(
     } else if worktree_only {
         String::new()
     } else {
-        uncommitted_base(git, cancel, root).await?
+        // resolveReviewRef(root, 'uncommitted'): the unborn case hashes the empty tree as Node does.
+        crate::phone_review::resolve_review_ref(git, cancel, root, "uncommitted").await?.1
     };
     let mut args = vec!["--no-optional-locks", "diff"];
     args.extend(DISPLAY_DIFF_ARGS);

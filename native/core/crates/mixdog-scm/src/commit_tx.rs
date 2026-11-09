@@ -155,13 +155,29 @@ impl Repo {
         Ok(output.success() && !output.stdout_text().trim().is_empty())
     }
 
-    fn inside_worktree(&self, path: &str) -> Result<bool, ScmFailure> {
-        let root = self.root()?;
-        let absolute = root.join(path);
-        // Only the lexical shape: `..` was refused at the door.
-        Ok(absolute.starts_with(root) && absolute.exists())
+    /// `existsInsideWorktree`: asks git for the work-tree root each time (git-commit-transaction.ts), and answers whether `path`
+    /// lies under it and exists. A git that cannot name a root is "not inside".
+    async fn inside_worktree(&self, path: &str) -> Result<bool, ScmFailure> {
+        let root = match self.scm.git.run(&self.cancel, &self.cwd, &["rev-parse", "--show-toplevel"]).await {
+            Ok(text) => text.trim().to_owned(),
+            Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
+            Err(_) => String::new(),
+        };
+        if root.is_empty() {
+            return Ok(false);
+        }
+        let absolute: std::path::PathBuf = self.cwd.join(path).components().collect();
+        let comparable_text = |text: &str| {
+            // A verbatim `\\?\` path names the same place as git's plain spelling of it.
+            let normalized = text.trim_start_matches(r"\\?\").replace('\\', "/");
+            if cfg!(windows) { normalized.to_lowercase() } else { normalized }
+        };
+        let prefix = format!("{}/", comparable_text(&root).trim_end_matches('/'));
+        if !comparable_text(&absolute.to_string_lossy()).starts_with(&prefix) {
+            return Ok(false);
+        }
+        Ok(absolute.exists())
     }
-
     /// Commits `paths` with `message`; the result is git's one-line summary.
     pub async fn commit_paths(&self, message: &str, paths: &[String]) -> Result<String, ScmFailure> {
         if message.trim().is_empty() {
@@ -174,11 +190,25 @@ impl Repo {
         for path in &requested {
             assert_commit_path(path)?;
         }
+        // repositoryIdentity: the repository is asked who it is before anything else is read.
+        let identity = self
+            .scm
+            .git
+            .outcome(&self.cancel, &self.cwd, &["rev-parse", "--absolute-git-dir", "--show-toplevel"], &RunOptions::default())
+            .await;
+        let named = identity.as_ref().is_ok_and(|out| {
+            let text = out.stdout_text();
+            let mut lines = text.lines().map(str::trim);
+            out.success() && lines.next().is_some_and(|line| !line.is_empty()) && lines.next().is_some_and(|line| !line.is_empty())
+        });
+        if !named {
+            return Err(ScmFailure::git("This folder is not a Git repository."));
+        }
         let _scope = self.write_scope().await?;
         let specs = self.resolve_selection(&requested).await?;
         let mut addable = Vec::new();
         for spec in &specs {
-            if self.inside_worktree(spec)? || self.in_head(spec).await? {
+            if self.inside_worktree(spec).await? || self.in_head(spec).await? {
                 addable.push(spec.clone());
             } else if !self.in_index(spec).await? {
                 return Err(not_in_repository(&[spec.clone()]));
@@ -190,17 +220,13 @@ impl Repo {
     /// Lines the caller's input up against the repository's own path list instead of
     /// rewriting the string, and refuses what matches nothing or more than one entry.
     async fn resolve_selection(&self, requested: &[&String]) -> Result<Vec<String>, ScmFailure> {
-        let scan = self
-            .scm
-            .inspector
-            .scan(self.scm.lane, {
-                self.touched();
-                self.repo_ref()?
-            })
-            .await
-            .map_err(crate::mutate::scm_error)?;
+        self.touched();
+        let status = crate::inspect::status::node_status(&self.scm.git, self.scm.lane, &self.cancel, &self.cwd, false, false).await?;
+        if !status.repository {
+            return Err(ScmFailure::git("This folder is not a Git repository."));
+        }
         let mut entries: HashMap<&str, &GitFileEntry> = HashMap::new();
-        for file in &scan.json.files {
+        for file in &status.files {
             entries.insert(&file.path, file);
             if let Some(old) = &file.old_path {
                 entries.insert(old, file);
@@ -236,7 +262,7 @@ impl Repo {
                     }
                 }
             }
-            if matched.is_empty() && self.inside_worktree(raw)? {
+            if matched.is_empty() && self.inside_worktree(raw).await? {
                 matched = (*raw).clone();
             }
             if matched.is_empty() {
@@ -268,12 +294,12 @@ impl Repo {
                 format!("Resolve the conflict in {} before committing it.", listed(&conflicted)),
             ));
         }
-        if !scan.json.operation.is_empty() {
+        if !status.operation.is_empty() {
             return Err(ScmFailure::refused(
                 "OPERATION_IN_PROGRESS",
                 format!(
                     "A {} is in progress. Continue or abort it before committing files.",
-                    scan.json.operation
+                    status.operation
                 ),
             ));
         }
@@ -328,6 +354,38 @@ impl Repo {
             )),
             Err(other) => Err(other),
         }
+    }
+
+    /// `hookRunnerAvailable`: whether this git has `git hook run`, probed once per process with a hook name that cannot exist (so
+    /// the probe runs nothing of the repository's). Only a definitive answer is kept: any other failure is a fault, asked again.
+    async fn hook_runner_available(&self) -> Result<bool, ScmFailure> {
+        static SUPPORT: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
+        if let Some(known) = *SUPPORT.lock().unwrap_or_else(|e| e.into_inner()) {
+            return Ok(known);
+        }
+        let options = RunOptions { protect_hook: true, ..RunOptions::default() };
+        let git = &self.scm.git;
+        let options = &options;
+        let probe = |extra: Option<&'static str>| async move {
+            let mut argv = vec!["hook", "run", "--ignore-missing"];
+            argv.extend(extra);
+            argv.push("mixdog-hook-probe");
+            git.text(&self.cancel, self.root()?, &argv, options).await
+        };
+        let mut answer = probe(None).await;
+        if let Err(failure) = &answer {
+            let text = failure.to_string().to_lowercase();
+            if text.contains("allow-unknown-hook-name") || text.contains("unknown hook event") {
+                answer = probe(Some("--allow-unknown-hook-name")).await;
+            }
+        }
+        let supported = match answer {
+            Ok(_) => true,
+            Err(failure) if failure.to_string().to_lowercase().contains("'hook' is not a git command") => false,
+            Err(failure) => return Err(ScmFailure::git(format!("Could not check whether Git can run commit hooks: {}", failure.to_string().trim()))),
+        };
+        *SUPPORT.lock().unwrap_or_else(|e| e.into_inner()) = Some(supported);
+        Ok(supported)
     }
 
     /// Which commit hooks this repository defines (`core.hooksPath` aware).
@@ -432,11 +490,18 @@ impl Repo {
                 ));
             }
         }
+        // Hooks decide this commit, so their availability is settled before anything is built.
+        let hooks = self.hook_runner_available().await?;
         let present = self.present_hooks().await?;
+        if !hooks && !present.is_empty() {
+            return Err(ScmFailure::git(format!(
+                "This Git cannot run commit hooks (git hook run needs Git 2.36 or newer), and this repository defines {}. Update Git, or remove the hook, then commit again.",
+                present.join(", ")
+            )));
+        }
         // Only a repository that defines a hook running before the commit is watched for index
         // writes; without one, an entry that changes meanwhile belongs to somebody else.
-        let watched = present.iter().any(|name| *name != "post-commit");
-        let hooks = !present.is_empty();
+        let watched = hooks && present.iter().any(|name| *name != "post-commit");
         let head = {
             let found = self
                 .scm
@@ -477,8 +542,9 @@ impl Repo {
         self.hook(&index_file, hooks, "pre-commit", &[], false).await?;
         let edited = self.message_through_hooks(&index_file, hooks, message).await?;
         let cleaned = self.clean_message(&cleanup, &edited).await?;
+        // indexAfterHooks is read whether or not the repository is watched; only the comparison depends on it.
+        let after = self.index_snapshot().await?;
         if watched {
-            let after = self.index_snapshot().await?;
             let touched: Vec<String> = after
                 .iter()
                 .filter(|(path, entry)| index_before.get(*path) != Some(entry))
