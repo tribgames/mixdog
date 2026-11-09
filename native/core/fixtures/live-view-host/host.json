@@ -528,8 +528,8 @@
               "video/VP8"
             ],
             "videoLimit": {
-              "pixelWidth": 1920,
-              "pixelHeight": 1080
+              "maxWidth": 1920,
+              "maxHeight": 1080
             }
           },
           "iceServers": "not a list"
@@ -549,15 +549,123 @@
           "signals": []
         },
         {
-          "trace": [],
+          "trace": [
+            [
+              "resolve",
+              {
+                "kind": "browser",
+                "sessionId": "sess_1"
+              },
+              {
+                "clientId": "client_A",
+                "signal": "ready"
+              }
+            ],
+            [
+              "sendSignal",
+              "client_A",
+              {
+                "v": 1,
+                "source": {
+                  "kind": "browser",
+                  "sessionId": "sess_1"
+                },
+                "type": "geometry",
+                "geometry": {
+                  "generation": 1,
+                  "cssWidth": 390,
+                  "cssHeight": 844,
+                  "deviceScaleFactor": 3,
+                  "pixelWidth": 1170,
+                  "pixelHeight": 2532
+                }
+              }
+            ],
+            [
+              "source",
+              "browser:sess_1",
+              "videoLimit",
+              {
+                "maxWidth": 1920,
+                "maxHeight": 1080
+              }
+            ],
+            [
+              "report",
+              "state",
+              {
+                "source": "browser:sess_1",
+                "from": "relay",
+                "to": "negotiating",
+                "generation": 1,
+                "epoch": 1
+              }
+            ],
+            [
+              "setTimer",
+              1,
+              39500
+            ],
+            [
+              "source",
+              "browser:sess_1",
+              "start"
+            ],
+            [
+              "sender",
+              {
+                "type": "open",
+                "connectionId": "connection-id-0001",
+                "sourceKey": "browser:sess_1",
+                "iceServers": [],
+                "iceTransportPolicy": "all",
+                "receiveCodecs": [
+                  "video/VP8"
+                ]
+              }
+            ]
+          ],
           "signals": [
-            "threw:remote webrtc video limit width is invalid."
+            "ok"
           ]
         },
         {
-          "trace": [],
+          "trace": [
+            [
+              "sendSignal",
+              "client_A",
+              {
+                "v": 1,
+                "source": {
+                  "kind": "browser",
+                  "sessionId": "sess_1"
+                },
+                "connectionId": "connection-id-0001",
+                "generation": 1,
+                "type": "offer",
+                "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+                "fingerprints": [
+                  {
+                    "algorithm": "sha-256",
+                    "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+                  }
+                ],
+                "iceServers": [],
+                "iceTransportPolicy": "all",
+                "geometry": {
+                  "generation": 1,
+                  "cssWidth": 390,
+                  "cssHeight": 844,
+                  "deviceScaleFactor": 3,
+                  "pixelWidth": 1170,
+                  "pixelHeight": 2532
+                },
+                "inputEpoch": 1
+              }
+            ]
+          ],
           "signals": [
-            "threw:remote webrtc video limit width is invalid."
+            "ok"
           ]
         }
       ]

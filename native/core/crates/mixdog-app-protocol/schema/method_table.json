@@ -10375,6 +10375,24 @@
     },
     {
       "class": "C2",
+      "method": "browser/stream",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "relay"
+      ],
+      "params": "v2::host::BrowserStreamParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
       "method": "browser/screenDisplays",
       "mutation": {
         "kind": "none"

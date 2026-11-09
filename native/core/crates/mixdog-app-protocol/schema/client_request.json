@@ -1218,6 +1218,23 @@
       ],
       "type": "object"
     },
+    "BrowserStreamParams": {
+      "description": "Params of `browser/stream` (a phone's request, Node's `browserRemoteStream`): `on` starts or stops this connection's stream of the browser session. The first stream of a session makes the core send `host/browser/viewFrames{on:true}` and the last one `{on:false}`; the phone's live-view signals name only a session it streams. `request` is the stream request (fit, quality) the core hands on to the host unchanged.",
+      "properties": {
+        "on": {
+          "type": "boolean"
+        },
+        "request": true,
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "on",
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "BrowserWebrtcSignalParams": {
       "description": "A phone's live-view signal (`browser/webrtcSignal` request, Node's `browserRemoteWebrtcSignal` call) and the core's signal to that phone (the `browser/webrtcSignal` push, Node's `browserRemoteWebrtc` event). `signal` is the validated wire object of `mixdog-remote::webrtc::signal` (`ClientSignal` / `DesktopSignal`).",
       "properties": {
@@ -22635,6 +22652,29 @@
         },
         "params": {
           "$ref": "#/definitions/BrowserWebrtcSignalParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A phone starts or stops streaming a browser session (Node's `browserRemoteStream`).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "browser/stream"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/BrowserStreamParams"
         }
       },
       "required": [

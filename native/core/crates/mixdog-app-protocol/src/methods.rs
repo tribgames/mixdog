@@ -4224,6 +4224,15 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Relay],
     },
+    /// A phone starts or stops streaming a browser session (Node's `browserRemoteStream`).
+    BrowserStream => "browser/stream" {
+        params: v2::host::BrowserStreamParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Relay],
+    },
     /// The displays a granted phone may choose for the remote screen (Node's
     /// `browserRemoteScreenDisplays`): `RemoteScreenDisplaySummary[]` from the host.
     BrowserScreenDisplays => "browser/screenDisplays" {

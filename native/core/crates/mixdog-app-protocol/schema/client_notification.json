@@ -38,6 +38,7 @@
           "description": "`{generation, cssWidth, cssHeight, deviceScaleFactor, pixelWidth, pixelHeight}`."
         },
         "tabId": {
+          "description": "The browser session a phone streams (`sessionId` of its `browser/stream`; the source `browser:<id>` of its live-view signals), as in `host/browser/viewFrames`.",
           "type": "string"
         }
       },

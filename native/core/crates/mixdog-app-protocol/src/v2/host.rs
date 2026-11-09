@@ -550,11 +550,29 @@ pub struct BrowserWebrtcSignalParams {
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct HostBrowserPageParams {
+    /// The browser session a phone streams (`sessionId` of its `browser/stream`; the source
+    /// `browser:<id>` of its live-view signals), as in `host/browser/viewFrames`.
     pub tab_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub document_id: Option<String>,
     /// `{generation, cssWidth, cssHeight, deviceScaleFactor, pixelWidth, pixelHeight}`.
     pub geometry: Option<JsonValue>,
+}
+
+/// Params of `browser/stream` (a phone's request, Node's `browserRemoteStream`): `on` starts or
+/// stops this connection's stream of the browser session. The first stream of a session makes the
+/// core send `host/browser/viewFrames{on:true}` and the last one `{on:false}`; the phone's
+/// live-view signals name only a session it streams. `request` is the stream request (fit, quality)
+/// the core hands on to the host unchanged.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct BrowserStreamParams {
+    pub session_id: String,
+    pub on: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<JsonValue>,
 }
 
 /// Params of `browser/screenDisplays` (a granted phone's request, Node's
