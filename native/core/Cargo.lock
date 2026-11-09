@@ -4038,6 +4038,7 @@ dependencies = [
  "mixdog-js",
  "mixdog-ledger",
  "mixdog-mcp",
+ "mixdog-migrate",
  "mixdog-protocol",
  "mixdog-rt",
  "mixdog-secrets",

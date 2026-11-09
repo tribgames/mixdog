@@ -160,6 +160,12 @@ pub trait ListRooms: Send + Sync {
     async fn with_rooms(&self, rows: Vec<ThreadSummary>) -> Result<Vec<ThreadSummary>, String>;
     /// The log thread of every room.
     async fn room_threads(&self) -> Result<Vec<ThreadId>, String>;
+    /// The rows the catalog makes up for rooms whose log thread (`logs`) has no row in it
+    /// (`catalogWithRooms`' `unlisted`), in the rooms' order.
+    async fn unlisted(&self, logs: &[ThreadId]) -> Result<Vec<ThreadSummary>, String> {
+        let _ = logs;
+        Ok(Vec::new())
+    }
 }
 
 /// `thread/list` over the catalog index.
@@ -239,6 +245,8 @@ impl ThreadListService {
         let after = decode_catalog_cursor(params.cursor.as_deref())
             .map_err(|error| coded(DOMAIN, "EINVALIDCURSOR", error.to_string()))?;
         let workspace = self.workspace().await?;
+        // Node's catalog is whole: the rooms it makes up rows for lead it, so they belong to the unfiltered first page.
+        let whole = after.is_none() && params.archived.is_none() && params.cwd.is_none();
         let filter = LeadFilter { archived: params.archived, cwd: params.cwd };
         let page = self.store.lead_page(after, filter, limit).await.map_err(|error| failed(DOMAIN, error.to_string()))?;
         let next_cursor = if page.more { page.rows.last().map(|row| encode_catalog_cursor(&row.row)) } else { None };
@@ -250,7 +258,20 @@ impl ThreadListService {
                 self.row_of(&id, listed, &workspace)
             })
             .collect();
-        let data = self.with_rooms(rows).await?;
+        let mut data = self.with_rooms(rows).await?;
+        if whole {
+            let mut missing = Vec::new();
+            for log in self.rooms.room_threads().await.map_err(|error| failed(DOMAIN, error))? {
+                if self.store.lead_row(log.as_str()).await.map_err(|error| failed(DOMAIN, error.to_string()))?.is_none() {
+                    missing.push(log);
+                }
+            }
+            if !missing.is_empty() {
+                let mut made_up = self.rooms.unlisted(&missing).await.map_err(|error| failed(DOMAIN, error))?;
+                made_up.append(&mut data);
+                data = made_up;
+            }
+        }
         self.published(&data.iter().map(|row| row.id.as_str()).collect::<Vec<_>>());
         Ok(ThreadListResponse { data, next_cursor, backwards_cursor: None })
     }

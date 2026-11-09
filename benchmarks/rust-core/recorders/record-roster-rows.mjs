@@ -13,6 +13,8 @@
 //        <repo>/benchmarks/rust-core/recorders/record-roster-rows.mjs --tree <tree>
 // Output: native/core/fixtures/roster-rows/{.mixdog,profile,answers.json,MANIFEST.json}
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import crypto, { createHash } from 'node:crypto';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -45,15 +47,37 @@ process.env.MIXDOG_DISABLE_PROVIDER_WARMUP = '1';
 process.env.MIXDOG_DISABLE_MODEL_PREFETCH = '1';
 process.env.MIXDOG_DISABLE_MODEL_CATALOG_WARMUP = '1';
 
-// The product's clock reads whole seconds of real time, so what a step writes within one second carries one time (as the desktop's
-// fork does when create and carry fall in the same tick); file locks still see real time pass.
-const realNow = Date.now.bind(Date);
-let shift = 0;
-Date.now = () => Math.floor(realNow() / 1000) * 1000 + shift;
-// Time moves on a minute (no waiting) before each fork, so no heir shares a second with its source.
-const later = () => {
-  shift += 60_000;
+// The product's clock moves only when this script advances it: everything a step writes carries that step's time (as the
+// desktop's fork does, where create and carry read one tick), and nothing else (ids, the process id, random bytes) reads the
+// real world, so recording twice writes the same bytes.
+let clock = 1_700_000_000_000;
+Date.now = () => clock;
+const advance = (ms) => {
+  clock += ms;
 };
+Object.defineProperty(process, 'pid', { value: 4242 });
+{
+  // One sequence per request size: what asks for a size (a session id: 16 bytes, a room id: 4) is the same code on every run, while
+  // the background writers' temp names and lock tokens draw other sizes in an order that varies.
+  const draws = new Map();
+  const draw = (kind, n) => {
+    const out = [];
+    while (out.length < n) {
+      draws.set(kind, (draws.get(kind) ?? 0) + 1);
+      out.push(...createHash('sha256').update(`${kind} ${draws.get(kind)}`).digest());
+    }
+    return Buffer.from(out.slice(0, n));
+  };
+  const bytes = (n) => draw(`bytes ${n}`, n);
+  const uuid = () => {
+    const h = draw('uuid', 16).toString('hex');
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
+  };
+  crypto.randomBytes = bytes;
+  crypto.randomUUID = uuid;
+  Object.defineProperty(globalThis.crypto, 'randomUUID', { value: uuid, configurable: true });
+  syncBuiltinESMExports();
+}
 
 const load = (p) => import(pathToFileURL(join(tree, p)).href);
 const { saveSession } = await load('src/runtime/agent/orchestrator/session/store.mjs');
@@ -63,6 +87,7 @@ const { _sessionSummary } = await load('src/runtime/agent/orchestrator/session/s
 const { isLeadVisibleRow } = await load('src/runtime/agent/orchestrator/session/store-summary-catalog.mjs');
 const { byActivityThenId } = await load('src/runtime/agent/orchestrator/session/catalog-db/schema.mjs');
 const { createInheritance } = await load('src/session-runtime/lifecycle/inheritance.mjs');
+const { createAgentRoomFileStore, createAgentRooms } = await load('apps/desktop/src/main/agent-rooms.ts');
 const { DesktopSessionMetadata } = await load('apps/desktop/src/main/desktop-session-metadata.ts');
 const { desktopSessionSummaries } = await load('apps/desktop/src/main/desktop-state.ts');
 const { projectIdentity, sessionProjectKey } = await load('apps/desktop/src/shared/project-identity.ts');
@@ -78,7 +103,10 @@ const stub = {
 };
 const route = { provider: 'stub', model: 'stub-model' };
 const project = (path) => ({ classification: 'project', projectPath: path });
-const lead = (extra) => manager.createSession({ ...route, owner: 'user', sourceType: 'lead', agent: 'lead', ...extra });
+const lead = (extra) => {
+  advance(1000);
+  return manager.createSession({ ...route, owner: 'user', sourceType: 'lead', agent: 'lead', ...extra });
+};
 let legacySession;
 const ids = {};
 // The catalog's rows as the product's own index writer builds them on a save (_sessionSummary of each stored session), the lead
@@ -95,7 +123,10 @@ await metadata.load();
 const registered = [projectA, projectB];
 
 await _withRegisteredProviderForTestAsync('stub', stub, async () => {
-  const ask = (id, prompt, cwd) => manager.askSession(id, prompt, null, undefined, cwd, undefined, {});
+  const ask = (id, prompt, cwd) => {
+    advance(1000);
+    return manager.askSession(id, prompt, null, undefined, cwd, undefined, {});
+  };
   ids.plain = lead({ cwd: projectA, desktopSession: project(projectA) }).id;
   await ask(ids.plain, 'hello there', projectA);
   ids.task = lead({ cwd: tasks, desktopSession: { classification: 'task', projectPath: null } }).id;
@@ -138,7 +169,7 @@ await _withRegisteredProviderForTestAsync('stub', stub, async () => {
   // The desktop's fork (`inheritSession`): the heir is created where the source's registered project is, then inheritFrom carries
   // the conversation into it.
   const forkOf = async (sourceId, rows) => {
-    later();
+    advance(60_000);
     const row = rows.find((r) => r.id === sourceId);
     const key = sessionProjectKey(row ?? {}, registered.map((p) => projectIdentity(p)));
     const projectPath = registered.find((p) => projectIdentity(p) === key) ?? null;
@@ -152,25 +183,29 @@ await _withRegisteredProviderForTestAsync('stub', stub, async () => {
     await inheritance.inheritFrom(sourceId, { compact: false });
     return heir.id;
   };
+  // The desktop's rename (renameSession): the runtime's manual title, then the desktop's own name; done before the forks, so a
+  // fork is made of the session as the roster shows it.
+  if ((await manager.updateSessionManualTitle(ids.task, 'My task')) !== true) throw new Error('the rename was refused');
+  await metadata.setName(ids.task, 'My task');
+  // Archived and favorite are the desktop's own state of a session; they are set before the forks, so a fork is made of a session
+  // that holds them.
+  await metadata.setArchived(ids.archived, true);
+  await metadata.setFavorite(ids.favorite, true);
   ids.fork = await forkOf(ids.plain, rawRows());
   ids.forkOfTask = await forkOf(ids.task, rawRows());
   ids.forkOfStray = await forkOf(ids.stray, rawRows());
   ids.forkOfWorktree = await forkOf(ids.worktree, rawRows());
+  ids.forkOfArchived = await forkOf(ids.archived, rawRows());
+  ids.forkOfFavorite = await forkOf(ids.favorite, rawRows());
 
 });
 
 // The desktop's metadata, written through its own methods.
-await metadata.setArchived(ids.archived, true);
-await metadata.setFavorite(ids.favorite, true);
-await metadata.setFavorite(ids.forkOfTask, true);
 await metadata.markRead(ids.read, 0, true, { compactCount: 0, messageCount: 2 });
 await metadata.markRead(ids.read, 2, false, { compactCount: 0, messageCount: 2 });
 const compactedNow = manager.loadSession(ids.compacted);
 await metadata.markRead(ids.compacted, 1, true, { compactCount: compactedNow.compaction.compactCount, messageCount: 4 });
-// The desktop's rename (renameSession): the runtime's manual title, then the desktop's own name. The legacy sidebar title is what
-// the roster shows for a session that has none of its own.
-if ((await manager.updateSessionManualTitle(ids.task, 'My task')) !== true) throw new Error('the rename was refused');
-await metadata.setName(ids.task, 'My task');
+// The legacy sidebar title is what the roster shows for a session that has none of its own.
 metadata.rememberGeneratedTitle(ids.old, 'Old sidebar title');
 // A deleted bot's home thread: retired, titled with the bot's name.
 ids.home = (await load('src/runtime/agent/orchestrator/session/agent-home.mjs')).agentHomeSessionId?.('kestrel') ?? null;
@@ -182,6 +217,54 @@ if (ids.home) {
   metadata.rememberRetiredTitle(ids.home, 'Kestrel');
   await metadata.setRetired(ids.home, true);
 }
+
+// Two rooms, built through the desktop's own room creation (`createAgentRooms.create`: the log session, the record, the title):
+// one whose log stays in the catalog (listed) and one whose log is gone (unlisted: the catalog synthesizes its row).
+const AGENTS = [
+  { id: 'gh', custom: true, kind: 'bot', label: 'GitHub', route },
+  { id: 'rel', custom: true, kind: 'bot', label: 'Release', route },
+  { id: 'bench', custom: true, kind: 'bot', label: 'Bench', route },
+];
+const unused = async () => {
+  throw new Error('not used by a room being created');
+};
+const agentRooms = createAgentRooms({
+  store: createAgentRoomFileStore(join(profile, 'agent-rooms.json')),
+  listAgents: async () => AGENTS,
+  sessionExists: async () => false,
+  createSession: (id, params) =>
+    _withRegisteredProviderForTestAsync('stub', stub, async () => {
+      advance(1000);
+      manager.createSession({ id, ...params, owner: 'user', sourceType: 'lead', agent: 'lead' });
+    }),
+  renameSession: async (id, title) => {
+    if ((await manager.updateSessionManualTitle(id, title)) !== true) throw new Error('the room rename was refused');
+    await metadata.setName(id, title);
+  },
+  taskWorkspace: async () => tasks,
+  republishCatalog() {},
+  republish() {},
+  appendRows: unused,
+  readItems: unused,
+  submit: unused,
+  decideTurn: unused,
+  readSnapshot: unused,
+  abort: unused,
+  approve: unused,
+  deleteSession: unused,
+  setArchived: unused,
+  startOver: unused,
+  resetMember: unused,
+  now: () => clock,
+});
+advance(1000);
+const listedRoom = await agentRooms.create({ name: 'Release check', members: ['gh', 'rel'] });
+advance(1000);
+const unlistedRoom = await agentRooms.create({ name: 'Gone log', members: ['rel', 'bench'] });
+await manager.deleteSession(unlistedRoom.sessionId);
+ids.listedRoom = listedRoom.sessionId;
+ids.unlistedRoom = unlistedRoom.sessionId;
+await agentRooms.ready();
 await metadata.flush();
 
 // The old product kept a session as one JSON file; the product still reads that shape, so the store holds this one that way.
@@ -194,9 +277,12 @@ await metadata.flush();
 // What the desktop's catalog answers over it all.
 const rawSessionRows = rawRows();
 const jsonSafe = (v) => JSON.parse(JSON.stringify(v ?? null));
+// `SessionHost.sessionCatalog`, in its order.
 const rosterOf = (rows) =>
   metadata.withReadCursors(
-    metadata.withFavoriteFlags(metadata.withRetiredFlags(metadata.withArchiveFlags(desktopSessionSummaries(rows, metadata.titles, metadata.names, tasks))))
+    metadata.withFavoriteFlags(
+      metadata.withRetiredFlags(metadata.withArchiveFlags(agentRooms.withRooms(desktopSessionSummaries(rows, metadata.titles, metadata.names, tasks))))
+    )
   );
 const roster = rosterOf(rawSessionRows);
 // The daemon lays what is live over the catalog's rows before the desktop projects them (withRuntimeActivity): the same roster
@@ -217,6 +303,7 @@ const answers = {
   
   taskWorkspace: tasks,
   registeredProjects: registered,
+  agents: AGENTS,
   ids,
   roster: jsonSafe(roster),
   overlays,
@@ -225,6 +312,8 @@ const answers = {
     { source: ids.worktree, heir: ids.forkOfWorktree, sourceHeader: headerOf(ids.worktree), heirHeader: headerOf(ids.forkOfWorktree) },
     { source: ids.plain, heir: ids.fork, sourceHeader: headerOf(ids.plain), heirHeader: headerOf(ids.fork) },
     { source: ids.task, heir: ids.forkOfTask, sourceHeader: headerOf(ids.task), heirHeader: headerOf(ids.forkOfTask) },
+    { source: ids.archived, heir: ids.forkOfArchived, sourceHeader: headerOf(ids.archived), heirHeader: headerOf(ids.forkOfArchived) },
+    { source: ids.favorite, heir: ids.forkOfFavorite, sourceHeader: headerOf(ids.favorite), heirHeader: headerOf(ids.forkOfFavorite) },
   ],
 };
 for (const { source, heir, sourceHeader, heirHeader } of answers.forks) {
