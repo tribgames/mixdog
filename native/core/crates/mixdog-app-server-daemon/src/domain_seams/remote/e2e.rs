@@ -92,15 +92,33 @@ const REDIAL: &str = include_str!("../../../../../fixtures/remote-relay-redial/g
 
 /// The core the server sees: the mock directory for threads, the production `ScreenSessions` for the phone's screen report, and the
 /// registry hooks `ComposedCore` runs when a connection starts (`register_local`) and ends (`ConnectionOwners`).
-/// The desktop as the live view meets it: it answers the host's display list and records what it was asked.
+/// The desktop as the live view meets it: it records what it was asked and, when a window supplies displays, answers the display list.
 struct Desktop {
     asked: Mutex<Vec<String>>,
+    /// How many asks reached the desktop so far, for a test to wait on.
+    reached: watch::Sender<usize>,
+    /// Whether a window supplies the display list. Without one an ask stays pending, as it does in Node's desktop when no window answers.
+    displays: bool,
+}
+
+impl Desktop {
+    fn new(displays: bool) -> Self {
+        Self { asked: Mutex::default(), reached: watch::channel(0).0, displays }
+    }
 }
 
 #[async_trait::async_trait]
 impl HostChannel for Desktop {
     async fn request(&self, _capability: HostCapability, method: Method, _params: Value) -> Result<Value, HostError> {
-        self.asked.lock().unwrap().push(method.as_str().to_owned());
+        let count = {
+            let mut asked = self.asked.lock().unwrap();
+            asked.push(method.as_str().to_owned());
+            asked.len()
+        };
+        self.reached.send_replace(count);
+        if !self.displays {
+            std::future::pending::<()>().await;
+        }
         Ok(serde_json::from_str::<Value>(SCREEN_ACCESS).unwrap()["displays"].clone())
     }
 
@@ -234,8 +252,13 @@ fn identity_in(path: std::path::PathBuf) -> ServerIdentity {
 }
 
 impl Harness {
-    /// `revoke_ok`: whether the relay confirms an unpair.
+    /// `revoke_ok`: whether the relay confirms an unpair. A window supplies the display list.
     async fn start(revoke_ok: bool) -> Self {
+        Self::start_with(revoke_ok, true).await
+    }
+
+    /// [`Harness::start`] where `displays` says whether a window supplies the display list.
+    async fn start_with(revoke_ok: bool, displays: bool) -> Self {
         let tokens = mixdog_rt::testing::tokens();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().to_path_buf();
@@ -328,7 +351,7 @@ impl Harness {
         let owners = ConnectionOwners::of(vec![screen.clone() as Arc<dyn ConnectionOwner>, remote.registry.clone()]);
         let (closed_tx, closed) = watch::channel(Vec::new());
         // The live view as `compose_flip` registers it: the same access rule over the same registry.
-        let desktop = Arc::new(Desktop { asked: Mutex::default() });
+        let desktop = Arc::new(Desktop::new(displays));
         let live = Arc::new(LiveViewService::new(
             desktop.clone(),
             Arc::new(NoPushes),
@@ -462,14 +485,55 @@ impl Client {
 /// How long a frame the server owes is waited for before the test says it never came.
 const FRAME_WAIT: Duration = Duration::from_secs(10);
 
+/// Where a test reads the frames a phone is sent.
+trait Frames {
+    async fn next_frame(&mut self) -> String;
+}
+
+impl Frames for Phone {
+    async fn next_frame(&mut self) -> String {
+        self.recv().await
+    }
+}
+
+/// The frame carrying `id`, with the frames for other ids that came before it. One deadline covers the whole wait: frames for other ids
+/// (Node's desktop also sends a phone frames nobody asked for) neither extend it nor are lost, so a reply that never comes fails here.
+async fn reply_within(from: &mut impl Frames, id: u64, within: Duration) -> (Value, Vec<Value>) {
+    let mut others = Vec::new();
+    let waited = tokio::time::timeout(within, async {
+        loop {
+            let frame: Value = serde_json::from_str(&from.next_frame().await).unwrap();
+            if frame["id"] == id {
+                return frame;
+            }
+            others.push(frame);
+        }
+    })
+    .await;
+    match waited {
+        Ok(frame) => (frame, others),
+        Err(_) => panic!("no frame with id {id} reached the phone within {within:?}; {} frame(s) for other ids came meanwhile", others.len()),
+    }
+}
+
 async fn answer(phone: &mut Phone, id: u64) -> Value {
-    loop {
-        let text = tokio::time::timeout(FRAME_WAIT, phone.recv()).await.unwrap_or_else(|_| panic!("no frame with id {id} reached the phone"));
-        let frame: Value = serde_json::from_str(&text).unwrap();
-        if frame["id"] == id {
-            return frame;
+    reply_within(phone, id, FRAME_WAIT).await.0
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_reply_that_never_comes_fails_at_one_deadline_while_other_frames_keep_arriving() {
+    // A phone that is sent a frame for another id every second, forever (virtual time): each one used to restart the wait.
+    struct Chatter;
+    impl Frames for Chatter {
+        async fn next_frame(&mut self) -> String {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            json!({ "e": "T", "s": 1 }).to_string()
         }
     }
+    let waiting = tokio::spawn(async { reply_within(&mut Chatter, 7, FRAME_WAIT).await });
+    let ended = tokio::time::timeout(Duration::from_secs(60), waiting).await.expect("the wait for the reply outlived its own deadline: a frame for another id restarted it");
+    let message = *ended.expect_err("the reply never came, so the wait must fail").into_panic().downcast::<String>().unwrap();
+    assert!(message.contains("no frame with id 7") && message.contains("10s") && message.contains("frame(s) for other ids"), "{message}");
 }
 
 async fn list(phone: &mut Phone, id: u64) -> Value {
@@ -865,50 +929,68 @@ const UNPAIR_ACCESS: &str = include_str!("../../../../../fixtures/unpair-access/
 const PUSH_KEY: &str = "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM";
 const PUSH_ENDPOINT: &str = "https://push.example/x";
 
-/// `record-unpair-access.mjs` replaced the values that differ between two Node recordings (its `VARYING`, in the fixture's `remapped`) by
-/// tokens numbered by first appearance per key; a frame the core writes goes through the same rules before it is compared.
+/// `record-unpair-access.mjs` replaced the values that differ between two Node runs, by exact path (the fixture's `remapped`: a kind and
+/// a path in a scenario): a random id by `<kind#n>`, numbered per kind by first appearance of the value over the whole recording, so equal
+/// values share a token and different ones never do; the run's temporary directory, alone or as the head of a path, by `<dir>`. A frame the
+/// core wrote goes through the same replacement at the same paths, and the numbering goes on across the scenarios, as the recorder's did.
 struct Canon {
-    rules: Value,
+    rules: std::collections::HashMap<String, String>,
     dir: String,
-    seen: std::collections::HashMap<String, Vec<String>>,
+    tokens: std::collections::HashMap<String, String>,
+    counts: std::collections::HashMap<String, usize>,
 }
 
 impl Canon {
-    fn new(rules: &Value, dir: &std::path::Path) -> Self {
-        Self { rules: rules.clone(), dir: dir.to_string_lossy().into_owned(), seen: Default::default() }
+    fn new(remapped: &Value) -> Self {
+        let rules = remapped.as_array().unwrap().iter().map(|rule| (rule["path"].as_str().unwrap().to_owned(), rule["kind"].as_str().unwrap().to_owned())).collect();
+        Self { rules, dir: String::new(), tokens: Default::default(), counts: Default::default() }
     }
 
-    fn token(&mut self, key: &str, value: &Value) -> Value {
-        let held = self.seen.entry(key.to_owned()).or_default();
-        let text = value.to_string();
-        let at = held.iter().position(|known| *known == text).unwrap_or_else(|| {
-            held.push(text);
-            held.len() - 1
-        });
-        json!(format!("<{key}#{at}>"))
+    fn replace(&mut self, kind: &str, text: &str) -> String {
+        if kind == "dir" {
+            return text.strip_prefix(self.dir.as_str()).map_or_else(|| text.to_owned(), |rest| format!("<dir>{rest}"));
+        }
+        if !self.tokens.contains_key(text) {
+            let count = self.counts.entry(kind.to_owned()).or_default();
+            self.tokens.insert(text.to_owned(), format!("<{kind}#{count}>"));
+            *count += 1;
+        }
+        self.tokens[text].clone()
     }
 
-    fn replaced(&mut self, path: &str, key: &str, value: &Value) -> Option<Value> {
-        let listed = |group: &str| self.rules[group].as_array().unwrap().iter().any(|listed| listed == key);
-        if listed("time") && value.is_number() || listed("generated") && value.is_string() {
-            return Some(self.token(key, value));
+    /// `node` found at `path` (a frame's path, then the keys and indices inside it) with the values at the rules' paths replaced.
+    fn frame(&mut self, path: &str, node: &Value) -> Value {
+        if let (Some(kind), Some(text)) = (self.rules.get(path).cloned(), node.as_str()) {
+            return json!(self.replace(&kind, text));
         }
-        if listed("directory") && *value == json!(self.dir) {
-            return Some(json!("<dir>"));
+        match node {
+            Value::Array(items) => Value::Array(items.iter().enumerate().map(|(index, item)| self.frame(&format!("{path}.{index}"), item)).collect()),
+            Value::Object(map) => Value::Object(map.iter().map(|(key, value)| (key.clone(), self.frame(&format!("{path}.{key}"), value))).collect()),
+            // JavaScript has one number type: `1924905600000` and `1924905600000.0` are the same value on Node's wire.
+            Value::Number(number) => match number.as_f64() {
+                Some(float) if number.is_f64() && float.fract() == 0.0 && float.abs() < 9e15 => json!(float as i64),
+                _ => node.clone(),
+            },
+            other => other.clone(),
         }
-        if listed("directoryPrefix") {
-            if let Some(rest) = value.as_str().and_then(|text| text.strip_prefix(self.dir.as_str())) {
-                return Some(json!(format!("<dir>{rest}")));
+    }
+
+    /// The recording replaced exactly the rules' paths: each holds a placeholder, and no other string in `scenario` looks like one.
+    fn only_at_rules(&self, scenario: &Value) {
+        fn walk(rules: &std::collections::HashMap<String, String>, node: &Value, path: &str) {
+            match node {
+                Value::Object(map) => map.iter().for_each(|(key, value)| walk(rules, value, &if path.is_empty() { key.clone() } else { format!("{path}.{key}") })),
+                Value::Array(items) => items.iter().enumerate().for_each(|(index, item)| walk(rules, item, &format!("{path}.{index}"))),
+                Value::String(text) => {
+                    let placeholder = text.starts_with("<dir>") || (text.starts_with('<') && text.contains('#') && text.ends_with('>'));
+                    assert_eq!(placeholder, rules.contains_key(path), "{path} holds {text:?}: a placeholder belongs at the remap rules' paths and nowhere else");
+                }
+                _ => assert!(!rules.contains_key(path), "{path} is remapped but holds no string"),
             }
         }
-        (path.ends_with(".webPush") && key == "value").then(|| self.token("webPushKey", value))
-    }
-
-    fn frame(&mut self, path: &str, node: &Value) -> Value {
-        match node {
-            Value::Array(items) => Value::Array(items.iter().map(|item| self.frame(path, item)).collect()),
-            Value::Object(map) => Value::Object(map.iter().map(|(key, value)| (key.clone(), self.replaced(path, key, value).unwrap_or_else(|| self.frame(path, value)))).collect()),
-            other => other.clone(),
+        walk(&self.rules, scenario, "");
+        for path in self.rules.keys() {
+            assert!(scenario.pointer(&format!("/{}", path.replace('.', "/"))).is_some_and(Value::is_string), "the remap rule {path} names nothing in the recording");
         }
     }
 }
@@ -938,36 +1020,137 @@ fn at<'a>(root: &'a Value, path: &str) -> &'a Value {
     path.split('.').fold(root, |node, key| &node[key])
 }
 
-/// The recorded frames this test does not replay whole, each with the branch it waits on and why. The test fails when an entry has no
-/// recorded frame, and when a recorded path is neither replayed nor listed here. Node's frames stay in the fixture for the owner to replay.
-const NOT_REPLAYED: &[(&str, &str, &str)] = &[
-    ("before.chat", "phone-chat-live / rs-thread-list-rows", "Node's session rows (`listSessions`); the core's `thread/list` has no such rows. Replayed only as the same answer before and after the unpair."),
-    ("after.chat", "phone-chat-live / rs-thread-list-rows", "as before.chat"),
-    ("before.terminal", "phone-ph2-terminal", "Node's shell profile list (`termProfiles`) from the desktop host"),
-    ("after.terminal", "phone-ph2-terminal", "as before.terminal"),
-    ("before.settings", "phone-ph2-settings-notify", "Node's settings blob (`readSettings`) from the desktop host"),
-    ("after.settings", "phone-ph2-settings-notify", "as before.settings"),
-    ("setup.setNotificationPreferences", "phone-ph2-settings-notify", "Node's roster reply to setNotificationPreferences; its preferences seed `Config`, the input of this test"),
-    ("before.notifications", "phone-ph2-settings-notify", "Node's roster (`getNotificationPreferences`); only the device's preferences in it are compared, as what `Config` stores"),
-    ("after.notifications", "phone-ph2-settings-notify", "as before.notifications"),
-    ("after.notificationsAfterForget", "phone-ph2-settings-notify", "as before.notifications"),
-    ("before.files.grant", "none: the Rust wire has no download-grant step", "Node's `fileDownloadAuthorize`; the core has one `transfer/beginRead`"),
-    ("before.files.unbegun", "none: the Rust wire has no download-grant step", "as before.files.grant"),
-    ("after.files.begin", "none: the Rust wire has no download-grant step", "Node's `fileDownloadBegin` of the revoked grant (refused); the core has one `transfer/beginRead`"),
-    ("before.files.transfer", "none: the Rust wire has no download-grant step", "Node's transfer-begin reply (media shape); here only its size is compared, as an open transfer"),
-    // `feedEvents` is not a frame path: Node sends a compact session-state frame `{e:"T",s,w:{r,ip:{p,a:[row]}}}` to a phone still attached.
-    // The core has no encoder of it (its feed is the thread feed's own protocol); an owner would need that compact encoder on the phone link.
+/// The branches that own recorded frames this test does not replay yet. A `NOT_REPLAYED` entry names only these.
+const OWNERS: &[&str] = &["phone-ph2-terminal", "phone-ph2-settings-notify", "phone-chat-live", "rs-thread-list-rows", "phone-download-grant"];
+
+struct NotReplayed {
+    /// A recorded frame's path in a scenario (or `feedEvents`, the frames Node pushed to an attached phone).
+    path: &'static str,
+    owners: &'static [&'static str],
+    /// What Node answered there and why the core's wire cannot be compared to it yet.
+    why: &'static str,
+}
+
+/// The recorded frames this test does not replay whole, each with the branches it waits on. Node's frames stay in the fixture for the
+/// owner to replay. The test fails when an entry names an owner outside `OWNERS`, a path the recording holds no frame for, or a path it
+/// replays, and when a recorded frame is neither replayed nor named here.
+const NOT_REPLAYED: &[NotReplayed] = &[
+    NotReplayed {
+        path: "before.chat",
+        owners: &["phone-chat-live", "rs-thread-list-rows"],
+        why: "Node's session rows (`listSessions`, remote-methods.ts:865): served to a revoked phone as before, the same row with its times moved. The core's `thread/list` has no such rows; it is compared only against itself, before and after the unpair.",
+    },
+    NotReplayed { path: "after.chat", owners: &["phone-chat-live", "rs-thread-list-rows"], why: "as before.chat" },
+    NotReplayed {
+        path: "before.terminal",
+        owners: &["phone-ph2-terminal"],
+        why: "Node's shell list (`termProfiles`, remote-methods.ts:1159): served to a revoked phone unchanged. The profiles come from the desktop host; the core's wire has no counterpart frame.",
+    },
+    NotReplayed { path: "after.terminal", owners: &["phone-ph2-terminal"], why: "as before.terminal" },
+    NotReplayed {
+        path: "before.settings",
+        owners: &["phone-ph2-settings-notify"],
+        why: "Node's settings blob (`readSettings`, remote-methods.ts:1092): served to a revoked phone unchanged. The core has no counterpart of the frame.",
+    },
+    NotReplayed { path: "after.settings", owners: &["phone-ph2-settings-notify"], why: "as before.settings" },
+    NotReplayed {
+        path: "setup.setNotificationPreferences",
+        owners: &["phone-ph2-settings-notify"],
+        why: "Node's roster reply to the call that stores the device's preferences. The preferences it stored are this test's input (written to `Config`).",
+    },
+    NotReplayed {
+        path: "before.notifications",
+        owners: &["phone-ph2-settings-notify"],
+        why: "Node's roster (`getNotificationPreferences`, remote-methods.ts:1115). The device's preferences in it are compared as what `Config` stores; the roster call itself has no core counterpart.",
+    },
+    NotReplayed {
+        path: "after.notifications",
+        owners: &["phone-ph2-settings-notify"],
+        why: "the roster after the unpair: it hides the device while the relay has not confirmed (only the PC is listed) and lists it with default preferences once it has",
+    },
+    NotReplayed { path: "after.notificationsAfterForget", owners: &["phone-ph2-settings-notify"], why: "as after.notifications" },
+    NotReplayed {
+        path: "before.files.grant",
+        owners: &["phone-download-grant"],
+        why: "Node's phone gets the file's name and size before it begins (file-download-transfer.ts:420-428): authorizing creates an expiring grant (file-downloads.ts:782-805). The core maps both stages to `transfer/beginRead` (inventory.rs), which has no authorize stage.",
+    },
+    NotReplayed {
+        path: "before.files.unbegun",
+        owners: &["phone-download-grant"],
+        why: "a second grant, authorized and never begun; the unpair revokes it before the relay is asked (remote-relay.ts:624)",
+    },
+    NotReplayed {
+        path: "before.files.transfer",
+        owners: &["phone-download-grant"],
+        why: "begin consumes the grant once and returns the transfer with its `media` metadata and lease times (file-downloads.ts:807-847). Replayed here only as the effect: a transfer of the file's size opens.",
+    },
+    NotReplayed {
+        path: "after.files.begin",
+        owners: &["phone-download-grant"],
+        why: "begin of the revoked, unbegun grant is refused `file-download:expired`; the core has no grant to refuse, only the transfer (replayed as after.files.range)",
+    },
+    NotReplayed {
+        path: "feedEvents",
+        owners: &["phone-chat-live"],
+        why: "Node's compact session-state frame `{e: 'T', s, w: {r, ip: {p, a: [row]}}}` (remote-relay-session-state.ts:143), pushed only to an attached phone and decoded into its transcript snapshot (remote-shim-dispatch.ts:228-257); without it an attached phone gets no live transcript updates. The core has no encoder of it on the phone link.",
+    },
 ];
 
+/// The frames a recorded scenario holds, by path: those of `setup`, `before` and `after` (an object with an `id`, at any depth), and `feedEvents`.
+/// A key that is neither one of those nor one of the metadata asserted one by one in the test fails here, so no recorded group escapes.
+fn recorded_paths(scenario: &Value) -> Vec<String> {
+    const METADATA: [&str; 6] = ["name", "relayConfirms", "revokeOutcome", "envelopesAtUnpair", "desktopClosedPhone", "phoneStillAttached"];
+    fn frames(path: &str, node: &Value, into: &mut Vec<String>) {
+        let object = node.as_object().unwrap_or_else(|| panic!("{path} is neither a recorded frame nor a group of frames"));
+        if object.contains_key("id") {
+            let replied = object.get("ok").is_some_and(Value::is_boolean);
+            let unanswered = object.get("unanswered") == Some(&json!(true));
+            assert!(object["id"].is_u64() && replied != unanswered, "{path} is neither a recorded reply nor a recorded call that got none");
+            into.push(path.to_owned());
+        } else {
+            object.iter().for_each(|(key, value)| frames(&format!("{path}.{key}"), value, into));
+        }
+    }
+    let mut paths = Vec::new();
+    for (key, value) in scenario.as_object().unwrap() {
+        match key.as_str() {
+            "feedEvents" => paths.push(key.clone()),
+            "setup" | "before" | "after" => frames(key, value, &mut paths),
+            other => assert!(METADATA.contains(&other), "the recording holds a group the test does not know: {other}"),
+        }
+    }
+    paths
+}
+
+#[test]
+fn the_remap_is_by_exact_path_and_keeps_what_the_values_mean() {
+    let mut canon = Canon::new(&json!([{ "kind": "grantId", "path": "a.value.id" }, { "kind": "grantId", "path": "b.value.id" }, { "kind": "dir", "path": "a.value.root" }]));
+    canon.dir = "/tmp/run".to_owned();
+    let a = canon.frame("a", &json!({ "value": { "id": "x1", "root": "/tmp/run/files", "expiresAt": 20, "nested": { "id": "x1", "updatedAt": 7 } } }));
+    let b = canon.frame("b", &json!({ "value": { "id": "x1" } }));
+    let c = canon.frame("b", &json!({ "value": { "id": "x2" } }));
+    // The same random id keeps one token over the whole recording, another id another token.
+    assert_eq!((a["value"]["id"].clone(), b["value"]["id"].clone()), (json!("<grantId#0>"), json!("<grantId#0>")));
+    assert_eq!(c["value"]["id"], json!("<grantId#1>"));
+    assert_eq!(a["value"]["root"], json!("<dir>/files"));
+    // A key of the same name at a path that is no rule is kept, and so are the times: two times that swap stay two times that swap.
+    assert_eq!((&a["value"]["nested"]["id"], &a["value"]["nested"]["updatedAt"], &a["value"]["expiresAt"]), (&json!("x1"), &json!(7), &json!(20)));
+    let swapped = canon.frame("a", &json!({ "value": { "expiresAt": 20 } }));
+    assert_ne!(swapped, canon.frame("a", &json!({ "value": { "expiresAt": 21 } })), "a changed time must change the frame");
+}
 /// What Node's desktop did across an unpair of a paired phone, recorded through its real unpair handler (`unpair-access.json`), replayed
 /// over the composed wiring and the real services that hold a device's state (the remote access service, the workspace and its one-file
 /// grants and transfers, the notification preferences in `Config`): the same phone connection throughout. A frame is the whole frame the
-/// phone received (`node_of` of what the core writes) against the recorded one, after the same replacement of the values that differ
-/// between two Node runs. A revoked phone keeps its credential, so its native and Web Push registrations answer as before; only its
-/// screen is refused. The registrations and notification preferences go when, and only when, the relay confirmed the unpair; a grant the
-/// attached connection holds stays with it and a new connection of the device holds none.
+/// phone received (`node_of` of what the core writes) against the recorded one, after the same replacement at the same exact paths of the
+/// values that differ between two Node runs. A revoked phone keeps its credential, so its native and Web Push registrations answer as
+/// before; only its screen is refused. The registrations and notification preferences go when, and only when, the relay confirmed the
+/// unpair; a grant the attached connection holds stays with it and a new connection of the device holds none.
 ///
-/// What is not replayed is named, with its owner, in `NOT_REPLAYED`; the test fails when a recorded frame is neither replayed nor named.
+/// The screen: a connection revoked at the unpair is refused before the window is asked. A connection admitted after the relay confirmed
+/// the unpair is a new one and is not revoked: its ask reaches the window, and where no window supplies displays (the recorder's world,
+/// and `Harness::start_with(.., false)`) it is never answered; the same ask where a window does supply them is answered, shown last.
+///
+/// What is not replayed is in `NOT_REPLAYED`, with its owners; the test fails when a recorded frame is neither replayed nor named there.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_desktop_did() {
     let all: Value = serde_json::from_str(UNPAIR_ACCESS).unwrap();
@@ -978,17 +1161,36 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
     let native = json!({ "platform": "fcm", "token": token, "publicKey": PUSH_KEY });
     let web = json!({ "endpoint": PUSH_ENDPOINT, "p256dh": PUSH_KEY, "auth": "AAAAAAAAAAAAAAAAAAAAAA", "clientId": CRED });
 
-    for scenario in scenarios {
+    // The table first: its entries are checked against the recording before anything is replayed.
+    let mut canon = Canon::new(&all["remapped"]);
+    let held: Vec<Vec<String>> = scenarios.iter().map(recorded_paths).collect();
+    for (index, entry) in NOT_REPLAYED.iter().enumerate() {
+        let path = entry.path;
+        assert!(!entry.owners.is_empty() && entry.owners.iter().all(|owner| OWNERS.contains(owner)), "NOT_REPLAYED {path}: owners {:?} are not all from OWNERS", entry.owners);
+        assert!(!entry.why.trim().is_empty(), "NOT_REPLAYED {path} says nothing of what Node answered");
+        assert!(NOT_REPLAYED[..index].iter().all(|earlier| earlier.path != path), "NOT_REPLAYED names {path} twice");
+        assert!(held.iter().any(|paths| paths.iter().any(|frame| frame == path)), "NOT_REPLAYED names {path}, which the recording holds no frame for");
+    }
+    for owner in OWNERS {
+        assert!(NOT_REPLAYED.iter().any(|entry| entry.owners.contains(owner)), "{owner} is in OWNERS and owns nothing in NOT_REPLAYED");
+    }
+
+    for (scenario, paths) in scenarios.iter().zip(&held) {
         let name = scenario["name"].as_str().unwrap();
         let confirms = scenario["relayConfirms"].as_bool().unwrap();
         let after = &scenario["after"];
-        let h = Harness::start(confirms).await;
-        let mut canon = Canon::new(&all["remapped"], h.dir.path());
+        // The world of the recording: no window supplies displays.
+        let h = Harness::start_with(confirms, false).await;
+        canon.dir = h.dir.path().to_string_lossy().into_owned();
+        canon.only_at_rules(scenario);
         let mut replayed: Vec<&str> = Vec::new();
         let (mut phone, connection) = h.connect("p1", CRED).await;
         let credential = phone_credential(h.registry.clone());
         let download = h.dir.path().join("unpair-download.txt");
         std::fs::write(&download, "unpair download").unwrap();
+        // The modification time of the file Node recorded (`mtimeMs` of the read through the grant).
+        let mtime_ms = at(scenario, "before.link.read.value.mtimeMs").as_u64().unwrap();
+        std::fs::File::options().write(true).open(&download).unwrap().set_modified(std::time::UNIX_EPOCH + Duration::from_millis(mtime_ms)).unwrap();
 
         // One call over `phone`: the frame the core wrote for it, in Node's shape, replaced as Node's was, against the recorded one.
         macro_rules! replay {
@@ -1038,15 +1240,20 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
             answer(&mut phone, 5100).await
         };
         assert_eq!((&scenario["before"]["chat"]["ok"], &after["chat"]["ok"]), (&json!(true), &json!(true)), "{name}: Node answers the chat call before and after");
-        // The unpair: the phone is sent nothing and nothing closes.
+        // The unpair: the phone is sent nothing and nothing closes. Node's desktop sent the relay the revoke and, once it confirmed, a re-read
+        // of its roster (the Settings list, not a phone's call); it sent the phone no frame and closed none.
         let sent = phone.arrived().await;
         let outcome = h.runtime.revoke_client(CRED).await;
         assert_eq!(scenario["revokeOutcome"].as_str().unwrap().starts_with("rejected"), outcome.is_err(), "{name}");
+        let envelopes: Vec<&str> = scenario["envelopesAtUnpair"].as_array().unwrap().iter().map(|kind| kind.as_str().unwrap()).collect();
+        assert!(envelopes.first() == Some(&"revoke-client") && envelopes.iter().all(|kind| !matches!(*kind, "frame" | "close-client")), "{name}: Node's desktop sent the relay the revoke and the phone nothing: {envelopes:?}");
+        tokio::time::timeout(FRAME_WAIT, h.relay.frame(|frame| frame["type"] == "revoke-client")).await.unwrap_or_else(|_| panic!("{name}: the revoke never reached the relay"));
         assert_eq!(scenario["desktopClosedPhone"], Value::Null);
         assert_eq!(phone.arrived().await, sent, "{name}: the unpair sent the phone nothing and closed nothing");
 
         // The connection the phone's next calls go over: the same one, unless the relay ended its leg.
         let attached = scenario["phoneStillAttached"].as_bool().unwrap();
+        assert_eq!(attached, !confirms, "{name}: only a relay that removed the pairing ends the phone's leg");
         let mut second = None;
         if !attached {
             phone.leave();
@@ -1066,6 +1273,7 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
         // The transfer the device held ended with its unpair (the files of the device end at once, on any connection).
         replay!(*asks, "after.files.range", "transfer/readRange", json!({ "transferId": transfer, "offset": 0, "length": 4 }));
         replay!(*asks, "after.link.read", "projectFs/readText", read_link);
+        let asked = || h.desktop.asked.lock().unwrap().len();
         if attached {
             // The connection keeps its identity: the credential, and what the services read of it to act as the device.
             assert_eq!(credential(connection).as_deref(), Some(CRED), "{name}");
@@ -1080,8 +1288,24 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
             second.send(&displays_call(refusal).to_string());
             assert_eq!(answer(&mut second, refusal["id"].as_u64().unwrap()).await, wire_of(refusal), "{name}: a second connection");
             replayed.push("after.secondConnection.screen");
+            assert_eq!(asked(), 0, "{name}: a refused ask never reaches the window");
         } else {
-            assert_eq!((&after["screen"], &after["secondConnection"]["screen"]), (&Value::Null, &Value::Null));
+            // Both asks went over the connection admitted after the confirmed unpair (the recorder's `second`). It is not revoked, so each
+            // reaches the window; no window answers; the call that follows is answered and no frame for either came before it.
+            let calls = ["after.screen", "after.secondConnection.screen"];
+            for path in calls {
+                assert_eq!(at(scenario, path)["unanswered"], json!(true), "{name}: {path}");
+                asks.send(&displays_call(at(scenario, path)).to_string());
+                replayed.push(path);
+            }
+            let mut reached = h.desktop.reached.subscribe();
+            tokio::time::timeout(FRAME_WAIT, reached.wait_for(|count| *count >= calls.len())).await.unwrap_or_else(|_| panic!("{name}: the screen asks never reached the window")).unwrap();
+            asks.send(&json!({ "id": 5200, "method": "thread/list", "params": {} }).to_string());
+            let (_, before_it) = reply_within(asks, 5200, FRAME_WAIT).await;
+            for path in calls {
+                assert!(before_it.iter().all(|frame| frame["id"] != at(scenario, path)["id"]), "{name}: {path} was answered");
+            }
+            assert_eq!(asked(), calls.len(), "{name}: each ask reached the window once");
         }
         // The notification preferences: dropped once the relay confirmed the unpair (Node's roster then shows the device's defaults),
         // kept while it has not. Compared as the preferences Config holds, whole, against the recorded list.
@@ -1097,25 +1321,34 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
         };
         replay!(*asks, "after.removeNativePush", "remoteAccess/removeNativePush", json!({ "opId": op(3), "token": token }));
         replay!(*asks, "after.removePushSubscription", "remoteAccess/removePushSubscription", json!({ "opId": op(4), "endpoint": PUSH_ENDPOINT }));
-        assert_eq!(scenario["feedEvents"].is_null(), confirms, "{name}: Node's feed reached only a phone still attached");
-        // Every recorded group is replayed above or named in NOT_REPLAYED, and a named one still has its recorded frames.
-        for path in all["order"].as_array().unwrap().iter().map(|path| path.as_str().unwrap()) {
-            let recorded = at(scenario, path);
-            let listed = NOT_REPLAYED.iter().any(|(named, _, _)| *named == path);
-            if recorded.is_null() {
-                // A phone that the unpair detached is sent no screen call, so those two paths hold no frame in that scenario.
-                assert!(path.ends_with("screen") && !attached, "{name}: {path} has no recorded frame");
-                assert!(!listed, "{name}: NOT_REPLAYED names {path}, which has no recorded frame");
-                continue;
-            }
-            assert!(recorded["id"].is_u64() && recorded["ok"].is_boolean(), "{name}: {path} is not a recorded frame");
-            assert_ne!(listed, replayed.contains(&path), "{name}: {path} must be replayed or named in NOT_REPLAYED, and not both");
-        }
-        for (named, _, _) in NOT_REPLAYED {
-            assert!(all["order"].as_array().unwrap().iter().any(|path| path == named), "NOT_REPLAYED names {named}, which the recording does not hold");
-        }
+
+        // The frames Node pushed to a phone still attached exist exactly when there was one, and are named in NOT_REPLAYED.
         let feed = &scenario["feedEvents"];
-        assert!(feed.is_null() == confirms && feed.as_array().is_none_or(|frames| !frames.is_empty()), "{name}: the recorded feed frames NOT_REPLAYED names as `feedEvents`");
+        if attached {
+            assert!(feed.as_array().is_some_and(|frames| !frames.is_empty() && frames.iter().all(|frame| frame["e"].is_string())), "{name}: the recorded feed frames");
+        } else {
+            assert!(feed.is_null(), "{name}: a phone the relay ended is pushed no feed");
+        }
+        // Every recorded frame is replayed above or named in NOT_REPLAYED, not both.
+        for path in paths {
+            let listed = NOT_REPLAYED.iter().any(|entry| entry.path == path);
+            let replayed = replayed.contains(&path.as_str());
+            assert!(!(listed && replayed), "{name}: {path} is replayed and also named in NOT_REPLAYED");
+            assert!(listed || replayed, "{name}: {path} is neither replayed nor named in NOT_REPLAYED");
+        }
         h.runtime.close().await;
     }
+
+    // Why the confirmed case's screen asks got no frame: no window supplied displays. The same ask on a new connection after the same
+    // confirmed unpair, where the desktop does supply them, is answered as any allowed phone's is (`screen-access.json`).
+    let allowed = recorded("a paired, E2EE-established phone", &["name", "reply", "hostAsked"]);
+    let h = Harness::start_with(true, true).await;
+    let (first, first_connection) = h.connect("p1", CRED).await;
+    h.runtime.revoke_client(CRED).await.unwrap();
+    first.leave();
+    h.closed(first_connection).await;
+    let (mut again, _) = h.connect("p2", CRED).await;
+    again.send(&displays_call(&allowed["reply"]).to_string());
+    assert_eq!(answer(&mut again, allowed["reply"]["id"].as_u64().unwrap()).await, wire_of(&allowed["reply"]), "a connection admitted after the confirmed unpair, where a window supplies displays");
+    h.runtime.close().await;
 }
