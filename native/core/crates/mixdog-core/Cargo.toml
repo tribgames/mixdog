@@ -67,12 +67,17 @@ bytes = { workspace = true }
 flate2 = { workspace = true }
 tokio-tungstenite = { workspace = true }
 zstd = { workspace = true }
+# The loopback TLS server of the wire parity check (run_host/wire_loopback.rs) and the client that trusts only its certificate.
+rcgen = { workspace = true }
+reqwest = { workspace = true }
+rustls = { workspace = true, features = ["ring", "std"] }
+tokio-rustls = { workspace = true, features = ["ring"] }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-core-review = { workspace = true, features = ["test-support"] }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
 tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "net", "io-util"] }
 mixdog-core-session = { workspace = true, features = ["test-support"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
