@@ -27,6 +27,7 @@ use mixdog_store::sqlite::lead::LeadRow;
 use mixdog_store::sqlite::lead::is_lead_visible_row;
 use serde_json::Value;
 
+use super::TaskWorkspace;
 use super::thread_list::ThreadListService;
 use super::transcript::summary_of_list_row;
 
@@ -35,20 +36,46 @@ const SUMMARY_UPDATED: &str = "thread/summary/updated";
 const DELETED: &str = "thread/deleted";
 
 /// The list row of a stored row when it is listed: the catalog's lead gate, then the roster's own (Node's second gate).
-fn listed(row: &StoredRow) -> Option<LeadRow> {
+fn listed(row: &StoredRow, task_workspace: &str) -> Option<LeadRow> {
     if row.deleted {
         return None;
     }
     let Ok(Value::Object(map)) = serde_json::from_str::<Value>(&row.summary) else { return None };
-    (is_lead_visible_row(&map) && roster_row(&map, row.user_name.as_deref())).then_some(LeadRow { row: map, archived: row.archived })
+    (is_lead_visible_row(&map) && roster_row(&map, row.user_name.as_deref(), task_workspace)).then_some(LeadRow { row: map, archived: row.archived })
+}
+
+/// `isTaskWorkspaceFolder` (`shared/task-workspace.ts`): slash style, a trailing slash and letter case do not matter; an unknown
+/// task workspace (`""`) matches nothing.
+fn is_task_workspace_folder(folder: &str, task_workspace: &str) -> bool {
+    let comparable = |value: &str| {
+        let mut out = String::with_capacity(value.len());
+        for c in value.chars() {
+            if !(matches!(c, '\\' | '/') && out.ends_with('/')) {
+                out.push(if c == '\\' { '/' } else { c });
+            }
+        }
+        if out.ends_with('/') {
+            out.pop();
+        }
+        out.to_lowercase()
+    };
+    !task_workspace.is_empty() && comparable(folder) == comparable(task_workspace)
+}
+
+/// Whether the row is a project (`desktop-state.ts:164-167`): the stored classification, else a legacy row with a folder outside the
+/// host's task workspace.
+fn is_project(meta: Option<&serde_json::Map<String, Value>>, cwd: &str, task_workspace: &str) -> bool {
+    match meta.and_then(|meta| meta.get("classification")).and_then(Value::as_str) {
+        Some(stored) => stored == "project",
+        None => !cwd.is_empty() && !is_task_workspace_folder(cwd, task_workspace),
+    }
 }
 
 /// Whether `desktopSessionSummaries` (`desktop-state.ts:144-246`) keeps the row. `name` is the name the user gave the session
 /// (Node's `names[id]`, which `renameSession` writes beside the runtime title, `session-host-lifecycle.ts:225-230`): here the
-/// header title when `titleSource` is `user` (`thread/name/set`), kept in the index with every session's row. The host's task workspace, its other input, decides a
-/// legacy row's classification only, and a legacy row with a folder has a project path whichever it is, so it never changes
-/// whether the row is kept (recorded cases `g_legacy_in_task_workspace*`).
-pub(super) fn roster_row(row: &serde_json::Map<String, Value>, name: Option<&str>) -> bool {
+/// header title when `titleSource` is `user` (`thread/name/set`), kept in the index with every session's row. `task_workspace` is
+/// the host's task workspace (its `taskWorkspace` input): a legacy row running there is a task and needs no project path.
+pub(super) fn roster_row(row: &serde_json::Map<String, Value>, name: Option<&str>, task_workspace: &str) -> bool {
     let text = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default().trim().to_owned();
     // Valid workspace paths (`workspaceText`): trimmed, non-empty, no NUL.
     let path = |value: Option<&Value>| value.and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty() && !s.contains('\0')).map(str::to_owned);
@@ -64,11 +91,7 @@ pub(super) fn roster_row(row: &serde_json::Map<String, Value>, name: Option<&str
     if cwd.contains('\0') {
         return false; // :160
     }
-    let project = match meta.and_then(|meta| meta.get("classification")).and_then(Value::as_str) {
-        Some(stored) => stored == "project",
-        None => !cwd.is_empty(), // :167: a legacy row with a folder is a project (the task workspace is a host fact)
-    };
-    if project {
+    if is_project(meta, &cwd, task_workspace) {
         // :168-174: the workspace record, then the folder, then the stored project path.
         let workspace = row.get("workspace").and_then(Value::as_object).filter(|w| path(w.get("projectPath")).is_some() && path(w.get("cwd")).is_some());
         let stored = meta.and_then(|meta| meta.get("projectPath")).and_then(Value::as_str).unwrap_or_default().trim();
@@ -88,18 +111,15 @@ pub(super) fn roster_row(row: &serde_json::Map<String, Value>, name: Option<&str
 }
 
 /// The fields of the row `desktopSessionSummaries` (`desktop-state.ts:180-208, 244`) derives, which the list row leaves as the index
-/// stored them: the classification (stored, else a legacy row with a folder is a project; the host's task workspace, which could make
-/// it a task, is not known here), the project path (workspace record, then folder, then stored path; none for a task), the activity
-/// time (`lastUsedAt`, else `updatedAt`) and the creation time when positive.
-fn on_roster(mut thread: mixdog_protocol::ThreadSummary, row: &serde_json::Map<String, Value>) -> mixdog_protocol::ThreadSummary {
+/// stored them: the classification (stored, else a legacy row with a folder outside the host's task workspace is a project), the
+/// project path (workspace record, then folder, then stored path; none for a task), the activity time (`lastUsedAt`, else
+/// `updatedAt`) and the creation time when positive.
+fn on_roster(mut thread: mixdog_protocol::ThreadSummary, row: &serde_json::Map<String, Value>, task_workspace: &str) -> mixdog_protocol::ThreadSummary {
     let number = |key: &str| row.get(key).and_then(Value::as_f64).filter(|n| n.is_finite() && *n != 0.0);
     let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::trim).unwrap_or_default().to_owned();
     let meta = row.get("desktopSession").and_then(Value::as_object);
     let cwd = text(row.get("cwd"));
-    let project = match meta.and_then(|meta| meta.get("classification")).and_then(Value::as_str) {
-        Some(stored) => stored == "project",
-        None => !cwd.is_empty(),
-    };
+    let project = is_project(meta, &cwd, task_workspace);
     let valid = |value: Option<&Value>| Some(text(value)).filter(|s| !s.is_empty() && !s.contains('\0'));
     let workspace = row.get("workspace").and_then(Value::as_object).filter(|w| valid(w.get("projectPath")).is_some() && valid(w.get("cwd")).is_some());
     thread.classification = Value::String(if project { "project" } else { "task" }.into());
@@ -124,23 +144,27 @@ fn on_roster(mut thread: mixdog_protocol::ThreadSummary, row: &serde_json::Map<S
 pub struct ThreadEdgePublisher {
     list: Arc<ThreadListService>,
     app: Arc<SectionFeedState>,
+    task_workspace: Arc<dyn TaskWorkspace>,
 }
 
 impl ThreadEdgePublisher {
-    pub fn new(list: Arc<ThreadListService>, app: Arc<SectionFeedState>) -> Self {
-        Self { list, app }
+    pub fn new(list: Arc<ThreadListService>, app: Arc<SectionFeedState>, task_workspace: Arc<dyn TaskWorkspace>) -> Self {
+        Self { list, app, task_workspace }
     }
 
     pub async fn publish(&self, edge: RowEdge) {
         let id = ThreadId::from(edge.id.clone());
+        // The host's task workspace as of this write; unknown (it could not be resolved) matches nothing, as Node's `''`.
+        let workspace = self.task_workspace.path().await.unwrap_or_default();
+        let workspace = workspace.as_str();
         // Each side is judged with the name the user had given at its own write (the index keeps it with the row), as Node's
         // summaries read `names` as of each roster: a rename that makes a meaningless title count is a start.
-        match (edge.before.as_ref().and_then(listed), listed(&edge.after)) {
-            (None, Some(now)) => self.send(&id, &now, |thread| (STARTED, ThreadStartedParams { thread })).await,
+        match (edge.before.as_ref().and_then(|row| listed(row, workspace)), listed(&edge.after, workspace)) {
+            (None, Some(now)) => self.send(&id, &now, workspace, |thread| (STARTED, ThreadStartedParams { thread })).await,
             (Some(was), Some(now)) => {
-                let (was, shown) = (on_roster(summary_of_list_row(&id, &Value::Object(was.row.clone()), now.archived), &was.row), on_roster(summary_of_list_row(&id, &Value::Object(now.row.clone()), now.archived), &now.row));
+                let (was, shown) = (on_roster(summary_of_list_row(&id, &Value::Object(was.row.clone()), now.archived), &was.row, workspace), on_roster(summary_of_list_row(&id, &Value::Object(now.row.clone()), now.archived), &now.row, workspace));
                 if was != shown {
-                    self.send(&id, &now, |thread| (SUMMARY_UPDATED, ThreadSummaryUpdatedParams { thread })).await;
+                    self.send(&id, &now, workspace, |thread| (SUMMARY_UPDATED, ThreadSummaryUpdatedParams { thread })).await;
                 }
             }
             // A delete is announced by the delete (`purge.rs`); a row that stopped being listed otherwise is gone from the roster.
@@ -150,10 +174,10 @@ impl ThreadEdgePublisher {
     }
 
     /// The row `thread/list` shows for the written row, under `method`; none when the rooms leave it out.
-    async fn send<P: serde::Serialize>(&self, id: &ThreadId, now: &LeadRow, params: impl FnOnce(mixdog_protocol::ThreadSummary) -> (&'static str, P)) {
+    async fn send<P: serde::Serialize>(&self, id: &ThreadId, now: &LeadRow, workspace: &str, params: impl FnOnce(mixdog_protocol::ThreadSummary) -> (&'static str, P)) {
         match self.list.summary_of(id, now).await {
             Ok(Some(thread)) => {
-                let (method, params) = params(on_roster(thread, &now.row));
+                let (method, params) = params(on_roster(thread, &now.row, workspace));
                 self.app.notify(method, &params);
             }
             Ok(None) => {}

@@ -21,6 +21,8 @@ const { desktopSessionSummaries } = await importFrom(tree, 'apps/desktop/src/mai
 const { canonicalJson } = await importFrom(tree, 'apps/desktop/src/shared/remote-view-resume.ts');
 const { compactedSessionTitle } = await importFrom(tree, 'apps/desktop/src/shared/session-title.mjs');
 
+// The host's task workspace (`<userData>/workspace/unclassified`), the one input of the roster besides the rows and the names.
+const TASK_WORKSPACE = 'C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified';
 const rec = (id, extra) => ({ id, updatedAt: 1000, createdAt: 500, cwd: 'C:/w', messages: [], ...extra });
 // The writes of each trigger, in order. `draft` rows are held back until titled (pendingCatalogSessionIds).
 const triggers = [
@@ -49,30 +51,49 @@ const triggers = [
   { name: 'already-renamed-session', writes: [rec('s_n', { title: '---', titleSource: 'user', titleLocked: true, updatedAt: 2800 }), rec('s_n', { title: '---', titleSource: 'user', titleLocked: true, updatedAt: 2900 })] },
   // A name without a meaningful text keeps nothing.
   { name: 'blank-name-keeps-nothing', writes: [rec('s_b', { title: '   ', titleSource: 'user', titleLocked: true, updatedAt: 3000 })] },
+  // Legacy rows (no stored classification) in and outside the host's task workspace, titled and untitled: in it a row is a task with
+  // no project path (the folder spelled with the other slash style, a trailing slash and other letter case still match); elsewhere a
+  // project at its folder. An untitled one is listed only once a user's name is given. A stored project row in the workspace stays one.
+  {
+    name: 'legacy-task-workspace',
+    taskWorkspace: TASK_WORKSPACE,
+    writes: [
+      rec('s_in', { title: 'In the task workspace', cwd: TASK_WORKSPACE, updatedAt: 3100 }),
+      rec('s_in_spelled', { title: 'Spelled otherwise', cwd: TASK_WORKSPACE.toLowerCase().replaceAll('\\', '/') + '/', updatedAt: 3200 }),
+      rec('s_out', { title: 'Outside', cwd: 'C:/elsewhere', updatedAt: 3300 }),
+      rec('s_in_untitled', { title: '', cwd: TASK_WORKSPACE, updatedAt: 3400 }),
+      rec('s_out_untitled', { title: '', cwd: 'C:/elsewhere', updatedAt: 3500 }),
+      rec('s_in_untitled', { title: '---', titleSource: 'user', titleLocked: true, cwd: TASK_WORKSPACE, updatedAt: 3600 }),
+      rec('s_out_untitled', { title: '---', titleSource: 'user', titleLocked: true, cwd: 'C:/elsewhere', updatedAt: 3700 }),
+      rec('s_in_project', { title: 'Stored project', cwd: TASK_WORKSPACE, desktopSession: { classification: 'project', projectPath: TASK_WORKSPACE }, updatedAt: 3800 }),
+    ],
+  },
+  // The same writes when the host's task workspace is unknown: nothing is in it.
+  { name: 'legacy-unknown-task-workspace', taskWorkspace: '', writes: [rec('s_unk', { title: 'Anywhere', cwd: TASK_WORKSPACE, updatedAt: 3900 })] },
 ];
 
 // The roster Node holds after the writes so far (the last write of an id replaces it).
-const rosterOf = (records) => {
+const rosterOf = (records, taskWorkspace) => {
   const rows = [...records.values()].map(_sessionSummary).filter(isLeadVisibleRow);
   // `names[id]`: what `renameSession` stored beside the header's user title (the session metadata, whatever the session's state).
   const names = {};
   for (const record of records.values()) if (record.titleSource === 'user') names[record.id] = record.title;
   // The complete rows, in the order Node holds them: the value the channel compares and pushes.
-  return desktopSessionSummaries(rows, {}, names);
+  return desktopSessionSummaries(rows, {}, names, taskWorkspace);
 };
-const recorded = triggers.map(({ name, writes }) => {
+const recorded = triggers.map(({ name, writes, taskWorkspace = '' }) => {
   const records = new Map();
   let last = canonicalJson([]);
   const steps = writes.map((record) => {
     records.set(record.id, record);
-    const roster = rosterOf(records);
+    const roster = rosterOf(records, taskWorkspace);
     // CatalogChannel.publish (session-host-publication.ts:129-142) skips a value whose canonical JSON equals the last one.
     const json = canonicalJson(roster);
     const published = json !== last;
     last = json;
     return { id: record.id, record, roster, published };
   });
-  return { name, steps };
+  return { name, taskWorkspace, steps };
 });
 
 // The roster's own gate (`desktopSessionSummaries`, the second gate) on list rows as the catalog holds them: the rows that carry
@@ -130,7 +151,6 @@ const compactedInputs = [
 const compacted = compactedInputs.map((input) => ({ input, title: compactedSessionTitle(input, '') }));
 
 // The roster's other inputs: the names users gave (`names`, written by `renameSession`) and the host's task workspace.
-const TASK_WORKSPACE = 'C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified';
 const gateCases = [
   ...gateRows.map((r) => ({ row: r })),
   // a title the generator drops as meaningless: only a user's name keeps the row

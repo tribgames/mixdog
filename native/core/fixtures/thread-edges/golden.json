@@ -3,6 +3,7 @@
   "triggers": [
     {
       "name": "create",
+      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_new",
@@ -47,6 +48,7 @@
     },
     {
       "name": "fork",
+      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_base",
@@ -121,6 +123,7 @@
     },
     {
       "name": "inherit",
+      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_old",
@@ -237,6 +240,7 @@
     },
     {
       "name": "import",
+      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_imp",
@@ -256,6 +260,7 @@
     },
     {
       "name": "schedule",
+      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_sch",
@@ -292,6 +297,7 @@
     },
     {
       "name": "webhook",
+      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_web",
@@ -328,6 +334,7 @@
     },
     {
       "name": "agent-session",
+      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_ag",
@@ -364,6 +371,7 @@
     },
     {
       "name": "never-listed",
+      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_exec",
@@ -412,6 +420,7 @@
     },
     {
       "name": "update-and-quiet",
+      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_u",
@@ -498,6 +507,7 @@
     },
     {
       "name": "stops-being-listed",
+      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_gone",
@@ -542,6 +552,7 @@
     },
     {
       "name": "two-sessions",
+      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_x",
@@ -654,6 +665,7 @@
     },
     {
       "name": "rename-makes-a-meaningless-title-count",
+      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_r",
@@ -730,6 +742,7 @@
     },
     {
       "name": "already-renamed-session",
+      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_n",
@@ -793,6 +806,7 @@
     },
     {
       "name": "blank-name-keeps-nothing",
+      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_b",
@@ -808,6 +822,516 @@
           },
           "roster": [],
           "published": false
+        }
+      ]
+    },
+    {
+      "name": "legacy-task-workspace",
+      "taskWorkspace": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+      "steps": [
+        {
+          "id": "s_in",
+          "record": {
+            "id": "s_in",
+            "updatedAt": 3100,
+            "createdAt": 500,
+            "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+            "messages": [],
+            "title": "In the task workspace"
+          },
+          "roster": [
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_in_spelled",
+          "record": {
+            "id": "s_in_spelled",
+            "updatedAt": 3200,
+            "createdAt": 500,
+            "cwd": "c:/users/u/appdata/roaming/mixdog/workspace/unclassified/",
+            "messages": [],
+            "title": "Spelled otherwise"
+          },
+          "roster": [
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_spelled",
+              "preview": "",
+              "title": "Spelled otherwise",
+              "updatedAt": 3200,
+              "activityAt": 3200,
+              "messageCount": 0,
+              "cwd": "c:/users/u/appdata/roaming/mixdog/workspace/unclassified/",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_out",
+          "record": {
+            "id": "s_out",
+            "updatedAt": 3300,
+            "createdAt": 500,
+            "cwd": "C:/elsewhere",
+            "messages": [],
+            "title": "Outside"
+          },
+          "roster": [
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_spelled",
+              "preview": "",
+              "title": "Spelled otherwise",
+              "updatedAt": 3200,
+              "activityAt": 3200,
+              "messageCount": 0,
+              "cwd": "c:/users/u/appdata/roaming/mixdog/workspace/unclassified/",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_out",
+              "preview": "",
+              "title": "Outside",
+              "updatedAt": 3300,
+              "activityAt": 3300,
+              "messageCount": 0,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_in_untitled",
+          "record": {
+            "id": "s_in_untitled",
+            "updatedAt": 3400,
+            "createdAt": 500,
+            "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+            "messages": [],
+            "title": ""
+          },
+          "roster": [
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_spelled",
+              "preview": "",
+              "title": "Spelled otherwise",
+              "updatedAt": 3200,
+              "activityAt": 3200,
+              "messageCount": 0,
+              "cwd": "c:/users/u/appdata/roaming/mixdog/workspace/unclassified/",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_out",
+              "preview": "",
+              "title": "Outside",
+              "updatedAt": 3300,
+              "activityAt": 3300,
+              "messageCount": 0,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": false
+        },
+        {
+          "id": "s_out_untitled",
+          "record": {
+            "id": "s_out_untitled",
+            "updatedAt": 3500,
+            "createdAt": 500,
+            "cwd": "C:/elsewhere",
+            "messages": [],
+            "title": ""
+          },
+          "roster": [
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_spelled",
+              "preview": "",
+              "title": "Spelled otherwise",
+              "updatedAt": 3200,
+              "activityAt": 3200,
+              "messageCount": 0,
+              "cwd": "c:/users/u/appdata/roaming/mixdog/workspace/unclassified/",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_out",
+              "preview": "",
+              "title": "Outside",
+              "updatedAt": 3300,
+              "activityAt": 3300,
+              "messageCount": 0,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": false
+        },
+        {
+          "id": "s_in_untitled",
+          "record": {
+            "id": "s_in_untitled",
+            "updatedAt": 3600,
+            "createdAt": 500,
+            "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+            "messages": [],
+            "title": "---",
+            "titleSource": "user",
+            "titleLocked": true
+          },
+          "roster": [
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_spelled",
+              "preview": "",
+              "title": "Spelled otherwise",
+              "updatedAt": 3200,
+              "activityAt": 3200,
+              "messageCount": 0,
+              "cwd": "c:/users/u/appdata/roaming/mixdog/workspace/unclassified/",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_out",
+              "preview": "",
+              "title": "Outside",
+              "updatedAt": 3300,
+              "activityAt": 3300,
+              "messageCount": 0,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_untitled",
+              "preview": "",
+              "title": "---",
+              "updatedAt": 3600,
+              "activityAt": 3600,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_out_untitled",
+          "record": {
+            "id": "s_out_untitled",
+            "updatedAt": 3700,
+            "createdAt": 500,
+            "cwd": "C:/elsewhere",
+            "messages": [],
+            "title": "---",
+            "titleSource": "user",
+            "titleLocked": true
+          },
+          "roster": [
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_spelled",
+              "preview": "",
+              "title": "Spelled otherwise",
+              "updatedAt": 3200,
+              "activityAt": 3200,
+              "messageCount": 0,
+              "cwd": "c:/users/u/appdata/roaming/mixdog/workspace/unclassified/",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_out",
+              "preview": "",
+              "title": "Outside",
+              "updatedAt": 3300,
+              "activityAt": 3300,
+              "messageCount": 0,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_untitled",
+              "preview": "",
+              "title": "---",
+              "updatedAt": 3600,
+              "activityAt": 3600,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_out_untitled",
+              "preview": "",
+              "title": "---",
+              "updatedAt": 3700,
+              "activityAt": 3700,
+              "messageCount": 0,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_in_project",
+          "record": {
+            "id": "s_in_project",
+            "updatedAt": 3800,
+            "createdAt": 500,
+            "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+            "messages": [],
+            "title": "Stored project",
+            "desktopSession": {
+              "classification": "project",
+              "projectPath": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified"
+            }
+          },
+          "roster": [
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_spelled",
+              "preview": "",
+              "title": "Spelled otherwise",
+              "updatedAt": 3200,
+              "activityAt": 3200,
+              "messageCount": 0,
+              "cwd": "c:/users/u/appdata/roaming/mixdog/workspace/unclassified/",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_out",
+              "preview": "",
+              "title": "Outside",
+              "updatedAt": 3300,
+              "activityAt": 3300,
+              "messageCount": 0,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_untitled",
+              "preview": "",
+              "title": "---",
+              "updatedAt": 3600,
+              "activityAt": 3600,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_out_untitled",
+              "preview": "",
+              "title": "---",
+              "updatedAt": 3700,
+              "activityAt": 3700,
+              "messageCount": 0,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_project",
+              "preview": "",
+              "title": "Stored project",
+              "updatedAt": 3800,
+              "activityAt": 3800,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "classification": "project",
+              "projectPath": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "legacy-unknown-task-workspace",
+      "taskWorkspace": "",
+      "steps": [
+        {
+          "id": "s_unk",
+          "record": {
+            "id": "s_unk",
+            "updatedAt": 3900,
+            "createdAt": 500,
+            "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+            "messages": [],
+            "title": "Anywhere"
+          },
+          "roster": [
+            {
+              "id": "s_unk",
+              "preview": "",
+              "title": "Anywhere",
+              "updatedAt": 3900,
+              "activityAt": 3900,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "classification": "project",
+              "projectPath": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
         }
       ]
     }
