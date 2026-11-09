@@ -54,5 +54,63 @@
         }
       }
     }
+  },
+  {
+    "name": "statusline-oauth-route-before-warm",
+    "env": {
+      "MIXDOG_STATUSLINE_USAGE_WARMUP_DELAY_MS": "60000"
+    },
+    "calls": [
+      {
+        "action": "listProviderModels",
+        "args": [
+          {}
+        ]
+      },
+      {
+        "action": "listWebSearchModels",
+        "args": [
+          {}
+        ]
+      }
+    ],
+    "agent": {
+      "providers": {
+        "custom-aaaa": {
+          "type": "custom",
+          "schemaVersion": 2,
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "__BASE_URL__/v1",
+          "auth": "none",
+          "enabled": true,
+          "modelOverrides": {
+            "m1": {
+              "manual": true,
+              "name": "Model One",
+              "contextWindow": 64000,
+              "maxOutputTokens": 4096
+            },
+            "m2": {
+              "manual": true,
+              "reasoning": {
+                "levels": [
+                  "low",
+                  "high"
+                ]
+              }
+            },
+            "m3": {
+              "manual": true,
+              "hidden": true
+            },
+            "m4": {
+              "manual": true,
+              "supportsVision": false
+            }
+          }
+        }
+      }
+    }
   }
 ]
