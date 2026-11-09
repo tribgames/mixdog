@@ -4126,6 +4126,10 @@ pub struct ToolsToolsStatusParams {
     /// would carry (needs `threadId`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot: Option<bool>,
+    /// With snapshot: the user message the snapshot's request carries as its last turn, as the send of that message would;
+    /// a thread with no user turn yet cannot be encoded by every provider (Gemini refuses a request with nothing to send).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_user_message: Option<String>,
 }
 
 /// Params of `memory/memoryControl`.

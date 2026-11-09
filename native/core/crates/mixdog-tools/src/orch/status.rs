@@ -93,7 +93,7 @@ pub trait ToolSurfaceStatus: Send + Sync {
     /// The provider request `thread`'s next send would carry (`tools/toolsStatus` with `snapshot`): the
     /// surface's tool documents, the request's system texts and tools, and the body its route's codec
     /// encodes. A surface that cannot build requests refuses.
-    async fn request_snapshot(&self, _thread: &ThreadId) -> Result<Value, CoreError> {
+    async fn request_snapshot(&self, _thread: &ThreadId, _user_message: Option<&str>) -> Result<Value, CoreError> {
         Err(invalid("snapshot", "a surface that builds the thread's provider request"))
     }
 }
@@ -113,13 +113,13 @@ impl DomainService for ToolsService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         match req.method.as_str() {
             "tools/toolsStatus" => {
-                let (thread, query, snapshot) = parse_params(&req.params)?;
+                let (thread, query, snapshot, user_message) = parse_params(&req.params)?;
                 let surface = self.surfaces.surface(thread.as_ref()).await?;
                 let mut status = tools_status(&surface, &query);
                 if snapshot {
                     // After `surface`, which brings an empty thread to the settings its first send uses.
                     let thread = thread.ok_or_else(|| invalid("threadId", "a thread for a snapshot"))?;
-                    status["requestSnapshot"] = self.surfaces.request_snapshot(&thread).await?;
+                    status["requestSnapshot"] = self.surfaces.request_snapshot(&thread, user_message.as_deref()).await?;
                 }
                 Ok(Reply::Value(status))
             }
@@ -140,7 +140,7 @@ fn invalid(path: &str, expected: &str) -> CoreError {
     CoreError::InvalidParams { path: path.into(), expected: expected.into() }
 }
 
-fn parse_params(params: &Value) -> Result<(Option<ThreadId>, String, bool), CoreError> {
+fn parse_params(params: &Value) -> Result<(Option<ThreadId>, String, bool, Option<String>), CoreError> {
     let optional_string = |key: &str| match params.get(key) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(s)) => Ok(Some(s.clone())),
@@ -152,7 +152,7 @@ fn parse_params(params: &Value) -> Result<(Option<ThreadId>, String, bool), Core
         Some(_) => return Err(invalid("snapshot", "boolean")),
     };
     let thread = optional_string("threadId")?.map(ThreadId::from);
-    Ok((thread, optional_string("query")?.unwrap_or_default(), snapshot))
+    Ok((thread, optional_string("query")?.unwrap_or_default(), snapshot, optional_string("snapshotUserMessage")?))
 }
 
 fn clean(value: &str) -> &str {
@@ -335,8 +335,8 @@ mod tests {
         async fn surface(&self, _: Option<&ThreadId>) -> Result<StatusSurface, CoreError> {
             Ok(self.0.clone())
         }
-        async fn request_snapshot(&self, thread: &ThreadId) -> Result<Value, CoreError> {
-            Ok(json!({ "thread": thread.as_str() }))
+        async fn request_snapshot(&self, thread: &ThreadId, user_message: Option<&str>) -> Result<Value, CoreError> {
+            Ok(json!({ "thread": thread.as_str(), "userMessage": user_message }))
         }
     }
 
@@ -348,8 +348,11 @@ mod tests {
         let service = ToolsService::new(Arc::new(Requests(surface.clone())));
         let Ok(Reply::Value(value)) = service.call(request(json!({"threadId": "t1", "snapshot": true}))).await else { panic!("reply") };
         let mut want = tools_status(&surface, "");
-        want["requestSnapshot"] = json!({ "thread": "t1" });
+        want["requestSnapshot"] = json!({ "thread": "t1", "userMessage": null });
         assert_eq!(value, want);
+        let Ok(Reply::Value(said)) = service.call(request(json!({"threadId": "t1", "snapshot": true, "snapshotUserMessage": "hi"}))).await else { panic!("reply") };
+        assert_eq!(said["requestSnapshot"], json!({ "thread": "t1", "userMessage": "hi" }));
+        assert_eq!(value["requestSnapshot"]["userMessage"], Value::Null, "no message is no message");
         let Ok(Reply::Value(plain)) = service.call(request(json!({"threadId": "t1", "snapshot": false}))).await else { panic!("reply") };
         assert_eq!(plain, tools_status(&surface, ""), "without the flag the readout is Node's alone");
         assert!(service.call(request(json!({"snapshot": true}))).await.is_err(), "a request is a thread's");
