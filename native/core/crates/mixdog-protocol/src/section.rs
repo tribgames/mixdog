@@ -14,8 +14,6 @@ use crate::JsonValue;
 pub enum SectionFeed {
     /// App feed; part of the app attach snapshot.
     App,
-    /// The thread feed of the key (`reviewDiff`).
-    Thread,
     /// Scoped feed `git:<repoRoot>`.
     Git,
     /// Scoped feed `lsp:<root>`.
@@ -115,8 +113,9 @@ sections! {
     CoreHealth => "coreHealth", "core/health/updated", App, keyed: false;
     /// Migration progress.
     Migration => "migration", "migration/progress", App, keyed: false;
-    /// Review summary of a thread; key = thread id (thread feed).
-    ReviewDiff => "reviewDiff", "review/diff/updated", Thread, keyed: true;
+    /// The tell that open reviews may read differently (Node's global `turn-review-changed`): one app-wide revision per tell, no
+    /// value; each window rereads the review of every session it shows.
+    ReviewDiff => "reviewDiff", "review/diff/updated", App, keyed: false;
     /// Repository status; key = repo root (scoped feed `git:<root>`).
     GitStatus => "gitStatus", "git/status/updated", Git, keyed: true;
     /// Language-server status (scoped feed `lsp:<root>`); key = `<languageId>`, or

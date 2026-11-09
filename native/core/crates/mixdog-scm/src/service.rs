@@ -87,7 +87,8 @@ pub trait ThreadWorktrees: Send + Sync {
     async fn cwd(&self, thread: &ThreadId) -> Result<Option<String>, CoreError>;
 }
 
-/// The body of the `reviewDiff` publication that says "read the review again": Node's `turn-review-changed` carries no data.
+/// The body of the `reviewDiff` publication, the app-wide tell to read the review again: Node's `turn-review-changed` carries no
+/// data, and the windows read nothing from it.
 pub const REVIEW_REREAD: &[u8] = b"{}";
 
 /** Untracked rows a review lists (`git-history.ts` `REVIEW_UNTRACKED_LIMIT`); the rest are only counted. */
@@ -222,14 +223,12 @@ impl ScmService {
         reviews: Arc<dyn TurnReviewApi>,
         worktrees: Arc<dyn ThreadWorktrees>,
     ) -> Arc<Self> {
-        // Node's one `onTurnReviewChanged` consumer forwards the signal as the data-less global `turn-review-changed` event, which
-        // every open client answers by rereading the review of the session it shows (`use-turn-review-reads.ts`): the same tell is
-        // the `reviewDiff` section of every thread a client holds open, whether or not the thread has a review or a turn.
+        // Node's one `onTurnReviewChanged` consumer forwards the signal as the data-less global `turn-review-changed` event
+        // (`desktop-service.ts:1058`), which every window answers by rereading the review of each session it shows
+        // (`use-turn-review-reads.ts`). The same tell is one app-wide `reviewDiff` revision, whatever the windows show.
         let told = publisher.clone();
         let stop_review_push = reviews.on_review_changed(Arc::new(move || {
-            for thread in told.open_keys(SectionName::ReviewDiff) {
-                told.publish(SectionName::ReviewDiff, Some(thread), SectionChange::Set(Bytes::from_static(REVIEW_REREAD)));
-            }
+            told.publish(SectionName::ReviewDiff, None, SectionChange::Set(Bytes::from_static(REVIEW_REREAD)));
         }));
         Arc::new(Self {
             login: scm.github_login(),
@@ -554,43 +553,6 @@ impl ScmService {
             out["base"] = json!(name);
         }
         Ok(out)
-    }
-
-    /// Computes the review of `thread` and publishes its summary (the `reviewDiff` section);
-    /// called after a run ends and after repository evidence, so clients never poll.
-    pub async fn publish_review(
-        self: &Arc<Self>,
-        thread: &ThreadId,
-        cwd: PathBuf,
-        base: ObjectId,
-        cancel: &CancellationToken,
-    ) -> Result<(), ScmFailure> {
-        let repo = self.scm.open(&cwd, cancel).await?;
-        let summary = self
-            .scm
-            .inspector
-            .review_summary(
-                self.scm.lane,
-                ReviewRequest {
-                    repo: repo.repo_ref()?,
-                    scope: ReviewScope::Session { thread_id: thread.clone() },
-                    base,
-                },
-            )
-            .await
-            .map_err(crate::mutate::scm_error)?;
-        let files: Vec<Value> = summary
-            .files
-            .iter()
-            .map(|f| json!({ "path": f.path, "status": kind_letter(f.status), "adds": f.adds, "dels": f.dels }))
-            .collect();
-        let value = json!({ "key": key_text(&summary.key), "summary": { "files": files } });
-        self.publisher.publish(
-            SectionName::ReviewDiff,
-            Some(thread.as_str().to_owned()),
-            SectionChange::Set(Bytes::from(serde_json::to_vec(&value).unwrap_or_default())),
-        );
-        Ok(())
     }
 
     async fn github_request(self: &Arc<Self>, project: &str, input: &Value, cancel: &CancellationToken) -> Result<Value, ScmFailure> {

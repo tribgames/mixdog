@@ -8,12 +8,12 @@
 //! then made: which window, after how many deliveries, the whole request, the whole answer, and what the bar showed after.
 //!
 //! The replay runs the same actions through the real tools (`edit`, `apply_patch`, `git`), the real turn review over real Git
-//! and the real scm service, which publishes through the core's own `StateRuntime`. The core's answer to each recorded request
-//! must be the recorded answer whole, and the core's frames, folded by the checkout's renderer (`review-reread-replay.mjs`:
-//! its section store and its `TurnReviewBar`), must make the windows ask and show exactly what the recording holds. The step from
-//! a thread feed's `review/diff/updated` frame to a window's section store is `scopedSectionChanges`, the main process's fold of
-//! scoped-feed sections; nothing folds a thread feed's frames into the store today (see the report), so this replay stands that
-//! step in. `listeners.json` records the listener registry (subscribe, unsubscribe, removal and addition during a delivery).
+//! and the real scm service, which publishes through the core's own `StateRuntime`: one app-wide `reviewDiff` frame per tell. The
+//! core's answer to each recorded request must be the recorded answer whole, and the core's app-feed frames, taken through the
+//! production delivery path (`review-reread-replay.mjs`: the client library, main's protocol connection and section relay, each
+//! window's IPC and preload, the renderer's section store and its `TurnReviewBar` panes), must make the windows ask and show
+//! exactly what the recording holds, window by window and pane by pane, in Node's order. `listeners.json` records the listener
+//! registry (subscribe, unsubscribe, removal and addition during a delivery).
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: real directories and a real git")]
 
 use std::collections::HashMap;
@@ -37,7 +37,6 @@ use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::feed::Feed;
 use mixdog_core_api::feed::ScopedFeed;
 use mixdog_core_api::ids::FeedId;
-use mixdog_core_api::mock::EchoView;
 use mixdog_core_api::mock::FeedTap;
 use mixdog_core_api::mock::MockFeed;
 use mixdog_core_api::mock::MockLimits;
@@ -48,10 +47,8 @@ use mixdog_core_api::turn_review::ReviewRead;
 use mixdog_core_api::turn_review::TurnOpen;
 use mixdog_core_api::turn_review::TurnReviewApi;
 use mixdog_core_api::turn_review::TurnToken;
-use mixdog_core_base::state::ScopedSection;
-use mixdog_core_base::state::ScopedSections;
 use mixdog_core_base::state::StateRuntime;
-use mixdog_protocol::SectionName;
+use mixdog_core_base::state::empty_view;
 use mixdog_protocol::ThreadId;
 use mixdog_protocol::ToolCallId;
 use mixdog_protocol::TurnId;
@@ -94,26 +91,18 @@ impl ThreadWorktrees for NoHeaders {
     }
 }
 
-/// A thread a client holds open: the `reviewDiff` route its owner opened on the thread's feed, and the client's end of that feed.
-struct OpenThread {
-    session: String,
-    ws: String,
-    _route: ScopedSection,
-    tap: FeedTap,
-}
-
 /// The real turn review over real Git and real tools, and the scm service that publishes its signal through the core's own
-/// publisher (`StateRuntime`: the route table, the feed state that numbers and encodes each section notification).
+/// publisher (`StateRuntime`: the feed state that numbers and encodes each section notification on the app feed).
 struct World {
     review: TurnReview,
     shadow: Arc<ShadowRepos>,
-    scoped: ScopedSections,
-    feeds: Arc<MockScopedFeeds>,
-    open: Vec<OpenThread>,
-    /// Each open thread's feed, for the counter of what the core had published when each delivery ended.
-    watched: Arc<Mutex<Vec<(String, Arc<dyn ScopedFeed>)>>>,
-    /// One entry per delivery: every watched feed's last sequence number once the delivery's listeners had all run.
-    deliveries: Arc<Mutex<Vec<Vec<(String, u64)>>>>,
+    /// The app feed as a client that subscribed before anything happened sees it: the snapshot, then every frame.
+    app: Arc<MockFeed>,
+    tap: FeedTap,
+    /// One entry per delivery: the app feed's last sequence number once the delivery's listeners had all run.
+    deliveries: Arc<Mutex<Vec<u64>>>,
+    /// The workspace each window pane's session works in.
+    panes: Vec<(String, String)>,
     state: Arc<ReadState>,
     processes: Arc<mixdog_spawn::LocalProcessManager>,
     // Keeps the service (and so its listener) alive for the scenario.
@@ -121,17 +110,6 @@ struct World {
 }
 
 impl World {
-    /// A client opens the thread `session`: the route the thread's owner opens for its `reviewDiff` section, which is what makes the
-    /// thread a recipient (`open_keys`), and the client's subscription to that feed.
-    fn open_thread(&mut self, session: &str, ws: &str) {
-        let id = FeedId::from(format!("thread:{session}"));
-        let route = self.scoped.open(id.clone(), SectionName::ReviewDiff, session);
-        let feed = self.feeds.find(&id).expect("the section's feed");
-        let tap = FeedTap::attach(&feed);
-        self.watched.lock().unwrap().push((session.to_owned(), feed));
-        self.open.push(OpenThread { session: session.to_owned(), ws: ws.to_owned(), _route: route, tap });
-    }
-
     fn delivered(&self) -> usize {
         self.deliveries.lock().unwrap().len()
     }
@@ -145,21 +123,20 @@ fn world(data: &Path) -> World {
     let git: Arc<dyn ReviewGit> = Arc::new(ScmGit::new(scm.clone()));
     let shadow = Arc::new(ShadowRepos::new(data.join("turn-worktree-snapshots-v1"), git.clone(), disk.clone()));
     let review = TurnReview::new(Config::default(), tokens.cpu_interactive, data, disk, git, Arc::new(ScmWorktrees::new(shadow.clone())), Arc::new(CapturedBases::new()));
-    let runtime = StateRuntime::new(Arc::new(MockFeed::new(FeedId::from("app"), epoch(1), Arc::new(EchoView), MockLimits::default())));
-    let feeds = Arc::new(MockScopedFeeds::new(MockLimits::default()));
-    let service = ScmService::new(scm, feeds.clone(), runtime.publisher.clone(), Arc::new(Open), Arc::new(review.clone()), Arc::new(NoHeaders));
+    let (id, at) = (FeedId::from("app"), epoch(1));
+    let app = Arc::new(MockFeed::new(id.clone(), at.clone(), empty_view(&id, &at), MockLimits::default()));
+    let runtime = StateRuntime::new(app.clone());
+    let service = ScmService::new(scm, Arc::new(MockScopedFeeds::new(MockLimits::default())), runtime.publisher.clone(), Arc::new(Open), Arc::new(review.clone()), Arc::new(NoHeaders));
+    let scoped: Arc<dyn ScopedFeed> = app.clone();
+    let tap = FeedTap::attach(&scoped);
     // A listener of the test's own, registered after the service's: it runs in the same delivery, once the service has published.
-    let watched: Arc<Mutex<Vec<(String, Arc<dyn ScopedFeed>)>>> = Arc::default();
-    let deliveries: Arc<Mutex<Vec<Vec<(String, u64)>>>> = Arc::default();
-    let (seen, ends) = (watched.clone(), deliveries.clone());
-    shadow.on_review_changed(Arc::new(move || {
-        let positions = seen.lock().unwrap().iter().map(|(session, feed)| (session.clone(), feed.position().seq)).collect();
-        ends.lock().unwrap().push(positions);
-    }));
+    let deliveries: Arc<Mutex<Vec<u64>>> = Arc::default();
+    let (feed, ends) = (app.clone(), deliveries.clone());
+    shadow.on_review_changed(Arc::new(move || ends.lock().unwrap().push(feed.position().seq)));
     // The composition root's wiring of the tools' read state to the review.
     let state = Arc::new(ReadState::new(None));
     follow_read_state(Arc::new(review.clone()), &state);
-    World { review, shadow, scoped: runtime.scoped_sections(feeds.clone()), feeds, open: Vec::new(), watched, deliveries, state, processes, _service: service }
+    World { review, shadow, app, tap, deliveries, panes: Vec::new(), state, processes, _service: service }
 }
 
 fn plain(path: &Path) -> String {
@@ -267,7 +244,7 @@ async fn replay(scenario: &Value) {
                 std::fs::create_dir_all(target.parent().unwrap()).unwrap();
                 std::fs::write(target, op["content"]["text"].as_str().unwrap()).unwrap();
             }
-            "client" => world.open_thread(session, op["ws"].as_str().unwrap()),
+            "client" => world.panes.push((session.to_owned(), op["ws"].as_str().unwrap().to_owned())),
             "begin" => {
                 let open = TurnOpen { checkpoint_id: checkpoint.to_owned(), continue_turn: false };
                 tokens.insert(session.to_owned(), review.begin_turn(&ws_text, session, open).await.expect("a turn"));
@@ -321,7 +298,7 @@ async fn replay(scenario: &Value) {
         let mut after_answer = Vec::new();
         for request in want["requests"].as_array().unwrap() {
             let client = request["client"].as_str().unwrap();
-            let ws = &world.open.iter().find(|thread| thread.session == client).unwrap_or_else(|| panic!("{label}: no window shows {client}")).ws;
+            let ws = &world.panes.iter().find(|(session, _)| session == client).unwrap_or_else(|| panic!("{label}: no window shows {client}")).1;
             assert_eq!(request["request"]["capability"], "getTurnReviewDiff", "{label}");
             let options = &request["request"]["args"][0];
             let read = ReviewRead { known: options["known"].as_str().map(str::to_owned), summary: options["summary"] == true };
@@ -334,24 +311,18 @@ async fn replay(scenario: &Value) {
         made.push((start, before, after_answer));
     }
 
-    // What the core published on each open thread's feed, as the thread's client received it, split into the deliveries.
-    let mut received: HashMap<String, Vec<Value>> = HashMap::new();
-    for thread in &world.open {
-        let published = world.watched.lock().unwrap().iter().find(|(session, _)| *session == thread.session).map(|(_, feed)| feed.position().seq).unwrap();
-        let seen = within(&format!("the {published} review/diff/updated frames of {}", thread.session), thread.tap.notifications_until(|seen| seen.iter().filter(|frame| frame["method"] == "review/diff/updated").count() as u64 >= published)).await;
-        received.insert(thread.session.clone(), seen.into_iter().filter(|frame| frame["method"] == "review/diff/updated").collect());
-    }
+    // What the core published on the app feed, as a client that subscribed first received it: the snapshot, then the frames,
+    // split into the deliveries by the feed position each delivery ended at.
+    let published = world.app.position().seq;
+    let seen = within(&format!("the snapshot and {published} frames of the app feed"), world.tap.notifications_until(|seen| seen.len() as u64 > published)).await;
+    let (snapshot, frames) = seen.split_first().expect("the feed's snapshot comes first");
+    assert_eq!(snapshot["method"], "app/snapshot");
+    assert!(frames.iter().all(|frame| frame["method"] == "review/diff/updated"), "{name}: the app feed carried something but the tell");
     let mut delivery_frames: Vec<Vec<Value>> = Vec::new();
-    let mut last: HashMap<String, u64> = HashMap::new();
-    for positions in world.deliveries.lock().unwrap().iter() {
-        let mut positions = positions.clone();
-        positions.sort();
-        let mut frames = Vec::new();
-        for (session, upto) in positions {
-            let from = last.insert(session.clone(), upto).unwrap_or(0);
-            frames.extend(received[&session][from as usize..upto as usize].iter().cloned());
-        }
-        delivery_frames.push(frames);
+    let mut from = 0;
+    for upto in world.deliveries.lock().unwrap().iter() {
+        delivery_frames.push(frames[from..*upto as usize].to_vec());
+        from = *upto as usize;
     }
     let rust: Vec<Value> = made
         .iter()
@@ -360,7 +331,7 @@ async fn replay(scenario: &Value) {
             serde_json::json!({ "before": before, "afterAnswer": after_answer, "deliveries": &delivery_frames[*start..*start + end] })
         })
         .collect();
-    let input = serde_json::json!({ "ops": scenario["ops"], "recorded": scenario["results"], "rust": rust });
+    let input = serde_json::json!({ "ops": scenario["ops"], "recorded": scenario["results"], "snapshot": snapshot, "rust": rust });
     let traces = windows_trace(&base, &input).await;
     for (index, trace) in traces.as_array().expect("the replay answers a trace per operation").iter().enumerate() {
         let want = &scenario["results"][index];
