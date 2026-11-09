@@ -50,6 +50,8 @@ pub struct Built {
     pub client_epoch: Arc<dyn mixdog_core_api::ClientEpoch>,
     /// The connection table again (`Outgoing`): `ModelProxyService` sends `modelProxy/run/event` to the asking connection through it.
     pub notifier: Arc<dyn mixdog_core_api::ConnectionNotifier>,
+    /// The host media router: the live view binds its streams' targets here.
+    pub host_media: Arc<mixdog_app_server::HostMedia>,
     pub server_requests: Arc<dyn mixdog_core_api::ServerRequestSink>,
     pub ext_host: Arc<mixdog_exthost::ExtHostPool>,
     pub process_manager: Arc<dyn mixdog_core_api::domain::process::ProcessManager>,
@@ -2863,6 +2865,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     });
     let model_proxy = Arc::new(mixdog_core_domains::domains::ai_admin::model_proxy_service::ModelProxyService::new(proxy_runner, b.host.clone(), b.notifier.clone()));
     builder.register(model_proxy.clone())?;
+    // browser/stream, browser/webrtcSignal, browser/screenDisplays, host/browser/page: the phone's live view of Browser Use (SPEC R36).
+    let live_view = Arc::new(crate::live_view::LiveViewService::new(b.host.clone(), b.notifier.clone(), b.host_media.clone(), built_remote.runtime.clone(), b.tokens.media_thread, Arc::new(crate::live_view::NoScreenAccess)));
+    builder.register(live_view.clone())?;
     // host/claim is answered by the server itself (it owns the connection registry, ClientRequest::HostClaim), so no domain service claims it.
     let mut unclaimed = builder.unclaimed();
     unclaimed.retain(|method| *method != "host/claim");
@@ -2874,7 +2879,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The five owners of per-connection state (run-host-36); `compose()` binds them into `ComposedCore::connection_owners()`, which `verify_bound` checks.
     let connection_owners = crate::connection_close::ConnectionOwnersCell::default();
     connection_owners
-        .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone()))
+        .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone(), live_view))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
     crate::compose::verify_bound(&[&*late_new_place, &connection_owners, &*late_agent_status, &*late_turn_admission, &*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
     Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), gateway_usage })

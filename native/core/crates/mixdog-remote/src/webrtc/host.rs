@@ -141,7 +141,6 @@ struct Feed {
 struct Entry {
     client: String,
     source_key: String,
-    source: Arc<dyn VideoSource>,
     /// The viewer's state, kept by its `state` reports: effects run while the viewer is locked, so
     /// they read this instead of asking the viewer.
     state: Mutex<TransportState>,
@@ -468,7 +467,6 @@ impl LiveHost {
         Arc::new_cyclic(|weak| Entry {
             client: client.to_owned(),
             source_key: source_key.to_owned(),
-            source: source.clone(),
             state: Mutex::new(TransportState::Relay),
             viewer: Viewer::new(
                 source_ref.clone(),
