@@ -258,6 +258,13 @@ pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: Or
     Ok(Models { tick, embeddings, effort_judge })
 }
 
+/// What Node's process `exit` hooks write before the process ends (`flushGatewayUsageEventsSync` in `route-meta.mjs`, `flushDaemonLogsSync`
+/// in `daemon.mjs`): the last gateway usage batch, then the queued log tail. The release procedure calls it on every path, a stuck step included.
+pub(crate) async fn flush_at_exit(log: &crate::daemon_log::DaemonLog, usage: &mixdog_core_session::session::gateway_usage::GatewayUsage) {
+    usage.flush_final().await;
+    log.flush().await;
+}
+
 impl ComposedCore {
     /// How this start's desktop defaults separation ended (the `initialize` reply's `defaultsSeparation`).
     pub fn defaults_separation(&self) -> mixdog_app_protocol::v1::DefaultsSeparation {
@@ -350,7 +357,7 @@ impl ComposedCore {
     /// The daemon log written out: the release procedure runs it right before the process ends, on every path, because a stuck step skips
     /// `run_stop_steps` and the lines queued by then would be lost.
     pub async fn flush_log(&self) {
-        self.log.flush().await;
+        flush_at_exit(&self.log, &self.real.gateway_usage).await;
     }
 
     /// The registered stop steps alone, for the release procedure that closes the extension host
@@ -364,7 +371,7 @@ impl ComposedCore {
         // Flushed after every other stop step, as Node does (daemon.mjs:411 awaits flushDaemonLogs after the discovery withdrawal and the
         // singleton release, just before the exit): Node flushes, it never closes a stream. Then the run token ends (the log's lane jobs hang
         // on it; Rust-only). A second call finds nothing to run and both are idempotent.
-        self.log.flush().await;
+        flush_at_exit(&self.log, &self.real.gateway_usage).await;
         self.stop.cancel();
     }
 

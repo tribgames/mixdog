@@ -300,11 +300,11 @@ impl Real {
             }
         }));
         // `settleGatewayUsageWrites` (the teardown's `settlePersistence`): the buffered gateway usage events land and their
-        // compaction runs; the process's `exit` hook (`flushGatewayUsageEventsSync`) then writes what was recorded since, as the last step.
-        let (usage, last) = (self.gateway_usage.clone(), self.gateway_usage.clone());
+        // compaction runs. The process's `exit` hook (`flushGatewayUsageEventsSync`) is not a stop step: a stuck step skips the
+        // steps, so `compose::flush_at_exit` writes what was recorded since on every release path.
+        let usage = self.gateway_usage.clone();
         let settle: StopStep = ("gateway usage", Box::pin(async move { usage.settle().await }));
-        let exit_flush: StopStep = ("gateway usage exit flush", Box::pin(async move { last.flush_final().await }));
-        vec![settle, drain, gateway, computers, detach, terminals, channel_step, memory_step, voice, exit_flush]
+        vec![settle, drain, gateway, computers, detach, terminals, channel_step, memory_step, voice]
     }
 }
 
