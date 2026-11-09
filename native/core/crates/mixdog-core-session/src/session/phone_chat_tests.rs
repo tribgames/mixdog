@@ -309,7 +309,7 @@ fn node_frames(events: &[Value]) -> Vec<(String, Value)> {
             }
             "pushItem" => {
                 let text = &event["item"]["text"];
-                out.push(("item/completed".to_owned(), json!({ "text": text, "displayText": text })));
+                out.push(("item/completed".to_owned(), json!({ "id": event["item"]["id"], "text": text, "displayText": text })));
                 out.push(("thread/promptHistory/updated".to_owned(), json!({ "kind": "added", "prompt": text })));
             }
             other => panic!("an event this replay does not map: {other}"),
@@ -325,7 +325,7 @@ fn rust_frames(frames: &[(u64, String, Value)]) -> Vec<(String, Value)> {
             let payload = match method.as_str() {
                 "item/completed" => {
                     assert_eq!(params["item"]["type"], "userMessage");
-                    json!({ "text": params["item"]["content"][0]["text"], "displayText": params["item"]["displayText"] })
+                    json!({ "id": params["item"]["clientSubmissionId"], "text": params["item"]["content"][0]["text"], "displayText": params["item"]["displayText"] })
                 }
                 "thread/queue/changed" => json!({ "queued": params["queued"].as_array().unwrap().iter().map(|entry| entry["text"].clone()).collect::<Vec<_>>() }),
                 "thread/promptHistory/updated" => params["value"].clone(),
@@ -391,15 +391,16 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         assert_eq!(rust_frames(&since()), want_frames, "{name}: notifications");
         let store: Vec<Value> = rig.store.records(&handle.id)[base_records..].iter().map(|(_, record)| serde_json::to_value(record).unwrap()).collect();
         // The stored rows. Node's row (transcript-intake.mjs `pushUserOrSyntheticItem`, the `pushItem` call) is
-        // `{kind, id, text, at, messageId, device}`; Rust's user item record holds each of them but `id`:
+        // `{kind, id, text, at, messageId, device}`; Rust's user item record holds each of them:
         //   kind      `kind: 'user'`        = the record's role `user` and form `message`;
         //   text      `text`                = the record's `prompt` (the display text, `promptDisplayText`);
         //   at        `...transcriptMeta`   = `meta.transcript.at` (transcript-metadata.mjs `createTranscriptRouteMetadata`),
         //             each side's own clock: Rust's is the rig clock and Node's the recorded `at` of the submit;
         //   messageId `newTranscriptMessageId()` = `meta.transcript.messageId`, `msg_` and 32 hex digits, random on both sides;
         //   device    `extra.device`        = `meta.transcript.device`.
-        // DIFFERENCE: Node's `id` is the submission id (`sub1`); Rust's record has its own item id and keeps the submission id
-        // on the queue record only, so a prompt that never queued has no row carrying it. `id` is left out of both sides.
+        //   id        the submission id (`sub1`)      = `meta.transcript.clientSubmissionId`, which the item carries as its
+        //             `clientSubmissionId` on the wire; the client matches its pending bubble to the row by it
+        //             (conversation-prompt-items.ts `pendingPromptTranscriptItems`).
         let clock = rig.clock.0.load(std::sync::atomic::Ordering::SeqCst);
         let random_id = |id: &Value| {
             let id = id.as_str().unwrap();
@@ -415,25 +416,16 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
                 assert_eq!(record["form"], "message");
                 let meta = &record["body"]["inline"]["meta"]["transcript"];
                 assert_eq!(meta["at"], json!(clock), "Rust stamps its clock");
-                let mut row = json!({ "kind": "user", "text": record["prompt"]["inline"], "at": case["at"], "messageId": random_id(&meta["messageId"]) });
+                let mut row = json!({ "kind": "user", "id": meta["clientSubmissionId"], "text": record["prompt"]["inline"], "at": case["at"], "messageId": random_id(&meta["messageId"]) });
                 if let Some(device) = meta.get("device") {
                     row["device"] = device.clone();
                 }
                 row
             })
             .collect();
-        let node_rows: Vec<Value> = node["items"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|row| {
-                let mut row = row.clone();
-                assert_eq!(row.as_object_mut().unwrap().remove("id"), Some(json!("sub1")));
-                row
-            })
-            .collect();
+        let node_rows = node["items"].as_array().unwrap();
         assert_eq!(rows.len(), node_rows.len(), "{name}: stored rows");
-        for (rust, node) in rows.iter().zip(&node_rows) {
+        for (rust, node) in rows.iter().zip(node_rows) {
             assert_eq!(rust.as_object().unwrap().len(), node.as_object().unwrap().len(), "{name}: the same fields: {rust} / {node}");
             assert_eq!(rust, node, "{name}: stored row");
         }

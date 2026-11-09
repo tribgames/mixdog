@@ -5004,6 +5004,11 @@ impl SessionActor {
             .unwrap_or_default();
         if let Some(meta) = body.pointer_mut("/meta/transcript").and_then(Value::as_object_mut) {
             meta.entry("at").or_insert_with(|| json!(self.deps.clock.now_ms()));
+            // The submission this row answers: a client matches its pending bubble to the stored row by it (the desktop's
+            // `pendingPromptTranscriptItems`, conversation-prompt-items.ts), as Node's row id is the submission id.
+            if let Some(submission) = submission_id(&input) {
+                meta.entry("clientSubmissionId").or_insert_with(|| json!(submission));
+            }
             // The device that sent the prompt rides its row (`transcriptMeta.device`).
             if let Some(submitter) = submitter.as_ref().filter(|submitter| !submitter.device.is_empty()) {
                 meta.entry("device").or_insert_with(|| json!(submitter.device));
