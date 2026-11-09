@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createRemoteApi } from './remote-shim-api.ts';
-import { publishedCeilings, withShim } from './remote-shim-test-harness.mjs';
+import { withPhoneApi } from './test-support/phone-api-rig.mjs';
+
+// Node's version (b6f10295a) read each gate off the relay challenge's flags and re-read them on every leg. The table is the same
+// (remote-shim-api.ts); the gates are the context's `peer*` flags, which the phone sets per connection from the core's capabilities
+// (apps/mobile/src/phone-capabilities.ts, `peerFlagsOf`; remote-host-parity.test.mjs holds that mapping). A gate reads the flag at the time of
+// the access, so a flag withdrawn by a later leg withdraws the member. Not kept: the normalization of pushed tab lists and import progress
+// (malformed rows dropped, `loading` coerced) -- nothing in the phone delivers those pushes until PH-2's browser adapter does.
 
 const BROWSER_MEMBERS = [
   'remoteBrowserTabs',
@@ -16,50 +21,34 @@ const BROWSER_MEMBERS = [
   'onBrowserProfileImportProgress',
 ];
 
-test('project recovery is gated by the current host handshake, including reconnects', async () => {
-  await withShim({}, async (shim) => {
-    const api = createRemoteApi(shim.ctx);
-    await shim.dial({ remoteParity: true, ready: publishedCeilings(4096, 4096) });
+test('project recovery is gated by the current host flag, including a later leg', async () => {
+  await withPhoneApi({ projectRecovery: () => ({ records: [] }) }, async ({ ctx, api, calls }) => {
+    ctx.peerProjectRecovery = false;
     assert.equal(api.projectRecovery, undefined);
-    const redial = (projectRecovery) => {
-      shim.ctx.connectionReady = false;
-      shim.ctx.socket = null;
-      shim.ctx.openPromise = null;
-      return shim.dial({ remoteParity: true, projectRecovery, ready: publishedCeilings(4096, 4096) });
-    };
-    const leg = await redial(true);
-    const pending = api.projectRecovery('/project', { action: 'list' });
-    let frame = await leg.nextPayload();
-    while (frame.method !== 'projectRecovery') frame = await leg.nextPayload();
-    assert.deepEqual(frame.params, ['/project', { action: 'list' }]);
-    await leg.deliver({ id: frame.id, ok: true, value: { records: [] } });
-    assert.deepEqual(await pending, { records: [] });
-    await redial(false);
+    ctx.peerProjectRecovery = true;
+    assert.deepEqual(await api.projectRecovery('/project', { action: 'list' }), { records: [] });
+    assert.deepEqual(calls, [{ method: 'projectRecovery', params: ['/project', { action: 'list' }] }]);
+    ctx.peerProjectRecovery = false;
     assert.equal(api.projectRecovery, undefined);
   });
 });
 
-const connect = async ({ ctx, dial }, browserParity) => {
-  ctx.updaterListeners = new Set();
-  ctx.settingsChangedListeners = new Set();
-  const api = createRemoteApi(ctx);
-  const leg = await dial({ remoteParity: true, browserParity, ready: publishedCeilings(4096, 4096) });
-  return { api, leg };
-};
-
 test('a host without browserParity leaves the pane on its single stream', async () => {
-  await withShim({}, async (shim) => {
-    const { api } = await connect(shim, false);
-    assert.equal(shim.ctx.peerBrowserParity, false);
+  await withPhoneApi({}, async ({ ctx, api }) => {
+    ctx.peerBrowserParity = false;
     for (const key of BROWSER_MEMBERS) assert.equal(api[key], undefined, `${key} is absent`);
     assert.equal(typeof api.remoteBrowserStream, 'function');
   });
 });
 
 test('a browserParity host exposes tabs, history, saved logins and import over their own methods', async () => {
-  await withShim({}, async (shim) => {
-    const { api, leg } = await connect(shim, true);
-    assert.equal(shim.ctx.peerBrowserParity, true);
+  const handlers = Object.fromEntries(
+    ['browserRemoteTabs', 'browserRemoteTabOpen', 'browserRemoteTabClose', 'browserHistorySearch', 'browserCredentialSuggestions', 'browserCredentialFill', 'browserProfileImportSources'].map(
+      (method) => [method, () => method]
+    )
+  );
+  await withPhoneApi(handlers, async ({ ctx, api, calls }) => {
+    ctx.peerBrowserParity = true;
     for (const key of BROWSER_MEMBERS) assert.equal(typeof api[key], 'function', `${key} is present`);
 
     const expected = [
@@ -68,100 +57,47 @@ test('a browserParity host exposes tabs, history, saved logins and import over t
       ['browserRemoteTabClose', ['main-browser-a'], () => api.remoteBrowserCloseTab('main-browser-a')],
       ['browserHistorySearch', ['ex'], () => api.browserHistorySearch('ex')],
       ['browserCredentialSuggestions', ['main-browser-a'], () => api.browserCredentialSuggestions('main-browser-a')],
-      [
-        'browserCredentialFill',
-        ['main-browser-a', 'a'.repeat(24)],
-        () => api.browserCredentialFill('main-browser-a', 'a'.repeat(24)),
-      ],
+      ['browserCredentialFill', ['main-browser-a', 'a'.repeat(24)], () => api.browserCredentialFill('main-browser-a', 'a'.repeat(24))],
       ['browserProfileImportSources', undefined, () => api.browserProfileImportSources()],
     ];
     for (const [method, params, invoke] of expected) {
-      const pending = invoke();
-      const frame = await leg.nextPayload();
-      assert.equal(frame.method, method);
-      if (params) assert.deepEqual(frame.params, params);
-      await leg.deliver({ id: frame.id, ok: true, value: method });
-      assert.equal(await pending, method);
+      const before = calls.length;
+      assert.equal(await invoke(), method);
+      assert.equal(calls.length, before + 1);
+      assert.equal(calls.at(-1).method, method);
+      if (params) assert.deepEqual(calls.at(-1).params, params);
     }
   });
 });
 
-test('only a host advertising browserDrive is driven at the phone size, re-read on every leg', async () => {
-  await withShim({}, async (shim) => {
-    const api = (await connect(shim, true)).api;
-    assert.equal(shim.ctx.peerBrowserDrive, false);
+test('only a host advertising browserDrive is driven at the phone size, read on every access', async () => {
+  await withPhoneApi({}, async ({ ctx, api }) => {
+    ctx.peerBrowserParity = true;
     assert.equal(api.remoteBrowserDrive, false, 'a browserParity host without browserDrive predates the control');
-    const redial = (flags) => {
-      shim.ctx.connectionReady = false;
-      shim.ctx.socket = null;
-      shim.ctx.openPromise = null;
-      return shim.dial({ remoteParity: true, ...flags, ready: publishedCeilings(4096, 4096) });
-    };
-    await redial({ browserParity: true, browserDrive: true });
-    assert.equal(shim.ctx.peerBrowserDrive, true);
+    ctx.peerBrowserDrive = true;
     assert.equal(api.remoteBrowserDrive, true);
-    await redial({ browserParity: true });
+    ctx.peerBrowserDrive = false;
     assert.equal(api.remoteBrowserDrive, false, 'a reconnect to an older host withdraws it');
   });
 });
 
-test('conversation browser tabs follow the browserSessionTabs flag, re-read on every leg', async () => {
-  await withShim({}, async (shim) => {
-    const api = (await connect(shim, true)).api;
+test('conversation browser tabs follow the browserSessionTabs flag, read on every access', async () => {
+  await withPhoneApi({}, async ({ ctx, api }) => {
     assert.equal(api.remoteBrowserSessionTabs, false, 'a legacy host has no conversation tab controls');
-    const redial = (flags) => {
-      shim.ctx.connectionReady = false;
-      shim.ctx.socket = null;
-      shim.ctx.openPromise = null;
-      return shim.dial({ remoteParity: true, ...flags, ready: publishedCeilings(4096, 4096) });
-    };
-    await redial({ browserParity: true, browserSessionTabs: true });
+    ctx.peerBrowserSessionTabs = true;
     assert.equal(api.remoteBrowserSessionTabs, true);
-    await redial({ browserParity: true });
+    ctx.peerBrowserSessionTabs = false;
     assert.equal(api.remoteBrowserSessionTabs, false);
   });
 });
 
 test('listHostDirectories is absent on a legacy handshake so the folder browser falls back', async () => {
-  await withShim({}, async (shim) => {
-    const { api } = await connect(shim, true);
-    assert.equal(shim.ctx.peerHostDirectories, false);
+  await withPhoneApi({ listHostDirectories: () => 'ok' }, async ({ ctx, api, calls }) => {
+    assert.equal(ctx.peerHostDirectories, false);
     assert.equal(api.listHostDirectories, undefined);
-    shim.ctx.connectionReady = false;
-    shim.ctx.socket = null;
-    shim.ctx.openPromise = null;
-    const leg = await shim.dial({ remoteParity: true, hostDirectories: true, ready: publishedCeilings(4096, 4096) });
+    ctx.peerHostDirectories = true;
     assert.equal(typeof api.listHostDirectories, 'function');
-    const pending = api.listHostDirectories('/h');
-    let frame = await leg.nextPayload();
-    while (frame.method !== 'listHostDirectories') frame = await leg.nextPayload();
-    assert.deepEqual(frame.params, ['/h']);
-    await leg.deliver({ id: frame.id, ok: true, value: 'ok' });
-    assert.equal(await pending, 'ok');
-  });
-});
-
-test('pushed tab lists and import progress reach their listeners; malformed rows are dropped', async () => {
-  await withShim({}, async (shim) => {
-    const { api, leg } = await connect(shim, true);
-    const tabs = [];
-    const progress = [];
-    const offTabs = api.onRemoteBrowserTabs((list) => tabs.push(list));
-    const offProgress = api.onBrowserProfileImportProgress((update) => progress.push(update));
-    await leg.deliver({
-      event: 'browserRemoteTabs',
-      payload: [{ id: 'main-browser-a', title: 'A', url: 'https://a.test/', loading: 1 }, { id: 7 }, null],
-    });
-    await leg.deliver({
-      event: 'browserProfileImportProgress',
-      payload: { jobId: 'job', item: 'history', state: 'running' },
-    });
-    await leg.deliver({ event: 'browserProfileImportProgress', payload: 'nope' });
-    assert.deepEqual(tabs, [[{ id: 'main-browser-a', title: 'A', url: 'https://a.test/', loading: false }]]);
-    assert.deepEqual(progress, [{ jobId: 'job', item: 'history', state: 'running' }]);
-    offTabs();
-    offProgress();
-    assert.equal(shim.ctx.remoteBrowserTabListeners.size, 0);
-    assert.equal(shim.ctx.browserImportProgressListeners.size, 0);
+    assert.equal(await api.listHostDirectories('/h'), 'ok');
+    assert.deepEqual(calls, [{ method: 'listHostDirectories', params: ['/h'] }]);
   });
 });
