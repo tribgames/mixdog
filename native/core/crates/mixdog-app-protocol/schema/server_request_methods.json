@@ -203,6 +203,18 @@
       ],
       "type": "object"
     },
+    "HostFilesTrashItemParams": {
+      "description": "Params of `host/files/trashItem` (core → host): the absolute path the core has already confined.",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
     "HostLocalPageUrlParams": {
       "description": "Params of `host/localPage/url` (core → host); the result is the URL string.",
       "properties": {
@@ -2817,6 +2829,12 @@
       "result": {
         "$ref": "#/definitions/HostFileSnapshot"
       }
+    },
+    "host/files/trashItem": {
+      "params": {
+        "$ref": "#/definitions/HostFilesTrashItemParams"
+      },
+      "result": true
     },
     "host/localPage/url": {
       "params": {

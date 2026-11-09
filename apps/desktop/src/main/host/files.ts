@@ -14,11 +14,14 @@ import { HOST_COMMAND_FAILED, HostRpcError, type HostConnection, objectParams, t
 
 export const HOST_FILE_SNAPSHOT = 'host/capture/fileSnapshot';
 export const HOST_LOCAL_PAGE_URL = 'host/localPage/url';
+export const HOST_TRASH_ITEM = 'host/files/trashItem';
 
 export interface FilesControl {
   captureFileSnapshot(root: string, rel: string, grant: boolean): Promise<HostFileSnapshot>;
   /** The lease is owned by the main window, so it dies with it. */
   localPageUrl(root: string, rel: string, scope: 'file' | 'project'): Promise<string>;
+  /** The OS trash (Electron's `shell.trashItem`); the core has already confined the path. */
+  trashItem(path: string): Promise<void>;
 }
 
 export function registerFilesHost(connection: HostConnection, control: () => FilesControl): void {
@@ -37,4 +40,8 @@ export function registerFilesHost(connection: HostConnection, control: () => Fil
   serve<HostLocalPageUrlParams>(HOST_LOCAL_PAGE_URL, (p) =>
     control().localPageUrl(String(p.root || ''), String(p.rel || ''), p.scope === 'file' ? 'file' : 'project')
   );
+  serve<{ path: string }>(HOST_TRASH_ITEM, async (p) => {
+    await control().trashItem(String(p.path || ''));
+    return {};
+  });
 }

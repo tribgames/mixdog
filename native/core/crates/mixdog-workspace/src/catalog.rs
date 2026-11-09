@@ -86,18 +86,24 @@ impl Catalog {
 
     pub async fn list(&self) -> WsResult<Vec<ProjectRow>> {
         let rows = self.state.projects().await.map_err(store)?;
-        Ok(rows.into_iter().filter(|p| Path::new(&p.path).is_absolute()).collect())
+        let mut rows: Vec<ProjectRow> = rows.into_iter().filter(|p| Path::new(&p.path).is_absolute()).collect();
+        // Node's `compareProjects`: most recently selected first (a project never selected counts by when it was added, which is when
+        // its row was made: `add` stamps it), then by name, then by path.
+        rows.sort_by(|a, b| {
+            b.last_used_at.unwrap_or(0).cmp(&a.last_used_at.unwrap_or(0)).then_with(|| mixdog_js::locale_compare(&display_name(a), &display_name(b))).then_with(|| mixdog_js::locale_compare(&a.path, &b.path))
+        });
+        Ok(rows)
     }
 
     /// The registered project at `path`, or `permissionDenied`.
     pub async fn resolve(&self, path: &str) -> WsResult<PathBuf> {
-        let requested = absolute_local_path(path).map_err(|_| WsError::denied("Project is not available."))?;
+        let requested = absolute_local_path(path).map_err(|_| WsError::coded("PROJECT_UNAVAILABLE", "Project is not available."))?;
         self.list()
             .await?
             .iter()
             .find(|p| comparable(Path::new(&p.path)) == comparable(&requested))
             .map(|p| PathBuf::from(&p.path))
-            .ok_or_else(|| WsError::denied("Project is not available."))
+            .ok_or_else(|| WsError::coded("PROJECT_UNAVAILABLE", "Project is not available."))
     }
 
     async fn find(&self, path: &str) -> WsResult<ProjectRow> {
@@ -106,7 +112,7 @@ impl Catalog {
             .await?
             .into_iter()
             .find(|p| comparable(Path::new(&p.path)) == comparable(&resolved))
-            .ok_or_else(|| WsError::denied("Project is not available."))
+            .ok_or_else(|| WsError::coded("PROJECT_UNAVAILABLE", "Project is not available."))
     }
 
     async fn commit(&self, row: Option<ProjectRow>, delete: Option<String>, op: Option<OpRecord>) -> WsResult<()> {
@@ -139,10 +145,13 @@ impl Catalog {
         let given = path.to_owned();
         let folder = run_fallible(self.lanes.interactive, cancel, move || canonical_directory(&requested, &given)).await?;
         let path = folder.to_string_lossy().into_owned();
+        // A row's recency starts at its making (Node orders a never-selected project by when it was added); never equal to another's, so the
+        // order of two projects added in one millisecond is the order they came.
+        let newest = self.state.projects().await.map_err(store)?.iter().filter_map(|p| p.last_used_at).max().unwrap_or(0);
         let row = match self.state.project(&path).await.map_err(store)? {
             // Node's `enter` and `register` both undo the legacy hidden tombstone (`unhide`) of the Project they register.
             Some(existing) => ProjectRow { hidden: false, hidden_rank: None, ..existing },
-            None => ProjectRow { path, alias: None, hidden: false, hidden_rank: None, last_used_at: None },
+            None => ProjectRow { path, alias: None, hidden: false, hidden_rank: None, last_used_at: Some(now_ms().max(newest + 1)) },
         };
         let out = project_json(&row);
         self.commit(Some(row.clone()), None, op.map(|o| finish(o, &out))).await?;

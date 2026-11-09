@@ -6283,6 +6283,13 @@
     "ProjectFsCaptureSnapshotParams": {
       "description": "Params of `projectFs/captureSnapshot`.",
       "properties": {
+        "accessToken": {
+          "description": "A paired device's one-file grant, as on `projectFs/readText`; the window then captures the granted file alone.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "rel": {
           "type": "string"
         },
@@ -6351,6 +6358,13 @@
     "ProjectFsEntryPathParams": {
       "description": "Params of `projectFs/entryPath`.",
       "properties": {
+        "accessToken": {
+          "description": "A paired device's one-file grant, as on `projectFs/readText`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "rel": {
           "type": "string"
         },
@@ -6383,6 +6397,13 @@
     "ProjectFsLocalPageUrlParams": {
       "description": "Params of `projectFs/localPageUrl`.",
       "properties": {
+        "accessToken": {
+          "description": "A paired device's one-file grant, as on `projectFs/readText`; the page then serves that file alone.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "rel": {
           "type": "string"
         },
@@ -6417,6 +6438,63 @@
         "rel",
         "root",
         "targetDirRel"
+      ],
+      "type": "object"
+    },
+    "ProjectFsPreviewFileParams": {
+      "description": "Params of `projectFs/previewFile`: what a paired device's file preview needs to know before it reads (Node's `previewProjectFile`).",
+      "properties": {
+        "accessToken": {
+          "description": "A paired device's one-file grant, as on `projectFs/readText`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rel": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "rel",
+        "root"
+      ],
+      "type": "object"
+    },
+    "ProjectFsPreviewRangeParams": {
+      "description": "Params of `projectFs/previewRange`: one bounded window of a previewable file (Node's `previewProjectFileRange`).",
+      "properties": {
+        "accessToken": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "length": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "offset": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "rel": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "length",
+        "offset",
+        "rel",
+        "root"
       ],
       "type": "object"
     },
@@ -6461,6 +6539,30 @@
           "description": "A paired device's one-file grant (`transfer/grant/mint`): `root` and `rel` are then Node's `projectPath` and `relPath`.",
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "authorized": {
+          "description": "Read as a paired device does (Node's `readProjectTextFileAuthorized`): the file is opened first and the open file is checked.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "fromChar": {
+          "description": "Answer only `maxChars` code points of the text, from code point `fromChar`; the answer then carries `nextChar` while text remains.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "maxChars": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
             "null"
           ]
         },
@@ -6627,6 +6729,13 @@
         },
         "root": {
           "type": "string"
+        },
+        "viaHost": {
+          "description": "The OS trash is the desktop window's (Node's `trashItem` host request): the core confines the path and asks the window.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [
@@ -6687,6 +6796,13 @@
     "ProjectFsWriteTextParams": {
       "description": "Params of `projectFs/writeText`.",
       "properties": {
+        "accessToken": {
+          "description": "A paired device's one-file grant, as on `projectFs/readText`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "content": {
           "type": "string"
         },
@@ -19691,6 +19807,52 @@
         },
         "params": {
           "$ref": "#/definitions/ProjectFsLocalPageUrlParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "What a paired device's file preview reads first: kind, mime, size, modification time and the media lease (Node's `previewProjectFile`).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "projectFs/previewFile"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ProjectFsPreviewFileParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "One bounded window of a previewable file, base64 (Node's `previewProjectFileRange`).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "projectFs/previewRange"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ProjectFsPreviewRangeParams"
         }
       },
       "required": [

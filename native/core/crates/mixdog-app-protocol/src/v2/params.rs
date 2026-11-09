@@ -4321,6 +4321,14 @@ pub struct ProjectFsReadTextParams {
     /// A paired device's one-file grant (`transfer/grant/mint`): `root` and `rel` are then Node's `projectPath` and `relPath`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access_token: Option<String>,
+    /// Read as a paired device does (Node's `readProjectTextFileAuthorized`): the file is opened first and the open file is checked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorized: Option<bool>,
+    /// Answer only `maxChars` code points of the text, from code point `fromChar`; the answer then carries `nextChar` while text remains.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_char: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_chars: Option<u32>,
 }
 
 /// Params of `projectFs/writeText`.
@@ -4336,6 +4344,9 @@ pub struct ProjectFsWriteTextParams {
     pub expected_content: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encoding: Option<String>,
+    /// A paired device's one-file grant, as on `projectFs/readText`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
 }
 
 impl crate::common::HasOpId for ProjectFsWriteTextParams {
@@ -4446,10 +4457,14 @@ impl crate::common::HasOpId for ProjectFsCopyParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectFsTrashParams {
     pub op_id: OpId,
     pub root: String,
     pub rel: String,
+    /// The OS trash is the desktop window's (Node's `trashItem` host request): the core confines the path and asks the window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via_host: Option<bool>,
 }
 
 impl crate::common::HasOpId for ProjectFsTrashParams {
@@ -4462,9 +4477,13 @@ impl crate::common::HasOpId for ProjectFsTrashParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectFsEntryPathParams {
     pub root: String,
     pub rel: String,
+    /// A paired device's one-file grant, as on `projectFs/readText`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
 }
 
 /// Params of `projectFs/readLocal`.
@@ -4624,18 +4643,55 @@ pub struct ProjectFsReadEditorSettingsParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectFsCaptureSnapshotParams {
     pub root: String,
     pub rel: String,
+    /// A paired device's one-file grant, as on `projectFs/readText`; the window then captures the granted file alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
 }
 
 /// Params of `projectFs/localPageUrl`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectFsLocalPageUrlParams {
     pub root: String,
     pub rel: String,
+    /// A paired device's one-file grant, as on `projectFs/readText`; the page then serves that file alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
+}
+
+/// Params of `projectFs/previewFile`: what a paired device's file preview needs to know before it reads (Node's `previewProjectFile`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ProjectFsPreviewFileParams {
+    pub root: String,
+    pub rel: String,
+    /// A paired device's one-file grant, as on `projectFs/readText`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
+}
+
+/// Params of `projectFs/previewRange`: one bounded window of a previewable file (Node's `previewProjectFileRange`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ProjectFsPreviewRangeParams {
+    pub root: String,
+    pub rel: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub offset: u64,
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub length: u64,
 }
 
 /// Params of `fs/watch`.

@@ -123,12 +123,12 @@ pub fn project_entry_path(root: &Path, rel: &str) -> WsResult<PathBuf> {
     let rel = rel.replace('\\', "/");
     let target = lexical(&root.join(rel));
     if !is_within(&root, &target) {
-        return Err(WsError::denied("Path is outside the project."));
+        return Err(WsError::plain("Path is outside the project."));
     }
     let canonical_root = canonical(&root)?;
     let canonical_target = canonical_through_existing(&target)?;
     if !is_within(&canonical_root, &canonical_target) {
-        return Err(WsError::denied("Path resolves outside the project."));
+        return Err(WsError::plain("Path resolves outside the project."));
     }
     Ok(target)
 }

@@ -1983,7 +1983,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "previewProjectFile",
-        Target::Method("transfer/beginRead"),
+        Target::Method("projectFs/previewFile"),
     ),
     (
         InventoryList::Remote,
@@ -1993,7 +1993,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "previewProjectFileRange",
-        Target::Method("transfer/readRange"),
+        Target::Method("projectFs/previewRange"),
     ),
     (
         InventoryList::Remote,

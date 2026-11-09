@@ -2363,6 +2363,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(mixdog_workspace::transfer::SystemClock),
         Arc::new(CatalogSessions(Arc::new(catalog_index.clone()))),
     ));
+    workspace.set_host(b.host.clone());
     workspace.set_phone_grants(phone_grants.clone(), crate::domain_seams::remote::phone_credential(built_remote.registry.clone()));
     builder.register(workspace.clone() as Arc<dyn mixdog_core_api::service::DomainService>)?;
     builder.register(Arc::new(mixdog_exthost::DocumentService::new(b.ext_host.clone(), b.user_data_dir.to_string_lossy().into_owned())))?;

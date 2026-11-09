@@ -35,6 +35,11 @@ fn invalid(path: &str, expected: &str) -> CoreError {
     CoreError::InvalidParams { path: path.into(), expected: expected.into() }
 }
 
+/// The code Node's `fs` errors carry: `E` and upper-case letters (`ENOENT`).
+fn is_os_error_code(code: &str) -> bool {
+    code.len() > 1 && code.starts_with('E') && code.bytes().all(|b| b.is_ascii_uppercase())
+}
+
 /// A worker failure as the domain's coded error; the text stays in the worker's log. Codes are the
 /// worker's own, upper-cased (`NO_PREVIEW_FOR_TYPE`, `INSTALL_FAILED`, ...).
 fn map_error(error: ExtError) -> CoreError {
@@ -63,6 +68,11 @@ fn map_error(error: ExtError) -> CoreError {
             message: Some(message.into()),
             detail: None,
         },
+        // Failures whose text is Node's own sentence about the caller's file (no external program's output in it): a phone shows them
+        // as Node did, so they travel with the code - the preview's refusals and the OS's own file errors (`ENOENT`, `EACCES`, ...).
+        ExtError::Failed { code, message } if matches!(code.as_str(), "no_preview_for_type" | "not_a_file" | "path_outside_project") || is_os_error_code(&code) => {
+            CoreError::DomainError { domain: "document".into(), code: Some(code.to_uppercase().into()), message: Some(message.into()), detail: None }
+        }
         ExtError::Failed { code, .. } => CoreError::DomainError {
             domain: "document".into(),
             code: Some(code.to_uppercase().into()),

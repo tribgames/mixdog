@@ -3152,7 +3152,7 @@
       "name": "previewProjectFile",
       "target": {
         "kind": "method",
-        "target": "transfer/beginRead"
+        "target": "projectFs/previewFile"
       }
     },
     {
@@ -3168,7 +3168,7 @@
       "name": "previewProjectFileRange",
       "target": {
         "kind": "method",
-        "target": "transfer/readRange"
+        "target": "projectFs/previewRange"
       }
     },
     {
