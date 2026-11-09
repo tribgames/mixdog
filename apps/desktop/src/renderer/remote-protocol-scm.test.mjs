@@ -98,3 +98,31 @@ for (const entry of golden.cases) {
     assert.deepEqual(await answerOf(entry, clone(entry.params), true), entry.frame, `${entry.name} (the core's failure codes)`);
   });
 }
+
+test('phone-scm keeps Node\'s barrier: a read submitted behind a slow write starts after the write ended', async () => {
+  const { ordering } = golden;
+  const wires = ordering.ops.map((op) => ({ ...op, ...clone(SCM_OPERATION_ROUTES[op.name](op.args)) }));
+  const WRITES = new Set(['gitStage', 'gitUnstage']);
+  const log = [];
+  const ended = [];
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  const core = {
+    async call(method, params) {
+      const op = wires.find((wire) => wire.method === method && JSON.stringify(wire.params) === JSON.stringify(params));
+      assert.ok(op, `unexpected request ${method} ${JSON.stringify(params)}`);
+      log.push({ started: op.name, endedBefore: WRITES.has(op.name) ? [...ended].sort() : ended.filter((name) => WRITES.has(name)).sort() });
+      if (op.name === ordering.heldStarts[0]) await gate;
+      await new Promise((resolve) => setImmediate(resolve));
+      ended.push(op.name);
+      return op.result === undefined ? null : clone(op.result);
+    },
+  };
+  const host = { client: () => core };
+  const answers = ordering.calls.map(({ call, params }) => adapter.calls[call](clone(params), host).then((value) => ({ ok: true, value: value === undefined ? null : clone(value) })));
+  for (let turn = 0; turn < 20; turn++) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(log.map((entry) => entry.started), ordering.heldStarts);
+  release();
+  assert.deepEqual(await Promise.all(answers), ordering.answers);
+  assert.deepEqual(log, ordering.order);
+});

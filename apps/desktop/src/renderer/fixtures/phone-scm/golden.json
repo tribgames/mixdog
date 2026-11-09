@@ -1761,7 +1761,7 @@
               "additions": 1,
               "deletions": 0,
               "untracked": false,
-              "revision": "24:1794219915782926100:1794219915782926100:3377699721276468"
+              "revision": "24:1794222164001949500:1794222164001949500:6755399442294874"
             },
             {
               "path": "new.txt",
@@ -1769,7 +1769,7 @@
               "additions": 1,
               "deletions": 0,
               "untracked": true,
-              "revision": "10:1794219915868545900:1794219915868545900:5910974511672443"
+              "revision": "10:1794222164143534500:1794222164143534500:10133099162821315"
             },
             {
               "path": "src/b.mjs",
@@ -1777,7 +1777,7 @@
               "additions": 1,
               "deletions": 1,
               "untracked": false,
-              "revision": "20:1794219915782926100:1794219915782926100:5629499534961718"
+              "revision": "20:1794222164001949500:1794222164001949500:10414574139535326"
             }
           ],
           "untrackedOmitted": 0
@@ -1801,7 +1801,7 @@
                 "additions": 1,
                 "deletions": 0,
                 "untracked": false,
-                "revision": "24:1794219915782926100:1794219915782926100:3377699721276468"
+                "revision": "24:1794222164001949500:1794222164001949500:6755399442294874"
               },
               {
                 "path": "new.txt",
@@ -1809,7 +1809,7 @@
                 "additions": 1,
                 "deletions": 0,
                 "untracked": true,
-                "revision": "10:1794219915868545900:1794219915868545900:5910974511672443"
+                "revision": "10:1794222164143534500:1794222164143534500:10133099162821315"
               },
               {
                 "path": "src/b.mjs",
@@ -1817,7 +1817,7 @@
                 "additions": 1,
                 "deletions": 1,
                 "untracked": false,
-                "revision": "20:1794219915782926100:1794219915782926100:5629499534961718"
+                "revision": "20:1794222164001949500:1794222164001949500:10414574139535326"
               }
             ],
             "untrackedOmitted": 0
@@ -1858,7 +1858,7 @@
               "additions": 1,
               "deletions": 0,
               "untracked": false,
-              "revision": "24:1794219915782926100:1794219915782926100:3377699721276468"
+              "revision": "24:1794222164001949500:1794222164001949500:6755399442294874"
             },
             {
               "path": "new.txt",
@@ -1866,7 +1866,7 @@
               "additions": 1,
               "deletions": 0,
               "untracked": true,
-              "revision": "10:1794219915868545900:1794219915868545900:5910974511672443"
+              "revision": "10:1794222164143534500:1794222164143534500:10133099162821315"
             },
             {
               "path": "src/b.mjs",
@@ -1874,7 +1874,7 @@
               "additions": 1,
               "deletions": 1,
               "untracked": false,
-              "revision": "20:1794219915782926100:1794219915782926100:5629499534961718"
+              "revision": "20:1794222164001949500:1794222164001949500:10414574139535326"
             }
           ],
           "untrackedOmitted": 0
@@ -1898,7 +1898,7 @@
                 "additions": 1,
                 "deletions": 0,
                 "untracked": false,
-                "revision": "24:1794219915782926100:1794219915782926100:3377699721276468"
+                "revision": "24:1794222164001949500:1794222164001949500:6755399442294874"
               },
               {
                 "path": "new.txt",
@@ -1906,7 +1906,7 @@
                 "additions": 1,
                 "deletions": 0,
                 "untracked": true,
-                "revision": "10:1794219915868545900:1794219915868545900:5910974511672443"
+                "revision": "10:1794222164143534500:1794222164143534500:10133099162821315"
               },
               {
                 "path": "src/b.mjs",
@@ -1914,7 +1914,7 @@
                 "additions": 1,
                 "deletions": 1,
                 "untracked": false,
-                "revision": "20:1794219915782926100:1794219915782926100:5629499534961718"
+                "revision": "20:1794222164001949500:1794222164001949500:10414574139535326"
               }
             ],
             "untrackedOmitted": 0
@@ -6969,7 +6969,7 @@
       "frame": {
         "ok": true,
         "value": {
-          "flowId": "ghlogin_7328_1",
+          "flowId": "ghlogin_43972_1",
           "state": "pending"
         }
       },
@@ -6982,7 +6982,7 @@
             }
           ],
           "result": {
-            "flowId": "ghlogin_7328_1",
+            "flowId": "ghlogin_43972_1",
             "state": "pending"
           }
         }
@@ -7023,12 +7023,12 @@
       "name": "githubCliLoginStatus-pending",
       "call": "githubCliLoginStatus",
       "params": [
-        "ghlogin_7328_1"
+        "ghlogin_43972_1"
       ],
       "frame": {
         "ok": true,
         "value": {
-          "flowId": "ghlogin_7328_1",
+          "flowId": "ghlogin_43972_1",
           "state": "pending"
         }
       },
@@ -7036,10 +7036,10 @@
         {
           "name": "githubCliLoginStatus",
           "args": [
-            "ghlogin_7328_1"
+            "ghlogin_43972_1"
           ],
           "result": {
-            "flowId": "ghlogin_7328_1",
+            "flowId": "ghlogin_43972_1",
             "state": "pending"
           }
         }
@@ -7062,12 +7062,12 @@
       "name": "githubCliLoginStatus-code",
       "call": "githubCliLoginStatus",
       "params": [
-        "ghlogin_7328_1"
+        "ghlogin_43972_1"
       ],
       "frame": {
         "ok": true,
         "value": {
-          "flowId": "ghlogin_7328_1",
+          "flowId": "ghlogin_43972_1",
           "state": "code",
           "code": "ABCD-1234",
           "url": "https://github.com/login/device"
@@ -7077,10 +7077,10 @@
         {
           "name": "githubCliLoginStatus",
           "args": [
-            "ghlogin_7328_1"
+            "ghlogin_43972_1"
           ],
           "result": {
-            "flowId": "ghlogin_7328_1",
+            "flowId": "ghlogin_43972_1",
             "state": "code",
             "code": "ABCD-1234",
             "url": "https://github.com/login/device"
@@ -7105,7 +7105,7 @@
       "name": "githubCliLoginOpenBrowser",
       "call": "githubCliLoginOpenBrowser",
       "params": [
-        "ghlogin_7328_1",
+        "ghlogin_43972_1",
         {
           "openBrowser": false
         }
@@ -7118,7 +7118,7 @@
         {
           "name": "githubCliLoginOpenBrowser",
           "args": [
-            "ghlogin_7328_1",
+            "ghlogin_43972_1",
             {
               "openBrowser": false
             }
@@ -7144,7 +7144,7 @@
       "name": "githubCliLoginOpenBrowser-no-options",
       "call": "githubCliLoginOpenBrowser",
       "params": [
-        "ghlogin_7328_1"
+        "ghlogin_43972_1"
       ],
       "frame": {
         "ok": true,
@@ -7154,7 +7154,7 @@
         {
           "name": "githubCliLoginOpenBrowser",
           "args": [
-            "ghlogin_7328_1",
+            "ghlogin_43972_1",
             {}
           ],
           "result": false
@@ -7178,7 +7178,7 @@
       "name": "githubCliLoginOpenBrowser-bad-options",
       "call": "githubCliLoginOpenBrowser",
       "params": [
-        "ghlogin_7328_1",
+        "ghlogin_43972_1",
         "yes"
       ],
       "frame": {
@@ -7300,7 +7300,7 @@
       "name": "githubCliLoginCancel",
       "call": "githubCliLoginCancel",
       "params": [
-        "ghlogin_7328_1"
+        "ghlogin_43972_1"
       ],
       "frame": {
         "ok": true,
@@ -7310,7 +7310,7 @@
         {
           "name": "cancelGithubCliLogin",
           "args": [
-            "ghlogin_7328_1"
+            "ghlogin_43972_1"
           ]
         }
       ],
@@ -7332,7 +7332,7 @@
       "name": "githubCliLoginStatus-cancelled",
       "call": "githubCliLoginStatus",
       "params": [
-        "ghlogin_7328_1"
+        "ghlogin_43972_1"
       ],
       "frame": {
         "ok": false,
@@ -7342,7 +7342,7 @@
         {
           "name": "githubCliLoginStatus",
           "args": [
-            "ghlogin_7328_1"
+            "ghlogin_43972_1"
           ],
           "error": {
             "message": "Unknown GitHub login flow."
@@ -7367,7 +7367,7 @@
       "name": "githubCliLoginCancel-unknown-flow",
       "call": "githubCliLoginCancel",
       "params": [
-        "ghlogin_7328_1"
+        "ghlogin_43972_1"
       ],
       "frame": {
         "ok": true,
@@ -7377,7 +7377,7 @@
         {
           "name": "cancelGithubCliLogin",
           "args": [
-            "ghlogin_7328_1"
+            "ghlogin_43972_1"
           ]
         }
       ],
@@ -7402,7 +7402,7 @@
       "frame": {
         "ok": true,
         "value": {
-          "flowId": "ghlogin_7328_2",
+          "flowId": "ghlogin_43972_2",
           "state": "pending"
         }
       },
@@ -7415,7 +7415,7 @@
             }
           ],
           "result": {
-            "flowId": "ghlogin_7328_2",
+            "flowId": "ghlogin_43972_2",
             "state": "pending"
           }
         }
@@ -7456,12 +7456,12 @@
       "name": "githubCliLoginStatus-success",
       "call": "githubCliLoginStatus",
       "params": [
-        "ghlogin_7328_2"
+        "ghlogin_43972_2"
       ],
       "frame": {
         "ok": true,
         "value": {
-          "flowId": "ghlogin_7328_2",
+          "flowId": "ghlogin_43972_2",
           "state": "success",
           "code": "WXYZ-9876",
           "url": "https://github.com/login/device",
@@ -7472,10 +7472,10 @@
         {
           "name": "githubCliLoginStatus",
           "args": [
-            "ghlogin_7328_2"
+            "ghlogin_43972_2"
           ],
           "result": {
-            "flowId": "ghlogin_7328_2",
+            "flowId": "ghlogin_43972_2",
             "state": "success",
             "code": "WXYZ-9876",
             "url": "https://github.com/login/device",
@@ -7504,7 +7504,7 @@
       "frame": {
         "ok": true,
         "value": {
-          "flowId": "ghlogin_7328_3",
+          "flowId": "ghlogin_43972_3",
           "state": "pending"
         }
       },
@@ -7517,7 +7517,7 @@
             }
           ],
           "result": {
-            "flowId": "ghlogin_7328_3",
+            "flowId": "ghlogin_43972_3",
             "state": "pending"
           }
         }
@@ -7558,12 +7558,12 @@
       "name": "githubCliLoginStatus-error",
       "call": "githubCliLoginStatus",
       "params": [
-        "ghlogin_7328_3"
+        "ghlogin_43972_3"
       ],
       "frame": {
         "ok": true,
         "value": {
-          "flowId": "ghlogin_7328_3",
+          "flowId": "ghlogin_43972_3",
           "state": "error",
           "message": "error connecting to github.com please try again later"
         }
@@ -7572,10 +7572,10 @@
         {
           "name": "githubCliLoginStatus",
           "args": [
-            "ghlogin_7328_3"
+            "ghlogin_43972_3"
           ],
           "result": {
-            "flowId": "ghlogin_7328_3",
+            "flowId": "ghlogin_43972_3",
             "state": "error",
             "message": "error connecting to github.com please try again later"
           }
@@ -7599,7 +7599,7 @@
       "name": "githubCliLoginCancel-failed-flow",
       "call": "githubCliLoginCancel",
       "params": [
-        "ghlogin_7328_3"
+        "ghlogin_43972_3"
       ],
       "frame": {
         "ok": true,
@@ -7609,7 +7609,7 @@
         {
           "name": "cancelGithubCliLogin",
           "args": [
-            "ghlogin_7328_3"
+            "ghlogin_43972_3"
           ]
         }
       ],
@@ -10438,5 +10438,926 @@
         "ghApiDown": false
       }
     }
-  ]
+  ],
+  "ordering": {
+    "name": "read-behind-a-slow-write",
+    "calls": [
+      {
+        "call": "gitStage",
+        "params": [
+          "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          [
+            "ordering.txt"
+          ]
+        ]
+      },
+      {
+        "call": "gitStatus",
+        "params": [
+          "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
+        ]
+      },
+      {
+        "call": "gitLog",
+        "params": [
+          "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
+        ]
+      },
+      {
+        "call": "gitUnstage",
+        "params": [
+          "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          [
+            "ordering.txt"
+          ]
+        ]
+      },
+      {
+        "call": "gitDiff",
+        "params": [
+          "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "a.txt",
+          false
+        ]
+      }
+    ],
+    "heldStarts": [
+      "gitStage"
+    ],
+    "order": [
+      {
+        "started": "gitStage",
+        "endedBefore": []
+      },
+      {
+        "started": "gitStatus",
+        "endedBefore": [
+          "gitStage"
+        ]
+      },
+      {
+        "started": "gitLog",
+        "endedBefore": [
+          "gitStage"
+        ]
+      },
+      {
+        "started": "gitUnstage",
+        "endedBefore": [
+          "gitLog",
+          "gitStage",
+          "gitStatus"
+        ]
+      },
+      {
+        "started": "gitDiff",
+        "endedBefore": [
+          "gitStage",
+          "gitUnstage"
+        ]
+      }
+    ],
+    "answers": [
+      {
+        "ok": true,
+        "value": null
+      },
+      {
+        "ok": true,
+        "value": {
+          "repository": true,
+          "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "branch": "main",
+          "detached": false,
+          "unborn": false,
+          "upstream": true,
+          "upstreamName": "origin/main",
+          "remote": false,
+          "remoteUrl": "",
+          "ahead": 1,
+          "behind": 2,
+          "operation": "",
+          "files": [
+            {
+              "path": "ordering.txt",
+              "index": "A",
+              "worktree": " ",
+              "untracked": false,
+              "conflicted": false,
+              "stagedAdditions": 1,
+              "stagedDeletions": 0,
+              "unstagedAdditions": 0,
+              "unstagedDeletions": 0,
+              "additions": 1,
+              "deletions": 0
+            }
+          ],
+          "untrackedOmitted": 0
+        }
+      },
+      {
+        "ok": true,
+        "value": [
+          {
+            "hash": "b96c1e980161d604540c27a8798a11f80cb31eb1",
+            "shortHash": "b96c1e9",
+            "subject": "feature edits a",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "ebdc4069059ab8c34fbd46a6021c8d8bf9ce43e8"
+            ],
+            "refs": [
+              "feature"
+            ],
+            "tags": [],
+            "branches": [
+              "feature"
+            ],
+            "remotes": []
+          },
+          {
+            "hash": "cf950f288c1a07b73203cb8fb86eff36b668a191",
+            "shortHash": "cf950f2",
+            "subject": "local three",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": false,
+            "parents": [
+              "03ace156fded6033e8aa7195a6496e05ce63241b"
+            ],
+            "refs": [
+              "main"
+            ],
+            "tags": [],
+            "branches": [
+              "main"
+            ],
+            "remotes": []
+          },
+          {
+            "hash": "bb6bbacc1b387d80ab428ad99b7b6286611a8873",
+            "shortHash": "bb6bbac",
+            "subject": "unmerged work",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "ebdc4069059ab8c34fbd46a6021c8d8bf9ce43e8"
+            ],
+            "refs": [
+              "unmerged"
+            ],
+            "tags": [],
+            "branches": [
+              "unmerged"
+            ],
+            "remotes": []
+          },
+          {
+            "hash": "ebdc4069059ab8c34fbd46a6021c8d8bf9ce43e8",
+            "shortHash": "ebdc406",
+            "subject": "feature file",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "195a88a14f217e42d8171d8186b9f64bde1e2828"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "6aadee522ce9199e6365b9a5ae569ee946065596",
+            "shortHash": "6aadee5",
+            "subject": "Merge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "8b877f708de1e5c87c945223504100bdc8f4ebd1",
+              "03ace156fded6033e8aa7195a6496e05ce63241b"
+            ],
+            "refs": [
+              "origin/main",
+              "origin/HEAD"
+            ],
+            "tags": [],
+            "branches": [],
+            "remotes": [
+              "origin/main",
+              "origin/HEAD"
+            ]
+          },
+          {
+            "hash": "03ace156fded6033e8aa7195a6496e05ce63241b",
+            "shortHash": "03ace15",
+            "subject": "Merge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "012cdc19a991b40cac1a650c82c54cd2a9a8ff7c",
+              "43df39afc99c28959d423f423e9cd43c31074042"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "012cdc19a991b40cac1a650c82c54cd2a9a8ff7c",
+            "shortHash": "012cdc1",
+            "subject": "local two",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "a034cf06cede411f2e387156fd6d5eb7a8a2b5cf"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "8b877f708de1e5c87c945223504100bdc8f4ebd1",
+            "shortHash": "8b877f7",
+            "subject": "remote three",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "43df39afc99c28959d423f423e9cd43c31074042"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "43df39afc99c28959d423f423e9cd43c31074042",
+            "shortHash": "43df39a",
+            "subject": "remote two",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "a034cf06cede411f2e387156fd6d5eb7a8a2b5cf"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "a034cf06cede411f2e387156fd6d5eb7a8a2b5cf",
+            "shortHash": "a034cf0",
+            "subject": "remote one",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "be0dd08382ac90d35bacc6f502c739ddaf75f044"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "be0dd08382ac90d35bacc6f502c739ddaf75f044",
+            "shortHash": "be0dd08",
+            "subject": "local one",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "e4efa63ad1cf7fab253ca3b5aa856e08539266fd"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "e4efa63ad1cf7fab253ca3b5aa856e08539266fd",
+            "shortHash": "e4efa63",
+            "subject": "feature edits a",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "f02a27d11069d10fc0e6256f181146bb6831cad2"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "f02a27d11069d10fc0e6256f181146bb6831cad2",
+            "shortHash": "f02a27d",
+            "subject": "main edits a",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "56de87a9ccf3466d4e8f46324c2717bf18463200"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "56de87a9ccf3466d4e8f46324c2717bf18463200",
+            "shortHash": "56de87a",
+            "subject": "feature file",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "d81832e38e21c6e4587672eb42b523c29d129940"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "d81832e38e21c6e4587672eb42b523c29d129940",
+            "shortHash": "d81832e",
+            "subject": "Revert \"edit m again\"",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "0d09186811f1d6ecf4349b35de7b9af21e58df74"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "0d09186811f1d6ecf4349b35de7b9af21e58df74",
+            "shortHash": "0d09186",
+            "subject": "edit m again",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "6c0b81c871eddac63c6994726b196d8bf90227b0"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "6c0b81c871eddac63c6994726b196d8bf90227b0",
+            "shortHash": "6c0b81c",
+            "subject": "add m",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "f36ba8cf162c036bb4c7f500f9cd39e089e98557"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "f36ba8cf162c036bb4c7f500f9cd39e089e98557",
+            "shortHash": "f36ba8c",
+            "subject": "Commit the staged b",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "6c15cddef8e28162de0579a755d05489112b081a"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "6c15cddef8e28162de0579a755d05489112b081a",
+            "shortHash": "6c15cdd",
+            "subject": "ignore rules",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "195a88a14f217e42d8171d8186b9f64bde1e2828"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "195a88a14f217e42d8171d8186b9f64bde1e2828",
+            "shortHash": "195a88a",
+            "subject": "second: edit a",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "0061956c7f8255ddb574cc6c2fe9d4d6ee8b853a"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "0061956c7f8255ddb574cc6c2fe9d4d6ee8b853a",
+            "shortHash": "0061956",
+            "subject": "first",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          }
+        ]
+      },
+      {
+        "ok": true,
+        "value": null
+      },
+      {
+        "ok": true,
+        "value": ""
+      }
+    ],
+    "ops": [
+      {
+        "name": "gitStage",
+        "args": [
+          "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          [
+            "ordering.txt"
+          ]
+        ]
+      },
+      {
+        "name": "gitStatus",
+        "args": [
+          "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          {
+            "reuseLineStats": false,
+            "skipLineStats": false
+          }
+        ],
+        "result": {
+          "repository": true,
+          "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "branch": "main",
+          "detached": false,
+          "unborn": false,
+          "upstream": true,
+          "upstreamName": "origin/main",
+          "remote": false,
+          "remoteUrl": "",
+          "ahead": 1,
+          "behind": 2,
+          "operation": "",
+          "files": [
+            {
+              "path": "ordering.txt",
+              "index": "A",
+              "worktree": " ",
+              "untracked": false,
+              "conflicted": false,
+              "stagedAdditions": 1,
+              "stagedDeletions": 0,
+              "unstagedAdditions": 0,
+              "unstagedDeletions": 0,
+              "additions": 1,
+              "deletions": 0
+            }
+          ],
+          "untrackedOmitted": 0
+        }
+      },
+      {
+        "name": "gitLog",
+        "args": [
+          "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "",
+          0,
+          40
+        ],
+        "result": [
+          {
+            "hash": "b96c1e980161d604540c27a8798a11f80cb31eb1",
+            "shortHash": "b96c1e9",
+            "subject": "feature edits a",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "ebdc4069059ab8c34fbd46a6021c8d8bf9ce43e8"
+            ],
+            "refs": [
+              "feature"
+            ],
+            "tags": [],
+            "branches": [
+              "feature"
+            ],
+            "remotes": []
+          },
+          {
+            "hash": "cf950f288c1a07b73203cb8fb86eff36b668a191",
+            "shortHash": "cf950f2",
+            "subject": "local three",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": false,
+            "parents": [
+              "03ace156fded6033e8aa7195a6496e05ce63241b"
+            ],
+            "refs": [
+              "main"
+            ],
+            "tags": [],
+            "branches": [
+              "main"
+            ],
+            "remotes": []
+          },
+          {
+            "hash": "bb6bbacc1b387d80ab428ad99b7b6286611a8873",
+            "shortHash": "bb6bbac",
+            "subject": "unmerged work",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "ebdc4069059ab8c34fbd46a6021c8d8bf9ce43e8"
+            ],
+            "refs": [
+              "unmerged"
+            ],
+            "tags": [],
+            "branches": [
+              "unmerged"
+            ],
+            "remotes": []
+          },
+          {
+            "hash": "ebdc4069059ab8c34fbd46a6021c8d8bf9ce43e8",
+            "shortHash": "ebdc406",
+            "subject": "feature file",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "195a88a14f217e42d8171d8186b9f64bde1e2828"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "6aadee522ce9199e6365b9a5ae569ee946065596",
+            "shortHash": "6aadee5",
+            "subject": "Merge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "8b877f708de1e5c87c945223504100bdc8f4ebd1",
+              "03ace156fded6033e8aa7195a6496e05ce63241b"
+            ],
+            "refs": [
+              "origin/main",
+              "origin/HEAD"
+            ],
+            "tags": [],
+            "branches": [],
+            "remotes": [
+              "origin/main",
+              "origin/HEAD"
+            ]
+          },
+          {
+            "hash": "03ace156fded6033e8aa7195a6496e05ce63241b",
+            "shortHash": "03ace15",
+            "subject": "Merge branch 'main' of D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "012cdc19a991b40cac1a650c82c54cd2a9a8ff7c",
+              "43df39afc99c28959d423f423e9cd43c31074042"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "012cdc19a991b40cac1a650c82c54cd2a9a8ff7c",
+            "shortHash": "012cdc1",
+            "subject": "local two",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "a034cf06cede411f2e387156fd6d5eb7a8a2b5cf"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "8b877f708de1e5c87c945223504100bdc8f4ebd1",
+            "shortHash": "8b877f7",
+            "subject": "remote three",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "43df39afc99c28959d423f423e9cd43c31074042"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "43df39afc99c28959d423f423e9cd43c31074042",
+            "shortHash": "43df39a",
+            "subject": "remote two",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "a034cf06cede411f2e387156fd6d5eb7a8a2b5cf"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "a034cf06cede411f2e387156fd6d5eb7a8a2b5cf",
+            "shortHash": "a034cf0",
+            "subject": "remote one",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "be0dd08382ac90d35bacc6f502c739ddaf75f044"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "be0dd08382ac90d35bacc6f502c739ddaf75f044",
+            "shortHash": "be0dd08",
+            "subject": "local one",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "e4efa63ad1cf7fab253ca3b5aa856e08539266fd"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "e4efa63ad1cf7fab253ca3b5aa856e08539266fd",
+            "shortHash": "e4efa63",
+            "subject": "feature edits a",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "f02a27d11069d10fc0e6256f181146bb6831cad2"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "f02a27d11069d10fc0e6256f181146bb6831cad2",
+            "shortHash": "f02a27d",
+            "subject": "main edits a",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "56de87a9ccf3466d4e8f46324c2717bf18463200"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "56de87a9ccf3466d4e8f46324c2717bf18463200",
+            "shortHash": "56de87a",
+            "subject": "feature file",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "d81832e38e21c6e4587672eb42b523c29d129940"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "d81832e38e21c6e4587672eb42b523c29d129940",
+            "shortHash": "d81832e",
+            "subject": "Revert \"edit m again\"",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "0d09186811f1d6ecf4349b35de7b9af21e58df74"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "0d09186811f1d6ecf4349b35de7b9af21e58df74",
+            "shortHash": "0d09186",
+            "subject": "edit m again",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "6c0b81c871eddac63c6994726b196d8bf90227b0"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "6c0b81c871eddac63c6994726b196d8bf90227b0",
+            "shortHash": "6c0b81c",
+            "subject": "add m",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "f36ba8cf162c036bb4c7f500f9cd39e089e98557"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "f36ba8cf162c036bb4c7f500f9cd39e089e98557",
+            "shortHash": "f36ba8c",
+            "subject": "Commit the staged b",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "6c15cddef8e28162de0579a755d05489112b081a"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "6c15cddef8e28162de0579a755d05489112b081a",
+            "shortHash": "6c15cdd",
+            "subject": "ignore rules",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "195a88a14f217e42d8171d8186b9f64bde1e2828"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "195a88a14f217e42d8171d8186b9f64bde1e2828",
+            "shortHash": "195a88a",
+            "subject": "second: edit a",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [
+              "0061956c7f8255ddb574cc6c2fe9d4d6ee8b853a"
+            ],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          },
+          {
+            "hash": "0061956c7f8255ddb574cc6c2fe9d4d6ee8b853a",
+            "shortHash": "0061956",
+            "subject": "first",
+            "when": "10 months ago",
+            "author": "Fixture",
+            "authoredAt": "2026-01-02T03:04:05Z",
+            "pushed": true,
+            "parents": [],
+            "refs": [],
+            "tags": [],
+            "branches": [],
+            "remotes": []
+          }
+        ]
+      },
+      {
+        "name": "gitUnstage",
+        "args": [
+          "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          [
+            "ordering.txt"
+          ]
+        ]
+      },
+      {
+        "name": "gitDiff",
+        "args": [
+          "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "a.txt",
+          false,
+          false,
+          false
+        ],
+        "result": ""
+      }
+    ]
+  }
 }
