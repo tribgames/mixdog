@@ -84,6 +84,8 @@ export interface RelayConnector extends Connector {
   hidden(): void;
   /** Visible again: release a suspension and probe the live socket (and both transport paths) at once. True when a socket was probed. */
   wake(): boolean;
+  /** Nothing has arrived on the live socket since `since`, and no probe is out: a call sent then is worth a probe (Node: remote-shim-calls.ts:264-267). */
+  silentSince(since: number): boolean;
   /** The page stayed in the background: end the socket with 1000 `background` once what was handed to it is sent, and hold every open until `wake`. */
   suspend(): void;
   readonly suspended: boolean;
@@ -129,6 +131,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
 
   interface Session {
     probe(): void;
+    silentSince(since: number): boolean;
     unprove(): void;
     recycle(code: number, reason: string): void;
     retire(): void;
@@ -162,6 +165,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
       return probing;
     },
     retire: () => current?.retire(),
+    silentSince: (since) => current?.silentSince(since) ?? false,
     suspend: () => {
       suspended = true;
       hold();
@@ -445,6 +449,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
               recycle(CLOSE_NORMAL, 'wake probe unanswered');
             }, WAKE_PROBE_MS);
           },
+          silentSince: (since) => wakeTimer === undefined && lastTrafficAt < since,
           recycle,
           retire: () => fail(CLOSE_NORMAL, 'view sync failed', true),
           // What was handed to the socket (the background report) leaves first, then the transport says it is suspended.

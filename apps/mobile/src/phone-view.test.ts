@@ -39,6 +39,7 @@ function rig(hold = false) {
     error: () => void (events.errors += 1),
     recycle: () => void (events.recycled += 1),
     probe: () => undefined,
+    silentSince: () => false,
   });
   return { calls, client, status, store, events, manager, held };
 }

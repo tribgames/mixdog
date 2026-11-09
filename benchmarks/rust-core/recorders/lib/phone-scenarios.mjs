@@ -575,6 +575,61 @@ export const SCENARIOS = {
     { op: 'advance', ms: 0 },
     { op: 'mark', name: 'served' },
   ],
+  // A call on the wire with nothing arriving for 5 s probes the leg (Node: remote-shim-calls.ts:264-268). Just under 5 s nothing is sent; at 5 s the
+  // ping leaves; its pong answers it, and the call is answered afterwards.
+  'silent-call-probe': [
+    { op: 'boot', reads: true },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'advance', ms: 10000 },
+    { op: 'mark', name: 'boot-window-expired' },
+    { op: 'hold', name: 'readSettings' },
+    { op: 'read', name: 'readSettings', as: 'late' },
+    { op: 'advance', ms: 4999 },
+    { op: 'mark', name: 'quiet-just-under-5s' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'probe-at-5s' },
+    { op: 'pong' },
+    { op: 'advance', ms: 3000 },
+    { op: 'mark', name: 'probe-answered' },
+    { op: 'release', name: 'readSettings' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'call-answered' },
+  ],
+  // The same call, but the leg stays silent after the probe: the wake probe's 2.5 s window ends in a recycle and the call is interrupted.
+  'silent-call-probe-unanswered': [
+    { op: 'boot', reads: true },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'advance', ms: 10000 },
+    { op: 'hold', name: 'readSettings' },
+    { op: 'read', name: 'readSettings', as: 'late' },
+    { op: 'advance', ms: 5000 },
+    { op: 'mark', name: 'probe-at-5s' },
+    { op: 'advance', ms: 2500 },
+    { op: 'mark', name: 'probe-unanswered' },
+  ],
+  // Identical state reads still waiting on the gate share one request (Node: queuedReads, remote-shim-calls.ts:306-333); one already sent is never
+  // joined, so the read after the sync lands has an answer of its own.
+  'duplicate-gated-reads': [
+    { op: 'boot', reads: true, hold: ['synchronizeViews'] },
+    { op: 'accept' },
+    { op: 'await-request', name: 'synchronizeViews' },
+    { op: 'advance', ms: 10000 },
+    { op: 'mark', name: 'boot-window-expired' },
+    { op: 'read', name: 'viewerDevice', as: 'first' },
+    { op: 'read', name: 'viewerDevice', as: 'second' },
+    { op: 'read', name: 'readSettings', as: 'other' },
+    { op: 'read', name: 'viewerDevice', as: 'third' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'three-waiting' },
+    { op: 'release', name: 'synchronizeViews' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'sync-landed' },
+    { op: 'read', name: 'viewerDevice', as: 'after' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'read-after-sent-has-its-own' },
+  ],
   // A call made while the first sync is held waits for it (Node: send() awaits the connection and viewSync.ready() before invoke arms the 25 s
   // deadline, remote-shim-calls.ts:298-303, :239). Held for 26 s it neither times out nor is sent; when the sync lands it is sent and answered.
   'call-held-by-sync-past-deadline': [

@@ -26,7 +26,8 @@ export function createPhoneApi(ctx: RemoteShimContext, adapters: readonly PhoneP
     host,
     started: boot.start,
     synced: boot.synced,
-    probe: () => boot.link?.wake(),
+    probe: boot.wakeProbe,
+    silentSince: boot.silentSince,
   });
 
   const fanOut = <T>(listeners: Set<(value: T) => void>, value: T): void => {
