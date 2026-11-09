@@ -94,7 +94,7 @@ fn num(number: f64) -> Value {
 }
 
 /// `String(value)`.
-fn js_string(value: &Value) -> String {
+pub(crate) fn js_string(value: &Value) -> String {
     match value {
         Value::Null => "null".into(),
         Value::Bool(b) => b.to_string(),
@@ -425,7 +425,7 @@ pub fn certificate_value_matches(declared: &[Fingerprint], certificate: &Value) 
 }
 
 /// An SDP blob as signaled: at most 64 KiB, starting `v=0`, never ice-lite.
-fn sdp(value: &Value) -> Result<String, Refusal> {
+pub(crate) fn parse_sdp(value: &Value) -> Result<String, Refusal> {
     let text = bounded_text(value, MAX_SDP_LENGTH, "sdp")?;
     if !text.starts_with("v=0") {
         return fail("sdp");
@@ -877,7 +877,7 @@ impl ClientSignal {
                 Ok(Self::ResizeRequest { source, resize: Resize::parse(field(input, "resize"))? })
             }
             Some("answer") => {
-                let sdp = sdp(field(input, "sdp"))?;
+                let sdp = parse_sdp(field(input, "sdp"))?;
                 let fingerprints = fingerprints(field(input, "fingerprints"))?;
                 assert_sdp_fingerprints(&sdp, &fingerprints)?;
                 Ok(Self::Answer { connection: connection_ref(input)?, sdp, fingerprints })
@@ -1045,7 +1045,7 @@ impl DesktopSignal {
                 Ok(Self::Geometry { source, geometry: Geometry::parse(field(input, "geometry"))? })
             }
             Some("offer") => {
-                let sdp = sdp(field(input, "sdp"))?;
+                let sdp = parse_sdp(field(input, "sdp"))?;
                 let fingerprints = fingerprints(field(input, "fingerprints"))?;
                 assert_sdp_fingerprints(&sdp, &fingerprints)?;
                 let connection = connection_ref(input)?;

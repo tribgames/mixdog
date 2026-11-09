@@ -14,6 +14,7 @@ pub mod frame;
 pub mod path;
 pub mod receiver;
 pub mod sender;
+pub mod signal;
 pub mod split;
 
 /// A violation of the transport contract (`remote transport: invalid <what>.`).
