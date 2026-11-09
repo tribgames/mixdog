@@ -86,6 +86,8 @@ pub struct Built {
 /// `compose()` registers `core.on_stop("session directory shutdown", real.session_shutdown_step(core.stop_reason()))` first among the stop steps: Node's
 /// `sessionService.stop` (daemon.mjs, right after the heartbeat) closes every runtime, and each close begins with `setCloseRequested(true)`.
 pub struct Real {
+    /// How this start's desktop defaults separation ended; the server's `initialize` reply carries it to the desktop.
+    pub defaults_separation: mixdog_app_protocol::v1::DefaultsSeparation,
     /// The control route's follow of the config (`RouteService::follow_config`), kept for the core's life: dropping it ends the follow.
     pub control_route_sync: mixdog_core_config::config::AdoptionGuard,
     /// The cell `compose()` puts into `ComposedCore` as its `lifecycle` (flip-caller-1): `serving::start` binds the built `Lifecycle` into it.
@@ -320,7 +322,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // a pass of its own with its own backup. Once this returns the `desktop` section is separated, or (as in Node, where the app's catch wrote
     // `defaults-separation-failed` to its diagnostics log and went on) the failure is on record, the marker unset for the next start's retry.
     let desktop_ms = mixdog_core_session::session::Clock::now_ms(&mixdog_core_session::session::SystemClock);
-    crate::desktop_defaults::separate(&config, &b.tokens, &b.env, &b.log, desktop_ms).await;
+    let defaults_separation = crate::desktop_defaults::separate(&config, &b.log, desktop_ms).await;
     // Node's notification store stamps `migratedAt: now` when it first loads with no document; so does the boot (notify owner: `audience.rs`
     // reads `migrated_at()` and no longer sees 0 for a store nobody wrote).
     config.stamp_notifications(boot_ms).await.map_err(|e| ComposeError::Config(format!("{e:?}")))?;
@@ -2817,7 +2819,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone()))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
     crate::compose::verify_bound(&[&*late_new_place, &connection_owners, &*late_agent_status, &*late_turn_admission, &*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
-    Ok(Real { control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default() })
+    Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default() })
 }
 
 /// `promptConfigSlice(config)` (`prompt-settings.mjs:36`) over the whole in-memory config: `??` falls through on `null`/absent only.

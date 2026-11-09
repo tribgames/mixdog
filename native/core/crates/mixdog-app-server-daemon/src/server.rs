@@ -63,7 +63,7 @@ impl Running {
             core.clone(),
             outgoing.clone(),
             Arc::new(move |id| origins.origin_of(id)),
-            server_config(limits),
+            server_config(limits, core.defaults_separation()),
         )?;
         Ok(Self { server, hub, outgoing })
     }
@@ -78,7 +78,7 @@ impl Running {
     }
 }
 
-pub(crate) fn server_config(limits: Limits) -> ServerConfig {
+pub(crate) fn server_config(limits: Limits, defaults_separation: mixdog_app_protocol::v1::DefaultsSeparation) -> ServerConfig {
     let version = env!("CARGO_PKG_VERSION");
     let server = compat::parse(version).expect("the workspace version is semver");
     ServerConfig {
@@ -88,6 +88,7 @@ pub(crate) fn server_config(limits: Limits) -> ServerConfig {
         server_version: version.to_owned(),
         server_build: option_env!("MIXDOG_BUILD").unwrap_or("dev").to_owned(),
         server_instance_id: new_instance_id(),
+        defaults_separation,
         capabilities: ServerCapabilities {
             office: CapabilityState::Available,
             js_skills: CapabilityState::Available,

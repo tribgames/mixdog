@@ -516,6 +516,7 @@ impl Shared {
         // Before the response: the client sends nothing the registry must know about until it has read it.
         self.core.connection_opened(conn.id, origin, &device, kind);
         let response = v1::InitializeResponse {
+            defaults_separation: config.defaults_separation.clone(),
             user_agent: config.user_agent.clone(),
             platform_family: config.platform_family.clone(),
             platform_os: config.platform_os.clone(),

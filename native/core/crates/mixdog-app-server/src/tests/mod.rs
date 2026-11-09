@@ -257,6 +257,7 @@ pub(crate) fn config() -> ServerConfig {
         server_version: VERSION.to_owned(),
         server_build: "test".to_owned(),
         server_instance_id: "instance-1".to_owned(),
+        defaults_separation: Default::default(),
         capabilities: ServerCapabilities {
             office: available(),
             js_skills: available(),

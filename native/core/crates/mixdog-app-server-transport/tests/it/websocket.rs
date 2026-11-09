@@ -245,6 +245,7 @@ async fn mint_answer(origin: ListenerOrigin, peers: &[&str]) -> serde_json::Valu
             server_version: "1.4.6".to_owned(),
             server_build: "test".to_owned(),
             server_instance_id: "instance-1".to_owned(),
+            defaults_separation: Default::default(),
             capabilities: ServerCapabilities {
                 office: available(),
                 js_skills: available(),
