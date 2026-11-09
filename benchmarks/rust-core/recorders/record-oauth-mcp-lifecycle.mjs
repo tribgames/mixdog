@@ -89,8 +89,15 @@ http.Server.prototype.listen = function (...listenArgs) {
       events.push('listener-up');
       state.up.resolve();
     });
-    server.on('connection', () => {
+    // `dataFrom`: the client ports of the connections the server has received bytes on (a real signal that a half-sent
+    // request was consumed, which decides whether destroying the socket ends it with FIN or with a reset).
+    state.dataFrom = new Set();
+    server.on('connection', (socket) => {
       state.connections += 1;
+      socket.on('data', () => {
+        state.dataFrom.add(socket.remotePort);
+        for (const waiter of state.waiters.splice(0)) waiter();
+      });
       for (const waiter of state.waiters.splice(0)) waiter();
     });
     for (const call of ['close', 'closeAllConnections']) {
@@ -410,8 +417,19 @@ async function runCase(spec) {
         end('closed');
       });
       socket.on('connect', () => { if (kind === 'partial') socket.write('GET /oauth/callback?code=fix'); });
+      entry.socket = socket;
     }
     await connectionsAtLeast(sockets.length + (spec.browser === 'code' ? 1 : 0));
+    // The half-sent request has reached the server before the listener ends, so that destroying the connection is a
+    // plain close in every run (a reset would depend on whether the server had read the bytes yet).
+    const partial = sockets.find((s) => s.kind === 'partial');
+    await new Promise((resolve) => {
+      const check = () => {
+        if (partial.socket.localPort && loginListener.dataFrom.has(partial.socket.localPort)) resolve();
+        else loginListener.waiters.push(check);
+      };
+      check();
+    });
   }
   if (spec.at === 'waiting') {
     await within(browserOpened.promise, 60000, null);

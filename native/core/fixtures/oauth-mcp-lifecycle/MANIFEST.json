@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 376846,
+      "bytes": 376826,
       "path": "golden.json",
-      "sha256": "da4c28eb21f05bf460c3823201623e628101f7ae74b002e71058d260ff385919"
+      "sha256": "1c92896d5c902959c122ce004618d80a3ade221e0b80d29076d406b2d81d831d"
     }
   ],
   "product": {
@@ -24,5 +24,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-oauth-mcp-lifecycle.mjs",
   "set": "oauth-mcp-lifecycle",
-  "totalBytes": 376846
+  "totalBytes": 376826
 }
