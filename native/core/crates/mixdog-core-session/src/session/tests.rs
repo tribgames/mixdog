@@ -2072,7 +2072,6 @@ async fn a_drafts_worktree_is_entered_once_the_thread_exists() {
 /// client keeps its header, and an inherit into an existing thread keeps that thread's place.
 #[tokio::test(start_paused = true)]
 async fn a_fork_is_placed_where_the_desktop_places_an_heir() {
-    use super::Clock;
     use mixdog_store::schema::record::Header;
     let rig = Rig::new();
     let place = Arc::new(super::testing::RecordingPlace { projects: vec!["/repo".to_owned()], ..Default::default() });
@@ -2109,10 +2108,6 @@ async fn a_fork_is_placed_where_the_desktop_places_an_heir() {
     };
     let in_worktree = fork("src_wt", source("/repo/.wt/feat", json!({ "classification": "project", "projectPath": "/repo" })), json!({})).await;
     assert_eq!(in_worktree["cwd"], "/repo");
-    // The heir is stamped with its own creation (the source's were 1), as Node's fork is.
-    for key in ["createdAt", "updatedAt", "lastUsedAt"] {
-        assert_eq!(in_worktree[key], json!(rig.clock.now_ms()), "{key}");
-    }
     assert_eq!(in_worktree["desktopSession"], json!({ "classification": "project", "projectPath": "/repo" }));
     assert!(in_worktree.get("workspace").is_none());
     let in_tasks = fork("src_task", source("/tasks", json!({ "classification": "task", "projectPath": null })), json!({})).await;
@@ -2123,6 +2118,41 @@ async fn a_fork_is_placed_where_the_desktop_places_an_heir() {
     assert!(foreign.get("desktopSession").is_none());
     let into = fork("src_into", source("/repo/.wt/feat", json!({ "classification": "project", "projectPath": "/repo" })), json!({ "intoThreadId": "heir_existing" })).await;
     assert_eq!(into["cwd"], "/repo/.wt/feat");
+}
+
+/// Node's own forks (`fixtures/roster-rows`: the desktop's `inheritSession` steps run on the b6f10295a product, over a source in a
+/// registered project, in its worktree, outside every project, and a task): the Rust fork of the same source header, started at
+/// the instant Node's fork was made, lands where Node's did and carries the times Node's did (one `Date.now()` for all three,
+/// `cold-heir.mjs:109-121`; the recording moves time on before each fork, so the source's are different). A Node session
+/// record and a Rust header differ in shape, so the placement and the times are what are compared.
+#[tokio::test(start_paused = true)]
+async fn a_fork_is_placed_and_stamped_as_nodes_fork_is() {
+    use std::sync::atomic::Ordering;
+    let answers: Value = serde_json::from_slice(&std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/roster-rows/answers.json")).expect("recording")).expect("json");
+    let registered: Vec<String> = answers["registeredProjects"].as_array().expect("projects").iter().map(|p| p.as_str().expect("path").to_owned()).collect();
+    let tasks: &'static str = Box::leak(answers["taskWorkspace"].as_str().expect("task workspace").to_owned().into_boxed_str());
+    let rig = Rig::new();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_place = Arc::new(super::testing::RecordingPlace { projects: registered, ..Default::default() });
+    deps.task_workspace = Arc::new(super::testing::FixedTaskWorkspace(tasks));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let forks = answers["forks"].as_array().expect("forks");
+    assert_eq!(forks.len(), 4);
+    for node in forks {
+        let (source, heir) = (&node["sourceHeader"], &node["heirHeader"]);
+        assert_ne!(source["createdAt"], heir["createdAt"], "the recording's fork is made at another time than its source");
+        let source_id = ThreadId::from(node["source"].as_str().expect("source id").to_owned());
+        let header = source.as_object().expect("source header").clone();
+        directory.create_with_id(source_id.clone(), header, json!({})).await.expect("source");
+        rig.clock.0.store(heir["createdAt"].as_u64().expect("heir time"), Ordering::SeqCst);
+        let params = json!({ "threadId": source_id, "opId": "op-fork" });
+        let reply = directory.handle(&source_id).expect("loaded").request(request("thread/fork", params, "op-fork")).await.expect("thread/fork");
+        let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
+        let rust = directory.handle(&ThreadId::from(value["thread"]["id"].as_str().expect("heir id"))).expect("loaded").cell.header.load_full();
+        for key in ["cwd", "desktopSession", "workspace", "createdAt", "updatedAt", "lastUsedAt", "inheritedFromSessionId"] {
+            assert_eq!(rust.get(key).cloned().unwrap_or(Value::Null), heir.get(key).cloned().unwrap_or(Value::Null), "{key} of the fork of {}", node["source"]);
+        }
+    }
 }
 
 /// `notification-bus.test.mjs` "a queued completion wakes its owner session" and
