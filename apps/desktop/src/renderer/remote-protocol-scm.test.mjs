@@ -19,7 +19,7 @@ const calls = readFileSync(fixture('calls.txt'), 'utf8').split(/\s+/).filter(Boo
 const clone = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
 
 /** Node announced a changed git identity to the desktop's windows (`notifySettingsChanged('git')`) after `setGitGlobalConfig`;
- *  the core publishes no such event (Rust gap: mixdog-scm/src/desktop.rs git_global_config_write), so the adapter sends no request. */
+ *  the core now publishes that event itself after `git/globalConfig/set`, so the adapter sends no request for it. */
 const NOT_SENT = new Set(['notifySettingsChanged']);
 
 const rpcFailure = ({ message, code, details }) =>
