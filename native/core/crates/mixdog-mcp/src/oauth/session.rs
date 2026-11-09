@@ -56,8 +56,19 @@ use crate::transport::TransportError;
 
 /// The longest the login waits for the held page to be written (Node bounds the flush at a second).
 const PAGE_FLUSH_WAIT: Duration = Duration::from_secs(1);
-/// A sign-in nobody finishes ends here, ahead of the five minutes the callback page is held.
-const LOGIN_DEADLINE: Duration = Duration::from_secs(5 * 60 - 10);
+/// A sign-in nobody finishes ends here (Node's `MCP_OAUTH_TIMEOUT_MS`).
+const LOGIN_DEADLINE: Duration = Duration::from_secs(5 * 60);
+
+fn login_deadline() -> Duration {
+    #[cfg(feature = "test-support")]
+    {
+        let millis = super::callback::LOGIN_DEADLINE_MS.load(std::sync::atomic::Ordering::SeqCst);
+        if millis > 0 {
+            return Duration::from_millis(millis);
+        }
+    }
+    LOGIN_DEADLINE
+}
 
 /// Where sign-ins are stored.
 #[derive(Clone)]
@@ -570,17 +581,41 @@ impl McpOAuth {
             Some(Pending { redirect_url: redirect_url.clone(), state, callbacks, stopper: listener.stopper() });
         ctl.emit(LoginState::Authorize { url: url.to_string(), manual_url: None });
 
+        let deadline = tokio::time::Instant::now() + login_deadline();
+        let stopper = listener.stopper();
         let waited = tokio::select! {
-            () = ctl.cancel.cancelled() => Err(Stop::Cancelled),
-            () = tokio::time::sleep(LOGIN_DEADLINE) => Err(Stop::Expired),
+            stop = interrupted(ctl, deadline) => Err(stop),
             callback = callback_rx.recv() => callback.ok_or(Stop::Failed(OAuthError::LoginFailed)),
         };
         ctl.pending.lock().unwrap_or_else(|e| e.into_inner()).take();
         match waited {
             Ok(callback) => {
                 ctl.emit(LoginState::Waiting);
-                let finished = match callback.code {
-                    Some(code) => self.finish(mode, transactional, ctl, work.clone(), &credentials, &pair.verifier, &redirect_url, code).await,
+                let Callback { code, respond, flushed } = callback;
+                let denied = code.is_none();
+                let mut respond = Some(respond);
+                let finished = match code {
+                    Some(code) => {
+                        let finishing = self.finish(mode, transactional, ctl, work.clone(), &credentials, &pair.verifier, &redirect_url, code);
+                        tokio::pin!(finishing);
+                        tokio::select! {
+                            finished = &mut finishing => finished,
+                            stop = interrupted(ctl, deadline) => {
+                                // Node's abort answers the held page with the generic failure and stops listening
+                                // at once, whatever the exchange or the credential write is doing.
+                                stopper.stop().await;
+                                if let Some(respond) = respond.take() {
+                                    let _ = respond.send(PageOutcome::Failed { scope_not_granted: false });
+                                }
+                                if matches!(stop, Stop::Expired) {
+                                    // Nothing may be stored after the deadline.
+                                    ctl.cancel.cancel();
+                                }
+                                let _ = finishing.await;
+                                Err(stop)
+                            }
+                        }
+                    }
                     None => Err(Stop::Failed(OAuthError::LoginFailed)),
                 };
                 let outcome = match &finished {
@@ -588,9 +623,25 @@ impl McpOAuth {
                     Err(Stop::Failed(OAuthError::ScopeNotGranted(_))) => PageOutcome::Failed { scope_not_granted: true },
                     Err(_) => PageOutcome::Failed { scope_not_granted: false },
                 };
-                // Node persists, then flushes the page, then closes the listener (also when the login failed).
-                let _ = callback.respond.send(outcome);
-                let _ = tokio::time::timeout(PAGE_FLUSH_WAIT, callback.flushed).await;
+                // Node persists, then flushes the page, then closes the listener (also when the login failed);
+                // an abort meanwhile stops the listener at once and only the open page is still flushed.
+                if let Some(respond) = respond.take() {
+                    let _ = respond.send(outcome);
+                }
+                let flush = tokio::time::timeout(PAGE_FLUSH_WAIT, flushed);
+                tokio::pin!(flush);
+                tokio::select! {
+                    _ = &mut flush => {}
+                    _ = interrupted(ctl, deadline) => {
+                        stopper.stop().await;
+                        let _ = flush.await;
+                    }
+                }
+                // Node's `catch` forgets the registration when the browser opened and no code arrived (a denial, an
+                // empty code); the listener closes after that, in `finally`.
+                if denied && !switch && static_client.is_none() {
+                    self.forget_client().await;
+                }
                 listener.close().await;
                 finished
             }
@@ -599,12 +650,16 @@ impl McpOAuth {
                 // A server that no longer knows our client_id answers the browser with an HTTP
                 // error nobody here sees: register again next time.
                 if !switch && static_client.is_none() {
-                    let mut cache = self.lock_cache().await;
-                    let _ = self.persist(&mut cache, |e| e.client_information = None).await;
+                    self.forget_client().await;
                 }
                 Err(stop)
             }
         }
+    }
+
+    async fn forget_client(&self) {
+        let mut cache = self.lock_cache().await;
+        let _ = self.persist(&mut cache, |e| e.client_information = None).await;
     }
 
     #[allow(clippy::too_many_arguments, reason = "one exchange's inputs")]
@@ -627,7 +682,22 @@ impl McpOAuth {
             ("redirect_uri", redirect_url.to_owned()),
         ];
         let resource = self.binding.client.is_none().then(|| discovery.resource(&self.binding.url));
-        let tokens = self.protocol.token(&discovery, credentials, form, resource).await.map_err(|_| OAuthError::LoginFailed)?;
+        let tokens = match self.protocol.token(&discovery, credentials, form, resource).await {
+            Ok(tokens) => tokens,
+            Err(error) => {
+                // The SDK invalidates what the token endpoint rejected (oauth-provider.mjs `invalidateCredentials`):
+                // the whole sign-in for a refused client, the grant and the registration for a refused code.
+                if let TokenError::Oauth(code) = &error {
+                    let mut cache = self.lock_cache().await;
+                    if matches!(code.as_str(), "invalid_client" | "unauthorized_client") {
+                        let _ = self.erase(&mut cache).await;
+                    } else if self.binding.client.is_none() {
+                        let _ = self.persist(&mut cache, |e| e.client_information = None).await;
+                    }
+                }
+                return Err(OAuthError::LoginFailed.into());
+            }
+        };
         // A browser sign-in of a client with its own scopes must be granted all of them (a
         // granular consent screen lets the user uncheck some): nothing is stored then.
         if let Some(client) = &self.binding.client {
@@ -647,9 +717,23 @@ impl McpOAuth {
         if mode == AccountMode::Switch || transactional {
             *self.switched_from.lock().unwrap_or_else(|e| e.into_inner()) = Some(cache.entry.clone());
         }
+        let prior = cache.entry.as_ref().map(|e| (e.tokens.clone(), e.identity.clone())).unwrap_or_default();
         let url = self.binding.url.to_string();
         self.persist(&mut cache, move |e| *e = Entry { url, ..work }).await?;
+        // The login was reported failed while this write was outstanding: roll it back, so no tokens outlive it.
+        if ctl.cancel.is_cancelled() {
+            self.persist(&mut cache, move |e| (e.tokens, e.identity) = prior).await?;
+            return Err(Stop::Cancelled);
+        }
         Ok(identity.map(|i| i.account).filter(|a| !a.is_empty()))
+    }
+}
+
+/// Resolves when the login is cancelled or its deadline passes: Node's abort of the login signal.
+async fn interrupted(ctl: &Control, deadline: tokio::time::Instant) -> Stop {
+    tokio::select! {
+        () = ctl.cancel.cancelled() => Stop::Cancelled,
+        () = tokio::time::sleep_until(deadline) => Stop::Expired,
     }
 }
 

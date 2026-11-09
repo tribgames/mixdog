@@ -37,12 +37,28 @@ for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'MIXDOG_DESKTOP_USER_DATA',
 }
 const { createMcpOAuth } = await importFrom(tree, 'src/runtime/agent/orchestrator/mcp/oauth.mjs');
 
-const memoryStore = () => {
+// `holdTokenWrite`: the write that stores the tokens waits for `release()` (`writeArrived` resolves when it starts).
+const memoryStore = (holdTokenWrite = false) => {
   const values = new Map();
+  let hold = holdTokenWrite;
+  let arrive;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const writeArrived = new Promise((resolve) => { arrive = resolve; });
   return {
     getSecretAsync: async (key) => values.get(key),
-    setSecretAsync: async (key, value) => { values.set(key, value); },
+    setSecretAsync: async (key, value) => {
+      if (hold && value.includes('fixture-token')) {
+        hold = false;
+        arrive();
+        await gate;
+      }
+      values.set(key, value);
+    },
     deleteSecretAsync: async (key) => { values.delete(key); },
+    values,
+    writeArrived,
+    release,
   };
 };
 
@@ -177,9 +193,18 @@ const CASES = [
     during: [get(GOOD), get('/wrong'), { method: 'POST', target: GOOD }],
     post: [get(GOOD)],
   },
+  // Node's abort of the login (cancel, timeout) settles the held page and stops listening at once, whatever the
+  // login is doing: waiting for the callback, exchanging the code, or writing the tokens.
+  { title: 'cancel while waiting for the callback', token: 'ok', cancel: 'waiting', pre: [], post: [get(GOOD)] },
+  { title: 'timeout while waiting for the callback', token: 'ok', timeoutMs: 3000, pre: [], post: [get(GOOD)] },
+  { title: 'timeout while the code exchange is held', token: 'gated', timeoutMs: 4000, pre: [get(GOOD, { hold: true })], during: [get(GOOD), get('/wrong')], afterHeld: true, post: [get(GOOD)] },
+  { title: 'cancel while the tokens are being written', token: 'ok', cancel: 'write', pre: [get(GOOD, { hold: true })], during: [get(GOOD), get('/wrong')], post: [get(GOOD)] },
   // The page is flushed late: requests in that window still reach the open listener (the login's callback is taken,
   // so they get the invalid-link page), and the listener closes only after the flush.
   { title: 'requests while the success page is flushed', token: 'ok', slowFlush: 600, pre: [get(GOOD, { hold: true })], flush: [get(GOOD), get('/wrong'), get('{path}?code=fixture-code&state=attacker'), { method: 'POST', target: GOOD }], post: [get(GOOD)] },
+  // Node's abort of the login (cancel, timeout) settles the held page and stops listening at once.
+  { title: 'cancel while the code exchange is held', token: 'gated', cancel: 'exchange', pre: [get(GOOD, { hold: true })], during: [get(GOOD), get('/wrong')], post: [get(GOOD)] },
+  { title: 'cancel while the success page is flushed', token: 'ok', slowFlush: 600, cancel: 'flush', pre: [get(GOOD, { hold: true })], flush: [get(GOOD), get('/wrong')], post: [get(GOOD)] },
   { title: 'requests while the failure page is flushed', token: 'refused', slowFlush: 600, pre: [get(GOOD, { hold: true })], flush: [get(GOOD), get('/wrong')], post: [get(GOOD)] },
 ];
 
@@ -200,12 +225,14 @@ for (const spec of CASES) {
   };
   let during = Promise.resolve();
   let flushPhase = Promise.resolve();
+  const store = memoryStore(spec.cancel === 'write');
   const oauth = createMcpOAuth({
     url: server.url,
-    credentialStore: memoryStore(),
+    credentialStore: store,
     interactive: true,
     serverName: spec.serverName ?? 'Fixture',
     oauthClient: spec.client ?? null,
+    ...(spec.timeoutMs ? { timeoutMs: spec.timeoutMs } : {}),
     openBrowser: async (href) => {
       slowFlush = spec.slowFlush ?? 0;
       tokenArrived = false;
@@ -215,9 +242,12 @@ for (const spec of CASES) {
       callbackPort = Number(redirect.port);
       Object.assign(callbackFor, { host: redirect.hostname, port: Number(redirect.port), path: redirect.pathname, state: authorization.searchParams.get('state') });
       for (const step of spec.pre) await send('pre', step);
+      if (spec.cancel === 'waiting') oauth.close();
       if (spec.flush) {
         flushPhase = (async () => {
           await new Promise((resolve) => { flushing = resolve; });
+          // Cancelling while the page is being flushed: the listener stops at once, the page is still flushed.
+          if (spec.cancel === 'flush') oauth.close();
           for (const step of spec.flush) await send('flush', step);
         })();
       }
@@ -225,19 +255,22 @@ for (const spec of CASES) {
         during = (async () => {
           if (spec.paste) {
             const pasted = `${redirect.origin}${redirect.pathname}?code=fixture-code&state=${authorization.searchParams.get('state')}`;
-            for (let attempt = 0; ; attempt += 1) {
-              try {
-                oauth.completeCallback(pasted);
-                break;
-              } catch (error) {
-                if (attempt > 400) throw error;
-                await new Promise((resolve) => setTimeout(resolve, 5));
-              }
-            }
+            // Node launches the browser only once the callback is pending (redirectToAuthorization sets
+            // `browserOpened` before it calls `launchBrowser`), so this very call is the readiness signal.
+            oauth.completeCallback(pasted);
           }
           await server.arrived;
+          // The abort answers the held page at once: its answer says the login was aborted.
+          if (spec.afterHeld) await Promise.all(held);
+          if (spec.cancel === 'write') {
+            await store.writeArrived;
+            oauth.close();
+          }
+          // Cancelling the sign-in while the code exchange is held: the held page gets the generic failure at once.
+          if (spec.cancel === 'exchange') oauth.close();
           for (const step of spec.during) await send('during', step);
           server.release();
+          store.release();
         })();
       }
     },
@@ -252,11 +285,19 @@ for (const spec of CASES) {
     token: spec.token,
     paste: spec.paste ?? false,
     slowFlush: spec.slowFlush ?? 0,
+    cancel: spec.cancel ?? null,
+    timeoutMs: spec.timeoutMs ?? 0,
+    afterHeld: spec.afterHeld ?? false,
     serverName: spec.serverName ?? 'Fixture',
     client: spec.client ?? null,
     steps,
     exchanges: server.exchanges(),
     signedIn: oauth.loginCompleted,
+    // Whether the login stored its tokens: a cancel after the callback was handled leaves them stored although the
+    // request that started the sign-in then fails on its aborted signal (signedIn).
+    // Whether the dynamic client registration is still stored (a login that ended without a code forgets it).
+    clientStored: [...store.values.values()].some((value) => value.includes('"clientInformation"')),
+    tokensStored: [...store.values.values()].some((value) => value.includes('fixture-token')),
     outcome,
   });
   oauth.close();
