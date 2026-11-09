@@ -294,6 +294,8 @@ pub struct BuildInputs<'a> {
     pub effort: Option<&'a EffortProjection>,
     /// Verdict cache for tool schemas; without one every build re-validates.
     pub schemas: Option<&'a SchemaMemo>,
+    /// The body's `prompt_cache_key` where the route derives it from more than the request's own key.
+    pub prompt_cache_key: Option<&'a str>,
 }
 
 impl<'a> BuildInputs<'a> {
@@ -304,6 +306,7 @@ impl<'a> BuildInputs<'a> {
             continuation: None,
             effort: None,
             schemas: None,
+            prompt_cache_key: None,
         }
     }
 }
@@ -540,7 +543,7 @@ pub fn build_body(profile: &ResponsesProfile, inputs: &BuildInputs<'_>) -> Built
     } else {
         true
     };
-    let cache_key = options.prompt_cache_key.as_deref().filter(|k| !k.is_empty());
+    let cache_key = inputs.prompt_cache_key.or(options.prompt_cache_key.as_deref()).filter(|k| !k.is_empty());
 
     let mut body = Map::new();
     let mut input = Some(input);

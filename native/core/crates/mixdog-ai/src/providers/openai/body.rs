@@ -7,6 +7,7 @@ use mixdog_protocol::ProviderId;
 use serde_json::Map;
 use serde_json::Value;
 
+use super::cache_key;
 use super::config::Capabilities;
 use super::config::ModelFacts;
 use super::config::OpenAiConfig;
@@ -129,7 +130,10 @@ pub fn build_with(
     // No continuation here: the first-party routes carry history through the
     // ordered provider replay (Node keeps no slot of its own for them), and a
     // slot on top would send the same reasoning twice.
-    let built = build_body(&profile, &BuildInputs { effort, ..BuildInputs::new(request) });
+    // The Codex route keys a thread's cache slot by the thread (`codexThreadPromptCacheKey`); the public API keeps
+    // the key the request names.
+    let cache_key = codex.then(|| cache_key::codex_prompt_cache_key(&request.options));
+    let built = build_body(&profile, &BuildInputs { effort, prompt_cache_key: cache_key.as_deref(), ..BuildInputs::new(request) });
     for excluded in built.excluded {
         report_exclusion(&request.options, excluded);
     }

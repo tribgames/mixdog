@@ -1,26 +1,33 @@
 #!/usr/bin/env node
-// The Rust-core half of the contract parity check: starts an isolated `mixdogd` with FAKE credentials (never the
-// user's, no network is reached: the snapshot is built before any send) and writes the `tools/toolsStatus`
-// snapshot of the same four routes node-capture.mjs captures.
-// Usage: node rust-capture.mjs --mixdogd <bin> --out <file.json>
-import { writeFileSync } from 'node:fs';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+// The Rust-core half of the wire parity check: starts an isolated `mixdogd` with FAKE credentials (never the user's, no
+// network is reached: the snapshot is built before any send), with the live client-version lookup off as Node's capture
+// has it, and writes
+//   --out      the `tools/toolsStatus` snapshot of the four routes node-capture.mjs captures, and
+//   --session  the session document both halves of the scenario run read: the thread and installation ids of the core's
+//              own first request, its system texts and its tools, and the host it described itself as. (The turn ids and
+//              the clock are scenario inputs, scenarios.json: the snapshot of a thread with no turn yet derives its own.)
+// Usage: node rust-capture.mjs --mixdogd <bin> --out <rust.json> --session <session.json>
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os, { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startCore } from '../../../../scripts/rust-core/lib/core-session.mjs';
 import { snapshotRoute } from '../contract-hash-rust.mjs';
 import { ROUTES } from './node-capture.mjs';
+import { writeFakeCredentials } from './fake-credentials.mjs';
 
-const FAKE = 'fake-credential-not-a-secret';
-const SOON = Date.now() + 86_400_000;
-
-/** Fake signed-in credentials for the four providers, under the isolated data dir only. */
-export function writeFakeCredentials(dataDir, write) {
-  write(join(dataDir, 'anthropic-oauth-credentials.json'), { claudeAiOauth: { accessToken: FAKE, refreshToken: FAKE, expiresAt: SOON, scopes: ['user:inference'] } });
-  write(join(dataDir, 'openai-oauth.json'), { access_token: FAKE, refresh_token: FAKE, account_id: 'fake', expires_at: SOON });
-  write(join(dataDir, 'grok-oauth.json'), { access_token: FAKE, refresh_token: FAKE, expires_at: SOON });
-  write(join(dataDir, 'gemini-api-key.json'), { apiKey: FAKE });
+/** The session document of the first OpenAI request in `snapshots` (see the header). */
+export function sessionDocument(snapshots) {
+  const { snapshot } = snapshots.find((route) => route.provider === 'openai-oauth');
+  const frame = snapshot.body.client_metadata;
+  const threadId = snapshot.headers.find(([name]) => name === 'session-id')[1];
+  return {
+    threadId,
+    installationId: frame['x-codex-installation-id'],
+    host: { type: os.type(), release: os.release(), arch: os.arch() },
+    system: snapshot.system,
+    tools: snapshot.tools,
+  };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -28,12 +35,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const root = mkdtempSync(join(tmpdir(), 'mixdog-parity-'));
   let core;
   try {
-    const { writeFileSync: put } = await import('node:fs');
     core = await startCore({
       bin: resolve(arg('--mixdogd')),
       root,
       config: { outputStyle: 'simple', agent: { profile: { language: 'en' } } },
-      prepare: (paths) => writeFakeCredentials(paths.dataDir, (file, value) => put(file, JSON.stringify(value))),
+      prepare: (paths) => writeFakeCredentials(paths.dataDir, (file, value) => writeFileSync(file, JSON.stringify(value))),
+      extraEnv: { MIXDOG_DISABLE_LIVE_CLI_VERSIONS: '1' },
     });
     const out = [];
     for (const route of ROUTES) {
@@ -44,9 +51,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       }
     }
     writeFileSync(resolve(arg('--out')), `${JSON.stringify(out, null, 2)}\n`);
+    writeFileSync(resolve(arg('--session')), `${JSON.stringify(sessionDocument(out), null, 2)}\n`);
   } finally {
     await core?.stop().catch(() => {});
     rmSync(root, { recursive: true, force: true });
   }
 }
-

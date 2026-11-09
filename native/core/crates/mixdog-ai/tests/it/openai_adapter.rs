@@ -223,7 +223,7 @@ fn adapter(
     OpenAiAdapter::new(
         ProviderId::from("openai-oauth"),
         OpenAiCodec::new(config, transport),
-        AdapterLinks { http, dial, credentials, context, listing: ListingLookup::new() },
+        AdapterLinks { http, dial, compress_lane: mixdog_rt::testing::tokens().cpu_bulk, credentials, context, listing: ListingLookup::new() },
     )
 }
 
@@ -345,7 +345,7 @@ async fn the_turn_state_token_replays_within_its_turn_only() {
     assert_eq!(header(&seen[0].headers, "x-codex-turn-state"), None);
     assert_eq!(header(&seen[1].headers, "x-codex-turn-state"), Some("tok-1"));
     assert_eq!(header(&seen[2].headers, "x-codex-turn-state"), None, "a new turn starts clean");
-    assert_eq!(header(&seen[1].headers, "x-codex-window-id"), Some("thread-1:2"));
+    assert_eq!(header(&seen[1].headers, "x-codex-window-id"), None, "the window rides only the WebSocket");
 }
 
 // ---- WebSocket --------------------------------------------------------------

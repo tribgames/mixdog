@@ -1,0 +1,94 @@
+{
+  "nowMs": 1794254050000,
+  "nodeSessionId": "sess_parity_1",
+  "scenarios": [
+    {
+      "id": "openai-first-turn",
+      "provider": "openai-oauth",
+      "fresh": true,
+      "turnId": "01a1c1e0-0718-7000-8000-000000000001",
+      "messages": [{ "role": "user", "content": "parity probe" }],
+      "ws": [[
+        { "type": "response.created", "response": { "id": "resp_parity_1", "model": "gpt-6.1-sol" } },
+        { "type": "response.output_item.added", "output_index": 0, "item": { "type": "function_call", "id": "fc_parity_1", "call_id": "call_parity_1", "name": "read", "arguments": "" } },
+        { "type": "response.function_call_arguments.done", "output_index": 0, "item_id": "fc_parity_1", "arguments": "{\"file_path\":\"parity.txt\"}" },
+        { "type": "response.output_item.done", "output_index": 0, "item": { "type": "function_call", "id": "fc_parity_1", "call_id": "call_parity_1", "name": "read", "arguments": "{\"file_path\":\"parity.txt\"}", "status": "completed" } },
+        { "type": "response.completed", "response": { "id": "resp_parity_1", "model": "gpt-6.1-sol", "status": "completed", "usage": { "input_tokens": 100, "output_tokens": 10, "total_tokens": 110 }, "output": [{ "type": "function_call", "id": "fc_parity_1", "call_id": "call_parity_1", "name": "read", "arguments": "{\"file_path\":\"parity.txt\"}", "status": "completed" }] } }
+      ]]
+    },
+    {
+      "id": "openai-tool-result-turn",
+      "provider": "openai-oauth",
+      "fresh": false,
+      "turnId": "01a1c1e0-0718-7000-8000-000000000001",
+      "messages": [
+        { "role": "user", "content": "parity probe" },
+        { "role": "assistant", "content": "", "toolCalls": [{ "id": "call_parity_1", "name": "read", "arguments": { "file_path": "parity.txt" } }] },
+        { "role": "tool", "toolCallId": "call_parity_1", "content": "parity file text" }
+      ],
+      "ws": [[
+        { "type": "response.created", "response": { "id": "resp_parity_2", "model": "gpt-6.1-sol" } },
+        { "type": "response.output_item.added", "output_index": 0, "item": { "type": "message", "id": "msg_parity_2", "role": "assistant", "content": [] } },
+        { "type": "response.output_text.delta", "output_index": 0, "item_id": "msg_parity_2", "delta": "parity answer" },
+        { "type": "response.output_item.done", "output_index": 0, "item": { "type": "message", "id": "msg_parity_2", "role": "assistant", "content": [{ "type": "output_text", "text": "parity answer" }] } },
+        { "type": "response.completed", "response": { "id": "resp_parity_2", "model": "gpt-6.1-sol", "status": "completed", "usage": { "input_tokens": 120, "output_tokens": 8, "total_tokens": 128 }, "output": [{ "type": "message", "id": "msg_parity_2", "role": "assistant", "content": [{ "type": "output_text", "text": "parity answer" }] }] } }
+      ]]
+    },
+    {
+      "id": "openai-resumed-turn",
+      "provider": "openai-oauth",
+      "fresh": true,
+      "turnId": "01a1c1e0-0b00-7000-8000-000000000002",
+      "messages": [
+        { "role": "user", "content": "parity probe" },
+        { "role": "assistant", "content": "", "toolCalls": [{ "id": "call_parity_1", "name": "read", "arguments": { "file_path": "parity.txt" } }] },
+        { "role": "tool", "toolCallId": "call_parity_1", "content": "parity file text" },
+        { "role": "assistant", "content": "parity answer" },
+        { "role": "user", "content": "second question" }
+      ],
+      "ws": [[
+        { "type": "response.created", "response": { "id": "resp_parity_3", "model": "gpt-6.1-sol" } },
+        { "type": "response.output_item.added", "output_index": 0, "item": { "type": "message", "id": "msg_parity_3", "role": "assistant", "content": [] } },
+        { "type": "response.output_text.delta", "output_index": 0, "item_id": "msg_parity_3", "delta": "second answer" },
+        { "type": "response.output_item.done", "output_index": 0, "item": { "type": "message", "id": "msg_parity_3", "role": "assistant", "content": [{ "type": "output_text", "text": "second answer" }] } },
+        { "type": "response.completed", "response": { "id": "resp_parity_3", "model": "gpt-6.1-sol", "status": "completed", "usage": { "input_tokens": 140, "output_tokens": 8, "total_tokens": 148 }, "output": [{ "type": "message", "id": "msg_parity_3", "role": "assistant", "content": [{ "type": "output_text", "text": "second answer" }] }] } }
+      ]]
+    },
+    {
+      "id": "openai-compacted-turn",
+      "provider": "openai-oauth",
+      "fresh": false,
+      "turnId": "01a1c1e0-0ee8-7000-8000-000000000003",
+      "window": 1,
+      "messages": [
+        { "role": "user", "content": "Summary of the conversation so far: the user asked a question about parity.txt and got an answer." },
+        { "role": "user", "content": "after compaction" }
+      ],
+      "ws": [[
+        { "type": "response.created", "response": { "id": "resp_parity_4", "model": "gpt-6.1-sol" } },
+        { "type": "response.output_item.added", "output_index": 0, "item": { "type": "message", "id": "msg_parity_4", "role": "assistant", "content": [] } },
+        { "type": "response.output_text.delta", "output_index": 0, "item_id": "msg_parity_4", "delta": "compacted answer" },
+        { "type": "response.output_item.done", "output_index": 0, "item": { "type": "message", "id": "msg_parity_4", "role": "assistant", "content": [{ "type": "output_text", "text": "compacted answer" }] } },
+        { "type": "response.completed", "response": { "id": "resp_parity_4", "model": "gpt-6.1-sol", "status": "completed", "usage": { "input_tokens": 60, "output_tokens": 8, "total_tokens": 68 }, "output": [{ "type": "message", "id": "msg_parity_4", "role": "assistant", "content": [{ "type": "output_text", "text": "compacted answer" }] }] } }
+      ]]
+    },
+    {
+      "id": "openai-http-fallback",
+      "provider": "openai-oauth",
+      "fresh": true,
+      "turnId": "01a1c1e0-10dc-7000-8000-000000000004",
+      "messages": [{ "role": "user", "content": "parity probe" }],
+      "dials": [{ "accept": false, "status": 426, "body": "{}" }],
+      "http": [[
+        { "type": "response.created", "response": { "id": "resp_parity_5", "model": "gpt-6.1-sol" } },
+        { "type": "response.output_item.added", "output_index": 0, "item": { "type": "message", "id": "msg_parity_5", "role": "assistant", "content": [] } },
+        { "type": "response.output_text.delta", "output_index": 0, "item_id": "msg_parity_5", "delta": "http answer" },
+        { "type": "response.output_item.done", "output_index": 0, "item": { "type": "message", "id": "msg_parity_5", "role": "assistant", "content": [{ "type": "output_text", "text": "http answer" }] } },
+        { "type": "response.completed", "response": { "id": "resp_parity_5", "model": "gpt-6.1-sol", "status": "completed", "usage": { "input_tokens": 100, "output_tokens": 8, "total_tokens": 108 }, "output": [{ "type": "message", "id": "msg_parity_5", "role": "assistant", "content": [{ "type": "output_text", "text": "http answer" }] }] } }
+      ]]
+    },
+    { "id": "anthropic-oauth-first-turn", "provider": "anthropic-oauth", "expectError": true, "messages": [{ "role": "user", "content": "parity probe" }] },
+    { "id": "gemini-first-turn", "provider": "gemini", "expectError": true, "messages": [{ "role": "user", "content": "parity probe" }] },
+    { "id": "grok-oauth-first-turn", "provider": "grok-oauth", "expectError": true, "messages": [{ "role": "user", "content": "parity probe" }] }
+  ]
+}

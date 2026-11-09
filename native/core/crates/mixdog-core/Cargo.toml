@@ -63,6 +63,10 @@ count-work = ["mixdog-ai/count-work", "mixdog-core-config/count-work", "mixdog-c
 
 [dev-dependencies]
 mixdog-core = { path = ".", features = ["count-work"] }
+bytes = { workspace = true }
+flate2 = { workspace = true }
+tokio-tungstenite = { workspace = true }
+zstd = { workspace = true }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-core-review = { workspace = true, features = ["test-support"] }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
