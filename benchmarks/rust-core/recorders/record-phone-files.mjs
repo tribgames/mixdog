@@ -8,7 +8,7 @@
 //
 //   node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-phone-files.mjs --tree <git archive of b6f10295a with node_modules>
-import { mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { FIXED_NOW_MS, filesRelayScript, filesScript, filesWorld, play, treeOf, windowAnswers } from './lib/phone-files-script.mjs';
@@ -77,10 +77,10 @@ async function record(make) {
   const driver = {
     async call(name, params) {
       hostLog.length = 0;
-      // The editor backup stamps `Date.now()`: those calls run on the virtual clock the core is given (every other call reads the real one,
-      // as the core's project catalog does, so the project list orders by recency in both).
+      // Every call runs on the virtual clock the core is given (`MIXDOG_FIXED_NOW_MS`): the editor backup's names and the registry's
+      // `addedAt` / `lastSelectedAt` read `Date.now()` (project-files, projects.mjs:160, :185).
       const real = Date.now;
-      if (name.endsWith('EditorBackup')) Date.now = () => FIXED_NOW_MS;
+      Date.now = () => FIXED_NOW_MS;
       const frame = await executeRemoteFrame(tables[windowUp ? 'with' : 'without'], JSON.stringify({ id: ++frameId, method: name, params })).finally(() => {
         Date.now = real;
       });
@@ -100,7 +100,22 @@ async function record(make) {
   const trace = await play(scenario, driver);
   await host.dispose();
   await operations.dispose();
-  return { ...trace, finalTree: treeOf(world.root) };
+  // The whole final state: every file under the world's project folders, every file Node leaves under `userdata`, and the registry file.
+  // Each name under `userdata` is one of the five below; a sixth would be state this recording does not yet account for.
+  const names = readdirSync(world.userData).sort();
+  const files = (dir) => (existsSync(dir) ? treeOf(dir).filter((row) => !row.dir) : []);
+  const known = ['desktop-projects.json', 'desktop-projects.json.bak', 'editor-backups', 'editor-recovery', 'new-task-receipts'];
+  if (names.some((name) => !known.includes(name))) throw new Error(`userdata holds ${names.join(', ')}, not the files this recording accounts for`);
+  const userdata = {
+    // desktop-projects.json (project-preferences-file.ts): the aliases and the legacy hidden list. Its `.bak` is the copy a damaged primary is
+    // restored from (atomic-file.mjs:359-378 writes it, :615-645 reads it only when the primary is damaged), so it is not state.
+    preferences: JSON.parse(readFileSync(join(world.userData, 'desktop-projects.json'), 'utf8')),
+    editorBackups: files(join(world.userData, 'editor-backups')),
+    editorRecovery: files(join(world.userData, 'editor-recovery')),
+    newTaskReceipts: files(join(world.userData, 'new-task-receipts')),
+  };
+  const registry = existsSync(process.env.MIXDOG_PROJECTS_FILE) ? JSON.parse(readFileSync(process.env.MIXDOG_PROJECTS_FILE, 'utf8')) : null;
+  return { ...trace, finalTree: treeOf(world.root, (rel) => rel.startsWith('userdata')), userdata, registry };
 }
 
 const scenarios = { main: await record(filesScript), relay: await record(filesRelayScript) };

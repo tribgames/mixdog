@@ -68,8 +68,10 @@ fn display_name(row: &ProjectRow) -> String {
     row.alias.clone().filter(|a| !a.is_empty()).unwrap_or(folder)
 }
 
+/// The registry's clock: the same one the editor backups read, so a debug build pinned by `MIXDOG_FIXED_NOW_MS` stamps rows on the
+/// virtual clock the Node recording ran on (a release build reads the system clock).
 pub fn now_ms() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+    crate::editorcfg::now_ms()
 }
 
 fn finish(mut op: OpRecord, outcome: &Value) -> OpRecord {
@@ -145,13 +147,12 @@ impl Catalog {
         let given = path.to_owned();
         let folder = run_fallible(self.lanes.interactive, cancel, move || canonical_directory(&requested, &given)).await?;
         let path = folder.to_string_lossy().into_owned();
-        // A row's recency starts at its making (Node orders a never-selected project by when it was added); never equal to another's, so the
-        // order of two projects added in one millisecond is the order they came.
-        let newest = self.state.projects().await.map_err(store)?.iter().filter_map(|p| p.last_used_at).max().unwrap_or(0);
+        // A row's recency starts at its making: Node orders a never-selected project by when it was added (`projectRecency`,
+        // projects.mjs:121-126), and two projects of one millisecond tie and order by name, then path (`compareProjects`, :128-134).
         let row = match self.state.project(&path).await.map_err(store)? {
             // Node's `enter` and `register` both undo the legacy hidden tombstone (`unhide`) of the Project they register.
             Some(existing) => ProjectRow { hidden: false, hidden_rank: None, ..existing },
-            None => ProjectRow { path, alias: None, hidden: false, hidden_rank: None, last_used_at: Some(now_ms().max(newest + 1)) },
+            None => ProjectRow { path, alias: None, hidden: false, hidden_rank: None, last_used_at: Some(now_ms()) },
         };
         let out = project_json(&row);
         self.commit(Some(row.clone()), None, op.map(|o| finish(o, &out))).await?;

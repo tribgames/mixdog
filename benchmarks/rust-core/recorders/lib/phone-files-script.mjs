@@ -374,9 +374,17 @@ export async function play(script, driver) {
     if (op.op === 'call') {
       const params = resolve(op.params);
       const { frame, hostCalls } = await driver.call(op.name, params);
-      // A write answers the mtime the file ended up with, which the OS stamps: the answer is kept as the reference "the file's own mtime"
-      // when it is exactly what the file has (a mismatch stays literal and shows as a difference).
-      if (op.name === 'writeProjectFile' && frame.ok && typeof frame.value?.mtimeMs === 'number' && frame.value.mtimeMs === statSync(join(params[0], params[1])).mtimeMs) {
+      // A write answers the mtime the file ended up with, which the OS stamps. `play` runs on both sides (the recording on Node, the
+      // replay on the core), so each proves its answer equals its own file's mtime; the answer is then kept as `{$fileMtime}`.
+      // The OS stamps it at the write, so no clock of ours can fix it; the value the answer carried is kept beside the step as
+      // `fileMtimeMs` (Node's: project-files.ts:407 `handle.stat()` after the rewrite, :601 `stat(file)`), for the reader of the recording.
+      let fileMtimeMs;
+      if (op.name === 'writeProjectFile' && frame.ok) {
+        // The invariant both sides prove: the answer is the mtime the file has right after the call (a different one is a failure, not a
+        // difference to compare).
+        const onDisk = statSync(join(params[0], params[1])).mtimeMs;
+        if (frame.value?.mtimeMs !== onDisk) throw new Error(`writeProjectFile answered mtime ${frame.value?.mtimeMs}, the file has ${onDisk}`);
+        fileMtimeMs = onDisk;
         frame.value.mtimeMs = { $fileMtime: true };
       }
       // Node's lease id is `randomUUID()` (media-leases.ts:35): v4 format, one fresh id per preview. The trace keeps the order they
@@ -387,7 +395,7 @@ export async function play(script, driver) {
         if (!leases.has(id)) leases.set(id, leases.size);
         frame.value.mediaAssetId = { $lease: leases.get(id) };
       }
-      steps.push({ call: op.name, params: op.params, frame, ...(hostCalls.length ? { hostCalls } : {}) });
+      steps.push({ call: op.name, params: op.params, frame, ...(hostCalls.length ? { hostCalls } : {}), ...(fileMtimeMs === undefined ? {} : { fileMtimeMs }) });
     } else if (op.op === 'grant') {
       tokens.set(op.as, await driver.grant(op.path));
       steps.push({ grant: op.as, path: op.path });
@@ -402,8 +410,8 @@ export async function play(script, driver) {
   }
   return { steps };
 }
-/** The world's files, whole: path, kind, size and content hash (times are the machine's). */
-export function treeOf(root, skip = (rel) => rel.startsWith('userdata') || rel === 'projects.json') {
+/** A directory's files, whole: path, kind, size and content hash (the machine's file times are not part of what a call answers). */
+export function treeOf(root, skip = () => false) {
   const rows = [];
   const walk = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
