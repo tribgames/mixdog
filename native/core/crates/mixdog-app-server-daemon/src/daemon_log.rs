@@ -713,7 +713,7 @@ mod tests {
             .collect()
     }
 
-    /// The memory worker's stderr and the daemon's own, as Node's real spawner and daemon log left them (`fixtures/daemon-redirect/record-memory.mjs`):
+    /// The memory worker's stderr and the daemon's own, as Node's real spawner and daemon log left them (`benchmarks/rust-core/recorders/record-daemon-redirect-memory.mjs`):
     /// the worker's chunks become `memory-runtime-proxy.log` rows whether the daemon is before ready or past it with `MIXDOG_DAEMON_ALLOW_STDERR=1`
     /// (which skips only `installRedirect`), and the daemon's own lines stay bare on its descriptor in both. Replayed through [`DaemonLog::memory_sink`],
     /// the sink installed before the core composes.
