@@ -237,6 +237,11 @@ fn create_retry_policy(tuning: &Tuning) -> RetryPolicy {
     policy
 }
 
+/// The line `_createGeminiCache` writes to stderr when the create fails (`gemini.mjs:596`).
+fn log_create_failure(message: &str) {
+    tracing::warn!("[gemini] cachedContents.create error: {message}");
+}
+
 struct CreateJob {
     http: Arc<dyn HttpSend>,
     runtime: Arc<dyn CacheRuntime>,
@@ -286,7 +291,10 @@ impl CreateJob {
         let deadline = self.runtime.deadline(self.tuning.create_total_ms as u64);
         let entry = match select(Box::pin(self.create()), deadline).await {
             Either::Left((entry, _)) => entry,
-            Either::Right(((), _)) => None,
+            Either::Right(((), _)) => {
+                log_create_failure(&format!("Gemini cachedContents.create total timed out after {}ms", self.tuning.create_total_ms as u64));
+                None
+            }
         };
         self.registry.finish(&self.key, entry, done, self.runtime.now_ms());
         self.guard.disarm();
@@ -299,21 +307,28 @@ impl CreateJob {
     async fn create(&self) -> Option<CacheEntry> {
         let policy = create_retry_policy(&self.tuning);
         let mut state = RetryState::new(RetryClass::Request, self.model.clone());
+        let mut attempt = 0_u32;
         let (name, token_size) = loop {
+            attempt += 1;
             let deadline = self.runtime.deadline(self.tuning.create_attempt_ms as u64);
             let error = match select(Box::pin(self.post_once()), deadline).await {
                 Either::Left((Ok(made), _)) => break made,
                 Either::Left((Err(error), _)) => error,
-                // `ProviderTimeoutError`: a transient transport fact.
+                // `ProviderTimeoutError`: a transient transport fact, worded by the attempt's timer (`withRetry`).
                 Either::Right(((), _)) => {
-                    ProviderError::transport(TransportFault::Io { os_code: None }, DeliveryState::Ambiguous)
+                    let mut error = ProviderError::transport(TransportFault::Io { os_code: None }, DeliveryState::Ambiguous);
+                    error.message = format!("Gemini cachedContents.create attempt {attempt} timed out after {}ms", self.tuning.create_attempt_ms as u64);
+                    error
                 }
             };
             let decision = StandardRetryDecider.verdict(&error, &state, &policy, random_samples());
             state = decision.next;
             match decision.verdict {
                 Verdict::Retry { delay, .. } => self.runtime.deadline(delay.as_millis() as u64).await,
-                _ => return None,
+                _ => {
+                    log_create_failure(&error.message);
+                    return None;
+                }
             }
         };
         let now = self.runtime.now_ms();

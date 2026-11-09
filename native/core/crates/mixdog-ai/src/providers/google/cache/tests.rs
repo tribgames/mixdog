@@ -357,12 +357,15 @@ impl CacheRuntime for LadderRuntime {
 
 /// The create's request is bounded by Node's total timer (`sites.geminiCacheCreate`: `armed` 180 s, the fetch rejected
 /// with `Gemini cachedContents.create total timed out after 180000ms`); the timeouts are retried and, once the ladder is
-/// spent, the create resolves no cache, as Node's catch does. Node also logs the failure on stderr; this port has no log.
+/// spent, the create resolves no cache and logs the line Node's catch writes to stderr.
 #[tokio::test(start_paused = true)]
 async fn a_create_the_transport_times_out_is_retried_then_resolves_no_cache() {
     use crate::transport::site_probe::TimingOut;
     use crate::transport::site_probe::assert_transport;
+    use crate::transport::site_probe::capture_logs;
+    use crate::transport::site_probe::recorded;
 
+    let (logged, _guard) = capture_logs();
     let g = golden();
     let (tools, tool_config, contents) = parts(&g);
     let system = system(1);
@@ -386,6 +389,8 @@ async fn a_create_the_transport_times_out_is_retried_then_resolves_no_cache() {
     assert_eq!(answer.cache_name, None);
     assert!(transport.seen().len() > 1, "a timeout is retried");
     assert_transport("geminiCacheCreate", &transport);
+    let want: Vec<String> = recorded("geminiCacheCreate")["logged"].as_array().unwrap().iter().map(|l| l.as_str().unwrap().to_owned()).collect();
+    assert_eq!(*logged.lock().unwrap(), want);
 }
 
 /// Node's `withRetry` around the create: an attempt stalled past the 120 s

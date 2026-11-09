@@ -55,6 +55,44 @@ impl HttpSend for TimingOut {
     }
 }
 
+/// Collects the messages of the `tracing` events the current thread emits (the log sink that stands for Node's stderr
+/// lines) until the guard drops. Only for a current-thread test runtime, where spawned work runs on this thread.
+pub(crate) fn capture_logs() -> (Arc<Mutex<Vec<String>>>, tracing::subscriber::DefaultGuard) {
+    struct Message(String);
+
+    impl tracing::field::Visit for Message {
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            if field.name() == "message" {
+                self.0 = format!("{value:?}");
+            }
+        }
+    }
+
+    struct Sink(Arc<Mutex<Vec<String>>>);
+
+    impl tracing::Subscriber for Sink {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, event: &tracing::Event<'_>) {
+            let mut message = Message(String::new());
+            event.record(&mut message);
+            self.0.lock().unwrap().push(message.0);
+        }
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+
+    let lines = Arc::new(Mutex::new(Vec::new()));
+    let guard = tracing::subscriber::set_default(Sink(lines.clone()));
+    (lines, guard)
+}
+
 /// The recording of one site.
 pub(crate) fn recorded(site: &str) -> Value {
     let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
