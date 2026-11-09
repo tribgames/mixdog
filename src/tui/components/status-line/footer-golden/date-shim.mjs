@@ -21,7 +21,18 @@ const realSetImmediate = globalThis.setImmediate;
 let scheduled = 0;
 let pending = 0;
 let idleWaiters = [];
+// Node's OAuth arm check (statusline.mjs oauthUsageSegmentReady) is a poll: while the provider stays unarmed every
+// render schedules it again ("stay unarmed; next tick retries"). Its outcome depends only on the files and the clock,
+// which a stage holds fixed, so once it has run in a stage and been scheduled again it left the provider unarmed and
+// a repeat cannot change anything: it is not a new operation. Every other operation counts each time.
+const armPollsSeen = new Set();
+let armRepeats = 0;
+globalThis.__footerNewStage = () => armPollsSeen.clear();
 globalThis.setImmediate = (fn, ...rest) => {
+  if (new Error().stack.includes('oauthUsageSegmentReady')) {
+    if (!armPollsSeen.has('arm-poll')) armPollsSeen.add('arm-poll');
+    else armRepeats += 1;
+  }
   scheduled += 1;
   pending += 1;
   return realSetImmediate(() => {
@@ -47,6 +58,7 @@ for (const name of ['readFile', 'readdir', 'stat']) {
   const real = fsPromises[name];
   fsPromises[name] = (...callArgs) => {
     fsPending += 1;
+    fsStarted += 1;
     const op = real(...callArgs);
     const done = () => {
       fsPending -= 1;
@@ -56,7 +68,9 @@ for (const name of ['readFile', 'readdir', 'stat']) {
   };
 }
 syncBuiltinESMExports();
-globalThis.__footerScheduled = () => scheduled;
+let fsStarted = 0;
+// How many tracked operations (deferred refreshes and fs/promises calls) have started so far.
+globalThis.__footerOperations = () => scheduled + fsStarted - armRepeats;
 // Idle: no deferred refresh and no fs operation pending, checked again after one more event-loop turn so the
 // continuations of the operation that just settled (which publish the cache) have run.
 globalThis.__footerIdle = async () => {
