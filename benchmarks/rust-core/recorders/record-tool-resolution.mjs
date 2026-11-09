@@ -18,7 +18,7 @@ const sandbox = mkdtempSync(join(tmpdir(), 'tool-resolution-'));
 for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) process.env[key] = sandbox;
 process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 process.env.TZ = 'UTC';
-const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, exactProductIdentity, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
 const { writeJsonCompact } = await import('./lib/tool-definitions.mjs');
 const tree = resolveTree(parseArgs());
@@ -232,6 +232,6 @@ await writeJsonCompact(tree, join(stage, 'golden.json'), {
   definitions,
   cases,
 });
-writeSetManifest(stage, { set: 'tool-resolution', recorder, command: `node ${recorder} --tree <tree>`, identityTree: tree });
+writeSetManifest(stage, { set: 'tool-resolution', recorder, command: `node ${recorder} --tree <tree>`, identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146') });
 commitStage(stage, finalDir);
 console.log(`tool resolution: ${cases.length} cases, ${Object.keys(definitions).length} definitions`);
