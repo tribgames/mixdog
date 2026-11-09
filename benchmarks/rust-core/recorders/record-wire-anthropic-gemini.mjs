@@ -305,12 +305,18 @@ async function runGemini(realTool) {
       captured = [];
       const opts = { sessionId: SESSION, iteration: sends.length + 1, ...scenario.opts, ...(turn.opts || {}), ...(providerState ? { providerState } : {}) };
       const before = structuredClone(opts);
+      // What `onStageChange` received as a notice: the TUI/desktop turn handler shows each as a transcript notice
+      // (`pushNotice(detail.message, detail.tone === 'warn' ? 'warn' : 'info', { transcript: true })`, turn.mjs).
+      const notices = [];
+      opts.onStageChange = (stage, detail) => {
+        if (stage === 'notice') notices.push(structuredClone(detail));
+      };
       const at = clock.now;
       await provider.send(structuredClone(messages), scenario.model, structuredClone(tools), opts);
       // The scheduled delete of a superseded cache fires inside the gap that follows the send.
       await advance(turn.gapMs ?? scenario.gapMs);
       providerState = opts.providerState;
-      sends.push({ messages: structuredClone(messages), opts: before, now: at, gapMs: turn.gapMs ?? scenario.gapMs, providerStateAfter: structuredClone(opts.providerState ?? null), freshProcess: turn.freshProcess === true, requests: captured });
+      sends.push({ messages: structuredClone(messages), opts: before, now: at, gapMs: turn.gapMs ?? scenario.gapMs, providerStateAfter: structuredClone(opts.providerState ?? null), freshProcess: turn.freshProcess === true, notices, requests: captured });
       const assistant = assistantOf(turn.blocks);
       if (turn.compactTo) {
         messages = [...scenario.system, { role: 'user', content: turn.compactTo }];

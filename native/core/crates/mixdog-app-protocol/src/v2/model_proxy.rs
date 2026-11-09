@@ -628,6 +628,8 @@ pub enum ProxyEvent {
     /// Anthropic extended-thinking blocks, verbatim and ordered (`StreamEvent::ThinkingBlocks`).
     ThinkingBlocks { value: JsonValue },
     ProviderState { state: JsonValue },
+    /// A display-only transcript notice raised while preparing the request (`StreamEvent::Notice`).
+    Notice { message: String, warn: bool },
     /// `pricing_model`: the catalog model the send bills as when it differs from the one sent.
     /// `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).
     Completed {

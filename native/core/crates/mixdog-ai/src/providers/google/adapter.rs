@@ -140,27 +140,21 @@ impl GoogleAdapter {
 
     /// `_servedModel`: the direct Gemini API serves some ids as another model from a date on; the served id is the
     /// request's model for the whole request (wire id, cache, settings), announced once per process.
-    fn served(&self, request: Arc<ModelRequest>) -> Arc<ModelRequest> {
+    fn served(&self, request: Arc<ModelRequest>) -> (Arc<ModelRequest>, Option<Redirect>) {
         let (Target::Gemini { .. }, Some(clock)) = (self.codec.target(), self.clock.as_ref()) else {
-            return request;
+            return (request, None);
         };
         let Some(target) = redirect::served_as(&request.model, clock()) else {
-            return request;
+            return (request, None);
         };
-        let requested = request.model.strip_prefix("models/").unwrap_or(&request.model).to_lowercase();
-        static ANNOUNCED: Mutex<Vec<String>> = Mutex::new(Vec::new());
-        {
-            let mut announced = ANNOUNCED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if !announced.contains(&requested) {
-                announced.push(requested.clone());
-                mixdog_rt::node_stderr!(
-                    "[gemini] {requested} is now served by Google as {target} (redirect effective 2026-12-01; billed at {target} rates)"
-                );
-            }
-        }
+        // `geminiBareModelId`: the id as given, without a `models/` prefix (any case).
+        let requested = match request.model.get(..7) {
+            Some(head) if head.eq_ignore_ascii_case("models/") => request.model[7..].to_owned(),
+            _ => request.model.clone(),
+        };
         let mut served = (*request).clone();
         served.model = target.to_owned();
-        Arc::new(served)
+        (Arc::new(served), Some(Redirect { requested, target }))
     }
 
     /// A request built for one account must not run under another's.
@@ -291,6 +285,32 @@ impl ModelListing for GoogleAdapter {
     }
 }
 
+/// A model id the Gemini API serves as another one (`announcedRedirects` in `gemini.mjs`).
+struct Redirect {
+    requested: String,
+    target: &'static str,
+}
+
+impl Redirect {
+    /// The notice, once per requested id per process: Node announces on the first send that meets the id, to that
+    /// send's `onStageChange` (tone `warn`) and to stderr. The claim is made when the request has an answer to
+    /// stream, so an attempt that failed before any event could carry it leaves the notice to the retry.
+    fn announce(&self) -> Option<StreamEvent> {
+        static ANNOUNCED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        let mut announced = ANNOUNCED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if announced.contains(&self.requested) {
+            return None;
+        }
+        announced.push(self.requested.clone());
+        let message = format!(
+            "{} is now served by Google as {} (redirect effective 2026-12-01; billed at {} rates)",
+            self.requested, self.target, self.target
+        );
+        mixdog_rt::node_stderr!("[gemini] {message}");
+        Some(StreamEvent::Notice { message, warn: true })
+    }
+}
+
 struct Cached {
     name: String,
     state: GeminiCacheState,
@@ -321,7 +341,7 @@ impl ProviderAdapter for GoogleAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let request = self.served(self.routed(request));
+        let (request, redirect) = self.served(self.routed(request));
         // State changes reach the session only as stream events: Node persists
         // `providerState` from a delivered result alone (`ask-turn-settle.mjs:147`),
         // never from a failed send, so no error carries one.
@@ -364,6 +384,9 @@ impl ProviderAdapter for GoogleAdapter {
         if !response.is_success() {
             let rejected = response.read_all().await?;
             return Err(self.codec.classify_for(&rejected, &request, global));
+        }
+        if let Some(notice) = redirect.and_then(|r| r.announce()) {
+            queue.push_front(Ok(notice));
         }
         Ok(Box::new(GoogleStream {
             body: response.body,

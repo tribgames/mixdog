@@ -673,6 +673,10 @@ pub enum StreamEvent {
     /// The session's provider state changed during the request (Node writes
     /// `opts.providerState` back); the whole new state, to be persisted.
     ProviderState(ProviderState),
+    /// A display-only transcript notice the adapter raised while preparing the request (Node
+    /// `opts.onStageChange('notice', { tone, message })`: Gemini's dated model redirect). `warn` is tone `warn`;
+    /// otherwise `info`. Folds into nothing.
+    Notice { message: String, warn: bool },
     /// The wire's terminal event. Exactly one per completed attempt, last.
     /// `stop` is `None` when the wire named no stop reason (Node
     /// `stopReason: null`: a plain Responses or Gemini completion); a decoder

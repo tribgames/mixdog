@@ -478,6 +478,11 @@ impl Run {
                     self.provider_state = Some(state.clone());
                     self.provider_state_changed = true;
                 }
+                // `onStageChange('notice', { tone, message })`: shown in the transcript, nothing else.
+                StreamEvent::Notice { message, warn } => {
+                    let tone = if *warn { Tone::Warn } else { Tone::Info };
+                    self.emit(RunEvent::Stage(Stage::Notice { message: message.clone(), tone }));
+                }
                 _ => {}
             }
             let tool_done = matches!(event, StreamEvent::ToolCallDone(_));

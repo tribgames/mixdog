@@ -843,6 +843,28 @@ async fn provider_state_is_sent_updated_by_the_provider_and_handed_back() {
     assert_eq!(output.provider_state, None);
 }
 
+/// A provider notice (`onStageChange('notice', { tone, message })`) reaches the observer as a transcript notice of
+/// its tone.
+#[tokio::test]
+async fn a_provider_notice_reaches_the_observer_as_a_stage_notice() {
+    let h = Harness::new(vec![turn(vec![
+        Step::Event(StreamEvent::Notice { message: "served as another model".into(), warn: true }),
+        text("ok"),
+        done(StopReason::EndTurn),
+    ])]);
+    finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    let notices: Vec<_> = h
+        .observer
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            RunEvent::Stage(Stage::Notice { message, tone }) => Some((message, tone)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(notices, [("served as another model".to_owned(), Tone::Warn)]);
+}
+
 #[tokio::test]
 async fn steering_enters_after_the_tool_batch_and_before_the_next_request() {
     let h = Harness::new(vec![

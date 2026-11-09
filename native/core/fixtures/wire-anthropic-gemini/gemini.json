@@ -62,6 +62,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -154,6 +155,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -257,6 +259,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -336,6 +339,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -428,6 +432,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -531,6 +536,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -610,6 +616,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -702,6 +709,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -805,6 +813,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -884,6 +893,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -976,6 +986,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -1079,6 +1090,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -1158,6 +1170,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -1250,6 +1263,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -1353,6 +1367,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -1420,6 +1435,7 @@
           "gapMs": 10000,
           "providerStateAfter": null,
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -1487,6 +1503,7 @@
           "gapMs": 10000,
           "providerStateAfter": null,
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -1552,6 +1569,7 @@
           "gapMs": 10000,
           "providerStateAfter": null,
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -1631,6 +1649,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -1734,6 +1753,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -1842,6 +1862,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -1968,6 +1989,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -2112,6 +2134,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -2287,6 +2310,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -2467,6 +2491,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -2665,6 +2690,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -2881,6 +2907,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -3128,6 +3155,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -3380,6 +3408,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -3650,6 +3679,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -3938,6 +3968,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -4247,6 +4278,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -4339,6 +4371,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -4442,6 +4475,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -4550,6 +4584,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -4676,6 +4711,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -4820,6 +4856,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -4995,6 +5032,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -5175,6 +5213,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -5373,6 +5412,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -5589,6 +5629,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -5836,6 +5877,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -6088,6 +6130,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -6358,6 +6401,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -6646,6 +6690,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -6955,6 +7000,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -7073,6 +7119,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -7202,6 +7249,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -7281,6 +7329,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -7384,6 +7433,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -7492,6 +7542,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -7564,6 +7615,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -7643,6 +7695,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -7746,6 +7799,7 @@
             }
           },
           "freshProcess": true,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -7854,6 +7908,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -7933,6 +7988,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -8036,6 +8092,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -8169,6 +8226,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -8273,6 +8331,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -8376,6 +8435,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -8475,6 +8535,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -8580,6 +8641,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -8709,6 +8771,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -8788,6 +8851,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -8891,6 +8955,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -8999,6 +9064,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -9071,6 +9137,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -9150,6 +9217,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -9253,6 +9321,7 @@
             }
           },
           "freshProcess": true,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -9361,6 +9430,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -9440,6 +9510,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -9543,6 +9614,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -9676,6 +9748,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -9780,6 +9853,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -9883,6 +9957,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -9982,6 +10057,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -10037,6 +10113,7 @@
           "gapMs": 10000,
           "providerStateAfter": null,
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -10090,6 +10167,7 @@
           "gapMs": 10000,
           "providerStateAfter": null,
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -10170,6 +10248,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -10274,6 +10353,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -10354,6 +10434,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -10447,6 +10528,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -10539,6 +10621,12 @@
             }
           },
           "freshProcess": false,
+          "notices": [
+            {
+              "tone": "warn",
+              "message": "gemini-2.5-pro is now served by Google as gemini-3.8-flash (redirect effective 2026-12-01; billed at gemini-3.8-flash rates)"
+            }
+          ],
           "requests": [
             {
               "method": "POST",
@@ -10642,6 +10730,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -10721,6 +10810,12 @@
             }
           },
           "freshProcess": false,
+          "notices": [
+            {
+              "tone": "warn",
+              "message": "gemini-2.5-flash is now served by Google as gemini-3.5-flash-lite (redirect effective 2026-12-01; billed at gemini-3.5-flash-lite rates)"
+            }
+          ],
           "requests": [
             {
               "method": "POST",
@@ -10824,6 +10919,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -10903,6 +10999,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
@@ -11006,6 +11103,7 @@
             }
           },
           "freshProcess": false,
+          "notices": [],
           "requests": [
             {
               "method": "POST",
