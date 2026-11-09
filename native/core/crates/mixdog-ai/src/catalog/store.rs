@@ -125,22 +125,66 @@ pub enum Ask {
 
 type Listing = Result<Vec<ModelRecord>, ProviderError>;
 
-/// The one listing in flight for a provider. Joined by callers of the same
-/// account epoch; dropping the last handle cancels the work.
+/// A listing operation (`startOp`): driven on its own task until it settles,
+/// whatever its callers do.
+#[derive(Clone)]
 struct Flight {
     epoch: u64,
     serial: u64,
+    /// A caller's deadline passed while it waited on this operation (`op.timedOut`).
+    timed_out: Arc<std::sync::atomic::AtomicBool>,
     work: Shared<BoxFuture<'static, Listing>>,
 }
 
-pub(super) fn deadline_error(provider: &ProviderId) -> ProviderError {
+/// The operation tables of `catalog-deadline.mjs`. An operation leaves both only
+/// when its work settles, never when a caller gives up.
+#[derive(Default)]
+struct Flights {
+    /// `pendingOps`: the latest operation started for each provider.
+    latest: HashMap<ProviderId, Flight>,
+    /// `runningOps`: every unsettled operation of each provider, of any epoch.
+    running: HashMap<ProviderId, Vec<Flight>>,
+}
+
+impl Flights {
+    /// The settlement cleanup (`catalog-deadline.mjs:87-92`).
+    fn settle(&mut self, provider: &ProviderId, serial: u64) {
+        if self.latest.get(provider).is_some_and(|f| f.serial == serial) {
+            self.latest.remove(provider);
+        }
+        if let Some(running) = self.running.get_mut(provider) {
+            running.retain(|f| f.serial != serial);
+            if running.is_empty() {
+                self.running.remove(provider);
+            }
+        }
+    }
+
+    /// `isStalled(name, kind)`: an unsettled operation overran a deadline.
+    fn stalled(&self, provider: &ProviderId) -> bool {
+        self.running.get(provider).is_some_and(|ops| ops.iter().any(|f| f.timed_out.load(Ordering::SeqCst)))
+    }
+}
+
+fn timeout_error(message: String) -> ProviderError {
     let mut err = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
     err.code = Some("ETIMEDOUT".to_owned());
-    err.message = format!(
-        "provider \"{provider}\" catalog list did not finish within {}ms",
-        LIST_DEADLINE.as_millis()
-    );
+    err.message = message;
     err
+}
+
+pub(super) fn deadline_error(provider: &ProviderId) -> ProviderError {
+    timeout_error(format!("provider \"{provider}\" catalog list did not finish within {}ms", LIST_DEADLINE.as_millis()))
+}
+
+/// A caller that finds its own operation past a deadline (`catalog-deadline.mjs:149`).
+fn pending_error(provider: &ProviderId) -> ProviderError {
+    timeout_error(format!("provider \"{provider}\" catalog list is still pending after its deadline"))
+}
+
+/// A caller of a newer epoch that finds an older operation stalled (`catalog-deadline.mjs:142`).
+fn stalled_error(provider: &ProviderId) -> ProviderError {
+    timeout_error(format!("provider \"{provider}\" catalog list ignored its deadline and is still pending"))
 }
 
 struct Listed {
@@ -160,7 +204,7 @@ pub struct ProviderCatalog {
     /// snapshot was cleared.
     publish_lock: Mutex<()>,
     serial: AtomicU64,
-    flights: Mutex<HashMap<ProviderId, Flight>>,
+    flights: Arc<Mutex<Flights>>,
     /// Why each provider's latest listing failed (`providerCatalogFailure`).
     failures: Arc<CatalogFailureStore>,
     now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
@@ -173,7 +217,7 @@ impl ProviderCatalog {
             epoch: AtomicU64::new(0),
             publish_lock: Mutex::new(()),
             serial: AtomicU64::new(0),
-            flights: Mutex::new(HashMap::new()),
+            flights: Arc::default(),
             failures: Arc::new(CatalogFailureStore::default()),
             now_ms: Arc::new(|| {
                 std::time::SystemTime::now()
@@ -192,11 +236,12 @@ impl ProviderCatalog {
     /// An auth/account change (`invalidateSharedProviderCatalog`): the rows
     /// listed under the previous account are dropped, so the next due refresh
     /// asks every provider, and listings still running for the old one are
-    /// neither joined nor published.
+    /// neither joined nor published. They keep running, and one that stalled
+    /// still holds its provider (`bumpProviderCatalogGeneration` leaves the
+    /// operation tables alone).
     pub fn invalidate_accounts(&self) {
         let _publishing = self.publish_lock.lock().unwrap_or_else(PoisonError::into_inner);
         self.epoch.fetch_add(1, Ordering::SeqCst);
-        self.flights.lock().unwrap_or_else(PoisonError::into_inner).clear();
         // The failures belonged to the previous account too (`clearProviderCatalogFailures`).
         self.failures.clear();
         self.current.rcu(|current| {
@@ -208,37 +253,49 @@ impl ProviderCatalog {
         });
     }
 
-    /// One bounded, single-flight listing (`boundedProviderCatalogOp`). A
-    /// listing that misses the deadline is dropped, which cancels it.
+    /// One bounded, single-flight listing (`boundedProviderCatalogOp`). The
+    /// caller waits at most the deadline; the operation runs on until it
+    /// settles, and while it overran a deadline nobody asks the provider again.
     async fn list_bounded(&self, source: &ModelSource, epoch: u64) -> Listing {
         let provider = source.provider().clone();
-        let (serial, work) = {
+        let flight = {
             let mut flights = self.flights.lock().unwrap_or_else(PoisonError::into_inner);
-            match flights.get(&provider) {
-                Some(flight) if flight.epoch == epoch => (flight.serial, flight.work.clone()),
+            match flights.latest.get(&provider) {
+                // `catalog-deadline.mjs:146-150`: fail fast instead of waiting out another deadline.
+                Some(flight) if flight.epoch == epoch && flight.timed_out.load(Ordering::SeqCst) => {
+                    return Err(pending_error(&provider));
+                }
+                Some(flight) if flight.epoch == epoch => flight.clone(),
+                // Superseded (`:140-145`): a stalled operation of any epoch holds the provider.
+                _ if flights.stalled(&provider) => return Err(stalled_error(&provider)),
                 _ => {
                     let serial = self.serial.fetch_add(1, Ordering::SeqCst);
-                    let source = source.clone();
-                    let work: Shared<BoxFuture<'static, Listing>> =
-                        async move { source.list().await }.boxed().shared();
-                    flights.insert(provider.clone(), Flight { epoch, serial, work: work.clone() });
-                    (serial, work)
+                    let (source, tables, settled) = (source.clone(), self.flights.clone(), provider.clone());
+                    // The work leaves the tables inside its own future, so no caller sees its answer while it is
+                    // still listed (`settled.then` cleanup runs before the callers' races in Node).
+                    let work: Shared<BoxFuture<'static, Listing>> = async move {
+                        let listing = source.list().await;
+                        tables.lock().unwrap_or_else(PoisonError::into_inner).settle(&settled, serial);
+                        listing
+                    }
+                    .boxed()
+                    .shared();
+                    let flight = Flight { epoch, serial, timed_out: Arc::default(), work: work.clone() };
+                    flights.latest.insert(provider.clone(), flight.clone());
+                    flights.running.entry(provider.clone()).or_default().push(flight.clone());
+                    tokio::spawn(work.map(drop));
+                    flight
                 }
             }
         };
         // Node's deadline timer is set before the listing's own 4 s fetch timer, so on a tie it wins; poll it first.
-        let outcome = tokio::select! {
+        tokio::select! {
             biased;
-            () = tokio::time::sleep(LIST_DEADLINE) => Err(()),
-            listing = work => Ok(listing),
-        };
-        let mut flights = self.flights.lock().unwrap_or_else(PoisonError::into_inner);
-        if flights.get(&provider).is_some_and(|f| f.serial == serial) {
-            flights.remove(&provider);
-        }
-        match outcome {
-            Ok(listing) => listing,
-            Err(_) => Err(deadline_error(&provider)),
+            () = tokio::time::sleep(LIST_DEADLINE) => {
+                flight.timed_out.store(true, Ordering::SeqCst);
+                Err(deadline_error(&provider))
+            }
+            listing = flight.work => listing,
         }
     }
 
@@ -431,6 +488,22 @@ mod tests {
         (ModelSource::new(id.into(), Arc::new(Slow { delay, calls: calls.clone() })), calls)
     }
 
+    /// Fails at once and counts the calls.
+    struct Failing(Arc<AtomicU64>);
+
+    #[async_trait]
+    impl ModelListing for Failing {
+        async fn list_models(&self) -> Result<Vec<ListedRecord>, ProviderError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent))
+        }
+    }
+
+    fn failing(id: &str) -> (ModelSource, Arc<AtomicU64>) {
+        let calls = Arc::new(AtomicU64::new(0));
+        (ModelSource::new(id.into(), Arc::new(Failing(calls.clone()))), calls)
+    }
+
     fn clocked(clock: &Arc<AtomicU64>) -> ProviderCatalog {
         let clock = clock.clone();
         ProviderCatalog::new(CatalogSnapshot::default()).with_clock(Arc::new(move || clock.load(Ordering::SeqCst)))
@@ -451,12 +524,12 @@ mod tests {
         assert_eq!(snap.models_of(&"fast".into()).len(), 1);
 
         // A provider that answered once keeps its models through a failure.
-        let (now_ok, _) = slow("hung", Some(Duration::from_millis(1)));
-        catalog.refresh(&[fast.clone(), now_ok]).await;
-        let (hung_again, _) = slow("hung", None);
-        catalog.refresh(&[fast, hung_again]).await;
-        assert_eq!(catalog.snapshot().models_of(&"hung".into()).len(), 1);
-        assert!(catalog.snapshot().partial());
+        let kept = clocked(&clock);
+        let (ok, _) = slow("hung", Some(Duration::from_millis(1)));
+        kept.refresh(&[fast.clone(), ok]).await;
+        kept.refresh(&[fast, hung]).await;
+        assert_eq!(kept.snapshot().models_of(&"hung".into()).len(), 1);
+        assert!(kept.snapshot().partial());
     }
 
     #[tokio::test(start_paused = true)]
@@ -464,7 +537,7 @@ mod tests {
         let clock = Arc::new(AtomicU64::new(0));
         let catalog = clocked(&clock);
         let (good, good_calls) = slow("good", Some(Duration::from_millis(1)));
-        let (bad, bad_calls) = slow("bad", None);
+        let (bad, bad_calls) = failing("bad");
         let sources = [good, bad];
         catalog.refresh_asking(&sources, Ask::Due).await;
         assert_eq!((good_calls.load(Ordering::SeqCst), bad_calls.load(Ordering::SeqCst)), (1, 1));
@@ -479,7 +552,7 @@ mod tests {
         catalog.refresh(&sources).await;
         assert_eq!(good_calls.load(Ordering::SeqCst), 2);
 
-        let (only, only_calls) = slow("only", None);
+        let (only, only_calls) = failing("only");
         let total = clocked(&clock);
         total.refresh_asking(std::slice::from_ref(&only), Ask::Due).await;
         total.refresh_asking(std::slice::from_ref(&only), Ask::Due).await;
@@ -499,16 +572,20 @@ mod tests {
     }
 
     /// Node's deadline timer is armed before the listing's own 4 s timer, so a listing that ends exactly at the deadline
-    /// (a cold Claude OAuth warm against an unreachable registry) has missed it (`record-catalog-deadline-tie.mjs`):
-    /// each unforced read publishes Node's models and state, and asks the providers Node asked.
+    /// (a cold Claude OAuth warm against an unreachable registry) has missed it (`record-catalog-deadline-tie.mjs`).
+    /// Three unforced reads, each against its own recorded point: the first, answered while the tied listing is still
+    /// pending; one at once, while it still is; and one after it settled at the same instant. Each publishes Node's
+    /// models and state at Node's time, asks the providers Node asked and leaves Node's operations pending.
     #[tokio::test(start_paused = true)]
-    async fn a_listing_ending_exactly_at_the_deadline_reads_as_nodes() {
+    async fn a_listing_ending_exactly_at_the_deadline_reads_as_nodes_at_each_point() {
         let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/catalog-deadline-tie/golden.json")).unwrap();
         let now = golden["now"].as_u64().unwrap();
+        // One virtual clock for the whole recording, as the recorder's.
+        let start = tokio::time::Instant::now();
+        let at = move || start.elapsed().as_millis() as u64;
         for scenario in golden["scenarios"].as_array().unwrap() {
             let name = scenario["name"].as_str().unwrap();
-            let clock = Arc::new(AtomicU64::new(now));
-            let catalog = clocked(&clock);
+            let catalog = ProviderCatalog::new(CatalogSnapshot::default()).with_clock(Arc::new(move || now + at()));
             let (sources, calls): (Vec<_>, Vec<_>) = scenario["providers"]
                 .as_array()
                 .unwrap()
@@ -517,7 +594,24 @@ mod tests {
                 .unzip();
             // The latest listing's error per provider: what Node's kept entry carries.
             let mut codes = BTreeMap::new();
-            for (read, calls_key) in [("first", "callsAfterFirst"), ("second", "callsAfterSecond")] {
+            let pending = |catalog: &ProviderCatalog| {
+                let flights = catalog.flights.lock().unwrap();
+                let names: Vec<&str> = flights.latest.keys().map(ProviderId::as_str).collect();
+                let stalled: Vec<serde_json::Value> = flights
+                    .running
+                    .iter()
+                    .flat_map(|(p, ops)| ops.iter().filter(|f| f.timed_out.load(Ordering::SeqCst)).map(move |_| p))
+                    .map(|p| serde_json::json!({ "name": p.as_str(), "kind": "list" }))
+                    .collect();
+                (serde_json::json!(names), serde_json::Value::Array(stalled))
+            };
+            let tie = |catalog: &ProviderCatalog| catalog.flights.lock().unwrap().latest[&ProviderId::from("tie")].work.clone();
+            for point in ["first", "whilePending", "afterSettle"] {
+                if point == "afterSettle" {
+                    // The tied listing's own timer, at the instant the deadline fired; its settlement leaves the table.
+                    tie(&catalog).await.unwrap();
+                    assert_eq!(pending(&catalog).0, scenario["settledOps"], "{name}: operations once the listing settled");
+                }
                 let outcome = catalog.refresh_asking(&sources, Ask::Due).await;
                 for (provider, error) in &outcome.failed {
                     codes.insert(provider.clone(), error.code.clone());
@@ -533,19 +627,30 @@ mod tests {
                         });
                         if let Some(ProviderStatus::Missing { retry_at, message }) = snapshot.status.get(provider) {
                             entry["error"] = serde_json::json!({ "code": codes[provider], "message": message });
-                            entry["retryAfterMs"] = serde_json::json!(retry_at - now);
+                            entry["retryAt"] = serde_json::json!(retry_at - now);
                         }
                         entry
                     })
                     .collect();
-                assert_eq!(serde_json::Value::Array(entries), scenario[read], "{name}: {read} read");
+                let recorded = &scenario[point];
+                assert_eq!(serde_json::Value::Array(entries), recorded["entries"], "{name}: {point} entries");
                 let asked: serde_json::Map<String, serde_json::Value> = sources
                     .iter()
                     .zip(&calls)
                     .map(|(s, c)| (s.provider().as_str().to_owned(), c.load(Ordering::SeqCst).into()))
                     .collect();
-                assert_eq!(serde_json::Value::Object(asked), scenario[calls_key], "{name}: providers asked by the {read} read");
+                assert_eq!(serde_json::Value::Object(asked), recorded["calls"], "{name}: providers asked by {point}");
+                assert_eq!(serde_json::json!(at()), recorded["at"], "{name}: time of {point}");
+                let (names, stalled) = pending(&catalog);
+                assert_eq!(names, recorded["pendingOps"], "{name}: operations pending after {point}");
+                assert_eq!(stalled, recorded["stalled"], "{name}: operations stalled after {point}");
             }
+            // A listing the last read started runs to its end before the next scenario, as the recorder drives it.
+            let left = catalog.flights.lock().unwrap().latest.values().map(|f| f.work.clone()).collect::<Vec<_>>();
+            for work in left {
+                let _ = work.await;
+            }
+            assert!(catalog.flights.lock().unwrap().running.is_empty(), "{name}: nothing pends at the end");
         }
     }
 
