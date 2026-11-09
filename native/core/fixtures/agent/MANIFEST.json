@@ -98,14 +98,14 @@
       "sha256": "cfe78a5a4d229cc0fbdb2f72ca74ebb05429e596ce588067da85ba96fe8aea32"
     },
     {
-      "bytes": 52954,
+      "bytes": 53779,
       "path": "connect-errors/golden/connect_errors.json",
-      "sha256": "826685c8cf8d49bc2cdfbdd37cf770ae1f34780d529895e205de486d8457e26d"
+      "sha256": "cd537f08107415eb89cf60ce16b6ed93b8324749360c1f05f6fa888964f82c7a"
     },
     {
-      "bytes": 29114,
+      "bytes": 30208,
       "path": "connect-errors/record.mjs",
-      "sha256": "c770803dfcaf42ebd9f59b5a60ffd6ff637751526c30e802fe1bbe0e2232ee12"
+      "sha256": "c44989d1ef846b76492a8f4217daf47ed2a031472dbca865dcfe09dfa2021d01"
     },
     {
       "bytes": 1817,
@@ -441,5 +441,5 @@
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
   "set": "agent",
-  "totalBytes": 4205024
+  "totalBytes": 4206943
 }

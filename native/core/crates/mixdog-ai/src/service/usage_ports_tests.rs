@@ -261,6 +261,24 @@ async fn a_refusal_of_the_transport_reads_as_nodes_fetch_failed_or_timeout() {
     assert_eq!(get(io.clone(), false).await.message, "The operation was aborted due to timeout");
     assert_eq!(get(io, true).await.message, "This operation was aborted");
 }
+/// The OpenCode Go status read is a bare `AbortController` timer (`sites.opencodeGoUsage`).
+#[tokio::test(start_paused = true)]
+async fn the_opencode_go_status_read_ends_as_nodes_does_when_its_timer_fires() {
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_thrown;
+    use crate::transport::site_probe::assert_transport;
+
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let store = AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+    let transport = TimingOut::new();
+    let source = ProviderUsageSource::new(store, transport.clone());
+    let credentials = serde_json::from_value(json!({ "access_token": "a", "refresh_token": "r", "org_id": "o" })).unwrap();
+    let error = source.opencode_status(&credentials).await.expect_err("never answers");
+    assert_transport("opencodeGoUsage", &transport);
+    assert_thrown("opencodeGoUsage", &error.message);
+}
+
 #[tokio::test]
 async fn a_provider_without_a_signed_in_credential_fails_and_one_without_usage_is_left_alone() {
     let dir = tempfile::tempdir().unwrap();

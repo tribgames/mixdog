@@ -195,3 +195,24 @@ impl PkceProvider for OpenAiLogin {
         Ok(label)
     }
 }
+
+#[cfg(test)]
+mod site_tests {
+    use super::*;
+    use crate::oauth::CredentialIo;
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_transport;
+
+    /// The code exchange is a raw `fetch` under `AbortSignal.timeout` (`sites.openaiCodeExchange`); Node words the failure
+    /// itself (`oauthRequestError`), so only the request's class and window are compared.
+    #[tokio::test(start_paused = true)]
+    async fn the_code_exchange_arms_nodes_timer_and_reads_the_signals_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(dir.path().join("openai-oauth.json"), CredentialIo { read: rt.interactive_io, write: rt.durability_io });
+        let transport = TimingOut::new();
+        let failure = OpenAiLogin::new(file, transport.clone()).exchange("abc", "v", "http://localhost/cb").await.expect_err("never answers");
+        assert_transport("openaiCodeExchange", &transport);
+        assert!(matches!(failure, LoginFailure::Failed { ref code, .. } if code == "transport"), "{failure:?}");
+    }
+}
