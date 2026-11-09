@@ -67,13 +67,12 @@ Object.assign(process.env, {
 register(new URL('./lib/gate-hooks.mjs', import.meta.url));
 const imp = (rel) => import(pathToFileURL(join(tree, rel)).href);
 
-const started = Date.now();
 const log = [];
 const waiters = [];
 const realWrite = process.stderr.write.bind(process.stderr);
 process.stderr.write = (chunk, ...rest) => {
   for (const line of String(chunk).split('\n').filter(Boolean)) {
-    log.push({ ms: Date.now() - started, line: line.replaceAll(dataDir, '<DATA>') });
+    log.push({ line:line.replaceAll(dataDir, '<DATA>') });
     for (const waiter of [...waiters]) if (waiter.pattern.test(line)) { waiters.splice(waiters.indexOf(waiter), 1); waiter.resolve(line); }
   }
   return realWrite(chunk, ...rest);
@@ -221,7 +220,6 @@ if (scenario === 'start-after-save') {
   result.steps.push(await observe('stamp-persisted'));
 }
 result.log = log.filter((entry) => /^mixdog( webhook| scheduler)?: /.test(entry.line)).map((entry) => entry.line.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, '<id>'));
-result.trace = log.map((entry) => `${entry.ms} ${entry.line}`);
 writeFileSync(args.get('out'), JSON.stringify(result, null, 1));
 try { await (await loader.ensure()).stop(); } catch {}
 await pgAdapter.shutdownOwnedPg({ timeoutMs: 20_000 }).catch(() => {});
