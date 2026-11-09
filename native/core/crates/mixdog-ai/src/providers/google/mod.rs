@@ -20,6 +20,7 @@ pub mod error;
 pub mod json;
 pub mod models;
 pub mod policy;
+pub mod redirect;
 pub mod request;
 pub mod schema;
 pub mod serving;
@@ -28,6 +29,8 @@ pub mod traits;
 
 #[cfg(test)]
 mod conformance;
+#[cfg(test)]
+mod wire_tests;
 #[cfg(test)]
 mod tool_accept_tests;
 
@@ -46,14 +49,35 @@ pub fn gemini(
     http: Arc<dyn HttpSend>,
     traits: Arc<dyn ModelTraits>,
 ) -> GoogleAdapter {
+    gemini_with(
+        api_key,
+        http,
+        traits,
+        Arc::new(cache::runtime::RtCacheRuntime),
+        cache::registry::Registry::shared(),
+        cache::policy::Tuning::from_env(|name| std::env::var(name).ok()),
+    )
+}
+
+/// [`gemini`] over the given clock/task seam, cache registry and tuning: the one wiring, so a test drives the
+/// production adapter with a virtual clock.
+pub fn gemini_with(
+    api_key: impl Into<String>,
+    http: Arc<dyn HttpSend>,
+    traits: Arc<dyn ModelTraits>,
+    runtime: Arc<dyn cache::layer::CacheRuntime>,
+    registry: Arc<cache::registry::Registry>,
+    tuning: cache::policy::Tuning,
+) -> GoogleAdapter {
     let api_key = api_key.into();
+    let clock = runtime.clone();
     let cache = cache::layer::ExplicitCache::new(
         api_key.clone(),
         codec::GEMINI_ORIGIN,
         http.clone(),
-        Arc::new(cache::runtime::RtCacheRuntime),
-        cache::registry::Registry::shared(),
-        cache::policy::Tuning::from_env(|name| std::env::var(name).ok()),
+        runtime,
+        registry,
+        tuning,
     );
     GoogleAdapter::new(
         GoogleCodec::gemini(codec::GEMINI_ORIGIN, traits),
@@ -63,6 +87,7 @@ pub fn gemini(
         String::new(),
     )
     .with_cache(cache)
+    .with_clock(Arc::new(move || clock.now_ms()))
 }
 
 /// `vertex-ai` on a project, with minted tokens or a key. `place` decides each

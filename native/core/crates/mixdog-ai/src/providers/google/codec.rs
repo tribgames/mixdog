@@ -171,9 +171,10 @@ impl GoogleCodec {
             family_gated: false,
             replay_same_model: true,
             default_tool_mode: None,
+            omit_ignored_sampling: false,
         };
         match self.target {
-            Target::Gemini { .. } => base,
+            Target::Gemini { .. } => Dialect { omit_ignored_sampling: true, ..base },
             Target::Vertex { .. } => Dialect {
                 system_role: None,
                 function_ids: false,

@@ -41,6 +41,7 @@ use super::codec::Attach;
 use super::codec::GoogleCodec;
 use super::codec::Target;
 use super::models;
+use super::redirect;
 use crate::catalog::ListingLookup;
 use crate::transport::BodyStream;
 use crate::transport::HttpResponse;
@@ -56,6 +57,7 @@ pub struct GoogleAdapter {
     /// The account the codec's target was built for.
     identity: String,
     cache: Option<ExplicitCache>,
+    clock: Option<Arc<dyn Fn() -> u64 + Send + Sync>>,
     /// Antigravity's records that carry a `wire`: the one source of the route
     /// table, from the last listing or the catalog's restored snapshot.
     roster: Mutex<Vec<ModelRecord>>,
@@ -80,6 +82,7 @@ impl GoogleAdapter {
             auth,
             identity,
             cache: None,
+            clock: None,
             roster: Mutex::default(),
             lookup: ListingLookup::new(),
         }
@@ -127,6 +130,37 @@ impl GoogleAdapter {
             routed.options.effort = effort;
         }
         Arc::new(routed)
+    }
+
+    /// The Gemini API's clock, for the dated model redirects (`this._now`).
+    pub fn with_clock(mut self, clock: Arc<dyn Fn() -> u64 + Send + Sync>) -> Self {
+        self.clock = Some(clock);
+        self
+    }
+
+    /// `_servedModel`: the direct Gemini API serves some ids as another model from a date on; the served id is the
+    /// request's model for the whole request (wire id, cache, settings), announced once per process.
+    fn served(&self, request: Arc<ModelRequest>) -> Arc<ModelRequest> {
+        let (Target::Gemini { .. }, Some(clock)) = (self.codec.target(), self.clock.as_ref()) else {
+            return request;
+        };
+        let Some(target) = redirect::served_as(&request.model, clock()) else {
+            return request;
+        };
+        let requested = request.model.strip_prefix("models/").unwrap_or(&request.model).to_lowercase();
+        static ANNOUNCED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        {
+            let mut announced = ANNOUNCED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if !announced.contains(&requested) {
+                announced.push(requested.clone());
+                mixdog_rt::node_stderr!(
+                    "[gemini] {requested} is now served by Google as {target} (redirect effective 2026-12-01; billed at {target} rates)"
+                );
+            }
+        }
+        let mut served = (*request).clone();
+        served.model = target.to_owned();
+        Arc::new(served)
     }
 
     /// A request built for one account must not run under another's.
@@ -287,7 +321,7 @@ impl ProviderAdapter for GoogleAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        let request = self.routed(request);
+        let request = self.served(self.routed(request));
         // State changes reach the session only as stream events: Node persists
         // `providerState` from a delivered result alone (`ask-turn-settle.mjs:147`),
         // never from a failed send, so no error carries one.
