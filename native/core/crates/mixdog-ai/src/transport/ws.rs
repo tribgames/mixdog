@@ -221,8 +221,35 @@ pub async fn connect_via(
     });
     let target = uri.to_string();
     let stream = open_stream(&host, port, &target, schedule, policy).await?;
+    connect_over(request, stream, schedule, None).await
+}
+
+/// The upgrade of `request` over the TCP connection to `addr` instead of the one its host names, trusting `tls` alone:
+/// the request (url, `Host`, SNI) and everything after the connect are the production path, so a loopback server
+/// receives what the real one would.
+pub async fn connect_pinned(
+    request: tungstenite::handshake::client::Request,
+    addr: std::net::SocketAddr,
+    schedule: &KeepaliveSchedule,
+    tls: Arc<rustls::ClientConfig>,
+) -> Result<(WsConnection, Response<Option<Vec<u8>>>), ConnectError> {
+    let stream = tcp::connect(addr, &schedule.tcp)
+        .await
+        .map(Conn::Tcp)
+        .map_err(|err| ConnectError::Transport(fault_from_io(&err, true)))?;
+    connect_over(request, stream, schedule, Some(tokio_tungstenite::Connector::Rustls(tls))).await
+}
+
+/// The upgrade of `request` over an already open `stream`, and the connection that follows. `connector` is the TLS
+/// configuration of the handshake; `None` is tungstenite's default (the native roots).
+async fn connect_over(
+    request: tungstenite::handshake::client::Request,
+    stream: Conn,
+    schedule: &KeepaliveSchedule,
+    connector: Option<tokio_tungstenite::Connector>,
+) -> Result<(WsConnection, Response<Option<Vec<u8>>>), ConnectError> {
     let (socket, response) = tokio_tungstenite::client_async_tls_with_config(
-        request, stream, None, None,
+        request, stream, None, connector,
     )
     .await
     .map_err(|err| match err {
