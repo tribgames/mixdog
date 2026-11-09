@@ -32,7 +32,7 @@ function rig() {
 test('the set is sent when it changes and not repeated when it does not', () => {
   const { sent, client, state, source } = rig();
   const reporter = createScreenReporter(client, source);
-  assert.deepEqual(sent, [], 'nothing is stated before the connection has synced its view');
+  assert.equal(sent.length, 0, 'nothing is stated before the connection has synced its view');
   reporter.synced();
   assert.deepEqual(sent, [{ method: SCREEN_SESSIONS_CHANGED, params: { sessionIds: ['t1'], browserId: 'b1', foreground: true } }]);
   reporter.refresh();

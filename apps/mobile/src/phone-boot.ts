@@ -77,6 +77,10 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     switch (next.state) {
       case 'connecting':
       case 'reconnecting':
+        // Node's finishClose: no connection is ready, and until a host's challenge says otherwise there is no host to read capabilities from.
+        ctx.connectionReady = false;
+        ctx.peerBrowserWebrtc = 0;
+        ctx.peerBrowserFit = null;
         setRemoteConnectionState(next.state);
         return;
       case 'connected':
@@ -84,6 +88,10 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
         background = hidden();
         resyncOnWake = false;
         ctx.connectionReady = true;
+        // Node's finishOpen: connection history is recorded at once, so a first connection that dies before its first sync completes still
+        // makes its replacement a reconnection; the notice is told after that replacement syncs (onSynced).
+        ctx.pendingReconnectNotification = ctx.everConnected;
+        ctx.everConnected = true;
         setRemoteConnectionPhase('sync');
         setRemoteConnectionState('syncing');
         if (!ctx.everPaired) {
@@ -112,13 +120,16 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     }
   };
 
-  const onSynced = (reconnected: boolean): void => {
+  const onSynced = (): void => {
     ctx.restoredVisibleSessionIds = [];
     setRemoteConnectionState('connected');
     window.dispatchEvent(new Event(REMOTE_CONNECTION_READY_EVENT));
     phone?.screen?.synced();
     // Terminal panes can hold PTY ids from the connection that died: told only after the replacement settled.
-    if (reconnected) window.dispatchEvent(new Event('mixdog:remote-reconnected'));
+    if (ctx.pendingReconnectNotification) {
+      ctx.pendingReconnectNotification = false;
+      window.dispatchEvent(new Event('mixdog:remote-reconnected'));
+    }
   };
 
   const register = async (): Promise<void> => {
