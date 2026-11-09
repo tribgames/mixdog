@@ -652,6 +652,27 @@ mod tests {
         (dir, root, ProjectFs::new(store))
     }
 
+    /// Node's `a.localeCompare(b)` puts "a" before "B" before "c" and "é" next to "e"; a lowercase-byte sort does not.
+    #[test]
+    fn listing_orders_names_as_node_locale_compare_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical(dir.path()).unwrap();
+        for name in ["c.txt", "B.txt", "a.txt", "é.txt", "e2.txt", "e10.txt"] {
+            fs::write(root.join(name), "").unwrap();
+        }
+        let names: Vec<String> = list_dir(&root, ".").unwrap().into_iter().map(|i| i.name).collect();
+        // ICU: case and accents are secondary to the letters, and "." sorts before digits, so "é.txt" precedes "e10.txt".
+        assert_eq!(names, ["a.txt", "B.txt", "c.txt", "é.txt", "e10.txt", "e2.txt"]);
+    }
+
+    /// The phone shows the words of Node's failed `stat`: code, description, call, path.
+    #[test]
+    fn a_missing_file_fails_with_nodes_system_error_text() {
+        let (_d, root, _fs) = fixture();
+        let error = stat(&root, "missing.txt").unwrap_err();
+        assert!(error.message.starts_with("ENOENT: no such file or directory, stat '"), "{}", error.message);
+    }
+
     #[test]
     fn list_read_stat_match_the_recorded_cases() {
         let (_d, root, _fs) = fixture();
@@ -661,7 +682,7 @@ mod tests {
         let bom = read_text(&root, "bom8.txt").unwrap();
         assert_eq!((bom.encoding, bom.content.as_str()), ("utf8bom", "bom\n"));
         assert!(read_text(&root, "bin.dat").unwrap().binary);
-        assert_eq!(read_text(&root, "missing.txt").unwrap_err().reason, Reason::NotFound);
+        assert_eq!(read_text(&root, "missing.txt").unwrap_err().reason, Reason::Coded("ENOENT".into()));
         assert_eq!(read_text(&root, "../escape.txt").unwrap_err().message, "Path is outside the project.");
         assert_eq!(stat(&root, "utf8.txt").unwrap().size, 13);
     }
