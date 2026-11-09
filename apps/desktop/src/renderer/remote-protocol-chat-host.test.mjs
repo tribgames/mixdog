@@ -10,6 +10,7 @@ import { mergeToolRows, rowOf } from '../../../../packages/protocol-client/src/r
 import { createCapabilityLane } from '../main/protocol/capability-route.ts';
 import { coreErrorForWindow } from '../main/protocol/core-error.ts';
 import { routeService } from '../main/protocol/service-route.ts';
+import { scopeClient } from '../../../mobile/src/phone-send-scope.ts';
 import { createChatApi } from './remote-protocol-chat.ts';
 import { createChatHostApi } from './remote-protocol-chat-host.ts';
 
@@ -34,27 +35,36 @@ const foldRows = (items) => mergeToolRows(items.map((item) => rowOf(item)).filte
 /** The host adapter over a scripted core: `replies` by protocol method (an Error is thrown), `state` the thread the phone holds. */
 function adapter({ replies = {}, state, remoteSession, device = 'Pixel 9' }) {
   const sent = [];
-  const protocol = {
-    call: async (method, params) => {
+  // PH-1: a call's transmission claim reaches the writer as the `sent` option of the client method (phone-send-scope.ts). The client the
+  // adapter reaches is the call's scoped client; a request written without the claim is listed in `unclaimed`.
+  const claim = () => {};
+  const unclaimed = [];
+  const raw = {
+    call: async (method, params, options) => {
       sent.push({ method, params });
+      if (options?.sent !== claim) unclaimed.push(method);
       if (!Object.hasOwn(replies, method)) throw new Error(`unscripted request ${method}`);
       const reply = replies[method];
       if (reply instanceof Error) throw reply;
       return typeof reply === 'function' ? reply(params) : reply;
     },
+    resumeThread: async (threadId, window, options) => {
+      sent.push({ resume: threadId, window });
+      if (options?.sent !== claim) unclaimed.push(`resumeThread ${threadId}`);
+      return {};
+    },
+    unsubscribeThread: async (threadId, options) => {
+      if (options?.sent !== claim) unclaimed.push(`unsubscribeThread ${threadId}`);
+    },
+    server: { connection: { device } },
+  };
+  const client = scopeClient(raw, claim);
+  const protocol = {
+    call: (method, params) => client.call(method, params),
     snapshot: () => ({ entries: [] }),
     noteUserInput() {},
     respond() {},
     pendingServerRequests: () => [],
-  };
-  const client = {
-    call: protocol.call,
-    resumeThread: async (threadId, window) => {
-      sent.push({ resume: threadId, window });
-      return {};
-    },
-    unsubscribeThread: async () => undefined,
-    server: { connection: { device } },
   };
   const shared = {
     routeService,
@@ -66,7 +76,7 @@ function adapter({ replies = {}, state, remoteSession, device = 'Pixel 9' }) {
     foldRows,
   };
   const api = createChatHostApi(client, shared, createChatApi(client, shared, {}), { remoteSession: () => remoteSession });
-  return { api, sent };
+  return { api, sent, unclaimed };
 }
 
 const failure = (error) => ({ message: error.message, ...(error.name === 'TypeError' || error.name === 'Error' ? { name: error.name } : {}), ...(error.code ? { code: error.code } : {}) });
@@ -257,3 +267,23 @@ test('a failure that is not a refusal still throws', async () => {
   await assert.rejects(api.submitToSession(S, 'hi', {}), { message: 'boom' });
 });
 
+
+// ── PH-1: every request this module writes carries the call's transmission claim ───────────────────────────────────────────────
+test('every request a host call writes is handed the call\'s claim', async () => {
+  const stale = recorded.cases.find((x) => x.group === 'stale' && x.node.result.error);
+  const { held, latest } = stale.setup;
+  const replies = {
+    'project/taskWorkspace': { path: '/phone/root/task' },
+    'thread/items/list': { data: (latest ?? []).map(itemOf), hasOlder: false, hasNewer: false },
+    'approval/provideSecret': {},
+    'turn/start': { kind: 'started', turnId: 't1' },
+  };
+  const { api, sent, unclaimed } = adapter({ replies, state: { items: held } });
+  await api.startTask();
+  await api.readTranscriptHistory(S, { before: 'r2', limit: 5 });
+  await outcome(() => api.submitToSession(...stale.args));
+  await api.provideSecretInput(...recorded.cases.find((x) => x.group === 'secret' && x.node.result === true).args);
+  const resumed = sent.filter((s) => s.resume).length;
+  assert.ok(resumed > 0 && sent.length > 4, 'the stale refusal resumed the thread, and each call wrote');
+  assert.deepEqual(unclaimed, []);
+});
