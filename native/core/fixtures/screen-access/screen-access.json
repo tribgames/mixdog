@@ -13,7 +13,8 @@
   "scenarios": [
     {
       "name": "a paired, E2EE-established phone is allowed and gets the host's display list",
-      "observation": {
+      "reply": {
+        "id": 7,
         "ok": true,
         "value": [
           {
@@ -29,26 +30,27 @@
     },
     {
       "name": "a local client, which is no relay connection, is refused and the host is not asked",
-      "observation": {
+      "reply": {
+        "id": 7,
         "ok": false,
-        "error": "Remote screen is not allowed for this device.",
-        "errorType": "TypeError"
+        "error": "Remote screen is not allowed for this device."
       },
       "hostAsked": 0
     },
     {
       "name": "a device whose unpair is in force is refused and the host is not asked",
-      "observation": {
+      "reply": {
+        "id": 7,
         "ok": false,
-        "error": "Remote screen is not allowed for this device.",
-        "errorType": "TypeError"
+        "error": "Remote screen is not allowed for this device."
       },
       "hostAsked": 0
     },
     {
       "name": "a paired phone is allowed, then its credential is unpaired and it is refused",
       "before": {
-        "observation": {
+        "reply": {
+          "id": 7,
           "ok": true,
           "value": [
             {
@@ -62,10 +64,10 @@
         },
         "hostAsked": 1
       },
-      "observation": {
+      "reply": {
+        "id": 7,
         "ok": false,
-        "error": "Remote screen is not allowed for this device.",
-        "errorType": "TypeError"
+        "error": "Remote screen is not allowed for this device."
       },
       "hostAsked": 0
     }
