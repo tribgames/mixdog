@@ -129,7 +129,7 @@
             "at": 1700000000150,
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "4636c85b-78ad-491a-b129-1922c02815d3"
+            "attemptId": "<uuid>"
           }
         ],
         "queued": [],
@@ -339,7 +339,7 @@
             "at": 1700000000600,
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "56d44a85-3903-4115-ae9b-6b742acd9876"
+            "attemptId": "<uuid>"
           }
         ],
         "queued": [],
@@ -620,7 +620,7 @@
             "at": 1700000001050,
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "972bba51-4561-408e-b71a-2caab8473ad5"
+            "attemptId": "<uuid>"
           },
           {
             "kind": "user",
@@ -784,7 +784,7 @@
             "at": 1700000001200,
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "1bce95c9-1b87-405f-96da-7dd86db35c9c"
+            "attemptId": "<uuid>"
           },
           {
             "kind": "user",
@@ -870,7 +870,7 @@
             "messageId": "msg_<random>",
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "a6b2b998-6884-4172-80b8-6848f54f19cb",
+            "attemptId": "<uuid>",
             "kind": "assistant",
             "id": "abort-9-item-1",
             "streaming": false
@@ -888,7 +888,7 @@
             "at": 1700000001350,
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "a6b2b998-6884-4172-80b8-6848f54f19cb"
+            "attemptId": "<uuid>"
           }
         ],
         "queued": [],
@@ -1078,7 +1078,7 @@
             "at": 1700000001800,
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "1c7c7031-030b-418e-b33d-b0f501d75f81"
+            "attemptId": "<uuid>"
           }
         ],
         "queued": [],
@@ -1951,7 +1951,9 @@
         "promptRestore": null,
         "promptHistory": [],
         "busy": false,
-        "publications": []
+        "publications": [],
+        "durable": null,
+        "asked": []
       }
     },
     {
@@ -1980,7 +1982,9 @@
         "promptRestore": null,
         "promptHistory": [],
         "busy": false,
-        "publications": []
+        "publications": [],
+        "durable": null,
+        "asked": []
       }
     },
     {
@@ -2065,6 +2069,51 @@
                 "outputTokens": 0,
                 "mode": "requesting"
               }
+            }
+          }
+        ],
+        "durable": null,
+        "asked": [
+          {
+            "content": " ",
+            "options": {
+              "id": "sub1",
+              "submissionIds": [
+                "sub1"
+              ],
+              "submittedAt": 1700000003100,
+              "retryFailedTurn": false,
+              "retryTurnId": null,
+              "retryAttemptId": null,
+              "transcriptMeta": {
+                "at": 1700000003100,
+                "messageId": "msg_<random>",
+                "device": "desktop-1",
+                "completionVerb": "Mapped",
+                "attemptId": "<uuid>"
+              },
+              "context": null,
+              "onSkillsApplied": "[function]",
+              "drainSteering": "[function]",
+              "onSteerMessage": "[function]",
+              "onContextPressure": "[function]",
+              "onCompactEvent": "[function]",
+              "onUsageDelta": "[function]",
+              "onAssistantToolCallObserved": "[function]",
+              "onToolCall": "[function]",
+              "onToolResult": "[function]",
+              "onToolPhaseCompleted": "[function]",
+              "onToolApproval": "[function]",
+              "onProviderSendStarted": "[function]",
+              "onStageChange": "[function]",
+              "onTextDelta": "[function]",
+              "onTextReset": "[function]",
+              "onAssistantText": "[function]",
+              "onReasoningDelta": "[function]",
+              "onStreamItemStart": "[function]",
+              "onRouteApplied": "[function]",
+              "onModelSwitch": "[function]",
+              "onSessionSwitches": "[function]"
             }
           }
         ]
@@ -2208,7 +2257,32 @@
               "cwd": "<cwd>"
             }
           }
-        ]
+        ],
+        "durable": {
+          "version": 1,
+          "updatedAt": 1700000003150,
+          "sessions": {
+            "tui_submit-23": [
+              {
+                "id": "ts_loyw3xhq_<random>",
+                "text": "hello",
+                "at": 1700000003150,
+                "submissionId": "sub1",
+                "submittedAt": 1700000003150,
+                "content": "hello",
+                "transcriptMeta": {
+                  "device": "desktop-1"
+                },
+                "mode": "prompt",
+                "priority": "next"
+              }
+            ]
+          },
+          "sessionTouchedAt": {
+            "tui_submit-23": 1700000003150
+          }
+        },
+        "asked": []
       }
     },
     {
@@ -2349,7 +2423,32 @@
               "cwd": "<cwd>"
             }
           }
-        ]
+        ],
+        "durable": {
+          "version": 1,
+          "updatedAt": 1700000003200,
+          "sessions": {
+            "tui_submit-24": [
+              {
+                "id": "ts_loyw3xj4_<random>",
+                "text": "hello",
+                "at": 1700000003200,
+                "submissionId": "sub1",
+                "submittedAt": 1700000003200,
+                "content": "hello",
+                "transcriptMeta": {
+                  "device": "desktop-1"
+                },
+                "mode": "prompt",
+                "priority": "next"
+              }
+            ]
+          },
+          "sessionTouchedAt": {
+            "tui_submit-24": 1700000003200
+          }
+        },
+        "asked": []
       }
     },
     {
@@ -2371,7 +2470,9 @@
         "promptRestore": null,
         "promptHistory": [],
         "busy": false,
-        "publications": []
+        "publications": [],
+        "durable": null,
+        "asked": []
       }
     },
     {
@@ -2513,7 +2614,32 @@
               "cwd": "<cwd>"
             }
           }
-        ]
+        ],
+        "durable": {
+          "version": 1,
+          "updatedAt": 1700000003300,
+          "sessions": {
+            "tui_submit-26": [
+              {
+                "id": "ts_loyw3xlw_<random>",
+                "text": "hello",
+                "at": 1700000003300,
+                "submissionId": "sub1",
+                "submittedAt": 1700000003300,
+                "content": "hello",
+                "transcriptMeta": {
+                  "device": "desktop-1"
+                },
+                "mode": "prompt",
+                "priority": "next"
+              }
+            ]
+          },
+          "sessionTouchedAt": {
+            "tui_submit-26": 1700000003300
+          }
+        },
+        "asked": []
       }
     },
     {
@@ -2548,6 +2674,50 @@
       "prompt": "hello",
       "itemId": "sub1",
       "busy": false,
+      "asked": {
+        "content": "hello",
+        "options": {
+          "id": "sub1",
+          "submissionIds": [
+            "sub1"
+          ],
+          "submittedAt": 1700000003400,
+          "retryFailedTurn": false,
+          "retryTurnId": null,
+          "retryAttemptId": null,
+          "transcriptMeta": {
+            "at": 1700000003400,
+            "messageId": "msg_<random>",
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "<uuid>",
+            "assistantAt": 1700000003400,
+            "assistantMessageId": "msg_<random>"
+          },
+          "context": null,
+          "onSkillsApplied": "[function]",
+          "drainSteering": "[function]",
+          "onSteerMessage": "[function]",
+          "onContextPressure": "[function]",
+          "onCompactEvent": "[function]",
+          "onUsageDelta": "[function]",
+          "onAssistantToolCallObserved": "[function]",
+          "onToolCall": "[function]",
+          "onToolResult": "[function]",
+          "onToolPhaseCompleted": "[function]",
+          "onToolApproval": "[function]",
+          "onProviderSendStarted": "[function]",
+          "onStageChange": "[function]",
+          "onTextDelta": "[function]",
+          "onTextReset": "[function]",
+          "onAssistantText": "[function]",
+          "onReasoningDelta": "[function]",
+          "onStreamItemStart": "[function]",
+          "onRouteApplied": "[function]",
+          "onModelSwitch": "[function]",
+          "onSessionSwitches": "[function]"
+        }
+      },
       "before": {
         "items": [
           {
@@ -2564,7 +2734,7 @@
             "messageId": "msg_<random>",
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "23d59300-27a6-4ad4-b7dc-9dd3d49268b9",
+            "attemptId": "<uuid>",
             "kind": "assistant",
             "id": "rewind-28-item-1",
             "streaming": false
@@ -2583,7 +2753,7 @@
             "at": 1700000003400,
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "23d59300-27a6-4ad4-b7dc-9dd3d49268b9"
+            "attemptId": "<uuid>"
           }
         ],
         "queued": [],
@@ -2601,14 +2771,57 @@
       },
       "runtimeCalls": [
         {
-          "text": "hello",
-          "messageId": "msg_<random>",
-          "dryRun": true
+          "options": {
+            "text": "hello",
+            "messageId": "msg_<random>",
+            "dryRun": true
+          },
+          "result": {
+            "removed": 2,
+            "remaining": 0,
+            "message": {
+              "role": "user",
+              "content": "hello",
+              "meta": {
+                "transcript": {
+                  "at": 1700000003400,
+                  "messageId": "msg_<random>",
+                  "device": "desktop-1",
+                  "completionVerb": "Mapped",
+                  "attemptId": "<uuid>",
+                  "assistantAt": 1700000003400,
+                  "assistantMessageId": "msg_<random>"
+                }
+              }
+            },
+            "historyMarker": "<history-marker>"
+          }
         },
         {
-          "text": "hello",
-          "messageId": "msg_<random>",
-          "expectedHistoryMarker": "marker-1"
+          "options": {
+            "text": "hello",
+            "messageId": "msg_<random>",
+            "expectedHistoryMarker": "<history-marker>"
+          },
+          "result": {
+            "removed": 2,
+            "remaining": 0,
+            "message": {
+              "role": "user",
+              "content": "hello",
+              "meta": {
+                "transcript": {
+                  "at": 1700000003400,
+                  "messageId": "msg_<random>",
+                  "device": "desktop-1",
+                  "completionVerb": "Mapped",
+                  "attemptId": "<uuid>",
+                  "assistantAt": 1700000003400,
+                  "assistantMessageId": "msg_<random>"
+                }
+              }
+            }
+          }
         }
       ],
       "after": {
@@ -2626,6 +2839,50 @@
       "prompt": "hello",
       "itemId": "zz",
       "busy": false,
+      "asked": {
+        "content": "hello",
+        "options": {
+          "id": "sub1",
+          "submissionIds": [
+            "sub1"
+          ],
+          "submittedAt": 1700000003500,
+          "retryFailedTurn": false,
+          "retryTurnId": null,
+          "retryAttemptId": null,
+          "transcriptMeta": {
+            "at": 1700000003500,
+            "messageId": "msg_<random>",
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "<uuid>",
+            "assistantAt": 1700000003500,
+            "assistantMessageId": "msg_<random>"
+          },
+          "context": null,
+          "onSkillsApplied": "[function]",
+          "drainSteering": "[function]",
+          "onSteerMessage": "[function]",
+          "onContextPressure": "[function]",
+          "onCompactEvent": "[function]",
+          "onUsageDelta": "[function]",
+          "onAssistantToolCallObserved": "[function]",
+          "onToolCall": "[function]",
+          "onToolResult": "[function]",
+          "onToolPhaseCompleted": "[function]",
+          "onToolApproval": "[function]",
+          "onProviderSendStarted": "[function]",
+          "onStageChange": "[function]",
+          "onTextDelta": "[function]",
+          "onTextReset": "[function]",
+          "onAssistantText": "[function]",
+          "onReasoningDelta": "[function]",
+          "onStreamItemStart": "[function]",
+          "onRouteApplied": "[function]",
+          "onModelSwitch": "[function]",
+          "onSessionSwitches": "[function]"
+        }
+      },
       "before": {
         "items": [
           {
@@ -2642,7 +2899,7 @@
             "messageId": "msg_<random>",
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "931d0f34-1dd5-40a4-bc1c-6f7fea181cbc",
+            "attemptId": "<uuid>",
             "kind": "assistant",
             "id": "rewind-29-item-1",
             "streaming": false
@@ -2661,7 +2918,7 @@
             "at": 1700000003500,
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "931d0f34-1dd5-40a4-bc1c-6f7fea181cbc"
+            "attemptId": "<uuid>"
           }
         ],
         "queued": [],
@@ -2690,7 +2947,7 @@
             "messageId": "msg_<random>",
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "931d0f34-1dd5-40a4-bc1c-6f7fea181cbc",
+            "attemptId": "<uuid>",
             "kind": "assistant",
             "id": "rewind-29-item-1",
             "streaming": false
@@ -2709,7 +2966,7 @@
             "at": 1700000003500,
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "931d0f34-1dd5-40a4-bc1c-6f7fea181cbc"
+            "attemptId": "<uuid>"
           }
         ],
         "queued": [],
@@ -2727,6 +2984,50 @@
       "prompt": "hello",
       "itemId": "sub1",
       "busy": true,
+      "asked": {
+        "content": "hello",
+        "options": {
+          "id": "sub1",
+          "submissionIds": [
+            "sub1"
+          ],
+          "submittedAt": 1700000003600,
+          "retryFailedTurn": false,
+          "retryTurnId": null,
+          "retryAttemptId": null,
+          "transcriptMeta": {
+            "at": 1700000003600,
+            "messageId": "msg_<random>",
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "<uuid>",
+            "assistantAt": 1700000003600,
+            "assistantMessageId": "msg_<random>"
+          },
+          "context": null,
+          "onSkillsApplied": "[function]",
+          "drainSteering": "[function]",
+          "onSteerMessage": "[function]",
+          "onContextPressure": "[function]",
+          "onCompactEvent": "[function]",
+          "onUsageDelta": "[function]",
+          "onAssistantToolCallObserved": "[function]",
+          "onToolCall": "[function]",
+          "onToolResult": "[function]",
+          "onToolPhaseCompleted": "[function]",
+          "onToolApproval": "[function]",
+          "onProviderSendStarted": "[function]",
+          "onStageChange": "[function]",
+          "onTextDelta": "[function]",
+          "onTextReset": "[function]",
+          "onAssistantText": "[function]",
+          "onReasoningDelta": "[function]",
+          "onStreamItemStart": "[function]",
+          "onRouteApplied": "[function]",
+          "onModelSwitch": "[function]",
+          "onSessionSwitches": "[function]"
+        }
+      },
       "before": {
         "items": [
           {
@@ -2743,7 +3044,7 @@
             "messageId": "msg_<random>",
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "74aae588-eb63-4b70-86ec-c21906bd4e17",
+            "attemptId": "<uuid>",
             "kind": "assistant",
             "id": "rewind-30-item-1",
             "streaming": false
@@ -2762,7 +3063,7 @@
             "at": 1700000003600,
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "74aae588-eb63-4b70-86ec-c21906bd4e17"
+            "attemptId": "<uuid>"
           }
         ],
         "queued": [],
@@ -2791,7 +3092,7 @@
             "messageId": "msg_<random>",
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "74aae588-eb63-4b70-86ec-c21906bd4e17",
+            "attemptId": "<uuid>",
             "kind": "assistant",
             "id": "rewind-30-item-1",
             "streaming": false
@@ -2810,7 +3111,7 @@
             "at": 1700000003600,
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "74aae588-eb63-4b70-86ec-c21906bd4e17"
+            "attemptId": "<uuid>"
           }
         ],
         "queued": [],

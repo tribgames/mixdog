@@ -233,6 +233,11 @@ impl Transcript for RecordTranscript {
             PromptContent::Text(text) => json!(text),
             // The parts are the model content as they are: the same fields on the wire, a stored
             // attachment named by its `attachmentRef` included.
+            // `mergePromptContents` (`queue-helpers.mjs:120`): one inline text part is its plain string.
+            PromptContent::Parts(parts) if matches!(parts.as_slice(), [PromptPart::Text { text: Some(_), .. }]) => {
+                let PromptPart::Text { text: Some(text), .. } = &parts[0] else { unreachable!() };
+                json!(text)
+            }
             PromptContent::Parts(parts) => Value::Array(parts.iter().map(|part| serde_json::to_value(part).expect("protocol types serialize")).collect()),
         };
         let options = input.options.as_ref();

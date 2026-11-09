@@ -8,7 +8,7 @@
 //
 // The Node session code runs on a virtual timer queue: `setTimeout` is held, and a timer fires only when the scenario says
 // so, in due-time then registration order, with the microtasks drained between callbacks. `Date.now` is that queue's clock.
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setImmediate as realImmediate } from 'node:timers';
@@ -61,6 +61,9 @@ const { createTranscriptStore } = await importFrom(tree, 'src/tui/session/transc
 const { createTranscriptSpillBuffer } = await importFrom(tree, 'src/tui/session/transcript-spill.mjs');
 const { createTranscriptRouteMetadata } = await importFrom(tree, 'src/runtime/shared/transcript-metadata.mjs');
 const { flushTuiSteeringPersist } = await importFrom(tree, 'src/tui/session/tui-steering-persist.mjs');
+const { pendingMessagesPath } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/manager/pending-spool-path.mjs');
+const { saveSessionAsync } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/store.mjs');
+const { rewindSessionMessagesTo } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/manager/session-crud.mjs');
 
 /** A value as the fixture keeps it: callbacks have no JSON form, so they read as a marker. */
 // The steering mirror's id ends in random bytes (`newSteeringPersistId`, tui-steering-persist.mjs): kept as a marker so a
@@ -69,7 +72,7 @@ const plain = (value) =>
   JSON.parse(
     JSON.stringify(value ?? null, (_key, held) => {
       if (typeof held === 'function') return '[function]';
-      return typeof held === 'string' ? held.replace(/^(ts_[0-9a-z]+_)[0-9a-f]{8}$/, '$1<random>').replace(/^msg_[0-9a-f]{32}$/, 'msg_<random>') : held;
+      return typeof held === 'string' ? held.replace(/^(ts_[0-9a-z]+_)[0-9a-f]{8}$/, '$1<random>').replace(/^msg_[0-9a-f]{32}$/, 'msg_<random>').replace(/^\d+:\d+:[0-9a-f]{40}$/, '<history-marker>').replace(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, '<uuid>') : held;
     }),
   );
 
@@ -126,10 +129,12 @@ function boot(sessionId) {
       active.reject(cancelled());
       return true;
     },
-    // The model-history rewind (`session-crud.mjs`) is the runtime's; what the session asks of it is what is recorded.
+    // The model-history rewind is the runtime's own (`session-ops.mjs` `rewindMessages` -> `rewindSessionMessagesTo`, session-crud.mjs),
+    // run on the session stored by `plantSession`; what the session asked of it and what it answered are recorded.
     async rewindMessages(options) {
-      rewinds.push(plain(options));
-      return { message: { content: [{ type: 'text', text: options.text }] }, historyMarker: 'marker-1', removed: 2 };
+      const result = await rewindSessionMessagesTo(sessionId, options);
+      rewinds.push({ options: plain(options), result: plain(result) });
+      return result;
     },
   };
   // `bag.drain` is not yet built when the store is: a release of `busy` re-kicks it (local-session-runtime.mjs).
@@ -184,6 +189,7 @@ function boot(sessionId) {
     abortReasons,
     publications,
     rewinds,
+    id: sessionId,
     flow: bag,
     rewind: createRewindAction(bag).rewindToItem,
     abort,
@@ -313,9 +319,13 @@ async function submitting(name, { prompt, options = {}, admission, repeat = 1, b
   for (let i = 0; i < repeat; i += 1) answers.push(await f.submitAsync(prompt, submitted));
   // The frame timer (`TUI_FRAME_MS`) fires within this: every publication the submit asked for is made.
   await advance(50);
-  cases.push({ name, kind: 'submit', prompt, options, admission: admission ?? 'open', repeat, busy, answers, at: submittedAt, after: { ...left(f), publications: f.publications.slice(base) } });
-  f.flags.disposed = true;
+  // The durable record of a queued prompt is Node's own steering mirror (`appendTuiSteeringPersist`): the shard file as written, and
+  // what the turn the session started was handed (`runtime.ask`: content and options).
   await flushTuiSteeringPersist();
+  const durable = existsSync(pendingMessagesPath(`tui_${f.id}`)) ? plain(JSON.parse(readFileSync(pendingMessagesPath(`tui_${f.id}`), 'utf8'))) : null;
+  const asked = f.requests.map((request) => plain({ content: request.content, options: request.options }));
+  cases.push({ name, kind: 'submit', prompt, options, admission: admission ?? 'open', repeat, busy, answers, at: submittedAt, after: { ...left(f), publications: f.publications.slice(base), durable, asked } });
+  f.flags.disposed = true;
 }
 
 await submitting('a prompt of blank text parts is refused', { prompt: [{ type: 'text', text: ' \n ' }] });
@@ -356,11 +366,18 @@ async function rewinding(name, { itemId, busy = false }) {
   request.resolve({ result: { content: 'hi', usage: {} }, session: { id: request.options.id, messages: [] } });
   await drained;
   await advance(50);
+  // What the runtime holds of the turn: the prompt as it was asked (`runtime.ask`'s content and its transcript metadata, which carries
+  // the row's message id) and the answer, in the stored message shape; the runtime's own rewind then runs on them.
+  const asked = plain({ content: request.content, options: request.options });
+  await saveSessionAsync(
+    { id: f.id, provider: 'openai', model: 'gpt-test', cwd: dataDir, generation: 0, closed: false, messages: [{ role: 'user', content: request.content, meta: { transcript: request.options.transcriptMeta } }, { role: 'assistant', content: 'hi' }] },
+    { expectedGeneration: 0 },
+  );
   f.state.commandBusy = busy;
   const before = left(f);
   const reply = await f.rewind(itemId);
   await advance(50);
-  cases.push({ name, kind: 'rewind', prompt: 'hello', itemId, busy, before, reply: plain(reply), runtimeCalls: f.rewinds, after: left(f) });
+  cases.push({ name, kind: 'rewind', prompt: 'hello', itemId, busy, asked, before, reply: plain(reply), runtimeCalls: f.rewinds, after: left(f) });
   f.flags.disposed = true;
   await flushTuiSteeringPersist();
 }

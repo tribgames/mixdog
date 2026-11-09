@@ -83,6 +83,9 @@ pub(crate) struct WindowItem {
     pub item: Arc<ThreadItem>,
     /// The record's `prompt` fact: the text a rewind to this row hands back.
     pub prompt: Option<String>,
+    /// The model-history messages this row stands for, with the model records after it that show no row of their own: what a
+    /// rewind to the row removes from the history (Node's `rewindSessionMessagesTo` `removed`).
+    pub messages: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -134,7 +137,7 @@ impl SessionState {
     /// A shown row of no record of its own (a restored compaction divider and its boundaries),
     /// at the end of the window; it lives and goes with `ordinal` (the `compacted` frame's).
     pub fn push_shown(&mut self, ordinal: u64, item: ThreadItem) {
-        self.window.push_back(WindowItem { ordinal: Some(ordinal), item: Arc::new(item), prompt: None });
+        self.window.push_back(WindowItem { ordinal: Some(ordinal), item: Arc::new(item), prompt: None, messages: 0 });
         while self.window.len() > self.view_items {
             self.window.pop_front();
             self.has_older = true;
@@ -183,7 +186,7 @@ impl SessionState {
                     .as_ref()
                     .and_then(|before| self.window.iter().position(|row| row.item.id() == before))
                     .unwrap_or(self.window.len());
-                self.window.insert(at, WindowItem { ordinal: None, item: Arc::new(item.clone()), prompt: None });
+                self.window.insert(at, WindowItem { ordinal: None, item: Arc::new(item.clone()), prompt: None, messages: 0 });
                 while self.window.len() > self.view_items {
                     self.window.pop_front();
                     self.has_older = true;
@@ -193,7 +196,7 @@ impl SessionState {
                 if let Some(row) = self.window.iter_mut().find(|row| row.item.id() == card.id()) {
                     row.item = Arc::new(card.clone());
                 } else {
-                    self.window.push_back(WindowItem { ordinal: None, item: Arc::new(card.clone()), prompt: None });
+                    self.window.push_back(WindowItem { ordinal: None, item: Arc::new(card.clone()), prompt: None, messages: 0 });
                     while self.window.len() > self.view_items {
                         self.window.pop_front();
                         self.has_older = true;
@@ -250,9 +253,19 @@ impl SessionState {
                     prompt_history::push_session(&mut self.prompt_session, prompt);
                     self.remerge_prompts();
                 }
+                let mut messages = u32::from(item.model);
                 let Display::Items(shown) = display else {
+                    if let Some(last) = self.window.back_mut() {
+                        last.messages += messages;
+                    }
                     return;
                 };
+                if !shown.iter().any(|shown| matches!(shown, Shown::Item(_))) || !item.visible {
+                    if let Some(last) = self.window.back_mut() {
+                        last.messages += messages;
+                    }
+                    messages = 0;
+                }
                 for shown in shown {
                     match shown {
                         Shown::Item(new) => {
@@ -268,6 +281,7 @@ impl SessionState {
                                 ordinal,
                                 item: Arc::new(new.clone()),
                                 prompt,
+                                messages: std::mem::take(&mut messages),
                             });
                             while self.window.len() > self.view_items {
                                 self.window.pop_front();
@@ -372,7 +386,7 @@ impl SessionState {
                 };
                 for (at, shown) in shown.iter().enumerate() {
                     let Shown::Item(new) = shown else { continue };
-                    self.window.insert(last + 1 + at, WindowItem { ordinal: anchor, item: Arc::new(new.clone()), prompt: None });
+                    self.window.insert(last + 1 + at, WindowItem { ordinal: anchor, item: Arc::new(new.clone()), prompt: None, messages: 0 });
                 }
                 while self.window.len() > self.view_items {
                     self.window.pop_front();
@@ -387,7 +401,7 @@ impl SessionState {
                 };
                 for shown in shown {
                     if let Shown::Item(new) = shown {
-                        self.window.push_back(WindowItem { ordinal, item: Arc::new(new.clone()), prompt: None });
+                        self.window.push_back(WindowItem { ordinal, item: Arc::new(new.clone()), prompt: None, messages: 0 });
                     }
                 }
                 while self.window.len() > self.view_items {

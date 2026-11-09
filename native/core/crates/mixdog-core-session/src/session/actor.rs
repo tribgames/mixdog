@@ -4408,7 +4408,9 @@ impl SessionActor {
             return Err(not_found());
         };
         let previous = index.checked_sub(1).map(|i| window[i].item.id().clone());
-        let value = json!({ "text": text, "removed": window.len() - index });
+        // `messages`: the model-history messages dropped (`rewindSessionMessagesTo`'s `removed`), beside the rows (`rewind.mjs`).
+        let messages: u32 = window.iter().skip(index).map(|row| row.messages).sum();
+        let value = json!({ "text": text, "removed": window.len() - index, "messages": messages });
         let record = Record::Rewind(RewindRecord {
             to_ordinal: ordinal,
             reason: RewindReason::Rewind,
@@ -5012,6 +5014,8 @@ impl SessionActor {
                 meta.entry("device").or_insert_with(|| json!(submitter.device));
             }
             meta.entry("attemptId").or_insert_with(|| json!(new_id()));
+            // `beginTurn` stamps the verb the turn will complete with on the same metadata the runtime persists.
+            meta.entry("completionVerb").or_insert_with(|| json!(super::live_end::done_verb(self.turns_closed)));
             for (key, value) in route {
                 meta.entry(key).or_insert(value);
             }
