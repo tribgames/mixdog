@@ -211,7 +211,7 @@ pub(crate) async fn create_dir(tokens: &LaneTokens, path: PathBuf) -> std::io::R
 }
 
 /// Node's `process.platform` of this host.
-fn node_platform() -> &'static str {
+pub(crate) fn node_platform() -> &'static str {
     if cfg!(windows) {
         "win32"
     } else if cfg!(target_os = "macos") {

@@ -453,7 +453,8 @@ fn backup(lane: &InLane<DurabilityIo>, source: &Path, data_dir: &Path, now_ms: i
 /// `desktop` section's, `desktop_separation.rs`) put their copy of the config in.
 pub(super) fn claim_backup_dir(lane: &InLane<DurabilityIo>, data_dir: &Path, now_ms: i64) -> Result<std::path::PathBuf, ConfigError> {
     let parent = data_dir.join("backups");
-    mixdog_statefile::create_dir_all(lane, &parent)?;
+    mixdog_statefile::create_dir_all(lane, &parent)
+        .map_err(|error| ConfigError::Publish(mixdog_statefile::PublishFailure { step: mixdog_statefile::Step::Mkdir(parent.clone()), error }))?;
     let stamp = chrono::DateTime::from_timestamp_millis(now_ms).map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_default();
     let stem = format!("defaults-separation-{}", stamp.replace([':', '.'], "-"));
     claim_dir(lane, &parent, &stem)
@@ -470,7 +471,7 @@ fn claim_dir(lane: &InLane<DurabilityIo>, parent: &Path, stem: &str) -> Result<s
         match mixdog_statefile::create_dir(lane, &dir) {
             Ok(()) => return Ok(dir),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => n += 1,
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(ConfigError::Publish(mixdog_statefile::PublishFailure { step: mixdog_statefile::Step::Mkdir(dir), error })),
         }
     }
 }

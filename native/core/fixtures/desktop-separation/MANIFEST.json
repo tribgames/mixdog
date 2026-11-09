@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 62616,
+      "bytes": 66212,
       "path": "twin.json",
-      "sha256": "e99f5ab2ba8180841a244d83c273dd74444f89519e53a6a355bc9382efb87fd4"
+      "sha256": "22f768084773710e748a1d7b439e5a23b383a1e3a708111e17d09a1c7da75f28"
     }
   ],
   "product": {
@@ -24,5 +24,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-desktop-separation.mjs",
   "set": "desktop-separation",
-  "totalBytes": 62616
+  "totalBytes": 66212
 }

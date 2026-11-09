@@ -148,6 +148,31 @@ impl std::fmt::Display for ConfigError {
 
 impl std::error::Error for ConfigError {}
 
+impl ConfigError {
+    /// The text Node's `error.message` carries for the same failure: a failed file step is `<CODE>: <description>,
+    /// <syscall> '<path>'` (`EEXIST: file already exists, mkdir '<data>/backups'`).
+    pub fn node_message(&self) -> String {
+        use mixdog_core_base::support::FsFailure;
+        use mixdog_core_base::support::FsStep;
+        use mixdog_statefile::Step;
+        let ConfigError::Publish(failure) = self else { return self.to_string() };
+        let step = match &failure.step {
+            Step::Mkdir(dir) => FsStep::Mkdir(dir.clone()),
+            Step::Open(file) => FsStep::Open(file.clone()),
+            Step::Read => FsStep::Read,
+            Step::Write | Step::Other => FsStep::Write,
+            Step::Fsync => FsStep::Fsync,
+            Step::Rename(from, to) => FsStep::Rename(from.clone(), to.clone()),
+        };
+        // `io_failure` takes the error by value; the OS code (or else the kind) is all it reads.
+        let error = failure.error.raw_os_error().map_or_else(|| std::io::Error::from(failure.error.kind()), std::io::Error::from_raw_os_error);
+        match mixdog_core_base::support::io_failure("config", &FsFailure { error, step }) {
+            mixdog_core_api::CoreError::DomainError { message: Some(message), .. } => message.to_string(),
+            _ => self.to_string(),
+        }
+    }
+}
+
 impl From<std::io::Error> for ConfigError {
     fn from(error: std::io::Error) -> Self {
         ConfigError::Io(error)
