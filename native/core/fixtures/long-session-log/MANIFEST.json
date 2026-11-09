@@ -1,0 +1,28 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-long-session-log.mjs --tree <git checkout at --commit, with node_modules> --commit <40-hex>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 7795,
+      "path": "log.json",
+      "sha256": "1f46783713e64e8eae30cf4b97a797e3f72a85fe9ee3ab903d9813ccc4191581"
+    }
+  ],
+  "product": {
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-long-session-log.mjs",
+  "set": "long-session-log",
+  "totalBytes": 7795
+}
