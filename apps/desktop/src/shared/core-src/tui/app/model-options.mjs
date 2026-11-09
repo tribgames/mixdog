@@ -1,0 +1,381 @@
+/*
+ * model-options.mjs — pure model/route label, ordering, and picker-item helpers.
+ *
+ * No React, no engine state — every function is a pure transform over model
+ * records / route objects. Depends only on the shared theme palette and the
+ * displayModelName formatter.
+ */
+import { theme } from '../theme.mjs';
+import { displayModelName, effortDisplayLabel } from '../../runtime/shared/model-display.mjs';
+import { isRollingModelAlias } from '../../runtime/shared/model-alias.mjs';
+import { describeError } from '../../runtime/shared/error-presentation.mjs';
+import { providerDisplayName } from '../../runtime/shared/provider-display-name.mjs';
+import { DAYBREAK_PROVIDER, daybreakBlueOn } from '../../runtime/shared/llm/openai-daybreak.mjs';
+
+export const parsedModelVersion = (id) => {
+  const text = String(id || '').toLowerCase();
+  const claude = text.match(/^claude-[a-z]+-(\d+)(?:[-.](\d+))?/);
+  if (claude) return [Number(claude[1]) || 0, Number(claude[2]) || 0];
+  const compact = text.match(
+    /(?:^|[-_])(?:o|gpt|grok|qwen|llama|mistral|gemma|phi|glm)(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?/
+  );
+  const version = compact || text.match(/(?:^|[-_v])(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?/);
+  if (!version) return [];
+  return version
+    .slice(1)
+    .filter((v) => v != null)
+    .map((v) => Number(v) || 0);
+};
+
+export const releaseTime = (m) => {
+  if (m?.releaseDate) {
+    const t = Date.parse(m.releaseDate);
+    if (Number.isFinite(t)) return t;
+  }
+  const created = Number(m?.created);
+  if (Number.isFinite(created) && created > 0) {
+    return created < 1_000_000_000_000 ? created * 1000 : created;
+  }
+  const dated = String(m?.id || '').match(/(?:^|-)(\d{4})(\d{2})(\d{2})(?:$|-)/);
+  if (!dated) return 0;
+  return Date.parse(`${dated[1]}-${dated[2]}-${dated[3]}`) || 0;
+};
+
+export const isClaudeModel = (m) => {
+  const provider = String(m?.provider || '').toLowerCase();
+  const id = String(m?.id || '').toLowerCase();
+  return provider.includes('anthropic') && /^claude-[a-z]+-/.test(id);
+};
+
+export const modelVersion = (m) => {
+  const fromId = parsedModelVersion(m?.id);
+  return fromId.length ? fromId : parsedModelVersion(m?.display || m?.name);
+};
+
+export const compareModelVersion = (a, b) => {
+  const va = modelVersion(a);
+  const vb = modelVersion(b);
+  if (va.length === 0 && vb.length === 0) return 0;
+  if (va.length === 0) return 1;
+  if (vb.length === 0) return -1;
+  for (let i = 0; i < Math.max(va.length, vb.length); i += 1) {
+    const delta = (vb[i] || 0) - (va[i] || 0);
+    if (delta) return delta;
+  }
+  return 0;
+};
+
+export const compareModelRecency = (a, b) => {
+  if (isClaudeModel(a) && isClaudeModel(b)) {
+    if (!!a?.latest !== !!b?.latest) return a?.latest ? -1 : 1;
+    const versionDelta = compareModelVersion(a, b);
+    if (versionDelta) return versionDelta;
+    const ta = releaseTime(a);
+    const tb = releaseTime(b);
+    if (ta !== tb) return tb - ta;
+    return String(a?.display || a?.id || '').localeCompare(String(b?.display || b?.id || ''));
+  }
+
+  const ta = releaseTime(a);
+  const tb = releaseTime(b);
+  const versionDelta = compareModelVersion(a, b);
+  // Release dates win only when both sides have one; sparse OAuth catalogs
+  // must not sink undated (often newest) models below dated/latest ones.
+  if (ta > 0 && tb > 0 && ta !== tb) return tb - ta;
+  if (versionDelta) return versionDelta;
+  if (!!a?.latest !== !!b?.latest) return a?.latest ? -1 : 1;
+  if (ta !== tb) return tb - ta;
+  return String(a?.display || a?.id || '').localeCompare(String(b?.display || b?.id || ''));
+};
+
+export const modelFamily = (m) => {
+  const text = String(m?.id || m?.display || '').toLowerCase();
+  const claude = text.match(/^claude-([a-z]+)/);
+  if (claude) return claude[1];
+  if (m?.family) return String(m.family).toLowerCase();
+  const first = text.match(/^[a-z]+(?:-[a-z]+)?/);
+  return first ? first[0] : 'model';
+};
+
+export const modelContextWindow = (m) => {
+  const raw = Number(m?.contextWindow);
+  const n = Number.isFinite(raw) && raw > 0 ? raw : 0;
+  if (n > 0) return n;
+  const id = String(m?.id || '').toLowerCase();
+  const version = parsedModelVersion(id);
+  if (isClaudeModel(m)) {
+    if ((version[0] || 0) >= 5) return 1_000_000;
+    if (/^claude-(opus|sonnet)-4-(6|7|8)(?:$|-)/.test(id)) return 1_000_000;
+  }
+  return 0;
+};
+
+export const formatContextWindow = (tokens) => {
+  const n = Number(tokens);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  // Some providers (Gemini) report binary windows (1_048_576 / 131_072);
+  // display exact powers of two with 1024-based units so they read
+  // 1M / 128k, not 1.049M / 131k. (Power-of-two check avoids misfiring on
+  // decimal windows like 128_000 that happen to divide by 1024.)
+  const unit = n >= 1024 && (n & (n - 1)) === 0 ? 1024 : 1000;
+  const mega = unit * unit;
+  if (n >= mega) {
+    const m = n / mega;
+    const label = Number.isInteger(m) ? m.toFixed(0) : m.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+    return `${label}M Context`;
+  }
+  return `${Math.round(n / unit)}k Context`;
+};
+
+export const modelFamilyLimit = (provider, family) => {
+  const p = String(provider || '').toLowerCase();
+  if (!p.includes('anthropic')) return 8;
+  if (family === 'opus') return 3;
+  return 1;
+};
+
+export const normalizeModelOptions = (models) => {
+  if (!Array.isArray(models)) return [];
+  const providers = new Map();
+  for (const model of models) {
+    if (!model?.provider || !model?.id) continue;
+    if (!providers.has(model.provider)) providers.set(model.provider, new Map());
+    const families = providers.get(model.provider);
+    const family = modelFamily(model);
+    if (!families.has(family)) families.set(family, []);
+    families.get(family).push(model);
+  }
+
+  const normalized = [];
+  for (const [provider, families] of providers.entries()) {
+    const providerModels = [];
+    for (const [family, group] of families.entries()) {
+      const limit = modelFamilyLimit(provider, family);
+      // Version limits must not hide rolling routes, even when several
+      // vendors' "~..." IDs share the fallback family.
+      let versions = 0;
+      providerModels.push(
+        ...group
+          .slice()
+          .sort(compareModelRecency)
+          .filter((model) => isRollingModelAlias(model.id) || versions++ < limit)
+      );
+    }
+    normalized.push(...providerModels.sort(compareModelRecency));
+  }
+  return normalized;
+};
+
+// Provider display names live in runtime/shared so error text can name the provider too.
+export { providerDisplayName };
+
+export const resolveProviderDisplayName = (provider, providerNames = null) =>
+  (String(provider || '')
+    .trim()
+    .startsWith('custom-') &&
+    providerNames?.[String(provider).trim()]) ||
+  providerDisplayName(provider);
+
+export const loadProviderDisplayNames = async (store) => {
+  let setup = null;
+  try {
+    setup = await store?.getProviderSetup?.();
+  } catch {
+    return {};
+  }
+  const names = {};
+  for (const group of ['api', 'oauth', 'local']) {
+    const entries = setup?.[group];
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') continue;
+      const id = String(entry.id || entry.provider || '').trim();
+      const name = String(entry.name || entry.label || '').trim();
+      if (id && name) names[id] = name;
+    }
+  }
+  return names;
+};
+
+/** Provider names for the picker: custom rows' own `providerName` first, then
+ *  setup names over them (setup wins). Works when setup is missing or failed. */
+export const catalogProviderDisplayNames = (models, setupNames = null) => {
+  const names = {};
+  for (const model of Array.isArray(models) ? models : []) {
+    const provider = String(model?.provider || '').trim();
+    const name = String(model?.providerName || '').trim();
+    if (provider.startsWith('custom-') && name) names[provider] = name;
+  }
+  return { ...names, ...setupNames };
+};
+
+/** `{ id, text }` for each provider whose model list failed, with the reason
+ *  (the setup row's `catalogError`) and what to do about it. */
+export const loadProviderCatalogFailures = async (store) => {
+  let setup = null;
+  try {
+    setup = await store?.getProviderSetup?.();
+  } catch {
+    return [];
+  }
+  const failures = [];
+  for (const group of ['api', 'oauth', 'local']) {
+    for (const entry of Array.isArray(setup?.[group]) ? setup[group] : []) {
+      const failure = entry?.catalogError;
+      if (!failure?.message) continue;
+      const { summary, recovery } = describeError({ message: failure.message, errorKind: failure.errorKind });
+      failures.push({ id: String(entry.id || '').trim(), text: [summary, recovery].filter(Boolean).join(' ') });
+    }
+  }
+  return failures;
+};
+
+/** Provider-list rows for failed providers that have no model rows, so an
+ *  empty provider says why instead of being absent. */
+export const buildCatalogFailureItems = (failures, models, providerNames = null) =>
+  failures
+    .filter(({ id }) => id && !models.some((model) => model.provider === id))
+    .map(({ id, text }) => ({
+      value: `provider-failed:${id}`,
+      label: resolveProviderDisplayName(id, providerNames),
+      marker: '!',
+      markerColor: theme.error,
+      description: text,
+      _action: 'catalog-failed',
+      _failure: text,
+    }));
+
+const PROVIDER_DISPLAY_RANKS = {
+  default: 0,
+  'openai-oauth': 10,
+  'anthropic-oauth': 20,
+  'grok-oauth': 30,
+  'muse-code-oauth': 33,
+  'command-code-oauth': 33.5,
+  'mimo-oauth': 34,
+  'antigravity-oauth': 31,
+  'cursor-oauth': 32,
+  'devin-oauth': 32.5,
+  'opencode-go-oauth': 34.5,
+  openai: 40,
+  'openai-api': 40,
+  anthropic: 50,
+  'anthropic-api': 50,
+  gemini: 60,
+  'gemini-api': 60,
+  xai: 70,
+  'xai-api': 70,
+  deepseek: 90,
+  'deepseek-api': 90,
+  'mixdog-local': 100,
+  // OpenRouter lists hundreds of models, so keep it behind every other provider.
+  openrouter: 950,
+};
+
+export const providerDisplayRank = (provider) => PROVIDER_DISPLAY_RANKS[String(provider || '').toLowerCase()] ?? 900;
+
+export { effortDisplayLabel };
+
+export const fastDisplayLabel = (enabled = true) => `Fast ${enabled ? 'On' : 'Off'}`;
+
+export const modelDescription = (m) =>
+  [String(m?.description || '').trim(), m.fastCapable ? 'Fast Available' : ''].filter(Boolean).join(' · ');
+
+const modelRecordDisplayName = (model) => displayModelName(model?.id, model?.provider, model?.display || model?.name);
+
+// Daybreak Blue reads as part of the model ("GPT-6 Sol Blue"), ahead of effort.
+const routeModelDisplayName = (route) =>
+  [
+    displayModelName(route?.model, route?.provider, route?.modelDisplay || ''),
+    route?.provider === DAYBREAK_PROVIDER && daybreakBlueOn(route?.modelParameters) ? 'Blue' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+const groupModelsByProvider = (models, providerNames = null) => {
+  const providers = new Map();
+  for (const model of models) {
+    if (!providers.has(model.provider)) providers.set(model.provider, []);
+    providers.get(model.provider).push(model);
+  }
+
+  const orderedProviders = [...providers.keys()].sort((a, b) => {
+    const rank = providerDisplayRank(a) - providerDisplayRank(b);
+    if (rank !== 0) return rank;
+    const label = resolveProviderDisplayName(a, providerNames).localeCompare(
+      resolveProviderDisplayName(b, providerNames)
+    );
+    if (label !== 0) return label;
+    return a.localeCompare(b);
+  });
+  return { providers, orderedProviders };
+};
+
+export const buildModelProviderItems = (models, currentRoute = null, providerNames = null) => {
+  const { providers, orderedProviders } = groupModelsByProvider(models, providerNames);
+  return orderedProviders.map((provider) => {
+    const providerModels = providers.get(provider) || [];
+    const currentModel =
+      currentRoute?.provider === provider ? providerModels.find((model) => model.id === currentRoute.model) : null;
+    return {
+      value: `provider:${provider}`,
+      label: resolveProviderDisplayName(provider, providerNames),
+      marker: currentModel ? '✓' : '',
+      markerColor: theme.success,
+      meta: currentModel ? modelRecordDisplayName(currentModel) : '',
+      description: `${providerModels.length} model${providerModels.length === 1 ? '' : 's'}`,
+      _action: 'open-provider',
+      _provider: provider,
+    };
+  });
+};
+
+export const buildProviderModelItems = (models, provider, currentRoute = null) => {
+  const providerModels = models.filter((model) => model.provider === provider);
+  return providerModels.map((model) => ({
+    value: `model:${model.provider}:${model.id}`,
+    label: modelRecordDisplayName(model),
+    marker: currentRoute?.provider === model.provider && currentRoute?.model === model.id ? '✓' : '',
+    markerColor: theme.success,
+    description: modelDescription(model),
+    _action: 'select-model',
+    _provider: model.provider,
+    _modelId: model.id,
+    _model: model,
+  }));
+};
+
+// The configured speed tier: Ultrafast when the fast route asks for it.
+const routeSpeedLabel = (route) => {
+  if (!route?.fast) return '';
+  return route.modelParameters?.serviceTier === 'ultrafast' ? 'Ultrafast' : 'Fast';
+};
+
+// Model · Effort · Fast/Ultrafast, dropping the empty parts.
+const routeModelDetails = (route) =>
+  [routeModelDisplayName(route), route.effort ? effortDisplayLabel(route.effort) : '', routeSpeedLabel(route)]
+    .filter(Boolean)
+    .join(' · ');
+
+export const routeLabel = (route, providerNames = null) => {
+  if (!route?.provider || !route?.model) return '(unset)';
+  return [resolveProviderDisplayName(route.provider, providerNames), routeModelDetails(route)]
+    .filter(Boolean)
+    .join(' · ');
+};
+
+export const routeModelLabel = (route) => (route?.model ? routeModelDetails(route) : '(unset)');
+
+export const agentModelProfile = (route) => (route?.model ? routeModelDetails(route) : '');
+
+export const agentModelParts = (route) => [
+  { text: route?.model ? routeModelDisplayName(route) : '', width: 17 },
+  { text: route?.effort ? effortDisplayLabel(route.effort) : '', width: 6 },
+  { text: routeSpeedLabel(route), width: 9 },
+];
+
+export const routeFromModel = (model, effort = null) => ({
+  provider: model.provider,
+  model: model.id,
+  ...(effort && effort !== 'auto' ? { effort } : {}),
+});
