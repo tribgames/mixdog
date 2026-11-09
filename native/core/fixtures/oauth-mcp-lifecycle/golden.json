@@ -11029,7 +11029,7 @@
         },
         {
           "kind": "partial",
-          "closed": "error ECONNRESET"
+          "closed": "closed"
         }
       ],
       "virtualTimersLeft": 0,
@@ -11153,7 +11153,7 @@
         },
         {
           "kind": "partial",
-          "closed": "error ECONNRESET"
+          "closed": "closed"
         }
       ],
       "virtualTimersLeft": 0,

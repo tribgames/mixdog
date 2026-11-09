@@ -104,23 +104,161 @@ pub enum PageOutcome {
     Stale,
 }
 
+/// The flush of a held page: done once the page was written, or its connection went away. Waiting for it is bounded,
+/// as Node bounds the flush it awaits at a second (`oauth-callback.mjs` `settle`).
+#[derive(Clone)]
+pub struct Flush {
+    done: CancellationToken,
+    /// Node starts the bound's timer when the page is answered; a test that fires the bound counts from here.
+    #[cfg(feature = "test-support")]
+    seen: usize,
+}
+
+impl Flush {
+    fn pending() -> Self {
+        Self {
+            done: CancellationToken::default(),
+            #[cfg(feature = "test-support")]
+            seen: seam::FLUSH_BOUND.count(),
+        }
+    }
+
+    /// A flush that is over already (no page is held).
+    pub fn finished() -> Self {
+        let flush = Self::pending();
+        flush.done.cancel();
+        flush
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.done.is_cancelled()
+    }
+
+    /// Returns when the page is flushed, or when the bound passed.
+    pub async fn wait(&self) {
+        tokio::select! {
+            () = self.done.cancelled() => {}
+            () = self.bound() => {}
+        }
+    }
+}
+
+/// Marks a flush done when its page task ends, whichever way it ends (written, or the connection destroyed).
+struct FlushGuard(Flush, CancellationToken);
+
+impl Drop for FlushGuard {
+    fn drop(&mut self) {
+        (self.0).done.cancel();
+        self.1.cancel();
+    }
+}
+
 /// A valid callback: `code` is `None` when the authorization server answered with an error.
 pub struct Callback {
     pub code: Option<String>,
     /// Answers the held browser page once the code exchange and scope check ended.
     pub respond: oneshot::Sender<PageOutcome>,
+    /// Cancelled once the held page task took the outcome and began writing the page, so the caller's next step
+    /// (closing the listener) comes after it, as Node's `answer(failure)` writes the page synchronously.
+    pub begun: CancellationToken,
     /// Resolves once the held page was written (or at once when no page is held), as Node's `settle()`
     /// awaits the page's flush before the listener closes.
-    pub flushed: oneshot::Receiver<()>,
+    pub flushed: Flush,
 }
 
 impl Callback {
     /// A callback with no held page: a pasted URL, or a denial (already answered).
     pub fn unheld(code: Option<String>) -> Self {
         let (respond, _) = oneshot::channel();
-        let (_, flushed) = oneshot::channel();
-        Self { code, respond, flushed }
+        let begun = CancellationToken::new();
+        begun.cancel();
+        Self { code, respond, begun, flushed: Flush::finished() }
     }
+}
+
+impl Flush {
+    #[cfg(not(feature = "test-support"))]
+    async fn bound(&self) {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+
+    #[cfg(feature = "test-support")]
+    async fn bound(&self) {
+        seam::FLUSH_BOUND.after(self.seen).await;
+    }
+}
+/// Test seams (feature `test-support`): every wait that Node bounds by a timer is driven by the test instead, and the
+/// listener's lifecycle is recorded as the events Node's recorder observed.
+#[cfg(feature = "test-support")]
+pub mod seam {
+    use std::sync::Mutex;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use tokio::sync::Notify;
+
+    /// A counter a test fires and waiters wait to pass: a stand-in for a timer the test controls.
+    pub struct Tick {
+        count: AtomicUsize,
+        notify: Notify,
+    }
+
+    impl Tick {
+        pub const fn new() -> Self {
+            Self { count: AtomicUsize::new(0), notify: Notify::const_new() }
+        }
+
+        pub fn count(&self) -> usize {
+            self.count.load(Ordering::SeqCst)
+        }
+
+        pub fn fire(&self) {
+            self.count.fetch_add(1, Ordering::SeqCst);
+            self.notify.notify_waiters();
+        }
+
+        /// Returns once the counter passed `seen`.
+        pub async fn after(&self, seen: usize) {
+            loop {
+                let notified = self.notify.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                if self.count() > seen {
+                    return;
+                }
+                notified.await;
+            }
+        }
+    }
+
+    /// The 1 s bound of a page flush fires when the test fires this.
+    pub static FLUSH_BOUND: Tick = Tick::new();
+    /// The login deadline fires when the test fires this (unless `LOGIN_DEADLINE_MS` is set).
+    pub static DEADLINE: Tick = Tick::new();
+    /// The next held page waits, before it is written, until `PAGE_RELEASE` fires; `PAGE_HELD` fires when it waits.
+    pub static HOLD_NEXT_PAGE: AtomicBool = AtomicBool::new(false);
+    pub static PAGE_HELD: Tick = Tick::new();
+    pub static PAGE_RELEASE: Tick = Tick::new();
+    /// Listeners whose port was released so far, and a fire for each.
+    pub static LISTENERS_CLOSED: Tick = Tick::new();
+    /// A fire for every chunk a listener read from a connection.
+    pub static READS: Tick = Tick::new();
+    /// A fire for every connection a listener accepted.
+    pub static CONNECTIONS: Tick = Tick::new();
+    /// The port of the listener that came up last.
+    pub static LISTENER_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
+    /// The events of the listener's lifecycle, in order (`listener-up`, `listener.close`, `page-end-held`, ...).
+    pub static EVENTS: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+
+    pub fn event(name: &'static str) {
+        EVENTS.lock().unwrap_or_else(|e| e.into_inner()).push(name);
+    }
+}
+
+fn event(_name: &'static str) {
+    #[cfg(feature = "test-support")]
+    seam::event(_name);
 }
 
 /// Test seam: how long the next held page waits before it is written, so a request can land in the
@@ -143,17 +281,59 @@ pub static LISTENER_CLOSED: tokio::sync::Notify = tokio::sync::Notify::const_new
 #[cfg(feature = "test-support")]
 pub static LOGIN_DEADLINE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Stops a listener from accepting and waits until its port is released.
+/// The listener's handle: stops it from accepting and destroys the connections it owns.
 #[derive(Clone)]
 pub struct Stopper {
     stop: CancellationToken,
     closed: CancellationToken,
+    /// Destroys every connection task.
+    kill: CancellationToken,
+    /// Ends when every connection task has ended: they each hold a sender.
+    drained: Arc<tokio::sync::Mutex<mpsc::Receiver<()>>>,
+    /// Set by the first `shutdown`: Node clears `flow.listener`, so a second call does nothing.
+    shut: Arc<AtomicBool>,
 }
 
 impl Stopper {
+    /// Stops accepting and waits until the port is released.
     pub async fn stop(&self) {
+        if !self.stop.is_cancelled() {
+            event("listener.close");
+        }
         self.stop.cancel();
         self.closed.cancelled().await;
+    }
+
+    /// Destroys every open connection and waits for their tasks to end.
+    async fn destroy(&self) {
+        event("listener.closeAllConnections");
+        self.kill.cancel();
+        let mut drained = self.drained.lock().await;
+        while drained.recv().await.is_some() {}
+    }
+
+    /// Node's `stopListening()`: the listener stops accepting at once; open connections are destroyed at once, or
+    /// after the flush of the page being answered when there is one. The destruction is not awaited by the caller.
+    pub async fn shutdown(&self, flushing: Option<Flush>) {
+        if self.shut.swap(true, Ordering::SeqCst) {
+            self.closed.cancelled().await;
+            return;
+        }
+        event("listener.close");
+        self.stop.cancel();
+        self.closed.cancelled().await;
+        match flushing {
+            // Node destroys the connections after the flush of the page still being written, without the caller
+            // waiting for it.
+            Some(flush) if !flush.is_done() => {
+                let listener = self.clone();
+                mixdog_rt::spawn("mcp.oauth.callback.destroy", mixdog_rt::TaskClass::Work, async move {
+                    flush.wait().await;
+                    listener.destroy().await;
+                });
+            }
+            _ => self.destroy().await,
+        }
     }
 }
 
@@ -165,11 +345,6 @@ pub struct Listener {
 impl Listener {
     pub fn stopper(&self) -> Stopper {
         self.stopper.clone()
-    }
-
-    /// Stops accepting and returns once the port is released; pages already held still finish.
-    pub async fn close(self) {
-        self.stopper.stop().await;
     }
 }
 
@@ -195,6 +370,8 @@ async fn read_request(stream: &mut TcpStream) -> Option<Request> {
                 return None;
             }
             buf.extend_from_slice(&chunk[..n]);
+            #[cfg(feature = "test-support")]
+            seam::READS.fire();
             if buf.windows(4).any(|w| w == b"\r\n\r\n") {
                 return Some(());
             }
@@ -255,16 +432,31 @@ async fn answer(mut stream: TcpStream, port: u16, state: String, server: String,
         return;
     }
     let (respond, outcome) = oneshot::channel();
-    let (flushed_tx, flushed) = oneshot::channel();
+    let (begun, flushed) = (CancellationToken::new(), Flush::pending());
+    let _flush_done = FlushGuard(flushed.clone(), begun.clone());
     // An empty code is no code: the login fails without an exchange and the page says so.
     let code = all("code").pop().filter(|code| !code.is_empty());
-    if tx.send(Callback { code, respond, flushed }).is_err() {
+    if tx.send(Callback { code, respond, begun: begun.clone(), flushed }).is_err() {
         return write_page(&mut stream, "400 Bad Request", &invalid, false).await;
     }
     // The code is only the start: the page stays open until the login reports its outcome.
     let outcome = tokio::time::timeout(OUTCOME_WAIT, outcome).await;
     #[cfg(feature = "test-support")]
+    let held = seam::HOLD_NEXT_PAGE.swap(false, Ordering::SeqCst);
+    #[cfg(not(feature = "test-support"))]
+    let held = false;
+    #[cfg(feature = "test-support")]
+    if held {
+        event("page-end-held");
+    }
+    begun.cancel();
+    #[cfg(feature = "test-support")]
     {
+        if held {
+            let seen = seam::PAGE_RELEASE.count();
+            seam::PAGE_HELD.fire();
+            seam::PAGE_RELEASE.after(seen).await;
+        }
         let delay = HELD_PAGE_DELAY_MS.swap(0, Ordering::SeqCst);
         if delay > 0 {
             HELD_PAGE_DELAYING.notify_one();
@@ -281,11 +473,15 @@ async fn answer(mut stream: TcpStream, port: u16, state: String, server: String,
             write_page(&mut stream, "400 Bad Request", &page::error_html(&page::failure_reason(&server, false)), false).await;
         }
     }
-    let _ = flushed_tx.send(());
+    // Only a page the test held back has an end to observe.
+    if held {
+        event("page-finished");
+    }
 }
 
 /// Listens on the loopback `port` (0: any free one) for the callback of the login whose state is
-/// `state`; valid callbacks arrive on `tx`. It stays open until the login ends (`Listener::close`).
+/// `state`; valid callbacks arrive on `tx`. The listener owns the connections it accepted: it stops accepting and
+/// destroys them through its [`Stopper`].
 pub async fn listen(
     port: u16,
     state: String,
@@ -294,9 +490,19 @@ pub async fn listen(
 ) -> std::io::Result<Listener> {
     let listener = TcpListener::bind(("127.0.0.1", port)).await?;
     let port = listener.local_addr()?.port();
-    let stopper = Stopper { stop: CancellationToken::new(), closed: CancellationToken::new() };
-    let (token, closed) = (stopper.stop.clone(), stopper.closed.clone());
+    let (alive, drained) = mpsc::channel::<()>(1);
+    let stopper = Stopper {
+        stop: CancellationToken::new(),
+        closed: CancellationToken::new(),
+        kill: CancellationToken::new(),
+        drained: Arc::new(tokio::sync::Mutex::new(drained)),
+        shut: Arc::new(AtomicBool::new(false)),
+    };
+    let (token, closed, kill) = (stopper.stop.clone(), stopper.closed.clone(), stopper.kill.clone());
     let answered = Arc::new(AtomicBool::new(false));
+    event("listener-up");
+    #[cfg(feature = "test-support")]
+    seam::LISTENER_PORT.store(port, Ordering::SeqCst);
     mixdog_rt::spawn("mcp.oauth.callback", mixdog_rt::TaskClass::Work, async move {
         loop {
             let accepted = tokio::select! {
@@ -304,16 +510,26 @@ pub async fn listen(
                 accepted = listener.accept() => accepted,
             };
             let Ok((stream, _)) = accepted else { continue };
-            // Held pages finish on their own tasks after the listener stops accepting.
+            #[cfg(feature = "test-support")]
+            seam::CONNECTIONS.fire();
             let (state, server, tx, taken) = (state.clone(), server.clone(), tx.clone(), Arc::clone(&answered));
-            mixdog_rt::spawn("mcp.oauth.callback.page", mixdog_rt::TaskClass::Work, answer(stream, port, state, server, tx, taken));
+            let (alive, kill) = (alive.clone(), kill.clone());
+            mixdog_rt::spawn("mcp.oauth.callback.page", mixdog_rt::TaskClass::Work, async move {
+                let _alive = alive;
+                tokio::select! {
+                    () = kill.cancelled() => {}
+                    () = answer(stream, port, state, server, tx, taken) => {}
+                }
+            });
         }
         drop(listener);
+        drop(alive);
         closed.cancel();
         #[cfg(feature = "test-support")]
         {
             LISTENERS_CLOSED.fetch_add(1, Ordering::SeqCst);
             LISTENER_CLOSED.notify_waiters();
+            seam::LISTENERS_CLOSED.fire();
         }
     });
     Ok(Listener { port, stopper })
@@ -361,7 +577,7 @@ mod tests {
         let callback = rx.recv().await.unwrap();
         assert_eq!(callback.code.as_deref(), Some("c0de"));
         callback.respond.send(PageOutcome::Done).unwrap();
-        callback.flushed.await.unwrap();
+        callback.flushed.wait().await;
         let body = page.await.unwrap();
         assert!(body.starts_with("HTTP/1.1 200") && body.contains("Acme"));
     }
