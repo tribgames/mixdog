@@ -71,9 +71,12 @@ export function usageLogInput(document, provider) {
 }
 
 const WINDOWS_ARGUMENT_LIMIT = 30_000;
+// One exec is one model request; one that has not finished by now is a hung provider or core, not a slow answer.
+const EXEC_DEADLINE_MS = 300_000;
 
-/** One run: `<bin> exec --json ... <text>`, answering the input tokens of its first request. */
-export function execInputTokens({ bin, provider, model, effort, text, cwd, spawnImpl = spawn }) {
+/** One run: `<bin> exec --json ... <text>`, answering the input tokens of its first request. The child is ended when
+ *  the deadline passes, when it fails to start and when it exits; the scratch directory goes with it. */
+export function execInputTokens({ bin, provider, model, effort, text, cwd, spawnImpl = spawn, deadlineMs = EXEC_DEADLINE_MS }) {
   if (process.platform === 'win32' && text.length > WINDOWS_ARGUMENT_LIMIT) {
     throw new Error(`a text of ${text.length} characters does not fit a Windows command line; use a smaller --n`);
   }
@@ -86,8 +89,19 @@ export function execInputTokens({ bin, provider, model, effort, text, cwd, spawn
     let stderr = '';
     child.stdout.on('data', (chunk) => (stdout += chunk));
     child.stderr.on('data', (chunk) => (stderr += chunk));
-    child.once('error', reject);
+    const deadline = setTimeout(() => {
+      child.kill();
+      rmSync(scratch, { recursive: true, force: true });
+      reject(new Error(`mixdogd exec (${provider} ${model}) did not finish within ${deadlineMs}ms and was ended; stderr: ${stderr.trim().slice(0, 300)}`));
+    }, deadlineMs);
+    child.once('error', (error) => {
+      clearTimeout(deadline);
+      child.kill();
+      rmSync(scratch, { recursive: true, force: true });
+      reject(error);
+    });
     child.once('close', (code) => {
+      clearTimeout(deadline);
       try {
         if (code !== 0) throw new Error(`mixdogd exec exited ${code}: ${stderr.trim().slice(0, 300)}`);
         resolveCount(inputTokensOfFirstRequest(stdout, provider));
@@ -145,6 +159,7 @@ async function main(args) {
   // A --models rerun merges into the previous results.json instead of replacing it.
   const byName = new Map((only || renderOnly) && existsSync(RESULTS_JSON) ? JSON.parse(readFileSync(RESULTS_JSON, 'utf8')).results.map(({ ratio, ...r }) => [r.name, r]) : []);
   const cwd = mkdtempSync(join(tmpdir(), 'token-lang-cwd-'));
+  const failed = [];
   try {
     const settled = await Promise.allSettled(
       selected.map(async ([name, provider, model, effort]) => {
@@ -155,11 +170,17 @@ async function main(args) {
     );
     settled.forEach((s, i) => {
       if (s.status === 'fulfilled') byName.set(s.value.name, s.value);
-      else console.error(`FAILED: ${selected[i][0]}: ${s.reason?.message || s.reason}`);
+      else {
+        failed.push(selected[i][0]);
+        console.error(`FAILED: ${selected[i][0]}: ${s.reason?.message || s.reason}`);
+      }
     });
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
+  // A selected model that failed fails the command, whatever rows an earlier run left; nothing is written, so a
+  // failed run cannot replace the recorded results with a partial set.
+  if (failed.length) throw new Error(`measurement failed for: ${failed.join(', ')}`);
   const results = MODELS.map(([name]) => byName.get(name)).filter(Boolean);
   if (results.length === 0) process.exit(1);
   const table = renderTable(results);

@@ -20,16 +20,16 @@ export async function bootOnce(bin) {
   let result;
   let runError = null;
   try {
-    const bootStarted = performance.now();
     core = await startCore({ bin, root, config: {}, readyTimeoutMs: HANG_MS });
-    const bootMs = performance.now() - bootStarted;
-    const callStarted = performance.now();
+    const servingMs = performance.now() - core.spawnedAt;
     const started = await within(core.call('thread/start', { kind: 'task', projectPath: core.paths.workspace, draft: { projectPath: core.paths.workspace, route: { provider: 'anthropic-oauth', model: 'smoke' }, workflowId: 'headless', orchestrationMode: 'none' }, session: { toolProfile: 'headless', toolMode: 'full', approvalMode: 'implicit', disallowDelegation: true, autoWakeCompletions: false, webSearch: false, memory: false } }), HANG_MS, 'thread/start');
     const threadId = started?.thread?.id;
     if (!threadId) throw new Error(`thread/start answered without a thread: ${JSON.stringify(started).slice(0, 200)}`);
     const status = await within(core.call('tools/toolsStatus', { threadId }), HANG_MS, 'tools/toolsStatus');
     if (!status || typeof status !== 'object') throw new Error('tools/toolsStatus answered nothing');
-    result = { bootMs, callMs: performance.now() - callStarted };
+    // One interval: process start to the answered workload request. servingMs is only the part of it that
+    // ends when the protocol is connected, kept to show where the time goes.
+    result = { answeredMs: performance.now() - core.spawnedAt, servingMs };
   } catch (error) {
     runError = error;
   }
@@ -42,9 +42,18 @@ export async function bootOnce(bin) {
     stopError = error;
   }
   // smoke-loop.mjs ended every iteration with `tool-failures.mjs --since <loop start>`: no tool failure may appear.
-  // The same check on the core's own spool, read after the stop has flushed it.
+  // That is only checkable on the core's own spool, which mixdogd does not write yet. A missing spool is therefore
+  // not "no failures": it fails naming the missing writer, unless open-gaps.json records the gap as open, in which
+  // case the run says plainly that the failure detection is not covered.
   const failures = core ? join(core.paths.dataDir, 'history', 'tool-failures.jsonl') : null;
   const failureRows = failures && existsSync(failures) ? readFileSync(failures, 'utf8').trim() : '';
+  let writerGap = null;
+  let writerError = null;
+  if (core && !runError && !stopError && !existsSync(failures)) {
+    const gap = JSON.parse(readFileSync(new URL('./open-gaps.json', import.meta.url), 'utf8'))['tool-failures-writer'];
+    if (gap?.open) writerGap = gap;
+    else writerError = new Error(`mixdogd wrote no ${failures}: the core has no tool-failure writer (AgentTrace::append_tool_failure is not wired to the call sites of Node's _appendToolFailureRow), so smoke-loop's tool-failure check cannot be made`);
+  }
   try {
     rmSync(root, { recursive: true, force: true });
   } catch (error) {
@@ -58,7 +67,8 @@ export async function bootOnce(bin) {
     throw runError;
   }
   if (stopError) throw stopError;
-  return result;
+  if (writerError) throw writerError;
+  return { ...result, writerGap };
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const arg = (name, fallback) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : fallback);
@@ -66,18 +76,19 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const limit = Number(arg('--limit-ms', process.env.MIXDOG_BOOT_SMOKE_LIMIT_MS || 5000));
   const until = Date.now() + Number(arg('--loop', 0));
   let runs = 0;
+  let gap = null;
   do {
-    const { bootMs, callMs } = await bootOnce(bin);
+    const { answeredMs, servingMs, writerGap } = await bootOnce(bin);
     runs += 1;
-    console.log(`run ${runs}: boot ${bootMs.toFixed(0)}ms, first thread + status ${callMs.toFixed(0)}ms`);
-    // boot-smoke.mjs held the whole spawn (boot to exit) to MIXDOG_BOOT_SMOKE_LIMIT_MS (5000): the start and the
-    // first answer each get that budget here.
-    for (const [what, ms] of [['boot (spawn to serving, protocol connected)', bootMs], ['first thread + status', callMs]]) {
-      if (ms > limit) {
-        console.error(`${what} took ${ms.toFixed(0)}ms, over the ${limit}ms limit`);
-        process.exit(1);
-      }
+    gap = writerGap;
+    console.log(`run ${runs}: process start to answered thread + status ${answeredMs.toFixed(0)}ms (serving and connected at ${servingMs.toFixed(0)}ms)`);
+    // boot-smoke.mjs held the whole spawn to MIXDOG_BOOT_SMOKE_LIMIT_MS (5000): one budget for the interval from
+    // process start to the first answered workload request.
+    if (answeredMs > limit) {
+      console.error(`process start to the first answered request took ${answeredMs.toFixed(0)}ms, over the ${limit}ms limit`);
+      process.exit(1);
     }
   } while (Date.now() < until);
   console.log(`mixdogd boot smoke passed (${runs} run${runs === 1 ? '' : 's'})`);
+  if (gap) console.log(`NOT COVERED: tool-failure detection (smoke-loop's tool-failures.mjs check). ${gap.what}. Open gap, owner ${gap.owner}.`);
 }

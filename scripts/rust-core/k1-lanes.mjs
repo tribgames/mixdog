@@ -5,7 +5,7 @@
 // proves the same for every filter.
 // Usage: node scripts/rust-core/k1-lanes.mjs [--list] [--dry-run] [--runner "cargo test"] [lane...]   (no lane: all;
 // --dry-run prints each lane, filter and command without running cargo)
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -32,10 +32,45 @@ export function commandOf(lane, runner = 'cargo test', filter = null) {
   return { program, args: [...head, '-p', LANES[lane].pkg, '--locked', ...(filter ? [filter] : [])] };
 }
 
+// A cargo run (a compile included) that has not finished by now is stuck, not slow: it is ended and reported.
+const DEADLINE_MS = 3_600_000;
+
+/** Ends `child` and everything it started (cargo runs under a shell, and under the wrapper's shim). */
+function endTree(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+  else child.kill('SIGKILL');
+}
+
+/** One child to its exit, with a deadline; the child tree is ended on a timeout and on a spawn error.
+ *  Answers `{ status, stdout, stderr }`; `inherit` passes stdio through instead of capturing it. */
+export function runChild(program, args, { cwd = CORE, deadlineMs = DEADLINE_MS, inherit = false } = {}) {
+  return new Promise((resolveRun, reject) => {
+    const child = spawn(program, args, { cwd, shell: SHELL, windowsHide: true, stdio: inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.on('data', (chunk) => (stdout += chunk));
+    child.stderr?.on('data', (chunk) => (stderr += chunk));
+    const deadline = setTimeout(() => {
+      endTree(child);
+      reject(new Error(`${program} ${args.join(' ')} did not finish within ${deadlineMs}ms and was ended\n${stderr.slice(-600)}`));
+    }, deadlineMs);
+    child.once('error', (error) => {
+      clearTimeout(deadline);
+      endTree(child);
+      reject(error);
+    });
+    child.once('close', (status) => {
+      clearTimeout(deadline);
+      resolveRun({ status, stdout, stderr });
+    });
+  });
+}
+
 /** The tests one lane filter selects, from libtest's own `--list`. cargo runs a filter that matches nothing and
  *  reports success, so a lane must see at least one name here before it runs. */
-export function selectedTests(lane, filter = null, cwd = CORE) {
-  const result = spawnSync('cargo', ['test', '-p', LANES[lane].pkg, '--locked', ...(filter ? [filter] : []), '--', '--list'], { cwd, encoding: 'utf8', maxBuffer: 64 << 20, shell: SHELL });
+export async function selectedTests(lane, filter = null, options = {}) {
+  const result = await runChild('cargo', ['test', '-p', LANES[lane].pkg, '--locked', ...(filter ? [filter] : []), '--', '--list'], options);
   if (result.status !== 0) throw new Error(`cargo test --list failed for ${lane} ${filter ?? ''}\n${result.stderr}`);
   return result.stdout.split(/\r?\n/).filter((line) => line.endsWith(': test')).map((line) => line.slice(0, -': test'.length));
 }
@@ -57,14 +92,14 @@ export function parseArgs(argv) {
   return options;
 }
 
-function main(argv) {
+async function main(argv) {
   const { runner, list, dryRun, names } = parseArgs(argv);
+  for (const name of names) if (!LANES[name]) throw new Error(`unknown lane ${name}; known: ${Object.keys(LANES).join(', ')}`);
   if (list) {
     for (const [name, lane] of Object.entries(LANES)) console.log(`${name}\t${lane.replaces}`);
     return 0;
   }
   const selected = names.length ? names : Object.keys(LANES);
-  for (const name of selected) if (!LANES[name]) throw new Error(`unknown lane ${name}; known: ${Object.keys(LANES).join(', ')}`);
   for (const name of selected) {
     const { filters } = LANES[name];
     for (const filter of filters.length ? filters : [null]) {
@@ -73,17 +108,17 @@ function main(argv) {
         console.log(`${name}\t${filter ?? '(all)'}\t${run.program} ${run.args.join(' ')}`);
         continue;
       }
-      const count = selectedTests(name, filter).length;
+      const count = (await selectedTests(name, filter)).length;
       if (count === 0) {
         console.error(`lane ${name}: filter ${filter ?? '(all)'} selects no test`);
         return 1;
       }
       console.log(`== ${name}: ${run.program} ${run.args.join(' ')}  (${count} tests)`);
-      const result = spawnSync(run.program, run.args, { cwd: CORE, stdio: 'inherit', shell: SHELL });
+      const result = await runChild(run.program, run.args, { inherit: true });
       if (result.status !== 0) return result.status ?? 1;
     }
   }
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = main(process.argv.slice(2));
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main(process.argv.slice(2));
