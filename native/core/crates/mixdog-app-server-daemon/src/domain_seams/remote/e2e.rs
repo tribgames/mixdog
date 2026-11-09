@@ -94,7 +94,7 @@ struct Desktop {
 impl HostChannel for Desktop {
     async fn request(&self, _capability: HostCapability, method: Method, _params: Value) -> Result<Value, HostError> {
         self.asked.lock().unwrap().push(method.as_str().to_owned());
-        Ok(displays())
+        Ok(serde_json::from_str::<Value>(SCREEN_ACCESS).unwrap()["displays"].clone())
     }
 
     fn notify(&self, _capability: HostCapability, _method: Method, _params: Value) -> Result<(), CoreError> {
@@ -108,10 +108,6 @@ impl ConnectionNotifier for NoPushes {
     fn notify(&self, _to: ConnectionId, _method: Method, _params: Value) -> Result<(), CoreError> {
         Ok(())
     }
-}
-
-fn displays() -> Value {
-    json!([{ "id": "display-1", "label": "Display 1", "primary": true, "width": 1920, "height": 1080 }])
 }
 
 struct Core {
@@ -568,7 +564,23 @@ fn a_local_client_is_recorded_by_what_it_states_and_a_relay_or_claimed_phone_is_
     assert_eq!(kind(4), None, "a relay connection is recorded by the dialer that opened it");
 }
 
-const NOT_ALLOWED: &str = "Remote screen is not allowed for this device.";
+const SCREEN_ACCESS: &str = include_str!("../../../../../fixtures/screen-access/screen-access.json");
+
+/// Node's refusal (`relay.ts` `screenDisplays`) as the core's domain error: the whole error, every field.
+fn assert_refused(refused: &CoreError, recorded: &Value, at: &str) {
+    assert_eq!(recorded["ok"], false, "{at}");
+    let CoreError::DomainError { domain, code, message, detail } = refused else { panic!("{at}: {refused:?}") };
+    assert_eq!(
+        (domain.as_ref(), code.as_ref().map(|code| code.to_string()), message.as_ref().map(|message| message.to_string()), detail.is_some()),
+        ("remote", None, recorded["error"].as_str().map(str::to_owned), false),
+        "{at}"
+    );
+}
+
+fn recorded(name: &str) -> Value {
+    let all: Value = serde_json::from_str(SCREEN_ACCESS).unwrap();
+    all["scenarios"].as_array().unwrap().iter().find(|scenario| scenario["name"].as_str().unwrap().starts_with(name)).unwrap_or_else(|| panic!("no recorded scenario {name}")).clone()
+}
 
 fn displays_request(connection: ConnectionId, origin: Origin) -> CoreRequest {
     CoreRequest {
@@ -579,29 +591,52 @@ fn displays_request(connection: ConnectionId, origin: Origin) -> CoreRequest {
     }
 }
 
+/// Node's composed screen access (`screen-access.json`: the real relay asking the real publisher), against the production wiring.
+/// Every recorded scenario is replayed: a paired phone allowed, a local client refused, a device whose unpair is in force refused,
+/// and a paired phone refused once its credential is unpaired. The allowed answer is compared whole on the wire; a refusal as the whole
+/// domain error. The host is asked exactly as often as Node's was.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_paired_phone_gets_the_hosts_display_list_and_a_local_client_or_an_unpaired_device_gets_nodes_refusal() {
+async fn the_composed_screen_access_answers_as_nodes_relay_and_publisher_did() {
+    let all: Value = serde_json::from_str(SCREEN_ACCESS).unwrap();
+    assert_eq!(all["scenarios"].as_array().unwrap().len(), 4, "every recorded scenario is replayed below");
+
+    // Allowed, then unpaired (the relay confirms the unpair): the phone, then its connection.
+    let revoked = recorded("a paired phone is allowed, then");
     let h = Harness::start(true).await;
     let (mut phone, connection) = h.connect("p1", CRED).await;
-
-    // Over the relay, as the phone asks: the paired device is allowed and the desktop's list comes back unchanged.
     phone.send(&json!({ "id": 7, "method": "browser/screenDisplays", "params": {} }).to_string());
-    let answered = answer(&mut phone, 7).await;
-    assert_eq!(answered["result"], displays(), "{answered}");
-    assert_eq!(*h.desktop.asked.lock().unwrap(), ["host/screen/displays"]);
-
-    // A local client, whatever it says it is, holds no pairing: refused, and the desktop is not asked.
-    let named = ConnectionId(9001);
-    h.core.connection_opened(named, Origin::Local, "Pixel", ConnectionKind::Cli);
-    let refused = h.core.live.call(displays_request(named, Origin::Local)).await.unwrap_err();
-    assert!(matches!(&refused, CoreError::DomainError { message: Some(message), .. } if message.as_ref() == NOT_ALLOWED), "{refused:?}");
-
-    // The device is unpaired: its connection is gone and so is its access, at once.
+    assert_eq!(answer(&mut phone, 7).await, json!({ "id": 7, "result": revoked["before"]["observation"]["value"] }));
+    assert_eq!(h.desktop.asked.lock().unwrap().len() as u64, revoked["before"]["hostAsked"].as_u64().unwrap());
     h.runtime.revoke_client(CRED).await.unwrap();
     assert_eq!(phone.closed().await, "device unpaired");
     h.closed(connection).await;
     let refused = h.core.live.call(displays_request(connection, Origin::Relay)).await.unwrap_err();
-    assert!(matches!(&refused, CoreError::DomainError { message: Some(message), .. } if message.as_ref() == NOT_ALLOWED), "{refused:?}");
-    assert_eq!(h.desktop.asked.lock().unwrap().len(), 1, "no refused request reached the desktop");
+    assert_refused(&refused, &revoked["observation"], "after the unpair");
+    assert_eq!(h.desktop.asked.lock().unwrap().len() as u64, revoked["before"]["hostAsked"].as_u64().unwrap() + revoked["hostAsked"].as_u64().unwrap());
+
+    // The paired phone alone (the first recorded scenario): the same list, whole.
+    let allowed = recorded("a paired, E2EE-established phone");
+    assert_eq!(allowed["observation"]["value"], revoked["before"]["observation"]["value"]);
+    assert_eq!(allowed["hostAsked"], revoked["before"]["hostAsked"]);
+
+    // A local client, even one naming itself after the paired device.
+    let local = recorded("a local client");
+    let named = ConnectionId(9001);
+    h.core.connection_opened(named, Origin::Local, "Pixel", ConnectionKind::Cli);
+    let refused = h.core.live.call(displays_request(named, Origin::Local)).await.unwrap_err();
+    assert_refused(&refused, &local["observation"], "a local client");
+    assert_eq!(h.desktop.asked.lock().unwrap().len(), 1, "{}", local["hostAsked"]);
+    h.runtime.close().await;
+
+    // An unpair the relay has not confirmed is in force: the device's connection is refused, and the host is not asked.
+    let unpaired = recorded("a device whose unpair is in force");
+    let h = Harness::start(false).await;
+    let (mut phone, connection) = h.connect("p1", CRED).await;
+    assert!(h.runtime.revoke_client(CRED).await.is_err(), "the relay refused the unpair");
+    assert_eq!(phone.closed().await, "device unpaired");
+    h.closed(connection).await;
+    let refused = h.core.live.call(displays_request(connection, Origin::Relay)).await.unwrap_err();
+    assert_refused(&refused, &unpaired["observation"], "an unpair in force");
+    assert_eq!(h.desktop.asked.lock().unwrap().len() as u64, unpaired["hostAsked"].as_u64().unwrap());
     h.runtime.close().await;
 }
