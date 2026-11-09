@@ -14,6 +14,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
@@ -22,6 +24,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
+use futures::task::ArcWake;
 use mixdog_remote::webrtc::config::Candidate;
 use mixdog_remote::webrtc::config::IceServer;
 use mixdog_remote::webrtc::host::HostEnv;
@@ -66,6 +69,21 @@ struct Script {
     newest: HashMap<String, Bytes>,
     /// Peer connection id → its source.
     sources: HashMap<String, String>,
+    /// What reached the pictures, in order: the host's own calls, and the recording's sender traffic.
+    pictures: Vec<Pic>,
+}
+
+/// One thing that happened to a source's pictures. `Open` carries the newest picture the host held
+/// when the connection came up (where its encoder starts); `Ack` is a sender acknowledgement of the
+/// picture in flight and `Node` a picture command Node sent, both read from the recording.
+#[derive(Clone, Debug)]
+enum Pic {
+    Open { connection: String, source: String, newest: Option<String> },
+    Close { connection: String },
+    Connected { connection: String },
+    Picture { source: String, data: String },
+    Ack { source: String, honoured: bool },
+    Node { source: String, data: String },
 }
 
 #[derive(Clone, Default)]
@@ -114,7 +132,12 @@ impl HostEnv for Fx {
     }
 
     fn open(&self, connection_id: &str, source_key: &str, ice_servers: &[IceServer], receive_codecs: &[String]) {
-        self.script().sources.insert(connection_id.to_owned(), source_key.to_owned());
+        {
+            let mut script = self.script();
+            script.sources.insert(connection_id.to_owned(), source_key.to_owned());
+            let newest = script.newest.get(source_key).map(|data| String::from_utf8_lossy(data).into_owned());
+            script.pictures.push(Pic::Open { connection: connection_id.to_owned(), source: source_key.to_owned(), newest });
+        }
         self.command(json!({
             "type": "open",
             "connectionId": connection_id,
@@ -138,11 +161,14 @@ impl HostEnv for Fx {
     }
 
     fn close(&self, connection_id: &str) {
+        self.script().pictures.push(Pic::Close { connection: connection_id.to_owned() });
         self.command(json!({ "type": "close", "connectionId": connection_id }));
     }
 
     fn push_picture(&self, source_key: &str, picture: &Picture) {
-        self.script().newest.insert(source_key.to_owned(), picture.data.clone());
+        let mut script = self.script();
+        script.newest.insert(source_key.to_owned(), picture.data.clone());
+        script.pictures.push(Pic::Picture { source: source_key.to_owned(), data: String::from_utf8_lossy(&picture.data).into_owned() });
     }
 
     fn source_closed(&self, source_key: &str) {
@@ -229,11 +255,23 @@ struct Call {
     state: Option<Result<(), String>>,
 }
 
-/// Polls everything the host spawned and every pending phone signal until nothing moves: the
+struct Woken(AtomicBool);
+
+impl ArcWake for Woken {
+    fn wake_by_ref(woken: &Arc<Self>) {
+        woken.0.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Polls everything the host spawned and every pending phone signal until nothing can move: a round
+/// ends the flush only when no task was woken, none was spawned and no call finished in it. The
 /// scenario's own settlements are the only thing that makes anything wait.
 fn flush(fx: &Fx, calls: &mut [Call]) {
-    let mut cx = Context::from_waker(Waker::noop());
-    for _ in 0..24 {
+    let woken = Arc::new(Woken(AtomicBool::new(false)));
+    let waker = futures::task::waker(woken.clone());
+    let mut cx = Context::from_waker(&waker);
+    loop {
+        woken.0.store(false, Ordering::SeqCst);
         let tasks = std::mem::take(&mut fx.script().tasks);
         let mut pending = Vec::new();
         for mut task in tasks {
@@ -241,19 +279,28 @@ fn flush(fx: &Fx, calls: &mut [Call]) {
                 pending.push(task);
             }
         }
-        {
+        let mut spawned = {
             let mut script = fx.script();
+            let spawned = !script.tasks.is_empty();
             pending.append(&mut script.tasks);
             script.tasks = pending;
-        }
+            spawned
+        };
+        let known = fx.script().tasks.len();
+        let mut finished = false;
         for call in calls.iter_mut().filter(|call| call.state.is_none()) {
             if let Poll::Ready(outcome) = call.work.as_mut().poll(&mut cx) {
                 call.state = Some(outcome);
+                finished = true;
             }
+        }
+        // A call that spawned work while it was polled has handed it over for the next round.
+        spawned |= fx.script().tasks.len() > known;
+        if !(woken.0.load(Ordering::SeqCst) || spawned || finished) {
+            return;
         }
     }
 }
-
 fn geometry(value: &Value) -> Option<Geometry> {
     (!value.is_null()).then(|| Geometry::parse(value).unwrap())
 }
@@ -285,7 +332,7 @@ fn is_picture_command(entry: &Value) -> bool {
     entry[0] == "sender" && entry[1]["type"] == "frame"
 }
 
-fn run_scenario(scenario: &Value) {
+fn run_scenario(scenario: &Value) -> usize {
     let name = scenario["name"].as_str().unwrap();
     let fx = Fx::default();
     {
@@ -302,9 +349,23 @@ fn run_scenario(scenario: &Value) {
     let steps = scenario["steps"].as_array().unwrap();
     let recorded = scenario["recorded"].as_array().unwrap();
     assert_eq!(steps.len(), recorded.len(), "{name}");
+    let mut outstanding: HashMap<String, u64> = HashMap::new();
     for (number, (step, want)) in steps.iter().zip(recorded).enumerate() {
         let what = format!("{name} step {number} {}", step["op"]);
         let before = fx.script().trace.len();
+        if step["op"] == "sender" && step["event"]["type"] == "connected" {
+            let connection = step["event"]["connectionId"].as_str().unwrap().to_owned();
+            fx.script().pictures.push(Pic::Connected { connection });
+        }
+        if step["op"] == "sender" && step["event"]["type"] == "frame-done" {
+            // Node ignores an acknowledgement of a picture that is not the one in flight.
+            let source = step["event"]["sourceKey"].as_str().unwrap().to_owned();
+            let honoured = outstanding.get(&source).copied() == step["event"]["frameId"].as_u64();
+            if honoured {
+                outstanding.remove(&source);
+            }
+            fx.script().pictures.push(Pic::Ack { source, honoured });
+        }
         match step["op"].as_str().unwrap() {
             "page" => {
                 let page = (step["documentId"].as_str().map(str::to_owned), geometry(&step["geometry"]));
@@ -373,6 +434,11 @@ fn run_scenario(scenario: &Value) {
             other => panic!("unknown host op {other}"),
         }
         flush(&fx, &mut calls);
+        for entry in want["trace"].as_array().unwrap().iter().filter(|entry| is_picture_command(entry)) {
+            let (source, id) = (entry[1]["sourceKey"].as_str().unwrap().to_owned(), entry[1]["frameId"].as_u64().unwrap());
+            outstanding.insert(source.clone(), id);
+            fx.script().pictures.push(Pic::Node { source, data: entry[1]["data"].as_str().unwrap().to_owned() });
+        }
         let trace: Vec<Value> = fx.script().trace[before..].to_vec();
         let expected: Vec<Value> = want["trace"].as_array().unwrap().iter().filter(|entry| !is_picture_command(entry)).cloned().collect();
         assert_eq!(json!(trace), json!(expected), "{what}: calls");
@@ -395,14 +461,157 @@ fn run_scenario(scenario: &Value) {
             }
         }
     }
+    let pictures = fx.script().pictures.clone();
+    assert_pictures(name, &pictures)
 }
 
 #[test]
 fn the_host_behaves_as_nodes_did_in_every_recorded_scenario() {
     let recorded: Value = serde_json::from_str(HOST).unwrap();
     let scenarios = recorded["scenarios"].as_array().unwrap();
-    assert_eq!(scenarios.len(), 27);
-    for scenario in scenarios {
-        run_scenario(scenario);
+    assert_eq!(scenarios.len(), 29);
+    let differing: usize = scenarios.iter().map(run_scenario).sum();
+    assert_eq!(differing, KNOWN_DIFFERENCES.len(), "every known difference shows, and no other");
+}
+
+/// What each connection's picture stream is, per the core's design: an encoder of its own that
+/// starts from the source's newest picture when the connection comes up, takes the newest picture
+/// whenever it is free and skips the ones that came while it was busy. The encoder is free again when
+/// the sender's acknowledgement of the picture in flight arrives (the recording's only completion
+/// signal); a failed acknowledgement frees it too. A viewer shows pictures from the moment its
+/// connection is up.
+fn core_pictures(events: &[Pic]) -> Vec<(String, Vec<String>)> {
+    struct Viewer {
+        source: String,
+        started: bool,
+        busy: bool,
+        unseen: bool,
+        seen: Vec<String>,
     }
+    let mut live: Vec<(String, Viewer)> = Vec::new();
+    let mut done: Vec<(String, Vec<String>)> = Vec::new();
+    let mut newest: HashMap<String, String> = HashMap::new();
+    for event in events {
+        match event {
+            Pic::Open { connection, source, newest: held } => {
+                assert_eq!(held, &newest.get(source).cloned(), "{connection}: the encoder starts from the newest picture the source had");
+                live.push((connection.clone(), Viewer { source: source.clone(), started: false, busy: false, unseen: false, seen: Vec::new() }));
+            }
+            Pic::Connected { connection } => {
+                for (_, viewer) in live.iter_mut().filter(|(id, _)| id == connection) {
+                    viewer.started = true;
+                    if let Some(picture) = newest.get(&viewer.source) {
+                        viewer.seen.push(picture.clone());
+                        viewer.busy = true;
+                    }
+                }
+            }
+            Pic::Close { connection } => {
+                if let Some(at) = live.iter().position(|(id, _)| id == connection) {
+                    let (id, viewer) = live.remove(at);
+                    done.push((id, viewer.seen));
+                }
+            }
+            Pic::Picture { source, data } => {
+                newest.insert(source.clone(), data.clone());
+                for (_, viewer) in live.iter_mut().filter(|(_, v)| v.started && v.source == *source) {
+                    if viewer.busy {
+                        viewer.unseen = true;
+                    } else {
+                        viewer.seen.push(data.clone());
+                        viewer.busy = true;
+                    }
+                }
+            }
+            Pic::Ack { source, honoured: true } => {
+                for (_, viewer) in live.iter_mut().filter(|(_, v)| v.started && v.source == *source) {
+                    viewer.busy = false;
+                    if std::mem::take(&mut viewer.unseen) {
+                        viewer.seen.push(newest[source].clone());
+                        viewer.busy = true;
+                    }
+                }
+            }
+            Pic::Ack { .. } | Pic::Node { .. } => {}
+        }
+    }
+    done.extend(live.into_iter().map(|(id, viewer)| (id, viewer.seen)));
+    done.sort();
+    done
+}
+
+/// What a phone shows of Node's pictures: its sender window fed every connection of the source from
+/// one track, so a connection that comes up shows the picture last sent and then each one after.
+fn node_pictures(events: &[Pic]) -> Vec<(String, Vec<String>)> {
+    let mut live: Vec<(String, String, bool, Vec<String>)> = Vec::new();
+    let mut done: Vec<(String, Vec<String>)> = Vec::new();
+    let mut sent: HashMap<String, String> = HashMap::new();
+    for event in events {
+        match event {
+            Pic::Open { connection, source, .. } => live.push((connection.clone(), source.clone(), false, Vec::new())),
+            Pic::Connected { connection } => {
+                for (_, source, up, seen) in live.iter_mut().filter(|(id, ..)| id == connection) {
+                    *up = true;
+                    if let Some(picture) = sent.get(source) {
+                        seen.push(picture.clone());
+                    }
+                }
+            }
+            Pic::Close { connection } => {
+                if let Some(at) = live.iter().position(|(id, ..)| id == connection) {
+                    let (id, _, _, seen) = live.remove(at);
+                    done.push((id, seen));
+                }
+            }
+            Pic::Node { source, data } => {
+                sent.insert(source.clone(), data.clone());
+                for (_, _, _, seen) in live.iter_mut().filter(|(_, of, up, _)| of == source && *up) {
+                    seen.push(data.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+    done.extend(live.into_iter().map(|(id, _, _, seen)| (id, seen)));
+    done.sort();
+    done
+}
+/// A picture sent again to a viewer that already shows it changes nothing on its screen.
+fn distinct(pictures: Vec<(String, Vec<String>)>) -> Vec<(String, Vec<String>)> {
+    pictures
+        .into_iter()
+        .map(|(id, mut seen)| {
+            seen.dedup();
+            (id, seen)
+        })
+        .collect()
+}
+
+/// Where what a connection shows differs from Node's, once a picture shown twice in a row is one: a
+/// connection that comes up while a picture is in flight and a newer one waits. Node's track still
+/// holds the last picture it sent, so the phone shows that one until the waiting picture is sent;
+/// the core's encoder starts from the newest picture and shows only that. Both end on the same picture.
+const KNOWN_DIFFERENCES: [(&str, &str, &[&str], &[&str]); 1] = [(
+    "a viewer that connects while a picture is in flight and a newer one waits",
+    "connection-id-0002",
+    &["AAAA", "CCCC"],
+    &["CCCC"],
+)];
+
+/// Checks one scenario's pictures and returns how many connections differ from Node.
+fn assert_pictures(name: &str, events: &[Pic]) -> usize {
+    let (core, node) = (distinct(core_pictures(events)), distinct(node_pictures(events)));
+    assert_eq!(core.iter().map(|(id, _)| id).collect::<Vec<_>>(), node.iter().map(|(id, _)| id).collect::<Vec<_>>(), "{name}: the connections");
+    let mut differing = 0;
+    for ((id, shown), (_, sent)) in core.iter().zip(&node) {
+        if shown == sent {
+            continue;
+        }
+        differing += 1;
+        let known = KNOWN_DIFFERENCES.iter().any(|(scenario, connection, node, core)| {
+            *scenario == name && connection == id && node.iter().eq(sent.iter()) && core.iter().eq(shown.iter())
+        });
+        assert!(known, "{name}: {id} shows {shown:?} where Node showed {sent:?}");
+    }
+    differing
 }

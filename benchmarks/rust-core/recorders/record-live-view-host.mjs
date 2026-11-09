@@ -221,6 +221,7 @@ const CONNECTED = { op: 'sender', event: { type: 'connected', connectionId: C1, 
 // A picture of the current page has to be delivered before the phone's media-ready counts.
 const FIRST_PICTURE = [{ op: 'frame', sourceKey: KEY, picture: picture('AAAA') }, { op: 'sender', event: { type: 'frame-done', sourceKey: KEY, frameId: 1, ok: true } }];
 const toConnected = [PAGE, signalA(readySig()), ...FIRST_PICTURE, signalA({ v: 1, source: SRC, type: 'geometry-ack', geometryGeneration: 1 }), OFFER, ANSWER, CONNECTED];
+const ack = (frameId) => ({ op: 'sender', event: { type: 'frame-done', sourceKey: KEY, frameId, ok: true } });
 const mediaReady = signalA(sig('media-ready', { documentId: 'p1:2', geometryGeneration: 1, pixelWidth: 1170, pixelHeight: 2532 }));
 const toPromoting = [...toConnected, mediaReady];
 const toWebrtc = [...toPromoting, signalA(sig('promote-ack', { inputEpoch: 2 }))];
@@ -407,6 +408,27 @@ const scenarios = [
     { op: 'sender', event: { type: 'frame-done', sourceKey: KEY, frameId: 2, ok: true } },
     { op: 'sender', event: { type: 'frame-done', sourceKey: KEY, frameId: 3, ok: true } },
     mediaReady,
+  ]),
+  // Pictures to a connected viewer: one in flight, the newest replaces the waiting one.
+  await hostScenario('pictures reach a connected viewer one in flight at a time; the newest replaces the waiting one', [
+    ...toConnected,
+    { op: 'frame', sourceKey: KEY, picture: picture('BBBB') },
+    { op: 'frame', sourceKey: KEY, picture: picture('CCCC') },
+    ack(2),
+    { op: 'frame', sourceKey: KEY, picture: picture('DDDD') },
+    ack(3),
+    ack(4),
+  ]),
+  await hostScenario('a viewer that connects while a picture is in flight and a newer one waits', [
+    ...toConnected,
+    { op: 'frame', sourceKey: KEY, picture: picture('BBBB') },
+    { op: 'frame', sourceKey: KEY, picture: picture('CCCC') },
+    { op: 'signal', client: B, raw: readySig(), iceServers: ICE },
+    { op: 'sender', event: { type: 'offer', connectionId: C2, sdp: SDP } },
+    { op: 'signal', client: B, raw: sig('answer', { sdp: SDP, fingerprints: [fp256] }, C2), iceServers: [] },
+    { op: 'sender', event: { type: 'connected', connectionId: C2, remoteCertificate: cert } },
+    ack(2),
+    ack(3),
   ]),
   await hostScenario('channel pushes go to each viewer of the source whose channel is up', [
     ...toWebrtc,
