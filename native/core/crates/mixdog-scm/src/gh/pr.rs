@@ -86,20 +86,23 @@ fn to_entry(record: &Value) -> Map<String, Value> {
     entry
 }
 
-fn required_number(value: &Value) -> Result<u64, ScmFailure> {
-    match value.as_u64() {
-        Some(number) if (1..=10_000_000).contains(&number) => Ok(number),
-        _ => Err(ScmFailure::invalid("value", "a pull request number")),
+/// `requiredPrNumber` (`gh-cli.ts`): `Number(value)` must be an integer from 1 to 10 000 000, so `'12'` is 12.
+pub(crate) fn required_number(value: &Value) -> Result<u64, ScmFailure> {
+    let number = mixdog_js::to_number(value);
+    if number.is_finite() && number.fract() == 0.0 && (1.0..=10_000_000.0).contains(&number) {
+        return Ok(number as u64);
     }
+    Err(ScmFailure::git("A pull request number is required."))
 }
 
+/// `requiredCreateText`: the same words as Node's `TypeError`s.
 fn create_text(value: Option<&Value>, name: &str, maximum: usize) -> Result<String, ScmFailure> {
     let Some(Value::String(raw)) = value else {
-        return Err(ScmFailure::invalid(name, "a string"));
+        return Err(ScmFailure::git(format!("{name} must be a string.")));
     };
-    let trimmed = raw.trim();
-    if trimmed.is_empty() || trimmed.chars().count() > maximum {
-        return Err(ScmFailure::invalid(name, "a valid value"));
+    let trimmed = mixdog_js::js_trim(raw);
+    if trimmed.is_empty() || trimmed.encode_utf16().count() > maximum {
+        return Err(ScmFailure::git(format!("{name} is invalid.")));
     }
     Ok(trimmed.to_owned())
 }
@@ -108,28 +111,31 @@ fn create_text(value: Option<&Value>, name: &str, maximum: usize) -> Result<Stri
 pub fn create_args(value: &Value) -> Result<Vec<String>, ScmFailure> {
     let input = value
         .as_object()
-        .ok_or_else(|| ScmFailure::invalid("value", "pull request input"))?;
+        .ok_or_else(|| ScmFailure::git("Pull request input is required."))?;
     if input
         .keys()
         .any(|key| !["base", "head", "title", "body", "draft"].contains(&key.as_str()))
     {
-        return Err(ScmFailure::invalid("value", "pull request input without unsupported fields"));
+        return Err(ScmFailure::git("Pull request input contains an unsupported field."));
     }
     let base = create_text(input.get("base"), "base branch", 512)?;
     let head = create_text(input.get("head"), "head branch", 512)?;
     let title = create_text(input.get("title"), "pull request title", 1024)?;
     let body = match input.get("body") {
         None => String::new(),
-        Some(Value::String(body)) if body.chars().count() <= 100_000 => body.clone(),
-        Some(_) => return Err(ScmFailure::invalid("body", "a string of at most 100000 characters")),
+        Some(Value::String(body)) => body.clone(),
+        Some(_) => return Err(ScmFailure::git("pull request body must be a string.")),
     };
     let draft = match input.get("draft") {
         None => false,
         Some(Value::Bool(draft)) => *draft,
-        Some(_) => return Err(ScmFailure::invalid("draft", "a boolean")),
+        Some(_) => return Err(ScmFailure::git("pull request draft must be a boolean.")),
     };
+    if body.encode_utf16().count() > 100_000 {
+        return Err(ScmFailure::git("pull request body is invalid."));
+    }
     if base.to_lowercase() == head.to_lowercase() {
-        return Err(ScmFailure::invalid("base", "a branch that differs from the head branch"));
+        return Err(ScmFailure::git("Base branch must differ from the head branch."));
     }
     let mut args: Vec<String> = ["pr", "create", "--base", &base, "--head", &head, "--title", &title, "--body", &body]
         .iter()
@@ -334,7 +340,7 @@ impl Scm {
         let chosen = match method {
             Value::Null => "merge",
             Value::String(name) if ["merge", "squash", "rebase"].contains(&name.as_str()) => name.as_str(),
-            _ => return Err(ScmFailure::invalid("method", "`merge`, `squash` or `rebase`")),
+            _ => return Err(ScmFailure::git("A valid merge method is required.")),
         };
         let number = required_number(value)?.to_string();
         let flag = format!("--{chosen}");

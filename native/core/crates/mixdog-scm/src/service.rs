@@ -88,6 +88,60 @@ pub trait ThreadWorktrees: Send + Sync {
 
 /** Untracked rows a review lists (`git-history.ts` `REVIEW_UNTRACKED_LIMIT`); the rest are only counted. */
 const REVIEW_UNTRACKED_LIMIT: usize = 256;
+/// Patch text one `gitReviewDiffs` batch returns before the remaining files are omitted (`REVIEW_BATCH_PATCH_CHARS`).
+const REVIEW_BATCH_PATCH_CHARS: usize = 8_000_000;
+/// Pathspec text one batch passes on the command line (`REVIEW_BATCH_ARGS_CHARS`).
+const REVIEW_BATCH_ARGS_CHARS: usize = 20_000;
+
+/// How many times a repository review is read again when its cached result is dropped between the summary and the patch.
+const REVIEW_READ_ATTEMPTS: usize = 3;
+
+/// Runs `attempt` until it answers (`Some`), at most [`REVIEW_READ_ATTEMPTS`] times.
+pub(crate) async fn until_ready<T, F, Fut>(mut attempt: F) -> Result<T, ScmFailure>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<Option<T>, ScmFailure>>,
+{
+    for _ in 0..REVIEW_READ_ATTEMPTS {
+        if let Some(value) = attempt().await? {
+            return Ok(value);
+        }
+    }
+    Err(ScmFailure::git("The review changed while it was being read. Try again."))
+}
+
+/// The files a `gitReviewDiffs` batch serves, in Node's order (tracked, then untracked; a repeated path once). A path
+/// git would quote in a diff header, or past the command-line budget, goes to `omitted` (`git-history.ts` gitReviewDiffs).
+fn batch_paths(files: &[Value], omitted: &mut Vec<String>) -> Vec<String> {
+    let mut unique: Vec<(String, bool)> = Vec::new();
+    for file in files {
+        let Some(path) = file.get("path").and_then(Value::as_str) else { continue };
+        let untracked = file.get("untracked").and_then(Value::as_bool) == Some(true);
+        match unique.iter_mut().find(|(seen, _)| seen == path) {
+            Some(entry) => entry.1 = untracked,
+            None => unique.push((path.to_owned(), untracked)),
+        }
+    }
+    let (mut tracked, mut untracked) = (Vec::new(), Vec::new());
+    let mut arg_chars = 0;
+    for (path, is_untracked) in unique {
+        if is_untracked {
+            untracked.push(path);
+            continue;
+        }
+        arg_chars += path.encode_utf16().count() + 3;
+        if path.chars().any(|c| c == '"' || c == '\\' || c < ' ') || arg_chars > REVIEW_BATCH_ARGS_CHARS {
+            omitted.push(path);
+        } else {
+            tracked.push(path);
+        }
+    }
+    tracked.extend(untracked);
+    tracked
+}
+
+/// `hostState` key of the global git identity (`{name, email, defaultBranch}`), published after each write.
+pub const GIT_CONFIG_KEY: &str = "gitConfig";
 const GATE_OFF: &str = "Enable Git & GitHub in Extensions → Plugin before using GitHub actions.";
 
 struct GitWatch {
@@ -101,6 +155,18 @@ struct GitWatch {
 struct Flow {
     session: Arc<dyn LoginSession>,
     feed: FeedPublisher,
+    /// The code and device page the flow showed, kept for the states after it.
+    device: Mutex<Option<(String, String)>>,
+}
+
+impl Flow {
+    fn json(&self, id: &LoginFlowId, state: &LoginState) -> Value {
+        let mut device = self.device.lock().expect("device");
+        if let LoginState::DeviceCode { user_code, verification_uri, .. } = state {
+            *device = Some((user_code.clone(), verification_uri.clone()));
+        }
+        flow_json(id, state, device.as_ref())
+    }
 }
 
 pub struct ScmService {
@@ -136,7 +202,8 @@ fn cwd(value: &str) -> Result<PathBuf, ScmFailure> {
     let trimmed = value.trim();
     let path = PathBuf::from(trimmed);
     if trimmed.is_empty() || !path.is_absolute() {
-        return Err(ScmFailure::invalid("cwd", "an absolute project directory"));
+        // `requiredRepositoryCwd` (git-contract.mjs): Node threw this plain TypeError.
+        return Err(ScmFailure::git("A project directory is required."));
     }
     Ok(path)
 }
@@ -174,8 +241,16 @@ pub fn key_text(key: &InspectorKey) -> String {
 }
 
 /// The wire shape of a `GitHub` sign-in flow.
-pub fn flow_json(flow: &LoginFlowId, state: &LoginState) -> Value {
+pub fn flow_json(flow: &LoginFlowId, state: &LoginState, device: Option<&(String, String)>) -> Value {
     let id = flow.as_str();
+    // Node's flow keeps the code and the device page it showed: `{...flow, state: 'success' | 'error'}`.
+    let with_device = |mut value: Value| {
+        if let (Some((code, url)), Some(fields)) = (device, value.as_object_mut()) {
+            fields.insert("code".into(), json!(code));
+            fields.insert("url".into(), json!(url));
+        }
+        value
+    };
     match state {
         LoginState::Starting | LoginState::Waiting | LoginState::Authorize { .. } => {
             json!({ "flowId": id, "state": "pending" })
@@ -184,8 +259,8 @@ pub fn flow_json(flow: &LoginFlowId, state: &LoginState) -> Value {
             json!({ "flowId": id, "state": "code", "code": user_code, "url": verification_uri })
         }
         LoginState::Done { account } => match account {
-            Some(login) => json!({ "flowId": id, "state": "success", "login": login }),
-            None => json!({ "flowId": id, "state": "success" }),
+            Some(login) => with_device(json!({ "flowId": id, "state": "success", "login": login })),
+            None => with_device(json!({ "flowId": id, "state": "success" })),
         },
         LoginState::Failed(failure) => {
             let message = match failure {
@@ -195,7 +270,7 @@ pub fn flow_json(flow: &LoginFlowId, state: &LoginState) -> Value {
                 LoginFailure::Failed { message, .. } => message.clone(),
                 LoginFailure::VerificationRequired { url, .. } => format!("Verify your account at {url} and sign in again."),
             };
-            json!({ "flowId": id, "state": "error", "message": message })
+            with_device(json!({ "flowId": id, "state": "error", "message": message }))
         }
         LoginState::Cancelled => json!({ "flowId": id, "state": "cancelled" }),
     }
@@ -323,7 +398,7 @@ impl ScmService {
         let session: Arc<dyn LoginSession> = match self.login.start().await {
             Ok(session) => Arc::from(session),
             Err(mixdog_core_api::domain::login::LoginError::Failed(LoginFailure::Unavailable { .. })) => {
-                return Err(ScmFailure::Unavailable { capability: "gh".into() });
+                return Err(ScmFailure::git("GitHub CLI is not installed."));
             }
             Err(error) => return Err(ScmFailure::Command { domain: GITHUB_DOMAIN, text: format!("{error:?}") }),
         };
@@ -332,10 +407,11 @@ impl ScmService {
             std::process::id(),
             self.flow_seq.fetch_add(1, Ordering::Relaxed) + 1
         ));
-        let initial = flow_json(&id, &session.state());
+        let initial = flow_json(&id, &session.state(), None);
         let flow = Arc::new(Flow {
             feed: FeedPublisher::create(self.feeds.as_ref(), FeedId(format!("login:{id}")), initial.clone()),
             session: session.clone(),
+            device: Mutex::new(None),
         });
         {
             // One login at a time: a fresh start supersedes the earlier flows.
@@ -350,7 +426,7 @@ impl ScmService {
         let flow_id = id.clone();
         mixdog_rt::spawn("scm-login-feed", TaskClass::Work, async move {
             while let Some(state) = watcher.session.next().await {
-                let value = flow_json(&flow_id, &state);
+                let value = watcher.json(&flow_id, &state);
                 watcher
                     .feed
                     .publish("login/updated", json!({ "flowId": flow_id, "state": value }), value.clone());
@@ -410,7 +486,7 @@ impl ScmService {
         };
         let inspector = &self.scm.inspector;
         let summary = inspector
-            .review_summary(self.scm.lane, request)
+            .review_summary(self.scm.lane, request.clone())
             .await
             .map_err(crate::mutate::scm_error)?;
         let key = key_text(&summary.key);
@@ -424,10 +500,18 @@ impl ScmService {
             .collect();
         let (adds, dels) = summary.files.iter().fold((0, 0), |(a, d), f| (a + f.adds, d + f.dels));
         let mut out = json!({ "key": key, "files": files, "totals": { "files": summary.files.len(), "additions": adds, "deletions": dels } });
+        let mut omitted: Vec<String> = Vec::new();
         let wants_patch = params.patch == Some(true) || params.path.is_some() || params.files.is_some() || params.cursor.is_some();
         if wants_patch {
             let mut pages = Vec::new();
-            let mut paths: Vec<String> = params.files.iter().flatten().filter_map(|f| f.get("path").and_then(Value::as_str).map(str::to_owned)).collect();
+            // `gitReviewDiffs` serves a bounded batch; what it cannot serve comes back in `omitted` (`git-history.ts`).
+            let batch = base_name.is_some() && params.files.is_some();
+            let mut paths: Vec<String> = if batch {
+                batch_paths(params.files.as_deref().unwrap_or_default(), &mut omitted)
+            } else {
+                params.files.iter().flatten().filter_map(|f| f.get("path").and_then(Value::as_str).map(str::to_owned)).collect()
+            };
+            let mut budget = REVIEW_BATCH_PATCH_CHARS;
             if let Some(path) = &params.path {
                 paths.push(path.clone());
             }
@@ -441,8 +525,31 @@ impl ScmService {
                 }
             } else {
                 for path in paths {
-                    match inspector.review_page(&summary.key, Some(&path), None).map_err(crate::mutate::scm_error)? {
-                        Cached::Ready(page) => pages.push(json!({ "path": path, "patch": page.patch })),
+                    // Node reads the patch whenever it is asked: a repository review whose cached read was dropped meanwhile is read
+                    // again, never answered as "pending".
+                    let cached = if base_name.is_some() {
+                        let page = until_ready(|| async {
+                            let fresh = inspector.review_summary(self.scm.lane, request.clone()).await.map_err(crate::mutate::scm_error)?;
+                            match inspector.review_page(&fresh.key, Some(&path), None).map_err(crate::mutate::scm_error)? {
+                                Cached::Ready(page) => Ok(Some(page)),
+                                Cached::Pending { .. } => Ok(None),
+                            }
+                        })
+                        .await?;
+                        Cached::Ready(page)
+                    } else {
+                        inspector.review_page(&summary.key, Some(&path), None).map_err(crate::mutate::scm_error)?
+                    };
+                    match cached {
+                        Cached::Ready(page) => {
+                            let length = page.patch.encode_utf16().count();
+                            if batch && length > budget {
+                                omitted.push(path);
+                                continue;
+                            }
+                            budget = budget.saturating_sub(length);
+                            pages.push(json!({ "path": path, "patch": page.patch }));
+                        }
                         Cached::Pending { key } => {
                             out["pending"] = json!({ "key": key_text(&key) });
                         }
@@ -458,7 +565,7 @@ impl ScmService {
         if let Some(name) = base_name {
             // `gitReviewDiffs`: `{patches, omitted}`.
             if params.files.is_some() {
-                let mut shaped = json!({ "patches": out["patches"], "omitted": [] });
+                let mut shaped = json!({ "patches": out["patches"], "omitted": omitted });
                 if let Some(pending) = out.get("pending") {
                     shaped["pending"] = pending.clone();
                 }
@@ -637,14 +744,24 @@ impl ScmService {
             "git/ignore" => { let p: p::GitIgnoreParams = decode(req)?; open!(p).ignore(&p.path, p.scope.as_deref().unwrap_or("file")).await?; unit() }
             "git/continue" => { let p: p::GitContinueParams = decode(req)?; json!(open!(p).continue_operation().await?) }
             "git/abortOperation" => { let p: p::GitAbortOperationParams = decode(req)?; json!(open!(p).abort_operation().await?) }
-            "git/globalConfig/write" => { let p: p::GitGlobalConfigWriteParams = decode(req)?; scm.git_global_config_write(cancel, &p.key, &p.value).await? }
+            "git/globalConfig/write" => {
+                let p: p::GitGlobalConfigWriteParams = decode(req)?;
+                let saved = scm.git_global_config_write(cancel, &p.key, &p.value).await?;
+                // Node announced `notifySettingsChanged('git')` here; the owning actor publishes its own change (DS §3).
+                self.publisher.publish(
+                    SectionName::HostState,
+                    Some(GIT_CONFIG_KEY.to_owned()),
+                    SectionChange::Set(serde_json::to_vec(&saved).expect("json").into()),
+                );
+                saved
+            }
             "git/cli/install" => scm.git_cli_install(cancel).await?,
             "github/status" => { let p: p::GithubStatusParams = decode(req)?; scm.gh_status(cancel, p.refresh.unwrap_or(false)).await? }
             "github/account" => scm.gh_account(cancel).await?,
             "github/login/start" => self.login_start().await?,
             "github/login/status" => {
                 let p: p::GithubLoginStatusParams = decode(req)?;
-                flow_json(&p.flow_id, &self.flow(&p.flow_id)?.session.state())
+                { let flow = self.flow(&p.flow_id)?; flow.json(&p.flow_id, &flow.session.state()) }
             }
             // gh never opens a browser itself (no-op launcher): the client opens the device page.
             "github/login/openBrowser" => { let p: p::GithubLoginOpenBrowserParams = decode(req)?; self.flow(&p.flow_id)?; json!(false) }

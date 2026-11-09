@@ -112,7 +112,10 @@ impl Exec {
             .ok_or_else(|| ScmFailure::invalid("cwd", "an absolute directory"))?;
         let handle = self.handle();
         let stdin_piped = spec.stdin.is_some();
+        let time_limit = spec.time_limit;
         let program = spec.program.clone();
+        // Node's runners word a deadline or an overflow with the command as `git status -z` (git-runner.ts gitTimeout).
+        let command = command_label(&spec.program, &spec.args);
         let request = SpawnRequest {
             handle: handle.clone(),
             command: CommandSpec::Argv {
@@ -185,6 +188,7 @@ impl Exec {
         }
         if too_large {
             return Err(ScmFailure::OutputTooLarge {
+                command,
                 limit: spec.max_output,
             });
         }
@@ -193,7 +197,10 @@ impl Exec {
             message: "process events ended without an exit".into(),
         })?;
         if exit.killed == Some(KillReason::TimeLimit) {
-            return Err(ScmFailure::TimedOut);
+            return Err(ScmFailure::TimedOut {
+                command,
+                millis: time_limit.map_or(0, |limit| limit.as_millis() as u64),
+            });
         }
         out.code = match exit.status {
             ExitStatus::Code(code) => Some(code),
@@ -201,6 +208,15 @@ impl Exec {
         };
         Ok(out)
     }
+}
+
+/// The program by its name without directory or extension, then its arguments.
+pub(crate) fn command_label(program: &str, args: &[String]) -> String {
+    let name = std::path::Path::new(program)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or(program);
+    std::iter::once(name).chain(args.iter().map(String::as_str)).collect::<Vec<_>>().join(" ")
 }
 
 fn spawn_failure(error: ProcessError, program: &str) -> ScmFailure {

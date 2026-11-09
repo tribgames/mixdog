@@ -15,8 +15,8 @@ pub const WORKTREE_DOMAIN: &str = "worktree";
 
 pub const CODE_COMMAND_FAILED: &str = "COMMAND_FAILED";
 pub const CODE_REFUSED: &str = "REFUSED";
-pub const CODE_TIMED_OUT: &str = "GIT_TIMEOUT";
-pub const CODE_OUTPUT_TOO_LARGE: &str = "OUTPUT_TOO_LARGE";
+pub const CODE_TIMED_OUT: &str = "EGITTIMEOUT";
+pub const CODE_OUTPUT_TOO_LARGE: &str = "EMAXBUFFER";
 pub const CODE_IO: &str = "IO_ERROR";
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -33,10 +33,11 @@ pub enum ScmFailure {
     #[error("{capability} is not available")]
     Unavailable { capability: String },
     /// A read-only git child was cut off at its run limit: its answer is unknown.
-    #[error("git timed out")]
-    TimedOut,
-    #[error("output exceeded {limit} bytes")]
-    OutputTooLarge { limit: u64 },
+    /// `command` is the program and its arguments as Node's runner worded them (`git status -z`).
+    #[error("{command} timed out after {millis}ms")]
+    TimedOut { command: String, millis: u64 },
+    #[error("{command} exceeded {limit} output bytes")]
+    OutputTooLarge { command: String, limit: u64 },
     #[error("cancelled")]
     Cancelled,
     /// A lane queue is full: the caller answers overloaded at once.
@@ -65,6 +66,16 @@ pub enum ScmFailure {
     },
     #[error("object {0:?} is missing")]
     ObjectMissing(ObjectId),
+}
+
+/// What git prints outside a repository (Node surfaced git's own stderr).
+pub const NOT_A_REPOSITORY_TEXT: &str = "fatal: not a git repository (or any of the parent directories): .git";
+
+/// Refusals whose Node errors were plain `Error`s: their code is the core's own bookkeeping and never reaches a client.
+const PLAIN_ERROR_CODES: [&str; 3] = ["NO_OPERATION", "UNKNOWN_FLOW", "FEATURE_DISABLED"];
+
+fn node_code(code: &'static str) -> Option<&'static str> {
+    (!PLAIN_ERROR_CODES.contains(&code)).then_some(code)
 }
 
 impl ScmFailure {
@@ -153,10 +164,11 @@ impl From<std::io::Error> for ScmFailure {
 impl From<ScmFailure> for CoreError {
     fn from(failure: ScmFailure) -> Self {
         match failure {
+            // Node let git say it: the stderr of the command that ran outside a repository, with no code.
             ScmFailure::NotARepository => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
-                code: Some("NOT_A_REPOSITORY".into()),
-                message: None,
+                code: None,
+                message: Some(NOT_A_REPOSITORY_TEXT.into()),
                 detail: None,
             },
             ScmFailure::Invalid { path, expected } => CoreError::InvalidParams {
@@ -165,7 +177,8 @@ impl From<ScmFailure> for CoreError {
             },
             ScmFailure::Command { domain, text } => CoreError::DomainError {
                 domain: domain.into(),
-                code: Some(CODE_COMMAND_FAILED.into()),
+                // Node's errors from a command that ran and failed carry no code.
+                code: None,
                 message: Some(text.into()),
                 detail: None,
             },
@@ -173,16 +186,16 @@ impl From<ScmFailure> for CoreError {
                 capability: capability.into(),
                 detail: Arc::from(""),
             },
-            ScmFailure::TimedOut => CoreError::DomainError {
+            ScmFailure::TimedOut { command, millis } => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
                 code: Some(CODE_TIMED_OUT.into()),
-                message: None,
+                message: Some(format!("{command} timed out after {millis}ms").into()),
                 detail: None,
             },
-            ScmFailure::OutputTooLarge { limit } => CoreError::DomainError {
+            ScmFailure::OutputTooLarge { command, limit } => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
                 code: Some(CODE_OUTPUT_TOO_LARGE.into()),
-                message: Some(limit.to_string().into()),
+                message: Some(format!("{command} exceeded {limit} output bytes").into()),
                 detail: None,
             },
             ScmFailure::Cancelled => CoreError::Cancelled { by: "caller".into() },
@@ -195,7 +208,7 @@ impl From<ScmFailure> for CoreError {
                 message,
             } => CoreError::DomainError {
                 domain: domain.into(),
-                code: Some(code.into()),
+                code: node_code(code).map(Into::into),
                 message: Some(message.into()),
                 detail: None,
             },
@@ -215,7 +228,7 @@ impl From<ScmFailure> for CoreError {
             },
             ScmFailure::Io { message, .. } => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
-                code: Some(CODE_IO.into()),
+                code: None,
                 message: Some(message.into()),
                 detail: None,
             },
@@ -350,11 +363,39 @@ mod tests {
                 detail,
             } => {
                 assert_eq!(&*domain, "git");
-                assert_eq!(code.as_deref(), Some(CODE_COMMAND_FAILED));
+                // Node's error from a command that ran and failed has no code.
+                assert_eq!(code, None);
                 assert_eq!(message.as_deref(), Some("fatal: x"));
                 assert_eq!(detail, None);
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    fn domain(failure: ScmFailure) -> (Option<String>, Option<String>) {
+        let CoreError::DomainError { code, message, .. } = CoreError::from(failure) else { panic!("not a domain error") };
+        (code.map(|code| code.to_string()), message.map(|message| message.to_string()))
+    }
+
+    #[test]
+    fn a_deadline_and_an_overflow_read_as_node_worded_them() {
+        let timed_out = ScmFailure::TimedOut { command: "git status -z".into(), millis: 60_000 };
+        assert_eq!(domain(timed_out), (Some("EGITTIMEOUT".into()), Some("git status -z timed out after 60000ms".into())));
+        let overflow = ScmFailure::OutputTooLarge { command: "git log -z".into(), limit: 32_000_000 };
+        assert_eq!(domain(overflow), (Some("EMAXBUFFER".into()), Some("git log -z exceeded 32000000 output bytes".into())));
+    }
+
+    #[test]
+    fn outside_a_repository_git_says_so_and_a_plain_refusal_has_no_code() {
+        assert_eq!(
+            domain(ScmFailure::NotARepository),
+            (None, Some("fatal: not a git repository (or any of the parent directories): .git".into()))
+        );
+        assert_eq!(
+            domain(ScmFailure::refused("UNKNOWN_FLOW", "Unknown GitHub login flow.")),
+            (None, Some("Unknown GitHub login flow.".into()))
+        );
+        // A refusal Node coded keeps its code.
+        assert_eq!(domain(ScmFailure::refused("git-reset-dirty-worktree", "x")).0.as_deref(), Some("git-reset-dirty-worktree"));
     }
 }
