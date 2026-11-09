@@ -347,7 +347,7 @@ test('termEnsure without a tab id sends none: the core spawns a new terminal and
     const sent = routeDesktopOperation('termEnsure', [id, R, null]);
     assert.equal(sent.method, 'terminal/ensure');
     assert.equal('tabId' in sent.params, false);
-    assert.deepEqual(sent.params.options, { cwd: R, profile: null });
+    assert.deepEqual(sent.params.options, { cwd: R });
   }
   assert.equal(routeDesktopOperation('termEnsure', ['t9', R, null]).params.tabId, 't9');
 });

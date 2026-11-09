@@ -9,6 +9,7 @@ import { readSettingsChange, SETTINGS_CHANGED_EVENT } from '../../shared/setting
 import { pairedDeviceInfo } from '../notification-center';
 import { desktopSettingsFromConfig, storedPinsState } from '../settings-store';
 import { createProjectWatchRegistry } from '../../shared/project-watch-registry';
+import { terminalEnsureRequest, terminalReply } from '../../shared/terminal-protocol';
 import type { ProtocolConnection, ProtocolWindow } from './connection';
 import { coreErrorForWindow } from './core-error';
 import { remoteAccessInfo, remotePagedMember } from './remote-reads';
@@ -231,10 +232,7 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
 
   // terminals; the size owner is the calling connection, so Node's force flag and client id have no param
   // With no id the core spawns a new terminal and answers the id it made.
-  termEnsure: ([tabId, cwd, profile]) => ({
-    method: 'terminal/ensure',
-    params: defined({ tabId: tabId == null || tabId === '' ? undefined : tabId, options: defined({ cwd, profile }) }),
-  }),
+  termEnsure: ([tabId, cwd, profile]) => terminalEnsureRequest(tabId, cwd, profile),
   termAttach: positional('terminal/attach', ['tabId']),
   termProfiles: positional('terminal/profiles', []),
   // Node: focus(id, focused, client): a view shows (true) or leaves (false) the tab; the client is the connection.
@@ -464,10 +462,7 @@ const CUSTOM_REPLY: Readonly<Record<string, Reply>> = {
   githubCliLoginOpenBrowser: (reply) => reply === true,
   // Node answered {id, replay, sizeOwner?} and left `sizeOwner` out when no phone owns the size, where the core writes
   // null; the id is the core's own (a client id it accepted, else the one it made).
-  termEnsure: (reply) => {
-    const { sizeOwner, ...rest } = record(reply);
-    return { ...rest, ...(sizeOwner == null ? {} : { sizeOwner }) };
-  },
+  termEnsure: (reply) => terminalReply(reply),
   // Node answered the bytes received so far: a chunk is acknowledged only when written, at offset + its length.
   serverUploadChunk: (_reply, { args }) => ({
     received: Number(args[1]) + Buffer.from(String(args[2]), 'base64').length,

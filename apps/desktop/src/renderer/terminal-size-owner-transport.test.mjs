@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createRemoteApi } from './remote-shim-api.ts';
-import { publishedCeilings, withShim } from './remote-shim-test-harness.mjs';
+import { adapterWorld } from './phone-adapter-world.mjs';
 import {
   applyEnsuredSizeOwner,
   applySizeOwner,
@@ -64,53 +63,41 @@ test('a phone whose followed phone released while disconnected reclaims its own 
   assert.deepEqual(live.followSize, { cols: 50, rows: 20 }, 'a live claim by another phone is still followed');
 });
 
-test('a host without termSizeOwner never gets the 0x0 release or owner heartbeats', async () => {
-  await withShim({}, async ({ ctx, dial }) => {
-    const api = createRemoteApi(ctx);
-    const legacy = await dial({ ready: publishedCeilings(4096, 4096) });
-    const redial = (flags) => {
-      ctx.connectionReady = false;
-      ctx.socket = null;
-      ctx.openPromise = null;
-      return dial({ ...flags, ready: publishedCeilings(4096, 4096) });
-    };
-    assert.equal(api.remoteTermSizeOwner, false);
-    sendSizeOwnerHeartbeat(api, 't', 50, 20);
-    sendSizeOwnerRelease(api, 't');
-    api.termResize('t', 80, 24, false);
-    assert.deepEqual((await legacy.nextPayload()).params, ['t', 80, 24, false], 'only the plain fit went out');
+test('the phone sends the owner claim, the release and the heartbeat as flagged resizes, and delivers size-owner events', async () => {
+  const { api, frames, setSection, settle } = await adapterWorld();
+  assert.equal(api.remoteTermSizeOwner, true, 'the core serves the claim model');
+  const resizes = () => frames.filter((f) => f.method === 'terminal/resize').map((f) => f.params);
+  const flush = async () => {
+    await settle();
+    await settle();
+  };
 
-    const current = await redial({ termSizeOwner: true });
-    assert.equal(api.remoteTermSizeOwner, true);
-    sendSizeOwnerHeartbeat(api, 't', 50, 20);
-    assert.equal((await current.nextPayload()).method, 'setRemoteLanes', 'the lane re-registration of the new leg');
-    assert.deepEqual((await current.nextPayload()).params, ['t', 50, 20, true]);
-    sendSizeOwnerRelease(api, 't');
-    assert.deepEqual((await current.nextPayload()).params, ['t', 0, 0, true]);
-  });
-});
+  sendSizeOwnerHeartbeat(api, 't', 50, 20);
+  sendSizeOwnerRelease(api, 't');
+  api.termResize('t', 120, 40);
+  await flush();
+  assert.deepEqual(resizes(), [
+    { tabId: 't', cols: 50, rows: 20, claim: true },
+    { tabId: 't', cols: 0, rows: 0, claim: true },
+    { tabId: 't', cols: 120, rows: 40 },
+  ]);
 
-test('the remote shim sends the owner flag on resize and delivers size-owner events', async () => {
-  await withShim({}, async ({ ctx, dial }) => {
-    const api = createRemoteApi(ctx);
-    const leg = await dial({ ready: publishedCeilings(4096, 4096) });
-    api.termResize('t', 50, 20, true);
-    assert.deepEqual((await leg.nextPayload()).params, ['t', 50, 20, true]);
-    api.termResize('t', 120, 40);
-    assert.deepEqual((await leg.nextPayload()).params, ['t', 120, 40, false]);
-
-    const received = [];
-    const unsubscribe = api.subscribeTermSizeOwner((event) => received.push(event));
-    await leg.deliver({ event: 'termSizeOwner', payload: { id: 't', cols: 50, rows: 20, own: false } });
-    await leg.deliver({ event: 'termSizeOwner', payload: { id: 't', cols: 0, rows: 0, own: false } });
-    await leg.deliver({ event: 'termSizeOwner', payload: { id: 't', cols: 40, rows: 30, own: true } });
-    assert.deepEqual(received, [
-      { id: 't', cols: 50, rows: 20, own: false },
-      { id: 't', cols: 0, rows: 0, own: false },
-      { id: 't', cols: 40, rows: 30, own: true },
-    ]);
-    unsubscribe();
-    await leg.deliver({ event: 'termSizeOwner', payload: { id: 't', cols: 1, rows: 1, own: false } });
-    assert.equal(received.length, 3);
-  });
+  // Events come from the held terminalTabs section, once the page reads the terminal lane; `own` is per connection (the ensure names it).
+  const received = [];
+  const unsubscribe = api.subscribeTermSizeOwner((event) => received.push(event));
+  const unlane = api.subscribeTermData(() => undefined);
+  await api.termEnsure('t', null, null);
+  const tab = (sizeOwner) => [{ id: 't', running: true, ...(sizeOwner ? { sizeOwner } : {}) }];
+  await setSection('terminalTabs', tab({ cols: 50, rows: 20, owner: 'other' }));
+  await setSection('terminalTabs', tab(null));
+  await setSection('terminalTabs', tab({ cols: 40, rows: 30, owner: 'me' }));
+  assert.deepEqual(received, [
+    { id: 't', cols: 50, rows: 20, own: false },
+    { id: 't', cols: 0, rows: 0, own: false },
+    { id: 't', cols: 40, rows: 30, own: true },
+  ]);
+  unsubscribe();
+  await setSection('terminalTabs', tab({ cols: 1, rows: 1, owner: 'other' }));
+  assert.equal(received.length, 3);
+  unlane();
 });
