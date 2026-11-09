@@ -942,9 +942,12 @@ impl LeadSurfaceHost {
         session["sessionMode"] = json!(session_mode_of(header));
         let standalone = internal_tools(&s.pool);
         let mut extra: Vec<Value> = {
+            // A headless exec session (`sourceType: exec`) is the headless profile, whose allowlist bounds the standalone
+            // tools too (`modelToolSchemaAllowlist`); the Lead's interactive profile has none.
+            let profile_allowed: Option<Vec<&str>> = allowed.as_ref().filter(|_| header.get("sourceType") == Some(&json!("exec"))).map(|names| names.iter().map(String::as_str).collect());
             let inputs = SurfaceInputs {
                 session: session.as_object(),
-                profile_allowed: None,
+                profile_allowed: profile_allowed.as_deref(),
                 feature_denied: &feature_denied,
                 // A session that has an orchestration mode never counts the delegatable agents.
                 delegatable_agents: &|| 0,

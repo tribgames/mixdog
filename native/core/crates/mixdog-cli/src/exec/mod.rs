@@ -35,6 +35,15 @@ pub enum ToolMode {
 }
 
 impl ToolMode {
+    /// The value of `--tool-mode`.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "full" => Some(Self::Full),
+            "readonly" => Some(Self::Readonly),
+            _ => None,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Readonly => "readonly",
@@ -88,6 +97,12 @@ pub struct ExecArgs {
     /// Where the usage document is rewritten (default: `$MIXDOG_USAGE_LOG`).
     #[arg(long)]
     usage_log: Option<PathBuf>,
+    /// `full` (default) or `readonly`: the read-only tool surface. Node's exec has no such option: its runtime is always
+    /// created `full`, and the one caller that wants a read-only run (the pptx `review-deck.mjs`) passes a `runtimeFactory`
+    /// that re-creates the runtime with `toolMode: 'readonly'`; `mixdog exec --readonly` is refused (below). This is the
+    /// daemon-side spelling of that factory.
+    #[arg(long)]
+    tool_mode: Option<String>,
     // The interactive CLI's options an exec refuses, kept so the refusal reads as Node's.
     #[arg(long, hide = true)]
     workflow: Option<String>,
@@ -128,6 +143,11 @@ impl ExecArgs {
         if let Some((_, flag)) = unsupported.iter().find(|(set, _)| *set) {
             return Err(format!("option {flag} is not supported for mixdog exec"));
         }
+        let tool_mode = match self.tool_mode.as_deref() {
+            None => ToolMode::Full,
+            // Any other value is an option Node's exec does not know (`unknown option --tool-mode`, `headless-command.mjs`).
+            Some(value) => ToolMode::parse(value).ok_or_else(|| "unknown option --tool-mode".to_owned())?,
+        };
         let cwd = match self.cwd {
             Some(cwd) => cwd,
             None => std::env::current_dir().map_err(|err| format!("the working directory: {err}"))?,
@@ -143,7 +163,7 @@ impl ExecArgs {
             json: self.json,
             cwd,
             usage_log,
-            tool_mode: ToolMode::Full,
+            tool_mode,
         })
     }
 }

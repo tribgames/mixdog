@@ -94,9 +94,8 @@ pub fn write_header(options: &ThreadSessionOptions, header: &mut Header) {
     }
     header.insert("callerDisallowedTools".into(), names(&caller));
     header.insert("disallowedTools".into(), names(&[caller.as_slice(), features.as_slice()].concat()));
-    if !features.is_empty() {
-        header.insert("featureDeniedTools".into(), names(&features));
-    }
+    // `featureDeniedTools` is not written here: only the first turn's gate staging sets it (`stageToolAvailability`), so a
+    // call to a switched-off tool before then is refused as unavailable in the session, as Node's exec recording shows.
     // `sourceType`: a headless run is an exec run, kept out of the resumable list.
     header.insert(
         "sourceType".into(),
@@ -217,9 +216,7 @@ mod tests {
         );
         assert_eq!(
             refusal(&surface, "web_search").as_deref(),
-            Some(
-                "Error: tool \"web_search\" is disabled in settings by the user. Do not retry unless the user turns it back on."
-            )
+            Some("Error: tool \"web_search\" is not available in this session.")
         );
     }
 
