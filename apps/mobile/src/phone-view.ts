@@ -10,7 +10,7 @@
 // the machine retries on its backoff -- with this file's own attach, which re-subscribes what the refusal dropped -- and recycles the connection
 // after three failures in a row, exactly as for a refused resync.
 import type { ClientEvent, ProtocolClient, SessionFold, StoreChange } from '../../../packages/protocol-client/src/index.ts';
-import { armRemoteCallDeadline } from '../../desktop/src/renderer/remote-call-deadline.ts';
+import { armCallWatch } from '../../desktop/src/renderer/remote-shim-call-watch.ts';
 import { remoteConnectionInterruptedError } from '../../desktop/src/renderer/remote-connection-state.ts';
 import { createViewSync } from './phone-view-sync.ts';
 
@@ -50,6 +50,8 @@ export function createViewManager(
     recycle(): void;
     /** A sync overdue is probed like any call (Node: invoke('synchronizeViews') arms the call deadline, remote-shim-calls.ts:239). */
     probe(): void;
+    /** Nothing arrived since a call was sent and no probe is out (the silent-call probe's condition). */
+    silentSince(since: number): boolean;
   }
 ): ViewManager {
   const open = new Set<string>();
@@ -124,7 +126,7 @@ export function createViewManager(
     new Promise<T>((resolve, reject) => {
       const id = ++syncId;
       inFlight.set(id, true);
-      const cancel = armRemoteCallDeadline(inFlight, id, reject, options.probe, timers);
+      const cancel = armCallWatch(inFlight, id, reject, options.probe, options.silentSince, timers);
       const done = (): void => {
         cancel();
         inFlight.delete(id);

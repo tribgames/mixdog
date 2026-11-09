@@ -52,6 +52,10 @@ export interface PhoneBoot {
   useLanes(lanes: Iterable<string>): void;
   declareLane(lane: string, feedIds: readonly string[]): void;
   readonly link: PhoneClient['link'] | undefined;
+  /** Node's wakeProbe: what an overdue or silent call asks of the connection. */
+  wakeProbe(): void;
+  /** Nothing has arrived since `since` and no probe is out. */
+  silentSince(since: number): boolean;
 }
 
 const REGISTRATION_REFUSED = new Set([401, 403, 409]);
@@ -211,7 +215,8 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
         console.warn('[mixdog-remote] view synchronization failed; retrying', error);
       },
       recycle: () => connected.link.retire(),
-      probe: () => void connected.link.wake(),
+      probe: () => wake(),
+      silentSince: (since) => connected.link.silentSince(since),
     });
     lanes = createLaneFeeds(connected.client);
     for (const [lane, feeds] of declaredLanes) lanes.declare(lane, feeds);
@@ -296,6 +301,9 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
 
   return {
     start,
+    /** Node's wakeProbe: what an overdue or silent call asks of the connection. */
+    wakeProbe: () => wake(),
+    silentSince: (since: number): boolean => phone?.link.silentSince(since) ?? false,
     client: () => phone?.client,
     synced: async () => {
       await start();

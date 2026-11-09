@@ -3,7 +3,7 @@
 // (`remote-protocol-<group>.ts`, found by remote-shim-adapters.ts, no registration edit) or it fails with the method's name.
 // A Node name no adapter claimed is never sent: the core would answer "unknown method" to a frame it cannot read.
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
-import { armRemoteCallDeadline } from './remote-call-deadline';
+import { armCallWatch } from './remote-shim-call-watch';
 import { remoteConnectionInterruptedError } from './remote-connection-state';
 import type { RemoteShimContext } from './remote-shim-state';
 
@@ -48,8 +48,9 @@ export interface ProtocolRouter {
   install(): void;
 }
 
-/** Desk-side state reads with no side effect: only these are prefetched (Node's COALESCED_READS, remote-shim-calls.ts at b6f10295a). */
-const BOOT_READABLE = new Set([
+/** Desk-side state reads with no side effect: only these are prefetched or share a queued request (Node's COALESCED_READS and
+ *  COALESCED_CAPABILITY_READS, remote-shim-calls.ts:32-60 at b6f10295a). */
+const COALESCED_READS = new Set([
   'getSnapshot',
   'getUpdaterState',
   'listProjects',
@@ -60,6 +61,23 @@ const BOOT_READABLE = new Set([
   'viewerDevice',
   'getTaskWorkspace',
 ]);
+const COALESCED_CAPABILITY_READS = new Set([
+  'getBotOrder',
+  'getOrchestrationMode',
+  'getConfiguredOrchestrationMode',
+  'getProviderSetup',
+  'getVoiceStatus',
+  'getWorktreeSettings',
+  'listWorkflows',
+  'skillsStatus',
+]);
+const coalescedReadKey = (method: string, params: unknown[]): string => {
+  if (method === 'invokeCapability') {
+    const capability = (params[0] as { capability?: unknown } | undefined)?.capability;
+    if (typeof capability !== 'string' || !COALESCED_CAPABILITY_READS.has(capability)) return '';
+  } else if (!COALESCED_READS.has(method)) return '';
+  return `${method}\0${JSON.stringify(params)}`;
+};
 /** Boot reads of state the view sync owns: they still wait for it, so their answer can never be older than the baseline the sync installs. */
 const SYNC_ORDERED_BOOT_READS = new Set(['getSnapshot', 'listProjects']);
 /** Whatever the app has not asked for when this window closes is dropped, so no later read is ever served from boot. */
@@ -74,8 +92,10 @@ export function createProtocolRouter(
     started(): Promise<unknown>;
     /** Resolves once the connection that is up is synced (the first connect included). */
     synced(): Promise<void>;
-    /** Probe a connection whose call is overdue. */
+    /** Probe a connection whose call is overdue (Node's wakeProbe). */
     probe(): void;
+    /** Nothing has arrived since `since` and no probe is out: a call sent then is worth a probe. */
+    silentSince(since: number): boolean;
   }
 ): ProtocolRouter {
   const owners = new Map<string, string>();
@@ -93,14 +113,16 @@ export function createProtocolRouter(
   const waiting = new Map<number, true>();
   let nextId = 1;
   const bootReads = new Map<string, Promise<unknown>>();
-  const bootKey = (method: string, params: unknown[]): string => (BOOT_READABLE.has(method) ? `${method}\0${JSON.stringify(params)}` : '');
+  /** Identical state reads still waiting for the connection or the view sync. A read already sent is never joined, so a re-read after a change
+   *  always gets an answer of its own (Node: queuedReads, remote-shim-calls.ts:306-333). */
+  const queuedReads = new Map<string, Promise<unknown>>();
   // What the library says of a lost connection is what the page knows as an interrupted call.
   const interrupted = (error: unknown): unknown => {
     const kind = (error as { detail?: { kind?: string } } | null)?.detail?.kind;
     return kind === 'connectionLost' || kind === 'clientClosed' ? remoteConnectionInterruptedError() : error;
   };
 
-  const dispatch = <T>(method: string, params: unknown[], gated: boolean): Promise<T> => {
+  const dispatch = <T>(method: string, params: unknown[], gated: boolean, onGate?: () => void): Promise<T> => {
       const handler = calls.get(method);
       if (!handler) return Promise.reject(new UnclaimedNodeMethodError(method));
       return new Promise<T>((resolve, reject) => {
@@ -110,10 +132,11 @@ export function createProtocolRouter(
         (async () => {
           if (!gated || UNGATED_CALLS.has(method)) await link.started();
           else await link.synced();
+          onGate?.();
           const id = nextId++;
           waiting.set(id, true);
           // The deadline of this call alone; an overdue call first probes the connection.
-          const cancel = armRemoteCallDeadline(waiting, id, reject, link.probe);
+          const cancel = armCallWatch(waiting, id, reject, link.probe, link.silentSince);
           settle = (): void => {
             cancel();
             waiting.delete(id);
@@ -132,23 +155,36 @@ export function createProtocolRouter(
       });
   };
 
+  const queuedRead = <T>(key: string, method: string, params: unknown[]): Promise<T> => {
+    const queued = queuedReads.get(key);
+    if (queued) return queued as Promise<T>;
+    const drop = (): void => {
+      if (queuedReads.get(key) === read) queuedReads.delete(key);
+    };
+    const read: Promise<T> = dispatch<T>(method, params, true, drop);
+    read.catch(drop);
+    queuedReads.set(key, read);
+    return read;
+  };
+
   return {
     // The first identical read takes a prefetched answer before any gate: one use, and a failed read was never kept.
     call<T>(method: string, params: unknown[]): Promise<T> {
-      const key = bootKey(method, params);
-      const booted = key ? bootReads.get(key) : undefined;
+      const key = coalescedReadKey(method, params);
+      if (!key) return dispatch<T>(method, params, true);
+      const booted = bootReads.get(key);
       if (booted) {
         bootReads.delete(key);
         return booted as Promise<T>;
       }
-      return dispatch<T>(method, params, true);
+      return queuedRead<T>(key, method, params);
     },
     prefetch(reads) {
       for (const [method, params] of reads) {
-        const key = bootKey(method, params);
+        const key = coalescedReadKey(method, params);
         if (!key || bootReads.has(key)) continue;
         // Everything but the sync-ordered reads leaves as soon as the client is up, beside the sync instead of behind it.
-        const read = dispatch(method, params, SYNC_ORDERED_BOOT_READS.has(method));
+        const read = SYNC_ORDERED_BOOT_READS.has(method) ? queuedRead(key, method, params) : dispatch(method, params, false);
         read.catch(() => {
           if (bootReads.get(key) === read) bootReads.delete(key);
         });
