@@ -23,8 +23,8 @@
         "home"
       ],
       "files": {},
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\0\\run\\data",
-      "scopeName": "a04f4b895731cc46"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\0\\run\\data",
+      "scopeName": "ea75e040e1ecdf9f"
     },
     {
       "name": "fresh dir: the first update writes the config, marker and both snapshots",
@@ -121,8 +121,8 @@
           "text": "{\n  \"mix\": {\n    \"v\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\1\\run\\data",
-      "scopeName": "e37c4a71aa8a2ce0"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\1\\run\\data",
+      "scopeName": "91fd967af5d6ba47"
     },
     {
       "name": "upgraded dir: a readable config without a marker gets marker and first snapshot once",
@@ -243,8 +243,8 @@
           "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\2\\run\\data",
-      "scopeName": "015c7f4b53d696b9"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\2\\run\\data",
+      "scopeName": "1503d72ea62ca9fc"
     },
     {
       "name": "a write is wrapped in pre and post snapshots",
@@ -408,8 +408,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 4\n  }\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\3\\run\\data",
-      "scopeName": "e2c762fb04ee54b7"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\3\\run\\data",
+      "scopeName": "7fcef9caafe874f3"
     },
     {
       "name": "a write with no change snapshots nothing",
@@ -518,8 +518,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  }\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\4\\run\\data",
-      "scopeName": "cf474ea757c6d1b7"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\4\\run\\data",
+      "scopeName": "ba3bb23ba0b425ed"
     },
     {
       "name": "initialized, config missing, backups: a read restores and saves",
@@ -670,8 +670,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\5\\run\\data",
-      "scopeName": "315119105600bab1"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\5\\run\\data",
+      "scopeName": "b6025ce34a16e830"
     },
     {
       "name": "initialized, config missing, no backups: a read answers empty",
@@ -744,8 +744,8 @@
           "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\6\\run\\data",
-      "scopeName": "5f1c31772d8246d6"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\6\\run\\data",
+      "scopeName": "20bf45373c88d318"
     },
     {
       "name": "initialized, config missing, no backups: an update refuses",
@@ -820,8 +820,8 @@
           "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\7\\run\\data",
-      "scopeName": "136f6d0016c21556"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\7\\run\\data",
+      "scopeName": "ce44f125b7d44dee"
     },
     {
       "name": "initialized, config missing, backups: an update restores first",
@@ -958,8 +958,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1,\n  \"extra\": true\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\8\\run\\data",
-      "scopeName": "d3b87b026334dee1"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\8\\run\\data",
+      "scopeName": "ec4aef779a09f659"
     },
     {
       "name": "malformed config with backups: a read keeps it aside and restores",
@@ -1116,8 +1116,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\9\\run\\data",
-      "scopeName": "1e6f00d97c85156f"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\9\\run\\data",
+      "scopeName": "c049f9fb77583d2c"
     },
     {
       "name": "malformed config without backups: a read keeps it aside and answers empty",
@@ -1196,8 +1196,8 @@
           "text": "{bad"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\10\\run\\data",
-      "scopeName": "583257f00e033d10"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\10\\run\\data",
+      "scopeName": "9c0123de9443d94a"
     },
     {
       "name": "malformed config without backups: an update starts empty",
@@ -1310,8 +1310,8 @@
           "text": "{\n  \"mix\": {\n    \"v\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\11\\run\\data",
-      "scopeName": "969f7f784cfcfc09"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\11\\run\\data",
+      "scopeName": "38e24994be12c6c1"
     },
     {
       "name": "malformed config with backups: an update restores first",
@@ -1454,8 +1454,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1,\n  \"extra\": true\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\12\\run\\data",
-      "scopeName": "c59513bd82c439a2"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\12\\run\\data",
+      "scopeName": "ec48f67b2318483f"
     },
     {
       "name": "a config that is not an object: a read answers empty",
@@ -1536,8 +1536,8 @@
           "text": "[1,2]"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\13\\run\\data",
-      "scopeName": "8f63d432af14b365"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\13\\run\\data",
+      "scopeName": "63c72b6a01e961a7"
     },
     {
       "name": "a config that is not an object: an update keeps it aside",
@@ -1680,8 +1680,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1,\n  \"extra\": true\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\14\\run\\data",
-      "scopeName": "e6cc057b442b71a2"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\14\\run\\data",
+      "scopeName": "6e256090b8047cc0"
     },
     {
       "name": "a config of null: a read restores from backup",
@@ -1803,8 +1803,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\15\\run\\data",
-      "scopeName": "535a8ee3783947b6"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\15\\run\\data",
+      "scopeName": "fd82fa09cab9eb06"
     },
     {
       "name": "two quarantines in one millisecond take distinct names",
@@ -1991,8 +1991,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\16\\run\\data",
-      "scopeName": "36749797c1220fa4"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\16\\run\\data",
+      "scopeName": "42edd2c910886cbe"
     },
     {
       "name": "incarnation mismatch: a backup of another incarnation is not restored",
@@ -2130,8 +2130,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\17\\run\\data",
-      "scopeName": "ccc898397f3e7c5a"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\17\\run\\data",
+      "scopeName": "afad6bf6f5f2300d"
     },
     {
       "name": "a recreated dir at the same path starts fresh",
@@ -2309,8 +2309,8 @@
           "text": "{\n  \"mix\": {\n    \"v\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\18\\run\\data",
-      "scopeName": "9c69a3b16d33432f"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\18\\run\\data",
+      "scopeName": "30d80c7176f368c4"
     },
     {
       "name": "damaged marker: unparseable",
@@ -2437,8 +2437,8 @@
           "text": "{oops"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\19\\run\\data",
-      "scopeName": "e374c7972e2fadca"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\19\\run\\data",
+      "scopeName": "2578b184c4e8f48a"
     },
     {
       "name": "damaged marker: no instanceId",
@@ -2552,8 +2552,8 @@
           "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\20\\run\\data",
-      "scopeName": "b929b4525569569d"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\20\\run\\data",
+      "scopeName": "d2031d66f7397266"
     },
     {
       "name": "damaged marker: a snapshot of a readable config fails",
@@ -2663,8 +2663,8 @@
           "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\21\\run\\data",
-      "scopeName": "8800ed9604feed42"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\21\\run\\data",
+      "scopeName": "7df536ca52666edc"
     },
     {
       "name": "an existing marker is never replaced",
@@ -2773,8 +2773,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\22\\run\\data",
-      "scopeName": "b5483df5e2fbe3b9"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\22\\run\\data",
+      "scopeName": "d2813dd1d4ba27ac"
     },
     {
       "name": "no marker without a data dir",
@@ -2816,8 +2816,8 @@
         "home"
       ],
       "files": {},
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\23\\run\\data",
-      "scopeName": "512e22a09e8210ad"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\23\\run\\data",
+      "scopeName": "a4dd7d5298d98965"
     },
     {
       "name": "scoped backups: the newest complete one wins, incomplete ones are skipped",
@@ -3062,8 +3062,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"y\"\n  },\n  \"mix\": {\n    \"v\": 2\n  }\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\24\\run\\data",
-      "scopeName": "60ece974b58e4394"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\24\\run\\data",
+      "scopeName": "89b3feccf583c71a"
     },
     {
       "name": "unscoped backups with this incarnation are used when the scope has none",
@@ -3210,8 +3210,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"y\"\n  },\n  \"mix\": {\n    \"v\": 2\n  }\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\25\\run\\data",
-      "scopeName": "474554972ac20b0a"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\25\\run\\data",
+      "scopeName": "e2d3edec520a0d3e"
     },
     {
       "name": "a backup of another data dir is not restored",
@@ -3317,8 +3317,8 @@
           "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\26\\run\\data",
-      "scopeName": "5d4a322029af97c1"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\26\\run\\data",
+      "scopeName": "dc07eaaeb6c2cde4"
     },
     {
       "name": "legacy unscoped backup naming this dir (no marker): read restores, update restores",
@@ -3487,8 +3487,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  }\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\27\\run\\data",
-      "scopeName": "4255d3db7c8f5b83"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\27\\run\\data",
+      "scopeName": "be11964421e624fa"
     },
     {
       "name": "legacy update restores the legacy backup",
@@ -3611,8 +3611,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"extra\": 1\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\28\\run\\data",
-      "scopeName": "7af3545b158ee570"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\28\\run\\data",
+      "scopeName": "70c1c46525730f0b"
     },
     {
       "name": "legacy marker without a verifiable backup: read is empty, update refuses",
@@ -3737,8 +3737,8 @@
           "text": "{\"dataDir\":\"<root>\\\\data\"}"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\29\\run\\data",
-      "scopeName": "732713f7b79b8d53"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\29\\run\\data",
+      "scopeName": "be2cf7d7257bc8cd"
     },
     {
       "name": "legacy backup without a manifest is never restored",
@@ -3831,8 +3831,8 @@
           "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\30\\run\\data",
-      "scopeName": "0a2001dbbae7cdac"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\30\\run\\data",
+      "scopeName": "763ec928e1366061"
     },
     {
       "name": "a migrated dir (scoped backups exist) has no legacy evidence",
@@ -3978,8 +3978,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\31\\run\\data",
-      "scopeName": "cefc32e594dd89c1"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\31\\run\\data",
+      "scopeName": "4e550a2a8bdb9f6e"
     },
     {
       "name": "retention keeps the newest forty",
@@ -4368,8 +4368,8 @@
           "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\32\\run\\data",
-      "scopeName": "a254e3edd97c495d"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\32\\run\\data",
+      "scopeName": "5fbd417cf7af9af0"
     },
     {
       "name": "a snapshot carries schedules, webhooks, workflows and the extra folders",
@@ -4637,8 +4637,8 @@
           "text": "wf"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\33\\run\\data",
-      "scopeName": "040efa91e52c4d37"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\33\\run\\data",
+      "scopeName": "7ac08b32c3a56f4f"
     },
     {
       "name": "a snapshot of a dir with nothing to copy leaves nothing",
@@ -4708,8 +4708,8 @@
           "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:22.000Z\"\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\34\\run\\data",
-      "scopeName": "4175df0ffe7fe503"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\34\\run\\data",
+      "scopeName": "42a399ead857c543"
     },
     {
       "name": "reason strings are made safe and short",
@@ -4834,8 +4834,8 @@
           "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\35\\run\\data",
-      "scopeName": "b655c5df8df91b73"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\35\\run\\data",
+      "scopeName": "dd4f5aa16221b952"
     },
     {
       "name": "snapshots skipped by MIXDOG_SKIP_USER_DATA_BACKUP",
@@ -4950,8 +4950,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"a\": 1\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\36\\run\\data",
-      "scopeName": "25b1aa6f9cdbbaa2"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\36\\run\\data",
+      "scopeName": "fd6514e6e53cb700"
     },
     {
       "name": "quiet setup logs no snapshot lines",
@@ -5020,8 +5020,8 @@
           "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\37\\run\\data",
-      "scopeName": "cbe7329a11642d09"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\37\\run\\data",
+      "scopeName": "0b128c686660c419"
     },
     {
       "name": "backups under MIXDOG_USER_DATA_BACKUP_ROOT",
@@ -5180,8 +5180,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"a\": 1\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\38\\run\\data",
-      "scopeName": "7a8341930c059147"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\38\\run\\data",
+      "scopeName": "ef5715359ef8a970"
     },
     {
       "name": "backups under MIXDOG_CONFIG_DIR when MIXDOG_HOME is unset",
@@ -5298,8 +5298,8 @@
           "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"a\": 1\n}\n"
         }
       },
-      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-buzga7\\39\\run\\data",
-      "scopeName": "561edf59504d4211"
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-p7h6xc\\39\\run\\data",
+      "scopeName": "e5c2af311159fa70"
     }
   ]
 }
