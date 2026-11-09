@@ -5,6 +5,7 @@
 //
 // Nothing waits on wall-clock time: the product's timers run when the script advances the virtual clock, and every wait is on an event
 // the product itself produces (a socket created, a state change, a frame reduced).
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 
@@ -59,6 +60,10 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
   // count bounds. Every Web Crypto call is counted from its start to its settlement, and settled means: no call in flight, the desktop's
   // frame queue empty, and a whole turn of the event loop (`setImmediate` runs after every microtask the last completion queued) in which
   // neither started anything. There is no sleep and no wall-clock quantum: a completion is what ends the wait.
+  // Only the PAGE's sealing is held: the desktop's end (this world, in the same process, on the same Web Crypto) seals its own acks, pings and
+  // answers when its real asynchronous decryption of the page's records happens to finish, and a held line that took those in would order the
+  // page's records against them by thread-pool timing. The desktop's calls run inside `desktopSide`, which follows them across awaits.
+  const desktopSide = new AsyncLocalStorage();
   // Sealing held: a frame whose encryption has not finished has not left the page (the send phase of a call outlasting its transmission).
   // Each held encryption waits in line and leaves on its own release (so frames of concurrent calls finish sealing at different times).
   let sealHeld = false;
@@ -84,7 +89,7 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
       configurable: true,
       writable: true,
       value: (...callArgs) =>
-        name === 'encrypt' && sealHeld
+        name === 'encrypt' && sealHeld && !desktopSide.getStore()
           ? new Promise((resolve) => sealLine.push(resolve)).then(() => counted(original, callArgs))
           : counted(original, callArgs),
     });
@@ -352,7 +357,12 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
     /** Lets the first `count` held encryptions finish (all of them, and the hold ends, when no count is given). */
     async releaseSeal(count) {
       if (count === undefined) sealHeld = false;
-      for (const release of sealLine.splice(0, count ?? sealLine.length)) release();
+      // One at a time, each to quiescence: encryptions started together finish in thread-pool order, which would order what they unblock
+      // (a record leaving, a send completing, a ping) by timing instead of by the order they were held in.
+      for (const release of sealLine.splice(0, count ?? sealLine.length)) {
+        release();
+        await settle();
+      }
       await settle();
     },
     /** Moves the virtual clock to each next timer until `cond` holds: the wait is on the event, with no step size and no cap. */
@@ -433,6 +443,10 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
             }
             if (!leg.server) {
               leg.server = await E2EE.acceptRelayE2EEClientHello(identity, leg.challenge, JSON.parse(String(data)));
+              for (const method of ['encryptJson', 'encryptBinary', 'sealControl']) {
+                const own = leg.server[method].bind(leg.server);
+                leg.server[method] = (...args) => desktopSide.run(true, () => own(...args));
+              }
               const transport = leg.server.transportEnabled;
               if (transport) leg.desk = new Desk(leg);
               // A transport session's ready carries the handshake transcript; so does one whose offer the relay stripped (the phone must refuse it).
