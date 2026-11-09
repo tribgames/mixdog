@@ -1,0 +1,18 @@
+{
+  "rooms": {
+    "loywcfpca9cf1847": {
+      "name": "Release check",
+      "members": [
+        "gh",
+        "rel"
+      ],
+      "maxRounds": 3,
+      "maxMessages": 8,
+      "shareTools": false,
+      "id": "loywcfpca9cf1847",
+      "createdAt": 1700000401000,
+      "cursors": {},
+      "running": null
+    }
+  }
+}

@@ -49,6 +49,13 @@ fn connection() -> CallContext {
     CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, CancellationToken::new())
 }
 
+/// A conversation for a session that has none: `inheritFrom` refuses a source with nothing to carry.
+async fn give_conversation(handle: &SessionHandle) {
+    let messages = json!([{ "role": "user", "content": "hello" }, { "role": "assistant", "content": "hi" }]);
+    let append = CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "messages": messages }), op: None, ctx: CallContext::internal("test") };
+    handle.request(append).await.expect("the conversation is appended");
+}
+
 fn request(method: &'static str, params: Value, op: &str) -> CoreRequest {
     CoreRequest {
         method: Method(method),
@@ -1804,6 +1811,7 @@ async fn an_unloaded_control_thread_is_synced_again_once_reopened_and_its_heir_i
     handle.inbox.closed().await;
     let reopened = directory.open_handle(&id, &CallContext::internal("test")).await.expect("reopened");
     assert_eq!(directory.control_ids(), [id.clone()]);
+    give_conversation(&reopened).await;
     let reply = reopened.request(request("thread/fork", json!({ "threadId": id, "opId": "op-fork" }), "op-fork")).await.expect("thread/fork");
     let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
     let heir = ThreadId::from(value["thread"]["id"].as_str().expect("heir id"));
@@ -2098,6 +2106,7 @@ async fn a_fork_is_placed_where_the_desktop_places_an_heir() {
         async move {
             let thread = ThreadId::from(id.to_owned());
             directory.create_with_id(thread.clone(), header, json!({})).await.expect("source");
+            give_conversation(&directory.handle(&thread).expect("loaded")).await;
             let mut params = json!({ "threadId": id, "opId": format!("op-{id}") });
             params.as_object_mut().expect("object").extend(extra.as_object().expect("object").clone());
             let reply = directory.handle(&thread).expect("loaded").request(request("thread/fork", params, &format!("op-{id}"))).await.expect("thread/fork");
@@ -2120,38 +2129,121 @@ async fn a_fork_is_placed_where_the_desktop_places_an_heir() {
     assert_eq!(into["cwd"], "/repo/.wt/feat");
 }
 
-/// Node's own forks (`fixtures/roster-rows`: the desktop's `inheritSession` steps run on the b6f10295a product, over a source in a
-/// registered project, in its worktree, outside every project, and a task): the Rust fork of the same source header, started at
-/// the instant Node's fork was made, lands where Node's did and carries the times Node's did (one `Date.now()` for all three,
-/// `cold-heir.mjs:109-121`; the recording moves time on before each fork, so the source's are different). A Node session
-/// record and a Rust header differ in shape, so the placement and the times are what are compared.
-#[tokio::test(start_paused = true)]
+/// Node's own forks (`fixtures/roster-rows`: the desktop's `inheritSession` steps run on the b6f10295a product over sources that
+/// really hold a conversation: in a registered project, in its worktree, outside every project, and a task). The recorded data
+/// directory is migrated and opened through the real store; the Rust fork of each recorded source, started at the instant Node's
+/// fork was made, is set against the heir Node stored (opened the same way). Node's heir record is read by the core's own store,
+/// so both sides are core views of a stored session and differ only in the thread id: the heir's conversation (messages), its
+/// row as `thread/list` shows it (title, preview, count, route, compaction, times, source, favorite and archived state, place)
+/// and the stored header's place and times are compared whole.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_fork_is_placed_and_stamped_as_nodes_fork_is() {
     use std::sync::atomic::Ordering;
     let answers: Value = serde_json::from_slice(&std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/roster-rows/answers.json")).expect("recording")).expect("json");
+    let recording = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/roster-rows");
+    let scratch = tempfile::tempdir().expect("scratch dir");
+    let home = scratch.path().join(".mixdog");
+    let profile = scratch.path().join("profile");
+    for (from, to) in [(recording.join(".mixdog"), home.clone()), (recording.join("profile"), profile.clone())] {
+        for rel in mixdog_migrate::durable::walk_files(&from).expect("walk the recording") {
+            let target = to.join(&rel);
+            mixdog_migrate::durable::create_dir_all(target.parent().expect("parent")).expect("dir");
+            mixdog_migrate::durable::write_synced(&target, &mixdog_migrate::durable::read(&from.join(&rel)).expect("read")).expect("copy");
+        }
+    }
+    let roots = mixdog_migrate::framework::MigrationRoots { data: home.join("data"), home, profile: Some(profile) };
+    let office = mixdog_migrate::session::context_blobs::OfficeExtractor { docs: Arc::new(super::recorded_145_tests::NoDocuments), runtime: tokio::runtime::Handle::current() };
+    mixdog_migrate::run::Migrator::new(roots.clone(), mixdog_migrate::run::product_drivers(Arc::new(super::recorded_145_tests::StoreProjector), office), mixdog_migrate::run::MigrateOptions::default())
+        .run()
+        .expect("the migration of the recorded data completes");
     let registered: Vec<String> = answers["registeredProjects"].as_array().expect("projects").iter().map(|p| p.as_str().expect("path").to_owned()).collect();
     let tasks: &'static str = Box::leak(answers["taskWorkspace"].as_str().expect("task workspace").to_owned().into_boxed_str());
     let rig = Rig::new();
-    let mut deps = rig.deps_parts(rig.store.clone());
+    let tokens = mixdog_rt::testing::tokens();
+    let root = roots.data.clone();
+    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+        mixdog_store::sqlite::SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+    })
+    .expect("lane")
+    .await
+    .expect("job ran")
+    .expect("index");
+    let threads = super::StoreThreads::over_data_dir(&roots.data, index.clone(), Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store");
+    let mut deps = rig.deps_parts(Arc::new(threads));
     deps.new_place = Arc::new(super::testing::RecordingPlace { projects: registered, ..Default::default() });
     deps.task_workspace = Arc::new(super::testing::FixedTaskWorkspace(tasks));
     let directory = SessionDirectory::new(Arc::new(deps));
+    let list = super::thread_list::ThreadListService::new(Arc::new(index), Arc::new(NoLive), Arc::new(NoRooms), Arc::new(super::testing::FixedTaskWorkspace(tasks)));
+    let ctx = CallContext::internal("test");
     let forks = answers["forks"].as_array().expect("forks");
-    assert_eq!(forks.len(), 4);
+    assert_eq!(forks.len(), 6);
+    let read_messages = |handle: Arc<SessionHandle>| async move {
+        let reply = handle.request(CoreRequest { method: Method("thread/messages/read"), params: json!({}), op: None, ctx: CallContext::internal("test") }).await.expect("thread/messages/read");
+        let Reply::Value(value) = reply else { panic!("thread/messages/read answers a value") };
+        value
+    };
     for node in forks {
-        let (source, heir) = (&node["sourceHeader"], &node["heirHeader"]);
-        assert_ne!(source["createdAt"], heir["createdAt"], "the recording's fork is made at another time than its source");
         let source_id = ThreadId::from(node["source"].as_str().expect("source id").to_owned());
-        let header = source.as_object().expect("source header").clone();
-        directory.create_with_id(source_id.clone(), header, json!({})).await.expect("source");
-        rig.clock.0.store(heir["createdAt"].as_u64().expect("heir time"), Ordering::SeqCst);
-        let params = json!({ "threadId": source_id, "opId": "op-fork" });
-        let reply = directory.handle(&source_id).expect("loaded").request(request("thread/fork", params, "op-fork")).await.expect("thread/fork");
-        let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
-        let rust = directory.handle(&ThreadId::from(value["thread"]["id"].as_str().expect("heir id"))).expect("loaded").cell.header.load_full();
-        for key in ["cwd", "desktopSession", "workspace", "createdAt", "updatedAt", "lastUsedAt", "inheritedFromSessionId"] {
-            assert_eq!(rust.get(key).cloned().unwrap_or(Value::Null), heir.get(key).cloned().unwrap_or(Value::Null), "{key} of the fork of {}", node["source"]);
+        let node_heir = ThreadId::from(node["heir"].as_str().expect("heir id").to_owned());
+        let source = directory.open_handle(&source_id, &ctx).await.expect("the recorded source opens");
+        let before = read_messages(source.clone()).await;
+        assert!(before["messages"].as_array().is_some_and(|messages| !messages.is_empty()), "the recorded source holds a conversation");
+        rig.clock.0.store(node["heirHeader"]["createdAt"].as_u64().expect("heir time"), Ordering::SeqCst);
+        let reply = source.request(request("thread/fork", json!({ "threadId": source_id, "opId": "op-fork" }), "op-fork")).await.expect("thread/fork");
+        let Reply::Value(forked) = reply else { panic!("thread/fork answers a value") };
+        let rust = directory.open_handle(&ThreadId::from(forked["thread"]["id"].as_str().expect("heir id")), &ctx).await.expect("the heir opens");
+        let node = directory.open_handle(&node_heir, &ctx).await.expect("Node's heir opens");
+        let label = format!("the fork of {source_id}");
+        // The heir's id is the one thing that differs: the inheritance boundary names it (`sessionId`).
+        let named = |mut messages: Value, id: &ThreadId| {
+            let last = messages.as_array_mut().and_then(|rows| rows.last_mut()).expect("the heir holds messages");
+            for boundary in last.pointer_mut("/meta/sessionInheritances").into_iter().filter_map(Value::as_array_mut).flatten() {
+                assert_eq!(boundary["sessionId"], id.as_str());
+                boundary["sessionId"] = Value::Null;
+            }
+            messages
+        };
+        let (rust_messages, node_messages) = (read_messages(rust.clone()).await["messages"].clone(), read_messages(node.clone()).await["messages"].clone());
+        assert_eq!(named(rust_messages, &rust.id), named(node_messages, &node_heir), "messages of {label}");
+        let (rust_header, node_header) = (rust.cell.header.load_full(), node.cell.header.load_full());
+        // Mapping: the thread id, and the two prompt texts the heir's first turn restamps with its own scratch directory (the core's
+        // fork copies the source's; Node rebuilds them for the heir), are not compared. Every other header key is.
+        let keys: std::collections::BTreeSet<&String> = rust_header.keys().chain(node_header.keys()).filter(|key| !["id", "bp3EnvironmentContext", "promptEnv"].contains(&key.as_str())).collect();
+        let differing: Vec<String> = keys.into_iter().filter(|key| rust_header.get(*key) != node_header.get(*key)).map(|key| format!("{key}: rust {:?} node {:?}", rust_header.get(key), node_header.get(key))).collect();
+        assert!(differing.is_empty(), "header of {label}: {differing:#?}");
+        // The row `thread/list` shows for each heir, whole, as the desktop's roster showed Node's (the protocol names the fork source
+        // `forkedFromId`; the thread id is the one thing that differs). Favorite and archived state are part of that row.
+        let answer = mixdog_core_base::support::testing::value(&list, mixdog_core_base::support::testing::request(super::thread_list::LIST, json!({ "limit": 1000 }), None)).await.expect("thread/list");
+        let rows = answer["data"].as_array().expect("data");
+        let mut rust_row = rows.iter().find(|row| row["id"] == rust.id.as_str()).expect("the Rust heir is listed").clone();
+        let mut node_row = answers["roster"].as_array().expect("roster").iter().find(|row| row["id"] == node_heir.as_str()).expect("Node's roster lists the heir").as_object().expect("row").clone();
+        if let Some(from) = node_row.shift_remove("inheritedFromSessionId") {
+            node_row.insert("forkedFromId".into(), from);
         }
+        let mut node_row = Value::Object(node_row);
+        rust_row["id"] = Value::Null;
+        node_row["id"] = Value::Null;
+        assert_eq!(rust_row, node_row, "row of {label}");
+    }
+}
+
+/// No live flags on a listed row.
+struct NoLive;
+impl super::thread_list::ListOverlay for NoLive {
+    fn of(&self, _: &ThreadId) -> super::thread_list::RowOverlay {
+        super::thread_list::RowOverlay::default()
+    }
+}
+
+/// No rooms: every row passes as listed.
+struct NoRooms;
+#[async_trait::async_trait]
+impl super::thread_list::ListRooms for NoRooms {
+    async fn with_rooms(&self, rows: Vec<mixdog_protocol::ThreadSummary>) -> Result<Vec<mixdog_protocol::ThreadSummary>, String> {
+        Ok(rows)
+    }
+    async fn room_threads(&self) -> Result<Vec<ThreadId>, String> {
+        Ok(Vec::new())
     }
 }
 
@@ -2501,10 +2593,9 @@ async fn a_delete_whose_mark_fails_logs_no_close() {
     assert_eq!(*lock(&rig.deletes.2), [other.id.as_str().to_owned()]);
 }
 
-/// A deleted base keeps its files while a fork reads them: the fork still opens with the
-/// base's history.
+/// The fork carries the source's conversation as `inheritFrom` does (a copy, not a shared lineage), so it still opens with
+/// that history once the source is deleted.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[allow(clippy::disallowed_methods, reason = "the test checks the kept folder")]
 async fn a_deleted_base_stays_readable_by_its_fork() {
     let data = tempfile::tempdir().expect("data dir");
     let store = real_store(data.path()).await;
@@ -2525,7 +2616,6 @@ async fn a_deleted_base_stays_readable_by_its_fork() {
         .await
         .expect("thread/delete");
     assert!(matches!(reply, Reply::Value(Value::Bool(true))), "{reply:?}");
-    assert!(data.path().join("sessions").join(base.id.as_str()).exists(), "the fork reads it");
     let second = SessionDirectory::new(rig.deps_on(store));
     let reopened = second.open_handle(&fork, &CallContext::internal("test")).await.expect("the fork opens");
     assert_eq!(rows(&reopened).len(), 2, "the base's history shows in the fork");
