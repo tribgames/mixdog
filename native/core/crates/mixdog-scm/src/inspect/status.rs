@@ -293,6 +293,38 @@ fn parse_remotes(text: &str) -> (Vec<String>, String) {
     (names, url)
 }
 
+/// How long a directory's remote list is kept (GIT_METADATA_TTL_MS, git-read-utils.ts).
+const REMOTE_METADATA_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The remote names and primary url of a directory, read at most once per [REMOTE_METADATA_TTL] (remoteMetadata in git-status.ts).
+/// Node never drops the entry earlier, so a remote added a moment after a status shows in the next one only once the minute is
+/// out. A read git fails (no timeout) is kept as "no remotes" for the same time; a timeout is not kept.
+pub(crate) async fn remote_metadata(
+    git: &Git,
+    cancel: &CancellationToken,
+    root: &Path,
+    options: &RunOptions,
+) -> Result<(Vec<String>, String), ScmFailure> {
+    type Entry = (std::time::Instant, (Vec<String>, String));
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<HashMap<String, Entry>>> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    // gitCacheKey: the path, lower-cased on Windows.
+    let key = if cfg!(windows) { path_text(root).to_lowercase() } else { path_text(root) };
+    if let Some((read_at, value)) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key)
+        && read_at.elapsed() < REMOTE_METADATA_TTL
+    {
+        return Ok(value.clone());
+    }
+    let text = match git.text(cancel, root, &["--no-optional-locks", "remote", "-v"], options).await {
+        Ok(text) => text,
+        Err(ScmFailure::Command { .. }) => String::new(),
+        Err(other) => return Err(other),
+    };
+    let value = parse_remotes(&text);
+    cache.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (std::time::Instant::now(), value.clone()));
+    Ok(value)
+}
+
 /// Lines of an untracked file; 0 for what cannot be counted (binary, empty, oversized, gone).
 fn untracked_lines(root: &Path, path: &str) -> u64 {
     use std::io::Read;
@@ -456,12 +488,12 @@ pub async fn scan(
                 Ok(String::new())
             }
         },
-        git.text(cancel, &root, &["--no-optional-locks", "remote", "-v"], &read),
+        remote_metadata(git, cancel, &root, &read),
     )?;
     let mut parsed = parse_porcelain(&porcelain);
     let staged = parse_numstat(&staged);
     let unstaged = parse_numstat(&unstaged);
-    let (remote_names, remote_url) = parse_remotes(&remotes);
+    let (remote_names, remote_url) = remotes;
     let git_dir = identity.git_dir.clone();
     let operation = on_lane(lane, cancel, move || operation_in_progress(&git_dir)).await?;
     let untracked_paths: Vec<String> = parsed

@@ -48,12 +48,16 @@ impl GhRunner for NoGh {
 }
 
 fn service() -> (ScmHandle, Arc<MockStatePublisher>) {
+    service_with_gh_program("gh")
+}
+
+fn service_with_gh_program(program: &'static str) -> (ScmHandle, Arc<MockStatePublisher>) {
     let scm = Scm::with_gh(
         TestProcesses::shared(),
         mixdog_rt::testing::tokens().maintenance_io,
         std::env::temp_dir().join(format!("mixdog-scm-phone-{}", std::process::id())),
         Arc::new(NoGh),
-        Arc::new(|| "gh".to_owned()),
+        Arc::new(move || program.to_owned()),
     );
     let publisher = Arc::new(MockStatePublisher::default());
     let handle = ScmHandle(ScmService::new(
@@ -232,4 +236,29 @@ async fn a_repository_review_of_one_untracked_file_reads_every_line_added() {
     .await
     .unwrap();
     assert_eq!(reply, json!("diff --git a/new.txt b/new.txt\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,1 @@\n+untracked\n"));
+}
+#[tokio::test]
+async fn a_remote_added_right_after_a_status_shows_only_when_its_minute_is_out() {
+    use mixdog_core_api::domain::repo::RepoEvidence;
+    use mixdog_core_api::domain::repo::RepoInspector;
+    let (_guard, repo, _head) = crate::golden_tests::fixture_repo();
+    let scm = Scm::new(
+        TestProcesses::shared(),
+        mixdog_rt::testing::tokens().maintenance_io,
+        std::env::temp_dir().join(format!("mixdog-scm-remote-{}", std::process::id())),
+    );
+    let cancel = CancellationToken::new();
+    assert_eq!(scm.git_status(&repo, &cancel).await.unwrap()["remote"], false);
+    crate::golden_tests::git(&repo, &["remote", "add", "origin", "http://127.0.0.1:9/r.git"]);
+    // A fresh scan, so only the kept remote list can still say there is none (git-status.ts remoteMetadata, 60 s).
+    let reference = scm.open(&repo, &cancel).await.unwrap().repo_ref().unwrap();
+    scm.inspector.evidence(&reference, RepoEvidence::WorkTree);
+    let status = scm.git_status(&repo, &cancel).await.unwrap();
+    assert_eq!(status["remote"], false, "{status}");
+}
+#[tokio::test]
+async fn a_sign_in_without_gh_reads_as_nodes_text() {
+    let (handle, _) = service_with_gh_program("mixdog-no-such-gh-program");
+    let error = call(&handle, "github/login/start", json!({ "opId": "op" })).await.unwrap_err();
+    assert_eq!(text(error), (None, "GitHub CLI is not installed.".to_owned()));
 }
