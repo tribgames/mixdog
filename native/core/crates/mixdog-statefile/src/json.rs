@@ -176,7 +176,8 @@ fn recovery_now_ms() -> u128 {
     fixed.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis()))
 }
 
-fn quarantine_path(path: &Path) -> PathBuf {
+/// `quarantinePath(filePath)`: the first `<file>.corrupt-<ms>` that does not exist yet, from the recovery clock.
+pub fn quarantine_path(path: &Path) -> PathBuf {
     quarantine_path_from(path, recovery_now_ms())
 }
 

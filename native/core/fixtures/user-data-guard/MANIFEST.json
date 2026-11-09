@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-user-data-guard.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 188349,
+      "path": "golden.json",
+      "sha256": "f5b8da3eafaa2403c673ef1baac8879e2746a53e8ef2451ba696406a86dddfde"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "4aefe126aa8048fcfdb5c872b2b64cf3659d38c6",
+      "commitFilesMissingFromTree": 115,
+      "exact": false,
+      "filesDifferingFromCommit": 136
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-user-data-guard.mjs",
+  "set": "user-data-guard",
+  "totalBytes": 188349
+}

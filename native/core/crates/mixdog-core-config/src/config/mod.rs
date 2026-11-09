@@ -15,8 +15,10 @@
 pub mod agent_routes;
 mod agent_store;
 mod canonical;
+mod guard;
 mod separation;
 mod desktop_separation;
+pub(crate) use separation::source_mode;
 mod storage;
 mod browser_permissions;
 mod network_proxy_store;
@@ -92,6 +94,8 @@ pub use desktop::session_retention;
 
 use mixdog_core_base::state::change_of;
 
+use crate::user_data::UserData;
+
 /// The file section Node's agent config (`readSection('agent')`) lives in.
 pub const AGENT_SECTION: &str = "agent";
 
@@ -128,6 +132,9 @@ pub enum ConfigError {
     Stopped,
     /// A caller's change refused the edit with its own error, which `core_error` returns as is.
     Rejected(mixdog_core_api::CoreError),
+    /// The user-data guard refused: a damaged init marker, or a lost config with no backup to start a write from. `code`
+    /// is Node's `err.code` (`EUSERDATARECOVERY`).
+    UserData { code: Option<&'static str>, message: String },
 }
 
 impl std::fmt::Display for ConfigError {
@@ -142,6 +149,7 @@ impl std::fmt::Display for ConfigError {
             ConfigError::Overloaded(full) => full.fmt(f),
             ConfigError::Stopped => f.write_str("the config job was dropped before it finished"),
             ConfigError::Rejected(error) => write!(f, "{error:?}"),
+            ConfigError::UserData { message, .. } => f.write_str(message),
         }
     }
 }
@@ -223,6 +231,8 @@ pub struct Config {
 
 struct Shared {
     path: PathBuf,
+    /// The user-data guard over this config's data dir.
+    guard: Arc<guard::Guard>,
     doc: ArcSwap<Doc>,
     keys: Vec<schema::Key>,
     publisher: Arc<dyn StatePublisher>,
@@ -276,13 +286,48 @@ impl Config {
         publisher: Arc<dyn StatePublisher>,
         lanes: ConfigLanes,
     ) -> Result<(Self, Vec<ConfigWarning>), ConfigError> {
+        Self::open_guarded(path, publisher, lanes, UserData::process()).await
+    }
+
+    /// [`Config::open`] over a user-data guard of its own (its environment, clock, ids and log).
+    ///
+    /// The file is read as Node's first `readAll` reads it: a readable one settles the data dir's first snapshot; a missing
+    /// one in an initialized dir, or a malformed one (kept aside as `<file>.corrupt-<ms>`), is restored from the newest
+    /// complete backup of the dir and saved again (`user_data`).
+    pub async fn open_guarded(
+        path: impl Into<PathBuf>,
+        publisher: Arc<dyn StatePublisher>,
+        lanes: ConfigLanes,
+        user_data: Arc<UserData>,
+    ) -> Result<(Self, Vec<ConfigWarning>), ConfigError> {
         let path = path.into();
-        let read_path = path.clone();
-        let doc = on_lane(lanes.read, move |lane| read_file(lane, &read_path)).await??;
+        let guard = Arc::new(guard::Guard::new(path.clone(), user_data));
+        let doc = guard.read(lanes, false).await?;
+        Ok(Self::assemble(path, guard, doc, publisher, lanes))
+    }
+
+    /// A handle over the file's document without the opening read, for replaying Node's `updateConfig` alone (which
+    /// does not run `readConfig` first).
+    #[cfg(test)]
+    fn open_unread(path: PathBuf, publisher: Arc<dyn StatePublisher>, lanes: ConfigLanes, user_data: Arc<UserData>) -> Self {
+        let guard = Arc::new(guard::Guard::new(path.clone(), user_data));
+        // The in-memory document stands for the file while it is intact; a lost or damaged file is settled by the baseline.
+        let doc = std::fs::read(&path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default();
+        Self::assemble(path, guard, doc, publisher, lanes).0
+    }
+
+    fn assemble(
+        path: PathBuf,
+        guard: Arc<guard::Guard>,
+        doc: Doc,
+        publisher: Arc<dyn StatePublisher>,
+        lanes: ConfigLanes,
+    ) -> (Self, Vec<ConfigWarning>) {
         let warnings = warnings_of(&doc);
         let raised = warnings.iter().map(|w| w.path.clone()).collect();
         let shared = Shared {
             path,
+            guard,
             doc: ArcSwap::from_pointee(doc),
             keys: schema::registry(),
             publisher,
@@ -303,7 +348,7 @@ impl Config {
             shared: Arc::new(shared),
             lanes,
         };
-        Ok((config, warnings))
+        (config, warnings)
     }
 
     /// Ticks after every installed document (write or external reload), for services that
@@ -421,7 +466,7 @@ impl Config {
     /// and is published) and answers the agent config. Writes here are durable before they
     /// answer, so there is no pending edit to lay back on the reloaded document.
     pub async fn reload_full_config(&self) -> Result<Doc, ConfigError> {
-        self.reload().await?;
+        self.reload_read(false).await?;
         Ok(self.agent())
     }
 
@@ -553,10 +598,16 @@ impl Config {
     /// reload to an identical document and publish nothing. An invalid file keeps the current
     /// document and is reported.
     pub async fn reload(&self) -> Result<Applied, ConfigError> {
+        self.reload_read(true).await
+    }
+
+    /// [`Config::reload`]; `in_pass` is a read of the change notification pass (the watch), where a file that does not
+    /// parse is a write in progress. An explicit reload (`reload_full_config`) is a plain read, which keeps a damaged file
+    /// aside and restores the last backup. A lost file in an initialized dir is restored in both.
+    async fn reload_read(&self, in_pass: bool) -> Result<Applied, ConfigError> {
         loop {
             let seen = self.shared.generation.load(Ordering::Acquire);
-            let path = self.shared.path.clone();
-            let next = on_lane(self.lanes.read, move |lane| read_file(lane, &path)).await??;
+            let next = self.shared.guard.read(self.lanes, in_pass).await?;
             let shared = self.shared.clone();
             let installed =
                 on_lane(self.lanes.write, move |_| shared.install_read(seen, next)).await?;
@@ -587,21 +638,31 @@ impl Shared {
     ) -> Result<(Applied, T), ConfigError> {
         let mut raised = lock(&self.writer);
         let current = self.doc.load_full();
-        let fresh = current.is_empty();
-        let mut next = (*current).clone();
-        change(&mut next)?;
-        // `writeAll`: a save writes the canonical document, whatever the edit put back.
-        let mut next = canonical::canonicalize(next);
-        // A file created by this code is born separated: the first write into an empty config stamps the current version.
-        if fresh && !next.contains_key(separation::DEFAULTS_VERSION_KEY) {
-            next.insert(separation::DEFAULTS_VERSION_KEY.into(), Value::from(2));
+        // `updateConfig`: under the file's lock, from what `readAllForRmW` settles on (the document while the file is
+        // intact), the edit is applied and the canonical result written between its snapshots.
+        let written = self.guard.locked(lane, |baseline| {
+            let mut next = baseline.doc.unwrap_or_else(|| (*current).clone());
+            let fresh = next.is_empty();
+            change(&mut next)?;
+            // `writeAll`: a save writes the canonical document, whatever the edit put back.
+            let mut next = canonical::canonicalize(next);
+            // A file created by this code is born separated: the first write into an empty config stamps the current version.
+            if fresh && !next.contains_key(separation::DEFAULTS_VERSION_KEY) {
+                next.insert(separation::DEFAULTS_VERSION_KEY.into(), Value::from(2));
+            }
+            // Node writes (and snapshots) even when the edit changed nothing.
+            self.guard.write(lane, &next, "post-config-write")?;
+            Ok(Some(next))
+        })?;
+        match written {
+            // The view is of the document that was written, taken while the writer lock is still held.
+            Some(next) if next != *current => {
+                let seen = view(&next);
+                Ok((self.install(&mut raised, &current, next), seen))
+            }
+            Some(next) => Ok((Applied::default(), view(&next))),
+            None => Ok((Applied::default(), view(&current))),
         }
-        if next == *current {
-            return Ok((Applied::default(), view(&current)));
-        }
-        persist(lane, &self.path, &next)?;
-        let seen = view(&next);
-        Ok((self.install(&mut raised, &current, next), seen))
     }
 
     /// `None` when a document was installed since `seen`, so `next` may be stale.
@@ -932,21 +993,16 @@ fn read_file(_lane: &InLane<InteractiveIo>, path: &Path) -> Result<Doc, ConfigEr
     }
 }
 
-/// `writeJsonAtomicSync(configPath(), data, { fsyncDir: true, mode: 0o600, secret: true })`
-/// under `<config>.lock`, the lock Node's own config writers take (`mixdog-statefile`).
-fn persist(lane: &InLane<DurabilityIo>, path: &Path, doc: &Doc) -> Result<(), ConfigError> {
+/// `writeJsonAtomicSync(configPath(), data, { lock: false, fsyncDir: true, mode: 0o600, secret: true })`. The caller holds
+/// `<config>.lock`, the lock Node's own config writers take (`mixdog-statefile`): the guard's `locked`.
+fn write_file(lane: &InLane<DurabilityIo>, path: &Path, doc: &Doc) -> Result<(), ConfigError> {
     let opts = mixdog_statefile::Opts { fsync_dir: true, secret: true, ..mixdog_statefile::Opts::default() };
     let bytes = mixdog_statefile::json_bytes(&Value::Object(doc.clone()), &opts);
-    let written = mixdog_statefile::with_lock(lane, path, &mixdog_statefile::LockOpts::default(), || {
-        mixdog_statefile::write_file_stepped(lane, path, &bytes, &opts)
-    });
-    match written {
-        Ok(Ok(_)) => Ok(()),
-        Ok(Err(failure)) => Err(ConfigError::Publish(failure)),
-        Err(error) => Err(std::io::Error::other(error.to_string()).into()),
-    }
+    mixdog_statefile::write_file_stepped(lane, path, &bytes, &opts).map(|_| ()).map_err(ConfigError::Publish)
 }
 
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 mod tests;
+#[cfg(test)]
+mod guard_replay;

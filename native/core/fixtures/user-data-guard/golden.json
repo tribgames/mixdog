@@ -1,0 +1,4885 @@
+{
+  "scenarios": [
+    {
+      "name": "fresh dir: a read answers empty and writes nothing",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "read"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {},
+          "error": null,
+          "stderr": []
+        }
+      ],
+      "files": {},
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\0\\run\\data",
+      "scopeName": "5176684d07cb2d86"
+    },
+    {
+      "name": "fresh dir: the first update writes the config, marker and both snapshots",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000001000,
+          "op": "update",
+          "set": {
+            "mix": {
+              "v": 1
+            }
+          }
+        },
+        {
+          "at": 1790000002000,
+          "op": "read"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "mix": {
+                "v": 1
+              }
+            }
+          },
+          "answer": {
+            "mix": {
+              "v": 1
+            },
+            "defaultsVersion": 2
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000001-post-config-write\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "mix": {
+              "v": 1
+            },
+            "defaultsVersion": 2
+          },
+          "error": null,
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"mix\": {\n    \"v\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"mix\": {\n    \"v\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\1\\run\\data",
+      "scopeName": "efbe612784f8d390"
+    },
+    {
+      "name": "upgraded dir: a readable config without a marker gets marker and first snapshot once",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000001000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000002000,
+          "op": "read"
+        },
+        {
+          "at": 1790000003000,
+          "op": "read"
+        },
+        {
+          "at": 1790000004000,
+          "op": "ensure"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            }
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] initial-snapshot: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-22-000Z-0000000000-initial-snapshot\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            }
+          },
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "ensure"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:22.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-22-000Z-0000000000-initial-snapshot/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"initial-snapshot\",\n  \"createdAt\": \"2026-09-21T14:13:22.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-22-000Z-0000000000-initial-snapshot/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\2\\run\\data",
+      "scopeName": "3be65e7e5345605b"
+    },
+    {
+      "name": "a write is wrapped in pre and post snapshots",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "read"
+        },
+        {
+          "at": 1790000002000,
+          "op": "update",
+          "set": {
+            "mix": {
+              "v": 3
+            }
+          }
+        },
+        {
+          "at": 1790000003000,
+          "op": "update",
+          "set": {
+            "mix": {
+              "v": 4
+            }
+          }
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            }
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] initial-snapshot: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-initial-snapshot\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "mix": {
+                "v": 3
+              }
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 3
+            }
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] pre-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-22-000Z-0000000001-pre-config-write\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-22-000Z-0000000002-post-config-write\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "mix": {
+                "v": 4
+              }
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 4
+            }
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] pre-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-23-000Z-0000000003-pre-config-write\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-23-000Z-0000000004-post-config-write\n"
+          ]
+        }
+      ],
+      "files": {
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 4\n  }\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-initial-snapshot/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"initial-snapshot\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-initial-snapshot/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-22-000Z-0000000001-pre-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:22.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-22-000Z-0000000001-pre-config-write/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-22-000Z-0000000002-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:22.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-22-000Z-0000000002-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 3\n  }\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000003-pre-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:23.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000003-pre-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 3\n  }\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000004-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:23.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000004-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 4\n  }\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\3\\run\\data",
+      "scopeName": "797d9aad1cba8203"
+    },
+    {
+      "name": "a write with no change snapshots nothing",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "read"
+        },
+        {
+          "at": 1790000002000,
+          "op": "update",
+          "set": {}
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            }
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] initial-snapshot: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-initial-snapshot\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {}
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            }
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] pre-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-22-000Z-0000000001-pre-config-write\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-22-000Z-0000000002-post-config-write\n"
+          ]
+        }
+      ],
+      "files": {
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  }\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-initial-snapshot/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"initial-snapshot\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-initial-snapshot/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-22-000Z-0000000001-pre-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:22.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-22-000Z-0000000001-pre-config-write/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-22-000Z-0000000002-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:22.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-22-000Z-0000000002-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  }\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\4\\run\\data",
+      "scopeName": "bc9c1dd7cb6d58fc"
+    },
+    {
+      "name": "initialized, config missing, backups: a read restores and saves",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "update",
+          "set": {
+            "zz": 1
+          }
+        },
+        {
+          "at": 1790000002000,
+          "op": "rm",
+          "path": "data/mixdog-config.json"
+        },
+        {
+          "at": 1790000003000,
+          "op": "read"
+        },
+        {
+          "at": 1790000004000,
+          "op": "read"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "zz": 1
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] pre-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-pre-config-write\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000001-post-config-write\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "rm",
+            "path": "data/mixdog-config.json"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] post-restore: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-23-000Z-0000000003-post-restore\n",
+            "[config] read: restored mixdog-config.json from latest user-data backup (missing after init) and saved it\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1
+          },
+          "error": null,
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000003-post-restore/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-restore\",\n  \"createdAt\": \"2026-09-21T14:13:23.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000003-post-restore/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\5\\run\\data",
+      "scopeName": "c025379fe0325694"
+    },
+    {
+      "name": "initialized, config missing, no backups: a read answers empty",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000001000,
+          "op": "mark"
+        },
+        {
+          "at": 1790000002000,
+          "op": "read"
+        },
+        {
+          "at": 1790000003000,
+          "op": "expected"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "mark"
+          },
+          "answer": "00000000-0000-4000-8000-000000000001",
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {},
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "expected"
+          },
+          "answer": true,
+          "error": null,
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\6\\run\\data",
+      "scopeName": "587ddc2b674f6cd6"
+    },
+    {
+      "name": "initialized, config missing, no backups: an update refuses",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000001000,
+          "op": "mark"
+        },
+        {
+          "at": 1790000002000,
+          "op": "update",
+          "set": {
+            "mix": {
+              "v": 1
+            }
+          }
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "mark"
+          },
+          "answer": "00000000-0000-4000-8000-000000000001",
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "mix": {
+                "v": 1
+              }
+            }
+          },
+          "answer": null,
+          "error": {
+            "name": "Error",
+            "code": null,
+            "message": "[config] mixdog-config.json is unreadable and no valid backup was found (config file missing after user-data was initialized); refusing section write that would wipe other sections"
+          },
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\7\\run\\data",
+      "scopeName": "b24cdc08074e9d5f"
+    },
+    {
+      "name": "initialized, config missing, backups: an update restores first",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "update",
+          "set": {
+            "zz": 1
+          }
+        },
+        {
+          "at": 1790000002000,
+          "op": "rm",
+          "path": "data/mixdog-config.json"
+        },
+        {
+          "at": 1790000003000,
+          "op": "update",
+          "set": {
+            "extra": true
+          }
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "zz": 1
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] pre-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-pre-config-write\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000001-post-config-write\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "rm",
+            "path": "data/mixdog-config.json"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "extra": true
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1,
+            "extra": true
+          },
+          "error": null,
+          "stderr": [
+            "[config] RMW read: restored mixdog-config.json from latest user-data backup (config file missing after user-data was initialized)\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-23-000Z-0000000003-post-config-write\n"
+          ]
+        }
+      ],
+      "files": {
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1,\n  \"extra\": true\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000003-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:23.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000003-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1,\n  \"extra\": true\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\8\\run\\data",
+      "scopeName": "09dd30be91d99458"
+    },
+    {
+      "name": "malformed config with backups: a read keeps it aside and restores",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "update",
+          "set": {
+            "zz": 1
+          }
+        },
+        {
+          "at": 1790000002000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"agent\":"
+        },
+        {
+          "at": 1790000003000,
+          "op": "read"
+        },
+        {
+          "at": 1790000004000,
+          "op": "read"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "zz": 1
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] pre-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-pre-config-write\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000001-post-config-write\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"agent\":"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1
+          },
+          "error": null,
+          "stderr": [
+            "[config] mixdog-config.json is malformed (Unexpected end of JSON input). Renamed to <root>\\data\\mixdog-config.json.corrupt-1790000003000. Restore it or delete to start fresh.\n",
+            "[user-data-backup] post-restore: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-23-000Z-0000000003-post-restore\n",
+            "[config] read: restored mixdog-config.json from latest user-data backup (missing after init) and saved it\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1
+          },
+          "error": null,
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        },
+        "data/mixdog-config.json.corrupt-1790000003000": {
+          "text": "{\"agent\":"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000003-post-restore/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-restore\",\n  \"createdAt\": \"2026-09-21T14:13:23.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000003-post-restore/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\9\\run\\data",
+      "scopeName": "6d0c68503ae0386c"
+    },
+    {
+      "name": "malformed config without backups: a read keeps it aside and answers empty",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000001000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{bad"
+        },
+        {
+          "at": 1790000002000,
+          "op": "read"
+        },
+        {
+          "at": 1790000003000,
+          "op": "read"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{bad"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {},
+          "error": null,
+          "stderr": [
+            "[config] mixdog-config.json is malformed (Expected property name or '}' in JSON at position 1 (line 1 column 2)). Renamed to <root>\\data\\mixdog-config.json.corrupt-1790000002000. Restore it or delete to start fresh.\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {},
+          "error": null,
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "data/mixdog-config.json.corrupt-1790000002000": {
+          "text": "{bad"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\10\\run\\data",
+      "scopeName": "4949f4c2ff2f92fe"
+    },
+    {
+      "name": "malformed config without backups: an update starts empty",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000001000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{bad"
+        },
+        {
+          "at": 1790000002000,
+          "op": "mark"
+        },
+        {
+          "at": 1790000003000,
+          "op": "update",
+          "set": {
+            "mix": {
+              "v": 1
+            }
+          }
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{bad"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "mark"
+          },
+          "answer": "00000000-0000-4000-8000-000000000001",
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "mix": {
+                "v": 1
+              }
+            }
+          },
+          "answer": {
+            "mix": {
+              "v": 1
+            },
+            "defaultsVersion": 2
+          },
+          "error": null,
+          "stderr": [
+            "[config] mixdog-config.json is malformed (Expected property name or '}' in JSON at position 1 (line 1 column 2)). Renamed to <root>\\data\\mixdog-config.json.corrupt-1790000003000. Restore it or delete to start fresh.\n",
+            "[config] RMW read: mixdog-config.json is unusable (Expected property name or '}' in JSON at position 1 (line 1 column 2)); its bytes are kept aside and no backup exists; starting empty\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-23-000Z-0000000001-post-config-write\n"
+          ]
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:22.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"mix\": {\n    \"v\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
+        },
+        "data/mixdog-config.json.corrupt-1790000003000": {
+          "text": "{bad"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000001-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:23.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000001-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"mix\": {\n    \"v\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\11\\run\\data",
+      "scopeName": "69fe98427cade4ae"
+    },
+    {
+      "name": "malformed config with backups: an update restores first",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "update",
+          "set": {
+            "zz": 1
+          }
+        },
+        {
+          "at": 1790000002000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "not json"
+        },
+        {
+          "at": 1790000003000,
+          "op": "update",
+          "set": {
+            "extra": true
+          }
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "zz": 1
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] pre-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-pre-config-write\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000001-post-config-write\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "not json"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "extra": true
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1,
+            "extra": true
+          },
+          "error": null,
+          "stderr": [
+            "[config] mixdog-config.json is malformed (Unexpected token 'o', \"not json\" is not valid JSON). Renamed to <root>\\data\\mixdog-config.json.corrupt-1790000003000. Restore it or delete to start fresh.\n",
+            "[config] RMW read: restored mixdog-config.json from latest user-data backup (Unexpected token 'o', \"not json\" is not valid JSON)\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-23-000Z-0000000003-post-config-write\n"
+          ]
+        }
+      ],
+      "files": {
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1,\n  \"extra\": true\n}\n"
+        },
+        "data/mixdog-config.json.corrupt-1790000003000": {
+          "text": "not json"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000003-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:23.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000003-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1,\n  \"extra\": true\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\12\\run\\data",
+      "scopeName": "8c643936f2b114aa"
+    },
+    {
+      "name": "a config that is not an object: a read answers empty",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000001000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "[1,2]"
+        },
+        {
+          "at": 1790000002000,
+          "op": "read"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "[1,2]"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {},
+          "error": null,
+          "stderr": [
+            "[user-data-backup] initial-snapshot: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-22-000Z-0000000000-initial-snapshot\n"
+          ]
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:22.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "[1,2]"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-22-000Z-0000000000-initial-snapshot/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"initial-snapshot\",\n  \"createdAt\": \"2026-09-21T14:13:22.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-22-000Z-0000000000-initial-snapshot/mixdog-config.json": {
+          "text": "[1,2]"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\13\\run\\data",
+      "scopeName": "cd349d0ed65f009f"
+    },
+    {
+      "name": "a config that is not an object: an update keeps it aside",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "update",
+          "set": {
+            "zz": 1
+          }
+        },
+        {
+          "at": 1790000002000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "\"text\""
+        },
+        {
+          "at": 1790000003000,
+          "op": "update",
+          "set": {
+            "extra": true
+          }
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "zz": 1
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] pre-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-pre-config-write\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000001-post-config-write\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "\"text\""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "extra": true
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1,
+            "extra": true
+          },
+          "error": null,
+          "stderr": [
+            "[config] mixdog-config.json is malformed (config root must be a JSON object). Renamed to <root>\\data\\mixdog-config.json.corrupt-1790000003000. Restore it or delete to start fresh.\n",
+            "[config] RMW read: restored mixdog-config.json from latest user-data backup (config root must be a JSON object)\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-23-000Z-0000000003-post-config-write\n"
+          ]
+        }
+      ],
+      "files": {
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1,\n  \"extra\": true\n}\n"
+        },
+        "data/mixdog-config.json.corrupt-1790000003000": {
+          "text": "\"text\""
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000003-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:23.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000003-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1,\n  \"extra\": true\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\14\\run\\data",
+      "scopeName": "3a082ad36a3011c5"
+    },
+    {
+      "name": "a config of null: a read restores from backup",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "update",
+          "set": {
+            "zz": 1
+          }
+        },
+        {
+          "at": 1790000002000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "null"
+        },
+        {
+          "at": 1790000003000,
+          "op": "read"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "zz": 1
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] pre-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-pre-config-write\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000001-post-config-write\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "null"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1
+          },
+          "error": null,
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "null"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\15\\run\\data",
+      "scopeName": "cec886d6d4335774"
+    },
+    {
+      "name": "two quarantines in one millisecond take distinct names",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "update",
+          "set": {
+            "zz": 1
+          }
+        },
+        {
+          "at": 1790000002000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{a"
+        },
+        {
+          "at": 1790000005000,
+          "op": "read"
+        },
+        {
+          "at": 1790000004000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{b"
+        },
+        {
+          "at": 1790000005000,
+          "op": "read"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "zz": 1
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] pre-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-pre-config-write\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000001-post-config-write\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{a"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1
+          },
+          "error": null,
+          "stderr": [
+            "[config] mixdog-config.json is malformed (Expected property name or '}' in JSON at position 1 (line 1 column 2)). Renamed to <root>\\data\\mixdog-config.json.corrupt-1790000005000. Restore it or delete to start fresh.\n",
+            "[user-data-backup] post-restore: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-25-000Z-0000000003-post-restore\n",
+            "[config] read: restored mixdog-config.json from latest user-data backup (missing after init) and saved it\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{b"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1
+          },
+          "error": null,
+          "stderr": [
+            "[config] mixdog-config.json is malformed (Expected property name or '}' in JSON at position 1 (line 1 column 2)). Renamed to <root>\\data\\mixdog-config.json.corrupt-1790000005001. Restore it or delete to start fresh.\n",
+            "[user-data-backup] post-restore: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-25-000Z-0000000005-post-restore\n",
+            "[config] read: restored mixdog-config.json from latest user-data backup (missing after init) and saved it\n"
+          ]
+        }
+      ],
+      "files": {
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        },
+        "data/mixdog-config.json.corrupt-1790000005000": {
+          "text": "{a"
+        },
+        "data/mixdog-config.json.corrupt-1790000005001": {
+          "text": "{b"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-25-000Z-0000000003-post-restore/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-restore\",\n  \"createdAt\": \"2026-09-21T14:13:25.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-25-000Z-0000000003-post-restore/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-25-000Z-0000000005-post-restore/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-restore\",\n  \"createdAt\": \"2026-09-21T14:13:25.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-25-000Z-0000000005-post-restore/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\16\\run\\data",
+      "scopeName": "b3c7d4edd149db2d"
+    },
+    {
+      "name": "incarnation mismatch: a backup of another incarnation is not restored",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "update",
+          "set": {
+            "zz": 1
+          }
+        },
+        {
+          "at": 1790000002000,
+          "op": "rm",
+          "path": "data/mixdog-config.json"
+        },
+        {
+          "at": 1790000003000,
+          "op": "file",
+          "path": "data/.mixdog-user-data.json",
+          "text": "{\"instanceId\":\"other\",\"dataDir\":\"$DATA_J\",\"createdAt\":\"x\"}"
+        },
+        {
+          "at": 1790000004000,
+          "op": "read"
+        },
+        {
+          "at": 1790000005000,
+          "op": "loadLatest",
+          "fresh": true
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "zz": 1
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] pre-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-pre-config-write\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000001-post-config-write\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "rm",
+            "path": "data/mixdog-config.json"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.mixdog-user-data.json",
+            "text": "{\"instanceId\":\"other\",\"dataDir\":\"$DATA_J\",\"createdAt\":\"x\"}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {},
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "loadLatest",
+            "fresh": true
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.mixdog-user-data.json": {
+          "text": "{\"instanceId\":\"other\",\"dataDir\":\"<root>\\\\data\",\"createdAt\":\"x\"}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\17\\run\\data",
+      "scopeName": "930eb499ad64f1a2"
+    },
+    {
+      "name": "a recreated dir at the same path starts fresh",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "update",
+          "set": {
+            "zz": 1
+          }
+        },
+        {
+          "at": 1790000002000,
+          "op": "rm",
+          "path": "data"
+        },
+        {
+          "at": 1790000003000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000004000,
+          "op": "read"
+        },
+        {
+          "at": 1790000005000,
+          "op": "expected"
+        },
+        {
+          "at": 1790000006000,
+          "op": "update",
+          "set": {
+            "mix": {
+              "v": 1
+            }
+          }
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "zz": 1
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] pre-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-pre-config-write\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000001-post-config-write\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "rm",
+            "path": "data"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {},
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "expected"
+          },
+          "answer": false,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "mix": {
+                "v": 1
+              }
+            }
+          },
+          "answer": {
+            "mix": {
+              "v": 1
+            },
+            "defaultsVersion": 2
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-26-000Z-0000000003-post-config-write\n"
+          ]
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000002\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:26.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"mix\": {\n    \"v\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-26-000Z-0000000003-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000002\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:26.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-26-000Z-0000000003-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"mix\": {\n    \"v\": 1\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\18\\run\\data",
+      "scopeName": "2acc1e311799e163"
+    },
+    {
+      "name": "damaged marker: unparseable",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000001000,
+          "op": "file",
+          "path": "data/.mixdog-user-data.json",
+          "text": "{oops"
+        },
+        {
+          "at": 1790000002000,
+          "op": "read"
+        },
+        {
+          "at": 1790000003000,
+          "op": "update",
+          "set": {
+            "mix": {
+              "v": 1
+            }
+          }
+        },
+        {
+          "at": 1790000004000,
+          "op": "mark"
+        },
+        {
+          "at": 1790000005000,
+          "op": "expected"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.mixdog-user-data.json",
+            "text": "{oops"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": null,
+          "error": {
+            "name": "SyntaxError",
+            "code": null,
+            "message": "[user-data] invalid initialization marker at <root>\\data\\.mixdog-user-data.json"
+          },
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "mix": {
+                "v": 1
+              }
+            }
+          },
+          "answer": null,
+          "error": {
+            "name": "SyntaxError",
+            "code": null,
+            "message": "[user-data] invalid initialization marker at <root>\\data\\.mixdog-user-data.json"
+          },
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "mark"
+          },
+          "answer": null,
+          "error": {
+            "name": "SyntaxError",
+            "code": null,
+            "message": "[user-data] invalid initialization marker at <root>\\data\\.mixdog-user-data.json"
+          },
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "expected"
+          },
+          "answer": null,
+          "error": {
+            "name": "SyntaxError",
+            "code": null,
+            "message": "[user-data] invalid initialization marker at <root>\\data\\.mixdog-user-data.json"
+          },
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "data/.mixdog-user-data.json": {
+          "text": "{oops"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\19\\run\\data",
+      "scopeName": "74b8f69d77496fd4"
+    },
+    {
+      "name": "damaged marker: no instanceId",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000001000,
+          "op": "file",
+          "path": "data/.mixdog-user-data.json",
+          "text": "{\"instanceId\":\"\"}"
+        },
+        {
+          "at": 1790000002000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000003000,
+          "op": "read"
+        },
+        {
+          "at": 1790000004000,
+          "op": "backup",
+          "reason": "x"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.mixdog-user-data.json",
+            "text": "{\"instanceId\":\"\"}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            }
+          },
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "backup",
+            "reason": "x"
+          },
+          "answer": null,
+          "error": {
+            "name": "SyntaxError",
+            "code": null,
+            "message": "[user-data] initialization marker at <root>\\data\\.mixdog-user-data.json must have a non-empty instanceId"
+          },
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "data/.mixdog-user-data.json": {
+          "text": "{\"instanceId\":\"\"}"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\20\\run\\data",
+      "scopeName": "f0f487e8fa8f1de4"
+    },
+    {
+      "name": "damaged marker: a snapshot of a readable config fails",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000001000,
+          "op": "file",
+          "path": "data/.mixdog-user-data.json",
+          "text": "[]"
+        },
+        {
+          "at": 1790000002000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000003000,
+          "op": "backup",
+          "reason": "x"
+        },
+        {
+          "at": 1790000004000,
+          "op": "ensure"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.mixdog-user-data.json",
+            "text": "[]"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "backup",
+            "reason": "x"
+          },
+          "answer": null,
+          "error": {
+            "name": "SyntaxError",
+            "code": null,
+            "message": "[user-data] initialization marker at <root>\\data\\.mixdog-user-data.json must have a non-empty instanceId"
+          },
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "ensure"
+          },
+          "answer": null,
+          "error": {
+            "name": "SyntaxError",
+            "code": null,
+            "message": "[user-data] initialization marker at <root>\\data\\.mixdog-user-data.json must have a non-empty instanceId"
+          },
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "data/.mixdog-user-data.json": {
+          "text": "[]"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\21\\run\\data",
+      "scopeName": "eda79a7d953025c3"
+    },
+    {
+      "name": "an existing marker is never replaced",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "update",
+          "set": {
+            "zz": 1
+          }
+        },
+        {
+          "at": 1790000002000,
+          "op": "mark"
+        },
+        {
+          "at": 1790000003000,
+          "op": "mark"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "zz": 1
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] pre-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-pre-config-write\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000001-post-config-write\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "mark"
+          },
+          "answer": "00000000-0000-4000-8000-000000000001",
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "mark"
+          },
+          "answer": "00000000-0000-4000-8000-000000000001",
+          "error": null,
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\22\\run\\data",
+      "scopeName": "e8f819c555c0b9a5"
+    },
+    {
+      "name": "no marker without a data dir",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "mark"
+        },
+        {
+          "at": 1790000001000,
+          "op": "backup",
+          "reason": "x"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "mark"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "backup",
+            "reason": "x"
+          },
+          "answer": {
+            "dir": null,
+            "copied": []
+          },
+          "error": null,
+          "stderr": []
+        }
+      ],
+      "files": {},
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\23\\run\\data",
+      "scopeName": "06f07114d5394dca"
+    },
+    {
+      "name": "scoped backups: the newest complete one wins, incomplete ones are skipped",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000001000,
+          "op": "mark"
+        },
+        {
+          "at": 1790000002000,
+          "op": "file",
+          "path": "mhome/backups/user-data/scope-$SCOPE/2026-01-01T00-00-00-000Z-0001-old/backup.json",
+          "text": "{\"dataDir\":\"$DATA_J\",\"instanceId\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"made\",\"createdAt\":\"2026-01-01T00:00:00.000Z\"}"
+        },
+        {
+          "at": 1790000003000,
+          "op": "file",
+          "path": "mhome/backups/user-data/scope-$SCOPE/2026-01-01T00-00-00-000Z-0001-old/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000004000,
+          "op": "file",
+          "path": "mhome/backups/user-data/scope-$SCOPE/2026-01-02T00-00-00-000Z-0001-new/backup.json",
+          "text": "{\"dataDir\":\"$DATA_J\",\"instanceId\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"made\",\"createdAt\":\"2026-01-01T00:00:00.000Z\"}"
+        },
+        {
+          "at": 1790000005000,
+          "op": "file",
+          "path": "mhome/backups/user-data/scope-$SCOPE/2026-01-02T00-00-00-000Z-0001-new/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"y\"},\"mix\":{\"v\":2}}"
+        },
+        {
+          "at": 1790000006000,
+          "op": "file",
+          "path": "mhome/backups/user-data/scope-$SCOPE/2026-01-03T00-00-00-000Z-0001-single/backup.json",
+          "text": "{\"dataDir\":\"$DATA_J\",\"instanceId\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"made\",\"createdAt\":\"2026-01-01T00:00:00.000Z\"}"
+        },
+        {
+          "at": 1790000007000,
+          "op": "file",
+          "path": "mhome/backups/user-data/scope-$SCOPE/2026-01-03T00-00-00-000Z-0001-single/mixdog-config.json",
+          "text": "{\"mix\":{\"v\":9}}"
+        },
+        {
+          "at": 1790000008000,
+          "op": "file",
+          "path": "mhome/backups/user-data/scope-$SCOPE/2026-01-04T00-00-00-000Z-0001-nomanifest/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000009000,
+          "op": "loadLatest",
+          "fresh": true
+        },
+        {
+          "at": 1790000010000,
+          "op": "read"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "mark"
+          },
+          "answer": "00000000-0000-4000-8000-000000000001",
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "mhome/backups/user-data/scope-$SCOPE/2026-01-01T00-00-00-000Z-0001-old/backup.json",
+            "text": "{\"dataDir\":\"$DATA_J\",\"instanceId\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"made\",\"createdAt\":\"2026-01-01T00:00:00.000Z\"}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "mhome/backups/user-data/scope-$SCOPE/2026-01-01T00-00-00-000Z-0001-old/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "mhome/backups/user-data/scope-$SCOPE/2026-01-02T00-00-00-000Z-0001-new/backup.json",
+            "text": "{\"dataDir\":\"$DATA_J\",\"instanceId\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"made\",\"createdAt\":\"2026-01-01T00:00:00.000Z\"}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "mhome/backups/user-data/scope-$SCOPE/2026-01-02T00-00-00-000Z-0001-new/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"y\"},\"mix\":{\"v\":2}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "mhome/backups/user-data/scope-$SCOPE/2026-01-03T00-00-00-000Z-0001-single/backup.json",
+            "text": "{\"dataDir\":\"$DATA_J\",\"instanceId\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"made\",\"createdAt\":\"2026-01-01T00:00:00.000Z\"}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "mhome/backups/user-data/scope-$SCOPE/2026-01-03T00-00-00-000Z-0001-single/mixdog-config.json",
+            "text": "{\"mix\":{\"v\":9}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "mhome/backups/user-data/scope-$SCOPE/2026-01-04T00-00-00-000Z-0001-nomanifest/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "loadLatest",
+            "fresh": true
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "y"
+            },
+            "mix": {
+              "v": 2
+            }
+          },
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "y"
+            },
+            "mix": {
+              "v": 2
+            }
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] post-restore: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-30-000Z-0000000001-post-restore\n",
+            "[config] read: restored mixdog-config.json from latest user-data backup (missing after init) and saved it\n"
+          ]
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"y\"\n  },\n  \"mix\": {\n    \"v\": 2\n  }\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-01-01T00-00-00-000Z-0001-old/backup.json": {
+          "text": "{\"dataDir\":\"<root>\\\\data\",\"instanceId\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"made\",\"createdAt\":\"2026-01-01T00:00:00.000Z\"}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-01-01T00-00-00-000Z-0001-old/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-01-02T00-00-00-000Z-0001-new/backup.json": {
+          "text": "{\"dataDir\":\"<root>\\\\data\",\"instanceId\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"made\",\"createdAt\":\"2026-01-01T00:00:00.000Z\"}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-01-02T00-00-00-000Z-0001-new/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"y\"},\"mix\":{\"v\":2}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-01-03T00-00-00-000Z-0001-single/backup.json": {
+          "text": "{\"dataDir\":\"<root>\\\\data\",\"instanceId\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"made\",\"createdAt\":\"2026-01-01T00:00:00.000Z\"}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-01-03T00-00-00-000Z-0001-single/mixdog-config.json": {
+          "text": "{\"mix\":{\"v\":9}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-01-04T00-00-00-000Z-0001-nomanifest/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-30-000Z-0000000001-post-restore/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-restore\",\n  \"createdAt\": \"2026-09-21T14:13:30.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-30-000Z-0000000001-post-restore/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"y\"\n  },\n  \"mix\": {\n    \"v\": 2\n  }\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\24\\run\\data",
+      "scopeName": "5d55de056027efb6"
+    },
+    {
+      "name": "unscoped backups with this incarnation are used when the scope has none",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000001000,
+          "op": "mark"
+        },
+        {
+          "at": 1790000002000,
+          "op": "file",
+          "path": "mhome/backups/user-data/2026-01-01T00-00-00-000Z-old/backup.json",
+          "text": "{\"dataDir\":\"$DATA_J\",\"instanceId\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"made\",\"createdAt\":\"2026-01-01T00:00:00.000Z\"}"
+        },
+        {
+          "at": 1790000003000,
+          "op": "file",
+          "path": "mhome/backups/user-data/2026-01-01T00-00-00-000Z-old/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"y\"},\"mix\":{\"v\":2}}"
+        },
+        {
+          "at": 1790000004000,
+          "op": "loadLatest",
+          "fresh": true
+        },
+        {
+          "at": 1790000005000,
+          "op": "read"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "mark"
+          },
+          "answer": "00000000-0000-4000-8000-000000000001",
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "mhome/backups/user-data/2026-01-01T00-00-00-000Z-old/backup.json",
+            "text": "{\"dataDir\":\"$DATA_J\",\"instanceId\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"made\",\"createdAt\":\"2026-01-01T00:00:00.000Z\"}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "mhome/backups/user-data/2026-01-01T00-00-00-000Z-old/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"y\"},\"mix\":{\"v\":2}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "loadLatest",
+            "fresh": true
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "y"
+            },
+            "mix": {
+              "v": 2
+            }
+          },
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "y"
+            },
+            "mix": {
+              "v": 2
+            }
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] post-restore: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-25-000Z-0000000001-post-restore\n",
+            "[config] read: restored mixdog-config.json from latest user-data backup (missing after init) and saved it\n"
+          ]
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"y\"\n  },\n  \"mix\": {\n    \"v\": 2\n  }\n}\n"
+        },
+        "mhome/backups/user-data/2026-01-01T00-00-00-000Z-old/backup.json": {
+          "text": "{\"dataDir\":\"<root>\\\\data\",\"instanceId\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"made\",\"createdAt\":\"2026-01-01T00:00:00.000Z\"}"
+        },
+        "mhome/backups/user-data/2026-01-01T00-00-00-000Z-old/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"y\"},\"mix\":{\"v\":2}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-25-000Z-0000000001-post-restore/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-restore\",\n  \"createdAt\": \"2026-09-21T14:13:25.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-25-000Z-0000000001-post-restore/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"y\"\n  },\n  \"mix\": {\n    \"v\": 2\n  }\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\25\\run\\data",
+      "scopeName": "3eeffb3c7725eea9"
+    },
+    {
+      "name": "a backup of another data dir is not restored",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000001000,
+          "op": "mark"
+        },
+        {
+          "at": 1790000002000,
+          "op": "file",
+          "path": "mhome/backups/user-data/scope-$SCOPE/2026-01-01T00-00-00-000Z-0001-x/backup.json",
+          "text": "{\"dataDir\":\"$ROOT_J\\\\elsewhere\",\"instanceId\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"x\"}"
+        },
+        {
+          "at": 1790000003000,
+          "op": "file",
+          "path": "mhome/backups/user-data/scope-$SCOPE/2026-01-01T00-00-00-000Z-0001-x/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000004000,
+          "op": "loadLatest",
+          "fresh": true
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "mark"
+          },
+          "answer": "00000000-0000-4000-8000-000000000001",
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "mhome/backups/user-data/scope-$SCOPE/2026-01-01T00-00-00-000Z-0001-x/backup.json",
+            "text": "{\"dataDir\":\"$ROOT_J\\\\elsewhere\",\"instanceId\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"x\"}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "mhome/backups/user-data/scope-$SCOPE/2026-01-01T00-00-00-000Z-0001-x/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "loadLatest",
+            "fresh": true
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-01-01T00-00-00-000Z-0001-x/backup.json": {
+          "text": "{\"dataDir\":\"<root>\\\\elsewhere\",\"instanceId\":\"00000000-0000-4000-8000-000000000001\",\"reason\":\"x\"}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-01-01T00-00-00-000Z-0001-x/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\26\\run\\data",
+      "scopeName": "96eaa43f7156066b"
+    },
+    {
+      "name": "legacy unscoped backup naming this dir (no marker): read restores, update restores",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000001000,
+          "op": "file",
+          "path": "home/.mixdog/backups/user-data/2026-01-01T00-00-00-000Z-old/backup.json",
+          "text": "{\"dataDir\":\"$DATA_J\",\"reason\":\"made\",\"createdAt\":\"2026-01-01T00:00:00.000Z\"}"
+        },
+        {
+          "at": 1790000002000,
+          "op": "file",
+          "path": "home/.mixdog/backups/user-data/2026-01-01T00-00-00-000Z-old/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000003000,
+          "op": "expected"
+        },
+        {
+          "at": 1790000004000,
+          "op": "legacy"
+        },
+        {
+          "at": 1790000005000,
+          "op": "read"
+        },
+        {
+          "at": 1790000006000,
+          "op": "read"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "home/.mixdog/backups/user-data/2026-01-01T00-00-00-000Z-old/backup.json",
+            "text": "{\"dataDir\":\"$DATA_J\",\"reason\":\"made\",\"createdAt\":\"2026-01-01T00:00:00.000Z\"}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "home/.mixdog/backups/user-data/2026-01-01T00-00-00-000Z-old/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "expected"
+          },
+          "answer": true,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "legacy"
+          },
+          "answer": {
+            "markers": [],
+            "backups": [
+              "<root>\\home\\.mixdog\\backups\\user-data\\2026-01-01T00-00-00-000Z-old"
+            ],
+            "roots": [
+              "<root>\\mhome\\backups\\user-data",
+              "<root>\\home\\.mixdog\\backups\\user-data"
+            ]
+          },
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            }
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] post-restore: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-25-000Z-0000000001-post-restore\n",
+            "[config] read: restored mixdog-config.json from latest user-data backup (missing after init) and saved it\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            }
+          },
+          "error": null,
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:25.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  }\n}\n"
+        },
+        "home/.mixdog/backups/user-data/2026-01-01T00-00-00-000Z-old/backup.json": {
+          "text": "{\"dataDir\":\"<root>\\\\data\",\"reason\":\"made\",\"createdAt\":\"2026-01-01T00:00:00.000Z\"}"
+        },
+        "home/.mixdog/backups/user-data/2026-01-01T00-00-00-000Z-old/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-25-000Z-0000000001-post-restore/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-restore\",\n  \"createdAt\": \"2026-09-21T14:13:25.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-25-000Z-0000000001-post-restore/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  }\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\27\\run\\data",
+      "scopeName": "718dceb429c87d3f"
+    },
+    {
+      "name": "legacy update restores the legacy backup",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000001000,
+          "op": "file",
+          "path": "home/.mixdog/backups/user-data/2026-01-01T00-00-00-000Z-old/backup.json",
+          "text": "{\"dataDir\":\"$DATA_J\",\"reason\":\"made\",\"createdAt\":\"2026-01-01T00:00:00.000Z\"}"
+        },
+        {
+          "at": 1790000002000,
+          "op": "file",
+          "path": "home/.mixdog/backups/user-data/2026-01-01T00-00-00-000Z-old/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000003000,
+          "op": "update",
+          "set": {
+            "extra": 1
+          }
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "home/.mixdog/backups/user-data/2026-01-01T00-00-00-000Z-old/backup.json",
+            "text": "{\"dataDir\":\"$DATA_J\",\"reason\":\"made\",\"createdAt\":\"2026-01-01T00:00:00.000Z\"}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "home/.mixdog/backups/user-data/2026-01-01T00-00-00-000Z-old/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "extra": 1
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "extra": 1
+          },
+          "error": null,
+          "stderr": [
+            "[config] RMW read: restored mixdog-config.json from latest user-data backup (config file missing after user-data was initialized)\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-23-000Z-0000000001-post-config-write\n"
+          ]
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:23.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"extra\": 1\n}\n"
+        },
+        "home/.mixdog/backups/user-data/2026-01-01T00-00-00-000Z-old/backup.json": {
+          "text": "{\"dataDir\":\"<root>\\\\data\",\"reason\":\"made\",\"createdAt\":\"2026-01-01T00:00:00.000Z\"}"
+        },
+        "home/.mixdog/backups/user-data/2026-01-01T00-00-00-000Z-old/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000001-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:23.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000001-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"extra\": 1\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\28\\run\\data",
+      "scopeName": "14cc4463644ad131"
+    },
+    {
+      "name": "legacy marker without a verifiable backup: read is empty, update refuses",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000001000,
+          "op": "file",
+          "path": "home/.mixdog/backups/user-data/.initialized-0123456789abcdef.json",
+          "text": "{\"dataDir\":\"$DATA_J\"}"
+        },
+        {
+          "at": 1790000002000,
+          "op": "expected"
+        },
+        {
+          "at": 1790000003000,
+          "op": "legacy",
+          "fresh": true
+        },
+        {
+          "at": 1790000004000,
+          "op": "read"
+        },
+        {
+          "at": 1790000005000,
+          "op": "update",
+          "set": {
+            "extra": 1
+          }
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "home/.mixdog/backups/user-data/.initialized-0123456789abcdef.json",
+            "text": "{\"dataDir\":\"$DATA_J\"}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "expected"
+          },
+          "answer": true,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "legacy",
+            "fresh": true
+          },
+          "answer": {
+            "markers": [
+              "<root>\\home\\.mixdog\\backups\\user-data\\.initialized-0123456789abcdef.json"
+            ],
+            "backups": [],
+            "roots": [
+              "<root>\\mhome\\backups\\user-data",
+              "<root>\\home\\.mixdog\\backups\\user-data"
+            ]
+          },
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {},
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "extra": 1
+            }
+          },
+          "answer": null,
+          "error": {
+            "name": "Error",
+            "code": "EUSERDATARECOVERY",
+            "message": "[config] mixdog-config.json is missing but this data dir (<root>\\data) was initialized by an older Mixdog build and no backup verified to belong to it was found; refusing to write a fresh config over a recoverable state. Restore mixdog-config.json from a backup under <root>\\mhome\\backups\\user-data or <root>\\home\\.mixdog\\backups\\user-data, or delete the legacy marker(s) to start fresh: <root>\\home\\.mixdog\\backups\\user-data\\.initialized-0123456789abcdef.json"
+          },
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "home/.mixdog/backups/user-data/.initialized-0123456789abcdef.json": {
+          "text": "{\"dataDir\":\"<root>\\\\data\"}"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\29\\run\\data",
+      "scopeName": "b2596034718cae32"
+    },
+    {
+      "name": "legacy backup without a manifest is never restored",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000001000,
+          "op": "file",
+          "path": "home/.mixdog/backups/user-data/2026-01-01T00-00-00-000Z-old/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000002000,
+          "op": "expected"
+        },
+        {
+          "at": 1790000003000,
+          "op": "legacy"
+        },
+        {
+          "at": 1790000004000,
+          "op": "read"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "home/.mixdog/backups/user-data/2026-01-01T00-00-00-000Z-old/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "expected"
+          },
+          "answer": false,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "legacy"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {},
+          "error": null,
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "home/.mixdog/backups/user-data/2026-01-01T00-00-00-000Z-old/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\30\\run\\data",
+      "scopeName": "bb2dace7335dcddb"
+    },
+    {
+      "name": "a migrated dir (scoped backups exist) has no legacy evidence",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "update",
+          "set": {
+            "zz": 1
+          }
+        },
+        {
+          "at": 1790000002000,
+          "op": "rm",
+          "path": "data/.mixdog-user-data.json"
+        },
+        {
+          "at": 1790000003000,
+          "op": "file",
+          "path": "home/.mixdog/backups/user-data/.initialized-0123456789abcdef.json",
+          "text": "{\"dataDir\":\"$DATA_J\"}"
+        },
+        {
+          "at": 1790000004000,
+          "op": "legacy",
+          "fresh": true
+        },
+        {
+          "at": 1790000005000,
+          "op": "expected",
+          "fresh": true
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "zz": 1
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "zz": 1
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] pre-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-pre-config-write\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000001-post-config-write\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "rm",
+            "path": "data/.mixdog-user-data.json"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "home/.mixdog/backups/user-data/.initialized-0123456789abcdef.json",
+            "text": "{\"dataDir\":\"$DATA_J\"}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "legacy",
+            "fresh": true
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "expected",
+            "fresh": true
+          },
+          "answer": false,
+          "error": null,
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        },
+        "home/.mixdog/backups/user-data/.initialized-0123456789abcdef.json": {
+          "text": "{\"dataDir\":\"<root>\\\\data\"}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-pre-config-write/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000001-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"zz\": 1\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\31\\run\\data",
+      "scopeName": "c9229d7feedee39d"
+    },
+    {
+      "name": "retention keeps the newest forty",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "backup",
+          "reason": "many",
+          "repeat": 44,
+          "step": true
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "backup",
+            "reason": "many",
+            "repeat": 44,
+            "step": true
+          },
+          "answer": {
+            "dir": "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-14-05-000Z-0000000043-many",
+            "copied": [
+              "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-14-05-000Z-0000000043-many\\mixdog-config.json"
+            ]
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-22-000Z-0000000000-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-23-000Z-0000000001-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-24-000Z-0000000002-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-25-000Z-0000000003-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-26-000Z-0000000004-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-27-000Z-0000000005-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-28-000Z-0000000006-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-29-000Z-0000000007-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-30-000Z-0000000008-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-31-000Z-0000000009-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-32-000Z-0000000010-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-33-000Z-0000000011-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-34-000Z-0000000012-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-35-000Z-0000000013-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-36-000Z-0000000014-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-37-000Z-0000000015-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-38-000Z-0000000016-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-39-000Z-0000000017-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-40-000Z-0000000018-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-41-000Z-0000000019-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-42-000Z-0000000020-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-43-000Z-0000000021-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-44-000Z-0000000022-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-45-000Z-0000000023-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-46-000Z-0000000024-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-47-000Z-0000000025-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-48-000Z-0000000026-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-49-000Z-0000000027-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-50-000Z-0000000028-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-51-000Z-0000000029-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-52-000Z-0000000030-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-53-000Z-0000000031-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-54-000Z-0000000032-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-55-000Z-0000000033-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-56-000Z-0000000034-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-57-000Z-0000000035-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-58-000Z-0000000036-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-59-000Z-0000000037-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-14-00-000Z-0000000038-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-14-01-000Z-0000000039-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-14-02-000Z-0000000040-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-14-03-000Z-0000000041-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-14-04-000Z-0000000042-many\n",
+            "[user-data-backup] many: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-14-05-000Z-0000000043-many\n"
+          ]
+        }
+      ],
+      "files": {
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:22.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-26-000Z-0000000004-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:26.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-26-000Z-0000000004-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-27-000Z-0000000005-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:27.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-27-000Z-0000000005-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-28-000Z-0000000006-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:28.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-28-000Z-0000000006-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-29-000Z-0000000007-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:29.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-29-000Z-0000000007-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-30-000Z-0000000008-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:30.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-30-000Z-0000000008-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-31-000Z-0000000009-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:31.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-31-000Z-0000000009-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-32-000Z-0000000010-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:32.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-32-000Z-0000000010-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-33-000Z-0000000011-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:33.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-33-000Z-0000000011-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-34-000Z-0000000012-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:34.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-34-000Z-0000000012-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-35-000Z-0000000013-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:35.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-35-000Z-0000000013-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-36-000Z-0000000014-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:36.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-36-000Z-0000000014-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-37-000Z-0000000015-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:37.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-37-000Z-0000000015-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-38-000Z-0000000016-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:38.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-38-000Z-0000000016-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-39-000Z-0000000017-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:39.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-39-000Z-0000000017-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-40-000Z-0000000018-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:40.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-40-000Z-0000000018-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-41-000Z-0000000019-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:41.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-41-000Z-0000000019-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-42-000Z-0000000020-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:42.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-42-000Z-0000000020-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-43-000Z-0000000021-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:43.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-43-000Z-0000000021-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-44-000Z-0000000022-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:44.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-44-000Z-0000000022-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-45-000Z-0000000023-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:45.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-45-000Z-0000000023-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-46-000Z-0000000024-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:46.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-46-000Z-0000000024-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-47-000Z-0000000025-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:47.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-47-000Z-0000000025-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-48-000Z-0000000026-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:48.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-48-000Z-0000000026-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-49-000Z-0000000027-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:49.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-49-000Z-0000000027-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-50-000Z-0000000028-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:50.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-50-000Z-0000000028-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-51-000Z-0000000029-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:51.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-51-000Z-0000000029-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-52-000Z-0000000030-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:52.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-52-000Z-0000000030-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-53-000Z-0000000031-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:53.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-53-000Z-0000000031-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-54-000Z-0000000032-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:54.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-54-000Z-0000000032-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-55-000Z-0000000033-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:55.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-55-000Z-0000000033-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-56-000Z-0000000034-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:56.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-56-000Z-0000000034-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-57-000Z-0000000035-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:57.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-57-000Z-0000000035-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-58-000Z-0000000036-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:58.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-58-000Z-0000000036-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-59-000Z-0000000037-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:13:59.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-59-000Z-0000000037-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-14-00-000Z-0000000038-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:14:00.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-14-00-000Z-0000000038-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-14-01-000Z-0000000039-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:14:01.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-14-01-000Z-0000000039-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-14-02-000Z-0000000040-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:14:02.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-14-02-000Z-0000000040-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-14-03-000Z-0000000041-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:14:03.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-14-03-000Z-0000000041-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-14-04-000Z-0000000042-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:14:04.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-14-04-000Z-0000000042-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-14-05-000Z-0000000043-many/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"many\",\n  \"createdAt\": \"2026-09-21T14:14:05.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-14-05-000Z-0000000043-many/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\32\\run\\data",
+      "scopeName": "5e920a55c2580bd6"
+    },
+    {
+      "name": "a snapshot carries schedules, webhooks, workflows and the extra folders",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "file",
+          "path": "data/schedules/a.json",
+          "text": "{\"s\":1}"
+        },
+        {
+          "at": 1790000002000,
+          "op": "file",
+          "path": "data/webhooks/w/b.json",
+          "text": "{}"
+        },
+        {
+          "at": 1790000003000,
+          "op": "file",
+          "path": "data/workflows/c.md",
+          "text": "wf"
+        },
+        {
+          "at": 1790000004000,
+          "op": "file",
+          "path": "data/agents/x.md",
+          "text": "ag"
+        },
+        {
+          "at": 1790000005000,
+          "op": "file",
+          "path": "data/bots/y.json",
+          "text": "{}"
+        },
+        {
+          "at": 1790000006000,
+          "op": "file",
+          "path": "data/other/z.txt",
+          "text": "no"
+        },
+        {
+          "at": 1790000007000,
+          "op": "backup",
+          "reason": "plain"
+        },
+        {
+          "at": 1790000008000,
+          "op": "backup",
+          "reason": "bot-split",
+          "dirs": [
+            "agents",
+            "bots"
+          ]
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/schedules/a.json",
+            "text": "{\"s\":1}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/webhooks/w/b.json",
+            "text": "{}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/workflows/c.md",
+            "text": "wf"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/agents/x.md",
+            "text": "ag"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/bots/y.json",
+            "text": "{}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "file",
+            "path": "data/other/z.txt",
+            "text": "no"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "backup",
+            "reason": "plain"
+          },
+          "answer": {
+            "dir": "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-27-000Z-0000000000-plain",
+            "copied": [
+              "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-27-000Z-0000000000-plain\\mixdog-config.json",
+              "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-27-000Z-0000000000-plain\\schedules\\a.json",
+              "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-27-000Z-0000000000-plain\\webhooks\\w\\b.json",
+              "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-27-000Z-0000000000-plain\\workflows\\c.md"
+            ]
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] plain: copied 4 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-27-000Z-0000000000-plain\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "backup",
+            "reason": "bot-split",
+            "dirs": [
+              "agents",
+              "bots"
+            ]
+          },
+          "answer": {
+            "dir": "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-28-000Z-0000000001-bot-split",
+            "copied": [
+              "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-28-000Z-0000000001-bot-split\\mixdog-config.json",
+              "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-28-000Z-0000000001-bot-split\\schedules\\a.json",
+              "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-28-000Z-0000000001-bot-split\\webhooks\\w\\b.json",
+              "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-28-000Z-0000000001-bot-split\\workflows\\c.md",
+              "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-28-000Z-0000000001-bot-split\\agents\\x.md",
+              "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-28-000Z-0000000001-bot-split\\bots\\y.json"
+            ]
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] bot-split: copied 6 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-28-000Z-0000000001-bot-split\n"
+          ]
+        }
+      ],
+      "files": {
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:27.000Z\"\n}\n"
+        },
+        "data/agents/x.md": {
+          "text": "ag"
+        },
+        "data/bots/y.json": {
+          "text": "{}"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "data/other/z.txt": {
+          "text": "no"
+        },
+        "data/schedules/a.json": {
+          "text": "{\"s\":1}"
+        },
+        "data/webhooks/w/b.json": {
+          "text": "{}"
+        },
+        "data/workflows/c.md": {
+          "text": "wf"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-27-000Z-0000000000-plain/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"plain\",\n  \"createdAt\": \"2026-09-21T14:13:27.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-27-000Z-0000000000-plain/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-27-000Z-0000000000-plain/schedules/a.json": {
+          "text": "{\"s\":1}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-27-000Z-0000000000-plain/webhooks/w/b.json": {
+          "text": "{}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-27-000Z-0000000000-plain/workflows/c.md": {
+          "text": "wf"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-28-000Z-0000000001-bot-split/agents/x.md": {
+          "text": "ag"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-28-000Z-0000000001-bot-split/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"bot-split\",\n  \"createdAt\": \"2026-09-21T14:13:28.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-28-000Z-0000000001-bot-split/bots/y.json": {
+          "text": "{}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-28-000Z-0000000001-bot-split/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-28-000Z-0000000001-bot-split/schedules/a.json": {
+          "text": "{\"s\":1}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-28-000Z-0000000001-bot-split/webhooks/w/b.json": {
+          "text": "{}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-28-000Z-0000000001-bot-split/workflows/c.md": {
+          "text": "wf"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\33\\run\\data",
+      "scopeName": "f2c65175a7001001"
+    },
+    {
+      "name": "a snapshot of a dir with nothing to copy leaves nothing",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/.keep",
+          "text": ""
+        },
+        {
+          "at": 1790000001000,
+          "op": "backup",
+          "reason": "empty"
+        },
+        {
+          "at": 1790000002000,
+          "op": "mark"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/.keep",
+            "text": ""
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "backup",
+            "reason": "empty"
+          },
+          "answer": {
+            "dir": null,
+            "copied": []
+          },
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "mark"
+          },
+          "answer": "00000000-0000-4000-8000-000000000001",
+          "error": null,
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.keep": {
+          "text": ""
+        },
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:22.000Z\"\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\34\\run\\data",
+      "scopeName": "1f0df4cac96e1c64"
+    },
+    {
+      "name": "reason strings are made safe and short",
+      "env": {},
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "backup",
+          "reason": "a b/c:d*exxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        {
+          "at": 1790000002000,
+          "op": "backup",
+          "reason": ""
+        },
+        {
+          "at": 1790000003000,
+          "op": "backup",
+          "reason": "???"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "backup",
+            "reason": "a b/c:d*exxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          "answer": {
+            "dir": "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-a-b-c-d-exxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "copied": [
+              "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-a-b-c-d-exxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\mixdog-config.json"
+            ]
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] a b/c:d*exxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-a-b-c-d-exxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "backup",
+            "reason": ""
+          },
+          "answer": {
+            "dir": "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-22-000Z-0000000001-snapshot",
+            "copied": [
+              "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-22-000Z-0000000001-snapshot\\mixdog-config.json"
+            ]
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] : copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-22-000Z-0000000001-snapshot\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "backup",
+            "reason": "???"
+          },
+          "answer": {
+            "dir": "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-23-000Z-0000000002--",
+            "copied": [
+              "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-23-000Z-0000000002--\\mixdog-config.json"
+            ]
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] ???: copied 1 file(s) to <root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-23-000Z-0000000002--\n"
+          ]
+        }
+      ],
+      "files": {
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-a-b-c-d-exxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"a b/c:d*exxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-a-b-c-d-exxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-22-000Z-0000000001-snapshot/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"\",\n  \"createdAt\": \"2026-09-21T14:13:22.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-22-000Z-0000000001-snapshot/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000002--/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"???\",\n  \"createdAt\": \"2026-09-21T14:13:23.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-23-000Z-0000000002--/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\35\\run\\data",
+      "scopeName": "3d646c1e7529b683"
+    },
+    {
+      "name": "snapshots skipped by MIXDOG_SKIP_USER_DATA_BACKUP",
+      "env": {
+        "MIXDOG_SKIP_USER_DATA_BACKUP": "1"
+      },
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "read"
+        },
+        {
+          "at": 1790000002000,
+          "op": "update",
+          "set": {
+            "a": 1
+          }
+        },
+        {
+          "at": 1790000003000,
+          "op": "backup",
+          "reason": "x"
+        },
+        {
+          "at": 1790000004000,
+          "op": "ensure"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            }
+          },
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "a": 1
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "a": 1
+          },
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "backup",
+            "reason": "x"
+          },
+          "answer": {
+            "dir": null,
+            "copied": []
+          },
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "ensure"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:22.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"a\": 1\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\36\\run\\data",
+      "scopeName": "c7717b2e685bff9a"
+    },
+    {
+      "name": "quiet setup logs no snapshot lines",
+      "env": {
+        "MIXDOG_SETUP_QUIET": "1"
+      },
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "backup",
+          "reason": "x"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "backup",
+            "reason": "x"
+          },
+          "answer": {
+            "dir": "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-x",
+            "copied": [
+              "<root>\\mhome\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-x\\mixdog-config.json"
+            ]
+          },
+          "error": null,
+          "stderr": []
+        }
+      ],
+      "files": {
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-x/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"x\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "mhome/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-x/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\37\\run\\data",
+      "scopeName": "bda3ba361fdb5261"
+    },
+    {
+      "name": "backups under MIXDOG_USER_DATA_BACKUP_ROOT",
+      "env": {
+        "MIXDOG_USER_DATA_BACKUP_ROOT": "$ROOT/custom"
+      },
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "read"
+        },
+        {
+          "at": 1790000002000,
+          "op": "update",
+          "set": {
+            "a": 1
+          }
+        },
+        {
+          "at": 1790000003000,
+          "op": "rm",
+          "path": "data/mixdog-config.json"
+        },
+        {
+          "at": 1790000004000,
+          "op": "read"
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            }
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] initial-snapshot: copied 1 file(s) to <root>\\custom\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-initial-snapshot\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "a": 1
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "a": 1
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] pre-config-write: copied 1 file(s) to <root>\\custom\\scope-<scope>\\2026-09-21T14-13-22-000Z-0000000001-pre-config-write\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\custom\\scope-<scope>\\2026-09-21T14-13-22-000Z-0000000002-post-config-write\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "rm",
+            "path": "data/mixdog-config.json"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "a": 1
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] post-restore: copied 1 file(s) to <root>\\custom\\scope-<scope>\\2026-09-21T14-13-24-000Z-0000000004-post-restore\n",
+            "[config] read: restored mixdog-config.json from latest user-data backup (missing after init) and saved it\n"
+          ]
+        }
+      ],
+      "files": {
+        "custom/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-initial-snapshot/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"initial-snapshot\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "custom/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-initial-snapshot/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "custom/scope-<scope>/2026-09-21T14-13-22-000Z-0000000001-pre-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:22.000Z\"\n}\n"
+        },
+        "custom/scope-<scope>/2026-09-21T14-13-22-000Z-0000000001-pre-config-write/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "custom/scope-<scope>/2026-09-21T14-13-22-000Z-0000000002-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:22.000Z\"\n}\n"
+        },
+        "custom/scope-<scope>/2026-09-21T14-13-22-000Z-0000000002-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"a\": 1\n}\n"
+        },
+        "custom/scope-<scope>/2026-09-21T14-13-24-000Z-0000000004-post-restore/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-restore\",\n  \"createdAt\": \"2026-09-21T14:13:24.000Z\"\n}\n"
+        },
+        "custom/scope-<scope>/2026-09-21T14-13-24-000Z-0000000004-post-restore/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"a\": 1\n}\n"
+        },
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"a\": 1\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\38\\run\\data",
+      "scopeName": "0a53968ceed891b0"
+    },
+    {
+      "name": "backups under MIXDOG_CONFIG_DIR when MIXDOG_HOME is unset",
+      "env": {
+        "MIXDOG_HOME": null,
+        "MIXDOG_CONFIG_DIR": "$ROOT/cfg"
+      },
+      "ops": [
+        {
+          "at": 1790000000000,
+          "op": "file",
+          "path": "data/mixdog-config.json",
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        {
+          "at": 1790000001000,
+          "op": "read"
+        },
+        {
+          "at": 1790000002000,
+          "op": "update",
+          "set": {
+            "a": 1
+          }
+        }
+      ],
+      "results": [
+        {
+          "op": {
+            "op": "file",
+            "path": "data/mixdog-config.json",
+            "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+          },
+          "answer": null,
+          "error": null,
+          "stderr": []
+        },
+        {
+          "op": {
+            "op": "read"
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            }
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] initial-snapshot: copied 1 file(s) to <root>\\cfg\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-21-000Z-0000000000-initial-snapshot\n"
+          ]
+        },
+        {
+          "op": {
+            "op": "update",
+            "set": {
+              "a": 1
+            }
+          },
+          "answer": {
+            "defaultsVersion": 2,
+            "agent": {
+              "lead": "x"
+            },
+            "mix": {
+              "v": 1
+            },
+            "a": 1
+          },
+          "error": null,
+          "stderr": [
+            "[user-data-backup] pre-config-write: copied 1 file(s) to <root>\\cfg\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-22-000Z-0000000001-pre-config-write\n",
+            "[user-data-backup] post-config-write: copied 1 file(s) to <root>\\cfg\\backups\\user-data\\scope-<scope>\\2026-09-21T14-13-22-000Z-0000000002-post-config-write\n"
+          ]
+        }
+      ],
+      "files": {
+        "cfg/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-initial-snapshot/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"initial-snapshot\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "cfg/backups/user-data/scope-<scope>/2026-09-21T14-13-21-000Z-0000000000-initial-snapshot/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "cfg/backups/user-data/scope-<scope>/2026-09-21T14-13-22-000Z-0000000001-pre-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"pre-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:22.000Z\"\n}\n"
+        },
+        "cfg/backups/user-data/scope-<scope>/2026-09-21T14-13-22-000Z-0000000001-pre-config-write/mixdog-config.json": {
+          "text": "{\"defaultsVersion\":2,\"agent\":{\"lead\":\"x\"},\"mix\":{\"v\":1}}"
+        },
+        "cfg/backups/user-data/scope-<scope>/2026-09-21T14-13-22-000Z-0000000002-post-config-write/backup.json": {
+          "text": "{\n  \"dataDir\": \"<root>\\\\data\",\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"reason\": \"post-config-write\",\n  \"createdAt\": \"2026-09-21T14:13:22.000Z\"\n}\n"
+        },
+        "cfg/backups/user-data/scope-<scope>/2026-09-21T14-13-22-000Z-0000000002-post-config-write/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"a\": 1\n}\n"
+        },
+        "data/.mixdog-user-data.json": {
+          "text": "{\n  \"instanceId\": \"00000000-0000-4000-8000-000000000001\",\n  \"dataDir\": \"<root>\\\\data\",\n  \"createdAt\": \"2026-09-21T14:13:21.000Z\"\n}\n"
+        },
+        "data/mixdog-config.json": {
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"lead\": \"x\"\n  },\n  \"mix\": {\n    \"v\": 1\n  },\n  \"a\": 1\n}\n"
+        }
+      },
+      "dataDirKey": "d:\\mixdog-build\\tmp\\user-data-guard-tmp\\user-data-guard-rec-u0acpd\\39\\run\\data",
+      "scopeName": "e8fa65a91c579cb9"
+    }
+  ]
+}

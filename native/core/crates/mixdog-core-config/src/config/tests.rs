@@ -295,8 +295,14 @@ fn unreadable_file_is_an_error_and_is_never_overwritten() {
     let path = dir.path().join("mixdog-config.json");
     fs::write(&path, "{ not json").unwrap();
     let publisher = Arc::new(MockStatePublisher::default());
-    assert!(matches!(Blocking::open(&path, publisher), Err(ConfigError::Parse(_))));
-    assert_eq!(fs::read_to_string(&path).unwrap(), "{ not json");
+    // Node's `readConfigFile` keeps a malformed file aside (`quarantineMalformedConfig`) and the dir starts fresh.
+    let (config, _) = Blocking::open(&path, publisher).unwrap();
+    assert!(config.full().is_empty());
+    assert!(!path.exists());
+    let kept: Vec<_> = fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+    assert_eq!(kept.len(), 1);
+    assert!(kept[0].starts_with("mixdog-config.json.corrupt-"));
+    assert_eq!(fs::read_to_string(dir.path().join(&kept[0])).unwrap(), "{ not json");
 
     let other = tempfile::tempdir().unwrap();
     let (config, _) = open(&other, Some(json!({ "desktop": {} })));
