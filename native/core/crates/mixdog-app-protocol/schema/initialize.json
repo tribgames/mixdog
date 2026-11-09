@@ -151,6 +151,25 @@
         }
       ]
     },
+    "DefaultsSeparation": {
+      "description": "How this core start's one-time `desktop` defaults separation ended (Node's app-ready `separateDefaults`). A failure never stops the core; the desktop records it in its own diagnostics log as `defaults-separation-failed` with `{ message }`, and the next start tries again.",
+      "properties": {
+        "message": {
+          "description": "The failure's `error.message`, as Node's catch received it; absent when `ok`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "type": "object"
+    },
     "DrainReason": {
       "description": "Why the core is winding down (LR §5, SPEC R22). Shared by core-api and the wire.",
       "enum": [
@@ -349,6 +368,17 @@
     },
     "coreState": {
       "$ref": "#/definitions/CoreState"
+    },
+    "defaultsSeparation": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/DefaultsSeparation"
+        }
+      ],
+      "default": {
+        "ok": true
+      },
+      "description": "Set once per core start, before any connection is served."
     },
     "limits": {
       "$ref": "#/definitions/Limits"

@@ -211,7 +211,7 @@ pub(crate) async fn create_dir(tokens: &LaneTokens, path: PathBuf) -> std::io::R
 }
 
 /// Node's `process.platform` of this host.
-pub(crate) fn node_platform() -> &'static str {
+fn node_platform() -> &'static str {
     if cfg!(windows) {
         "win32"
     } else if cfg!(target_os = "macos") {
@@ -259,6 +259,11 @@ pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: Or
 }
 
 impl ComposedCore {
+    /// How this start's desktop defaults separation ended (the `initialize` reply's `defaultsSeparation`).
+    pub fn defaults_separation(&self) -> mixdog_app_protocol::v1::DefaultsSeparation {
+        self.real.defaults_separation.clone()
+    }
+
     /// The host media router: bind a stream's target here, then host/browser/viewFrames pictures reach it.
     pub fn host_media_router(&self) -> &Arc<HostMedia> {
         &self.host_media

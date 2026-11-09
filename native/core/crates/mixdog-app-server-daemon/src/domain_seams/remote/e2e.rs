@@ -223,7 +223,7 @@ impl Harness {
         let core = Arc::new(Core { mock, screen, registry: remote.registry.clone(), owners, closed: closed_tx });
         let hub = ConnectionHub::new(Limits::default()).unwrap();
         let origins = hub.clone();
-        let server = AppServer::new(core.clone(), Outgoing::new(), Arc::new(move |id| origins.origin_of(id)), crate::server::server_config(Limits::default())).unwrap();
+        let server = AppServer::new(core.clone(), Outgoing::new(), Arc::new(move |id| origins.origin_of(id)), crate::server::server_config(Limits::default(), Default::default())).unwrap();
         late_dialer
             .bind(hub, Arc::new(move |accepted| crate::server::spawn_drive(server.clone(), accepted)), remote.registry.clone())
             .unwrap();
