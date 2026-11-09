@@ -1,0 +1,40 @@
+{
+  "command": "node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-live-view.mjs --tree <tree>",
+  "fileCount": 3,
+  "files": [
+    {
+      "bytes": 87001,
+      "path": "relay.json",
+      "sha256": "f56ef55126c9a300bf747668484be6f40a8125a5028e82609c4564ad45a07b2f"
+    },
+    {
+      "bytes": 3240917,
+      "path": "signals.json",
+      "sha256": "379ceec2b07836ec139f3447fc0511f694c7ebb6f4ccdee9fec65ff906ffcd5c"
+    },
+    {
+      "bytes": 640775,
+      "path": "viewer.json",
+      "sha256": "c129146e7d8a22fc6390e60e5ebf3ae10616de8ffedc5d8fa026928eb06adeca"
+    }
+  ],
+  "product": {
+    "appsSha256": "c4eee3f74e6d6fb5c76f161ef1a80fb656a9b53c74f602805a6451f32fdf23da",
+    "commit": null,
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "files": 8712,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 427,
+      "exact": false,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-live-view.mjs",
+  "set": "live-view",
+  "totalBytes": 3968693
+}

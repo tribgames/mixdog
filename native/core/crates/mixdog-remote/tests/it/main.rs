@@ -5,6 +5,7 @@ mod ds_rem1;
 mod e2ee_fixture;
 mod foreground;
 mod legacy_push;
+mod live_view_signals;
 mod lr9_origin;
 mod native_push_kat;
 mod relay_interop;

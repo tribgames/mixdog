@@ -4614,6 +4614,7 @@ dependencies = [
  "mixdog-workspace-hack",
  "p256",
  "rand 0.9.5",
+ "regex",
  "reqwest",
  "rtc",
  "serde",
