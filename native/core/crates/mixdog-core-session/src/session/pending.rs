@@ -111,12 +111,46 @@ pub(crate) fn is_slash_entry(entry: &Value) -> bool {
         .find_map(|key| entry.get(*key).filter(|value| !value.is_null()))
         .cloned()
         .unwrap_or(Value::Null);
-    let text = content_text(&content);
-    let Some(rest) = mixdog_js::js_trim_start(&text).strip_prefix('/') else {
-        return false;
-    };
-    let token = rest.split(mixdog_js::is_js_space).next().unwrap_or_default();
-    !token.is_empty() && SLASH_TOKENS.contains(&mixdog_js::js_to_lowercase(token).as_str())
+    recognised_slash_token(&content_text(&content)).is_some()
+}
+
+/// `recognisedSlashToken`: the lower-cased first token when it names a registered command or alias.
+pub(crate) fn recognised_slash_token(text: &str) -> Option<String> {
+    let rest = mixdog_js::js_trim_start(text).strip_prefix('/')?;
+    let token = mixdog_js::js_to_lowercase(rest.split(mixdog_js::is_js_space).next().unwrap_or_default());
+    (!token.is_empty() && SLASH_TOKENS.contains(&token.as_str())).then_some(token)
+}
+
+#[cfg(test)]
+mod slash_tests {
+    use super::*;
+
+    fn golden() -> Value {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/capability-refusals/golden.json");
+        serde_json::from_str::<Value>(&std::fs::read_to_string(path).expect("golden")).expect("json")["slash"].clone()
+    }
+
+    /// Node's registry (`SLASH_COMMANDS` at b6f10295a, a static table with nothing added at runtime) names exactly these
+    /// tokens, and `recognisedSlashToken` answers the recorded token for every probe.
+    #[test]
+    fn the_slash_tokens_equal_nodes_registry_and_recognition() {
+        let slash = golden();
+        let mut recorded: Vec<String> = slash["commands"]
+            .as_array()
+            .expect("commands")
+            .iter()
+            .flat_map(|command| std::iter::once(command["name"].clone()).chain(command["aliases"].as_array().expect("aliases").clone()))
+            .map(|token| token.as_str().expect("token").to_owned())
+            .collect();
+        let mut ours: Vec<String> = SLASH_TOKENS.iter().map(|token| (*token).to_owned()).collect();
+        recorded.sort();
+        ours.sort();
+        assert_eq!(ours, recorded);
+        for probe in slash["probes"].as_array().expect("probes") {
+            let text = probe["text"].as_str().expect("text");
+            assert_eq!(recognised_slash_token(text), probe["token"].as_str().map(str::to_owned), "{text:?}");
+        }
+    }
 }
 
 /// `promptContentText`.
