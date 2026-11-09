@@ -21,7 +21,6 @@ use serde_json::json;
 use super::Client;
 use super::Rig;
 use super::VERSION;
-use super::pause;
 
 const RECORDED: &str = include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json");
 
@@ -125,6 +124,25 @@ impl World {
         client.response(11).await
     }
 
+    /// The first `thread/promptRestore` frames the thread publishes: waits on the feeds' own signal (registered before each
+    /// check, so a frame published in between wakes it), under a virtual deadline that fires only when nothing can publish one.
+    async fn published_prompt_restores(&self) -> Vec<Value> {
+        let published = self.session.feeds.published.clone();
+        let wait = async {
+            loop {
+                let notified = published.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                let found = self.prompt_restores();
+                if !found.is_empty() {
+                    return found;
+                }
+                notified.await;
+            }
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(60), wait).await.expect("promptRestore was published")
+    }
+
     /// The `thread/promptRestore` state frames the thread published, oldest first.
     fn prompt_restores(&self) -> Vec<Value> {
         let mut found = Vec::new();
@@ -180,14 +198,7 @@ async fn another_device_stopping_publishes_prompt_restore_with_nodes_fields() {
     assert_node_reply(&frame["result"], &case["result"], "another device");
 
     let node = &case["after"]["promptRestore"];
-    let mut frames = world.prompt_restores();
-    for _ in 0..5_000 {
-        if !frames.is_empty() {
-            break;
-        }
-        pause().await;
-        frames = world.prompt_restores();
-    }
+    let frames = world.published_prompt_restores().await;
     let restore = &frames.last().expect("promptRestore was published")["value"];
     assert_eq!(restore["text"], node["text"]);
     assert_eq!(restore["ids"], node["ids"]);
@@ -217,7 +228,8 @@ async fn an_idle_stop_answers_nodes_aborted_false_and_hands_back_the_named_queue
         assert!(frame["result"].get("turnId").is_none(), "{name}: an idle stop names no turn");
         // What Node's queue held afterwards is what the thread still holds (a second stop names the entry that is left).
         let left = case["after"]["queued"].as_array().unwrap();
-        for (position, id) in left.iter().enumerate() {
+        for (position, entry) in left.iter().enumerate() {
+            let id = &entry["id"];
             let again = world.interrupt(&client, json!({ "submissionId": id })).await;
             assert_eq!(again["result"]["restoredSubmissionIds"], json!([id]), "{name}: entry {position} was still queued");
         }

@@ -56,6 +56,17 @@ const { createAbortAction } = await importFrom(tree, 'src/tui/session/session-ap
 const { createSubmissionIntake } = await importFrom(tree, 'src/tui/session/session-api/intake/submission.mjs');
 const { flushTuiSteeringPersist } = await importFrom(tree, 'src/tui/session/tui-steering-persist.mjs');
 
+/** A value as the fixture keeps it: callbacks have no JSON form, so they read as a marker. */
+// The steering mirror's id ends in random bytes (`newSteeringPersistId`, tui-steering-persist.mjs): kept as a marker so a
+// re-recording is the same file.
+const plain = (value) =>
+  JSON.parse(
+    JSON.stringify(value ?? null, (_key, held) => {
+      if (typeof held === 'function') return '[function]';
+      return typeof held === 'string' ? held.replace(/^(ts_[0-9a-z]+_)[0-9a-f]{8}$/, '$1<random>') : held;
+    }),
+  );
+
 const cancelled = () => Object.assign(new Error('aborted'), { name: 'AbortError' });
 
 /** One session: only the provider request is controlled. Intake, turn ownership and abort are Node's own. */
@@ -73,6 +84,8 @@ function boot(sessionId) {
   const requests = [];
   const waiting = new Map();
   const abortReasons = [];
+  /** Everything the session handed its surfaces, in order: state patches (the queue, busy) and the rows it pushed. */
+  const events = [];
   let active;
   let sequenceId = 0;
   const runtime = {
@@ -103,11 +116,23 @@ function boot(sessionId) {
     pending,
     pendingNotificationKeys: new Set(),
     getState: () => state,
-    set: (patch) => Object.assign(state, patch),
+    set: (patch) => {
+      events.push({ call: 'set', patch: plain(patch) });
+      return Object.assign(state, patch);
+    },
     nextId: () => `${sessionId}-item-${++sequenceId}`,
-    appendItems: (items, extra) => Object.assign(state, { items: [...state.items, ...items] }, extra),
-    pushItem: (item) => state.items.push(item),
-    pushUserOrSyntheticItem: (text, id, kind, extra) => state.items.push({ text, id, kind, ...extra }),
+    appendItems: (items, extra) => {
+      events.push({ call: 'appendItems', items: plain(items), extra: plain(extra) });
+      return Object.assign(state, { items: [...state.items, ...items] }, extra);
+    },
+    pushItem: (item) => {
+      events.push({ call: 'pushItem', item: plain(item) });
+      return state.items.push(item);
+    },
+    pushUserOrSyntheticItem: (text, id, kind, extra) => {
+      events.push({ call: 'pushUserOrSyntheticItem', text, id, kind, extra: plain(extra) });
+      return state.items.push({ text, id, kind, ...extra });
+    },
     patchItem: (id, patch) => Object.assign(state.items.find((item) => item.id === id) || {}, patch),
     replaceItems: (items) => items,
     tuiDebug() {},
@@ -132,6 +157,7 @@ function boot(sessionId) {
     pending,
     requests,
     abortReasons,
+    events,
     flow: bag,
     abort,
     submitAsync: intake.submitAsync,
@@ -157,14 +183,19 @@ function boot(sessionId) {
   };
 }
 
-/** Everything the session shows after a scenario: the transcript, the queue, the restore the composer is handed. */
+/**
+ * Everything the session holds after a scenario, whole: the stored transcript rows and the queue entries as Node keeps them
+ * (callbacks read as a marker), the pending list, the restore handed to the composer, and every state patch and row push the
+ * session made on the way (`events`, oldest first).
+ */
 const left = (f) => ({
-  items: f.state.items.map((item) => ({ kind: item.kind, id: item.id, ...(item.status ? { status: item.status } : {}), ...(item.text !== undefined ? { text: item.text } : {}) })),
-  queued: f.state.queued.map((entry) => entry.id),
-  pending: f.pending.map((entry) => entry.id),
-  promptRestore: f.state.promptRestore ?? null,
-  promptHistory: f.state.promptHistoryList,
+  items: plain(f.state.items),
+  queued: plain(f.state.queued),
+  pending: plain(f.pending),
+  promptRestore: plain(f.state.promptRestore ?? null),
+  promptHistory: plain(f.state.promptHistoryList),
   busy: f.state.busy,
+  events: plain(f.events),
 });
 
 const PNG = { 1: { data: 'AAAA', mimeType: 'image/png' } };
@@ -249,8 +280,11 @@ async function submitting(name, { prompt, options = {}, admission, repeat = 1, b
   if (admission) f.flags.admission = admission;
   f.state.commandBusy = busy;
   const answers = [];
-  for (let i = 0; i < repeat; i += 1) answers.push(await f.submitAsync(prompt, { id: 'sub1', awaitPersistence: true, ...options }));
-  cases.push({ name, kind: 'submit', prompt, options, admission: admission ?? 'open', repeat, busy, answers, after: left(f) });
+  // The host stamps the sending device on a connection's submit (`transcriptMeta.device`); the replay's connection is desktop-1.
+  const submitted = { id: 'sub1', awaitPersistence: true, transcriptMeta: { device: 'desktop-1' }, ...options };
+  for (let i = 0; i < repeat; i += 1) answers.push(await f.submitAsync(prompt, submitted));
+  await advance(0);
+  cases.push({ name, kind: 'submit', prompt, options, admission: admission ?? 'open', repeat, busy, answers, at: now, after: left(f) });
   f.flags.disposed = true;
   await flushTuiSteeringPersist();
 }
@@ -268,6 +302,6 @@ mkdirSync(join(FIXTURES_ROOT, 'phone-chat-core'), { recursive: true });
 writeFileSync(out, `${JSON.stringify({ recorder: 'benchmarks/rust-core/recorders/record-phone-chat-core.mjs', epoch: START, cases }, null, 2)}\n`);
 console.log(`${cases.length} cases -> ${out}`);
 Date.now = realDateNow;
-process.exit(0);
 // Both recorders write this set; whichever runs last lists every file in the manifest.
 writeSetManifest(join(FIXTURES_ROOT, 'phone-chat-core'), { set: 'phone-chat-core', recorder: 'benchmarks/rust-core/recorders/record-phone-chat-core.mjs + record-remote-session.mjs + record-room-reset.mjs', command: 'node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/<recorder>.mjs --tree <tree>, for each of the three recorders', identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146') });
+process.exit(0);

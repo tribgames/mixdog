@@ -25,7 +25,6 @@ use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::tests::eventually_on;
 use super::tests::idle;
-use super::tests::prompt_list;
 use super::tests::rows;
 use super::tests::start_thread;
 
@@ -64,6 +63,22 @@ async fn running(rig: &Rig) -> (SessionDirectory, Arc<SessionHandle>) {
         })
     }));
     let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    (directory, handle)
+}
+
+/// A running thread whose rows are the stored records' own (`RecordTranscript`), as the daemon shows them: the rig's text-only
+/// transcript would drop the body's `meta.transcript` (the device, the display text) that the replay compares.
+async fn running_on_records(rig: &Rig) -> (SessionDirectory, Arc<SessionHandle>) {
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.cancel.cancelled().await;
+            RunOutcome::Interrupted
+        })
+    }));
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.transcript = Arc::new(super::testing::RecordTranscript::new());
+    let directory = SessionDirectory::new(Arc::new(deps));
     let handle = start_thread(&directory).await;
     (directory, handle)
 }
@@ -210,8 +225,118 @@ async fn a_refused_first_prompt_leaves_no_thread() {
     assert_eq!(directory.loaded_ids(), Vec::<ThreadId>::new());
 }
 
-/// Every recorded Node submit (`submitToSession`): the answer (`true` accepted, `false` refused), what was queued and what
-/// started. Node's `closing` admission has no counterpart here: a user prompt is accepted there and here alike, and the
+/// `Date.now().toString(36)`, the time part of the steering mirror's id (`newSteeringPersistId`, tui-steering-persist.mjs).
+fn base36(mut n: u64) -> String {
+    let mut digits = Vec::new();
+    while n > 0 {
+        digits.push(char::from_digit((n % 36) as u32, 36).unwrap());
+        n /= 36;
+    }
+    digits.iter().rev().collect()
+}
+
+/// A queued entry as Node holds it (`makeQueueEntry`, entry-shape.mjs), written from Rust's queued entry and its store
+/// record: every key of Node's entry is here, so a key Node adds or a value that differs fails the comparison whole.
+/// What Rust keeps under another name or form is mapped; what Node derives from options a prompt did not carry is the
+/// default its `makeQueueEntry` gives, which holds because the entry's options are exactly the submission id.
+fn node_entry(rust: &Value, clock: u64, node_at: i64, store: &[Value]) -> Value {
+    assert_eq!(rust["options"], json!({ "clientSubmissionId": rust["options"]["clientSubmissionId"] }), "no option beyond the submission id");
+    assert_eq!(rust["enqueuedAt"], json!(clock), "Rust stamps its clock");
+    // `isQueuedEntryEditable`: a prompt that is neither meta nor display-suppressed (queue-helpers.mjs).
+    assert_eq!(rust["restorable"], json!(true));
+    let message = rust["message"].clone();
+    assert!(message.is_string(), "a text prompt: Node's `content` is that text");
+    // Node mirrors a busy-input prompt to disk (`appendTuiSteeringPersist`, drain-enqueue.mjs); Rust's mirror is the queue record.
+    assert!(store.iter().any(|record| record["k"] == "queue" && record["action"] == "enqueue" && record["entry"]["inline"] == *rust), "the durable mirror");
+    json!({
+        "id": rust["options"]["clientSubmissionId"],
+        "submittedAt": node_at,
+        "text": message,
+        "content": message,
+        "pastedImages": null,
+        "pastedTexts": null,
+        "images": null,
+        "onCommitted": null,
+        "onSettled": null,
+        "onToolResult": null,
+        "transcriptMeta": rust["transcriptMeta"],
+        "context": null,
+        "mode": "prompt",
+        "priority": "next",
+        "key": null,
+        "origin": null,
+        "skipSlashCommands": false,
+        "displayText": message,
+        "suppressDisplay": false,
+        "abortDiscardOnAbort": false,
+        "resumeCompletionKeys": [],
+        "steeringPersistId": format!("ts_{}_<random>", base36(node_at as u64)),
+        "isMeta": false,
+        "skillSelection": null,
+        "goalId": null,
+        "retryFailedTurn": false,
+        "retryTurnId": null,
+        "retryAttemptId": null,
+    })
+}
+
+/// What Node's session handed its surfaces (`events`), as the frames Rust publishes for the same thing, `(method, payload)`.
+/// A state patch that carries the queue is a `thread/queue/changed`; a row pushed is an `item/completed` and the prompt
+/// history's `added`; the busy patch is `turn/started`. An entry that is queued and leaves the queue again within the
+/// case went straight to a turn (drain.mjs takes it at once), which Rust starts without ever queuing.
+fn node_frames(events: &[Value]) -> Vec<(String, Value)> {
+    let last_queue = events.iter().rev().find_map(|event| event["patch"].get("queued"));
+    let transit = last_queue.is_some_and(|queue| queue == &json!([]));
+    let mut out = Vec::new();
+    for event in events {
+        match event["call"].as_str().unwrap() {
+            "set" => {
+                if let Some(queue) = event["patch"].get("queued").filter(|_| !transit) {
+                    out.push(("thread/queue/changed".to_owned(), json!({ "queued": queue.as_array().unwrap().iter().map(|entry| entry["displayText"].clone()).collect::<Vec<_>>() })));
+                }
+                if event["patch"]["busy"] == true {
+                    out.push(("turn/started".to_owned(), json!({})));
+                }
+            }
+            "pushUserOrSyntheticItem" => {
+                out.push(("item/completed".to_owned(), json!({ "text": event["text"], "displayText": event["text"] })));
+                out.push(("thread/promptHistory/updated".to_owned(), json!({ "kind": "added", "prompt": event["text"] })));
+            }
+            other => panic!("an event this replay does not map: {other}"),
+        }
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
+fn rust_frames(frames: &[(u64, String, Value)]) -> Vec<(String, Value)> {
+    let mut out: Vec<(String, Value)> = frames
+        .iter()
+        .map(|(_, method, params)| {
+            let payload = match method.as_str() {
+                "item/completed" => {
+                    assert_eq!(params["item"]["type"], "userMessage");
+                    json!({ "text": params["item"]["content"][0]["text"], "displayText": params["item"]["displayText"] })
+                }
+                "thread/queue/changed" => json!({ "queued": params["queued"].as_array().unwrap().iter().map(|entry| entry["text"].clone()).collect::<Vec<_>>() }),
+                "thread/promptHistory/updated" => params["value"].clone(),
+                "turn/started" => {
+                    assert_eq!(params["turn"]["status"], "inProgress");
+                    json!({})
+                }
+                other => panic!("a frame this replay does not map: {other}"),
+            };
+            (method.clone(), payload)
+        })
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
+/// Every recorded Node submit (`submitToSession`), whole: the answer (`true` accepted, `false` refused) and what Node left
+/// behind (its stored rows, its queue entries, and every state patch and row push it made) against what Rust stored,
+/// queued and published for the same submission. Only what the submits added is compared: the stores and frames from after
+/// the setup. Node's `closing` admission has no counterpart here: a user prompt is accepted there and here alike, and the
 /// thread refuses starts only while an idle delete fences it (`threadClosing`).
 #[tokio::test(start_paused = true)]
 async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
@@ -221,15 +346,17 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
     for case in cases {
         let name = case["name"].as_str().unwrap();
         let rig = Rig::new();
-        let (directory, handle) = running(&rig).await;
-        let ahead = usize::from(case["busy"] == true);
+        let (directory, handle) = running_on_records(&rig).await;
+        let frames = || rig.feeds.frames(handle.id.as_str());
         if case["busy"] == true {
             submit(&handle, 1, "op-busy", "running", "busy1").await.expect("the run ahead");
-            eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == 1).then_some(())).await;
+            // Its row, its history entry and its turn start: the setup is done when all three were published.
+            eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (frames().len() == 3).then_some(())).await;
         }
         if case["admission"] == "terminal" {
             directory.shutdown_for("recorded terminal admission").await;
         }
+        let (base_records, base_frames) = (rig.store.records(&handle.id).len(), frames().len());
         let mut options = case["options"].clone();
         options["clientSubmissionId"] = json!("sub1");
         let answers = case["answers"].as_array().unwrap();
@@ -241,22 +368,40 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
                 (true, Err(error)) => panic!("{name}: Node accepted, Rust refused: {error:?}"),
             }
         }
-        // What was left afterwards: the queued submissions, and the user rows of a start (the run ahead is not Node's).
-        let queued: Vec<String> =
-            handle.cell.queue.load().iter().filter_map(|queued| queued.entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).map(str::to_owned)).collect();
-        let node_queued: Vec<String> = case["after"]["queued"].as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect();
-        assert_eq!(queued, node_queued, "{name}: queued");
-        let node_shown: Vec<String> = case["after"]["items"].as_array().unwrap().iter().map(|item| item["text"].as_str().unwrap().to_owned()).collect();
-        // The user rows the submit added, as the prompt history shows them (newest first, the run ahead last): what the
-        // transcript's user rows read (`ItemRecord.prompt`), in Node's order, oldest first.
-        let shown = || -> Vec<String> {
-            let list = prompt_list(&handle);
-            list[..list.len().saturating_sub(ahead)].iter().rev().cloned().collect()
-        };
-        // Paused time: the deadline is virtual, it only fires when no step can make the rows arrive, so a missing row fails here.
-        let arrived = tokio::time::timeout(std::time::Duration::from_secs(60), eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (shown().len() == node_shown.len()).then_some(()))).await;
-        assert!(arrived.is_ok(), "{name}: rows never arrived: {:?}, Node: {node_shown:?}", shown());
-        assert_eq!(shown(), node_shown, "{name}: rows");
+        let since = || frames().into_iter().skip(base_frames).collect::<Vec<_>>();
+        let node = &case["after"];
+        let node_events = node["events"].as_array().unwrap();
+        let want_frames = node_frames(node_events);
+        // Paused time: the deadline is virtual, it only fires when no step can publish what Node did, so a missing frame fails here.
+        let arrived = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (since().len() >= want_frames.len()).then_some(())),
+        )
+        .await;
+        assert!(arrived.is_ok(), "{name}: frames never arrived: {:?}, Node: {want_frames:?}", rust_frames(&since()));
+        // The notifications.
+        assert_eq!(rust_frames(&since()), want_frames, "{name}: notifications");
+        let store: Vec<Value> = rig.store.records(&handle.id)[base_records..].iter().map(|(_, record)| serde_json::to_value(record).unwrap()).collect();
+        // The stored rows: Node's `{text, id, kind, device}` (drain.mjs renderBatchItems) is Rust's user item record: the text
+        // is its `prompt`, the id the submission the record answers (`op-0`, the first submit), the device its transcript meta.
+        let rows: Vec<Value> = store
+            .iter()
+            .filter(|record| record["k"] == "item" && record["role"] == "user")
+            .map(|record| {
+                assert_eq!(record["op"]["id"], "op-0", "{name}: the row answers the first submit");
+                let mut row = json!({ "text": record["prompt"]["inline"], "id": "sub1", "kind": "user" });
+                if let Some(device) = record["body"]["inline"].pointer("/meta/transcript/device") {
+                    row["device"] = device.clone();
+                }
+                row
+            })
+            .collect();
+        assert_eq!(&rows, node["items"].as_array().unwrap(), "{name}: stored rows");
+        // The queue: Node's `queued` (the same entries as `pending`) against Rust's.
+        let queued: Vec<Value> = handle.cell.queue.load().iter().map(|queued| node_entry(&queued.entry, rig.clock.0.load(std::sync::atomic::Ordering::SeqCst), case["at"].as_i64().unwrap(), &store)).collect();
+        assert_eq!(&queued, node["queued"].as_array().unwrap(), "{name}: queue entries");
+        assert_eq!(node["pending"], node["queued"], "{name}: Node's pending list is its queue");
+        assert_eq!(node["promptRestore"], Value::Null);
     }
 }
 

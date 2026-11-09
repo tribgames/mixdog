@@ -3,9 +3,9 @@
   "fileCount": 3,
   "files": [
     {
-      "bytes": 28710,
+      "bytes": 170140,
       "path": "phone-chat-core.json",
-      "sha256": "30c1b792414f8387fe34355ffad6a67e7ac2523358b81351f9df856e953f903f"
+      "sha256": "bdf739eb37124dc69e715aed65f712eb66e2a8c2db42429c992349e3370f2873"
     },
     {
       "bytes": 2905,
@@ -37,5 +37,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-chat-core.mjs + record-remote-session.mjs + record-room-reset.mjs",
   "set": "phone-chat-core",
-  "totalBytes": 46206
+  "totalBytes": 187636
 }
