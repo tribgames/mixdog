@@ -1,7 +1,9 @@
 // Records where the memory worker's stderr goes, from the real Node spawner (reference tree b6f10295a,
 // `memory-runtime-proxy/daemon-spawn.mjs` `createDaemonSpawner`), whether or not the daemon is ready, and with
 // `MIXDOG_DAEMON_ALLOW_STDERR=1`.
-// usage: node record-memory.mjs <reference-repo-root> > memory-golden.json
+// usage: node benchmarks/rust-core/recorders/record-daemon-redirect-memory.mjs --tree <export of the commit> --commit <full id>
+// The tree must be exactly the commit (every src/apps file, both ways) or the recorder refuses to write. Output: memory-golden.json
+// and the set's MANIFEST.json (shared with record-daemon-redirect.mjs).
 // Three processes: this one runs the two scenarios; each scenario is a "daemon" process (its stderr is a file, as
 // `remote-install-daemon.ts` starts it) that forks the memory worker through the real spawner; the worker is a stub
 // entry that writes the lines below on the parent's acknowledgement, so each pipe chunk is exactly one write.
@@ -13,10 +15,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
 // The spawner forks the entry with no arguments and MIXDOG_WORKER_MODE=1 (`daemonEnv`): that is the worker.
-const [root, argRole, dir] = process.argv.slice(2);
-const role = process.env.MIXDOG_WORKER_MODE === '1' ? 'worker' : argRole;
+const role = process.env.MIXDOG_WORKER_MODE === '1' ? 'worker' : process.argv[2] === 'daemon' ? 'daemon' : 'main';
+const [root, dir] = process.argv.slice(3);
 
 const lines = ['[memory] first\n', '[memory] second\n[memory] third\n', '[memory] padded   \n\n'];
 const afterReady = '[memory] after worker ready\n';
@@ -74,6 +77,9 @@ if (role === 'daemon') {
   process.exit(0);
 }
 
+const args = parseArgs();
+const tree = path.resolve(args.get('tree') ?? (() => { throw new Error('--tree is required'); })());
+const identity = exactProductIdentity(tree, args.get('commit') ?? (() => { throw new Error('--commit is required'); })());
 const mask = (text) => text.replace(/\[\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z\] /g, '[<ISO>] ');
 const run = (pastReady, allowStderr) => {
   const scenario = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-redirect-'));
@@ -81,11 +87,19 @@ const run = (pastReady, allowStderr) => {
   const env = { ...process.env, MIXDOG_RECORD_PAST_READY: pastReady ? '1' : '0' };
   delete env.MIXDOG_DAEMON_ALLOW_STDERR;
   if (allowStderr) env.MIXDOG_DAEMON_ALLOW_STDERR = '1';
-  const result = spawnSync(process.execPath, [process.argv[1], root, 'daemon', scenario], { stdio: ['ignore', err, err], env });
+  const result = spawnSync(process.execPath, [process.argv[1], 'daemon', tree, scenario], { stdio: ['ignore', err, err], env });
   if (result.status !== 0) throw new Error(`daemon exited ${result.status}`);
   const read = (name) => (fs.existsSync(path.join(scenario, name)) ? fs.readFileSync(path.join(scenario, name), 'utf8') : null);
   const out = { daemonStderr: mask(read('daemon.stderr')), daemonLog: read('daemon.log') && mask(read('daemon.log')), memoryProxyLog: mask(read('memory-runtime-proxy.log')) };
   fs.rmSync(scenario, { recursive: true, force: true });
   return out;
 };
-process.stdout.write(`${JSON.stringify({ 'before-ready': run(false, false), 'allow-stderr': run(true, true) }, null, 2)}\n`);
+const golden = { 'before-ready': run(false, false), 'allow-stderr': run(true, true) };
+const finalDir = path.join(FIXTURES_ROOT, 'daemon-redirect');
+const stage = stageSet(finalDir, []);
+writeJson(path.join(stage, 'memory-golden.json'), golden);
+// The set's one manifest, identical whichever of the two recorders ran last.
+const recorder = 'benchmarks/rust-core/recorders/record-daemon-redirect.mjs';
+const command = `node ${recorder} --tree <tree> --commit ${identity.commit}`;
+writeSetManifest(stage, { set: 'daemon-redirect', recorder, command, extra: { alsoRecordedBy: ['benchmarks/rust-core/recorders/record-daemon-redirect-memory.mjs'] }, identity });
+commitStage(stage, finalDir);

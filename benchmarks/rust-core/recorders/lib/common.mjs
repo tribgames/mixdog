@@ -159,6 +159,20 @@ export function tagCheckoutIdentity(tree, tag) {
   };
 }
 
+/**
+ * The identity of an exported tree (a `git archive` extraction, no `.git`) that must be exactly `commit`: `productIdentity` compares every
+ * `src`/`apps` file with the commit's blob, in both directions, and the recorder refuses to go on unless nothing differs.
+ */
+export function exactProductIdentity(tree, commit) {
+  if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error(`commit must be a full id, got ${commit}`);
+  const identity = productIdentity(tree, commit);
+  const { exact, filesDifferingFromCommit, commitFilesMissingFromTree } = identity.refComparison;
+  if (!exact || identity.commit !== commit) {
+    throw new Error(`tree ${tree} is not exactly ${commit}: ${filesDifferingFromCommit} file(s) differ, ${commitFilesMissingFromTree} missing`);
+  }
+  return { ...identity, exact: true };
+}
+
 /** Nearest-rank percentile of an ascending numeric array. */
 /**
  * `tagCheckoutIdentity` for a commit that has no tag: the tree is a git checkout whose HEAD is `commit` (full

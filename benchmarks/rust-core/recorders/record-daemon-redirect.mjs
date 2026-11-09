@@ -1,5 +1,7 @@
 // Records the bytes the real Node daemon leaves in daemon.log for its stderr (reference tree b6f10295a).
-// usage: node record.mjs <reference-repo-root> > golden.json
+// usage: node benchmarks/rust-core/recorders/record-daemon-redirect.mjs --tree <export of the commit> --commit <full id>
+// The tree must be exactly the commit (every src/apps file, both ways) or the recorder refuses to write. Output: golden.json and the
+// set's MANIFEST.json (shared with record-daemon-redirect-memory.mjs).
 // A child process stands in for the daemon the way `remote-install-daemon.ts` starts it: its stdout and stderr are the
 // log file's descriptor. Before `enableFileLogging` it writes straight to that descriptor; after
 // `enableFileLogging` + `installRedirect` every stderr/console write goes through `createDaemonLog`.
@@ -9,10 +11,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
-const [root, role, logPath] = process.argv.slice(2);
-
-if (role === 'child') {
+if (process.argv[2] === 'child') {
+  const [root, logPath] = process.argv.slice(3);
   const { createDaemonLog } = await import(pathToFileURL(path.join(root, 'src/standalone/daemon-log.mjs')).href);
   const log = createDaemonLog({ logPath });
   log.log('before ready');
@@ -36,10 +38,13 @@ if (role === 'child') {
   process.exit(0);
 }
 
+const args = parseArgs();
+const root = path.resolve(args.get('tree') ?? (() => { throw new Error('--tree is required'); })());
+const identity = exactProductIdentity(root, args.get('commit') ?? (() => { throw new Error('--commit is required'); })());
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'daemon-redirect-'));
 const file = path.join(dir, 'daemon.log');
 const fd = fs.openSync(file, 'a');
-const run = spawnSync(process.execPath, [process.argv[1], root, 'child', file], { stdio: ['ignore', fd, fd] });
+const run = spawnSync(process.execPath, [process.argv[1], 'child', root, file], { stdio: ['ignore', fd, fd] });
 if (run.status !== 0) throw new Error(`child exited ${run.status}`);
 const text = fs.readFileSync(file, 'utf8');
 const masked = text
@@ -48,4 +53,11 @@ const masked = text
   .replace(/^(\[<ISO>\] \[daemon\] boot-phase phase=daemon-ready status=mark totalMs=)\d+(\.\d)?$/m, '$1<TOTAL>');
 if (!masked.includes('<PORT>') || !masked.includes('<TOTAL>')) throw new Error('ready rows did not have the expected shape');
 fs.rmSync(dir, { recursive: true, force: true });
-process.stdout.write(`${JSON.stringify({ file: masked }, null, 2)}\n`);
+const finalDir = path.join(FIXTURES_ROOT, 'daemon-redirect');
+const stage = stageSet(finalDir, []);
+writeJson(path.join(stage, 'golden.json'), { file: masked });
+// One manifest for the set, written by whichever recorder runs: the other's file is listed from the staged copy.
+const recorder = 'benchmarks/rust-core/recorders/record-daemon-redirect.mjs';
+const command = `node ${recorder} --tree <tree> --commit ${identity.commit}`;
+writeSetManifest(stage, { set: 'daemon-redirect', recorder, command, extra: { alsoRecordedBy: ['benchmarks/rust-core/recorders/record-daemon-redirect-memory.mjs'] }, identity });
+commitStage(stage, finalDir);
