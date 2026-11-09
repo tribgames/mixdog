@@ -704,6 +704,12 @@ impl Client {
         frame
     }
 
+    /// The approval request among the frames seen so far, if one has arrived.
+    fn approval_request_seen(&self) -> Option<Value> {
+        let seen = self.seen.lock().unwrap();
+        seen.iter().find_map(|text| text.find('{').and_then(|at| serde_json::from_str::<Value>(&text[at..]).ok()).filter(|frame| frame["method"] == "item/tool/requestApproval"))
+    }
+
     fn request(&self, id: i64, method: &str, params: Value) {
         let message = serde_json::from_value(json!({ "id": id, "method": method, "params": params })).expect("a request");
         let _ = self.handle.on_message(message);

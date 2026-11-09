@@ -398,7 +398,10 @@ async fn a_card_pending_on_the_real_thread_gate_survives_its_clients() {
             "answer" => {
                 let client = client.as_ref().expect("a client has returned");
                 // The card is still there: the reattached connection is sent the very request the actor published.
-                let frame = client.approval_request().await;
+                // The connection's frames are ordered: once a request sent after the reattach is answered, a pending card it was owed has been sent or never will be.
+                client.request(2, "thread/resume", json!({ "threadId": member, "window": { "lastItems": 10 } }));
+                client.response(2).await;
+                let frame = client.approval_request_seen().expect("the reattached client is sent the pending card");
                 assert_eq!(Some(&frame), shown.as_ref(), "{}: the returning client is sent the pending card", scenario["name"]);
                 let decision = &op["decision"];
                 client.handle.on_message(
