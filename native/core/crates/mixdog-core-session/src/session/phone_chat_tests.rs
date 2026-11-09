@@ -280,32 +280,41 @@ fn node_entry(rust: &Value, clock: u64, node_at: i64, store: &[Value]) -> Value 
     })
 }
 
-/// What Node's session handed its surfaces (`events`), as the frames Rust publishes for the same thing, `(method, payload)`.
-/// A state patch that carries the queue is a `thread/queue/changed`; a row pushed is an `item/completed` and the prompt
-/// history's `added`; the busy patch is `turn/started`. An entry that is queued and leaves the queue again within the
-/// case went straight to a turn (drain.mjs takes it at once), which Rust starts without ever queuing.
+/// What Node's session handed its surfaces (`events`), as the frames Rust publishes for the same thing, `(method, payload)`,
+/// in the order Node made them. The queue shown to the viewer is a `thread/queue/changed`; the row pushed is an
+/// `item/completed` and the prompt history's `added`; the busy patch is `turn/started`.
 fn node_frames(events: &[Value]) -> Vec<(String, Value)> {
-    let last_queue = events.iter().rev().find_map(|event| event["patch"].get("queued"));
-    let transit = last_queue.is_some_and(|queue| queue == &json!([]));
     let mut out = Vec::new();
+    // The viewer sees the store's published snapshots, not each patch: `enqueue` sets the queue and asks for an immediate flush
+    // (drain-enqueue.mjs:63-64), which publishes one microtask later the state as it then stands (frame-batched-store.mjs
+    // `flushImmediate`). So a queue the session fills and empties again before that flush is never shown, and the queue frame
+    // is the difference between the queue last shown and the one at the flush, spelled by the entries last set.
+    let (mut held, mut shown): (Vec<Value>, Vec<Value>) = (Vec::new(), Vec::new());
     for event in events {
         match event["call"].as_str().unwrap() {
             "set" => {
-                if let Some(queue) = event["patch"].get("queued").filter(|_| !transit) {
-                    out.push(("thread/queue/changed".to_owned(), json!({ "queued": queue.as_array().unwrap().iter().map(|entry| entry["displayText"].clone()).collect::<Vec<_>>() })));
+                if let Some(queue) = event["patch"].get("queued") {
+                    held = queue.as_array().unwrap().iter().map(|entry| entry["displayText"].clone()).collect();
                 }
                 if event["patch"]["busy"] == true {
                     out.push(("turn/started".to_owned(), json!({})));
                 }
             }
-            "pushUserOrSyntheticItem" => {
-                out.push(("item/completed".to_owned(), json!({ "text": event["text"], "displayText": event["text"] })));
-                out.push(("thread/promptHistory/updated".to_owned(), json!({ "kind": "added", "prompt": event["text"] })));
+            "publish" => {
+                assert_eq!(event["queued"].as_array().unwrap().len(), held.len(), "the queue published is the one last set");
+                if held != shown {
+                    out.push(("thread/queue/changed".to_owned(), json!({ "queued": held })));
+                    shown = held.clone();
+                }
+            }
+            "pushItem" => {
+                let text = &event["item"]["text"];
+                out.push(("item/completed".to_owned(), json!({ "text": text, "displayText": text })));
+                out.push(("thread/promptHistory/updated".to_owned(), json!({ "kind": "added", "prompt": text })));
             }
             other => panic!("an event this replay does not map: {other}"),
         }
     }
-    out.sort_by(|a, b| a.0.cmp(&b.0));
     out
 }
 
@@ -329,7 +338,6 @@ fn rust_frames(frames: &[(u64, String, Value)]) -> Vec<(String, Value)> {
             (method.clone(), payload)
         })
         .collect();
-    out.sort_by(|a, b| a.0.cmp(&b.0));
     out
 }
 
@@ -382,21 +390,53 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         // The notifications.
         assert_eq!(rust_frames(&since()), want_frames, "{name}: notifications");
         let store: Vec<Value> = rig.store.records(&handle.id)[base_records..].iter().map(|(_, record)| serde_json::to_value(record).unwrap()).collect();
-        // The stored rows: Node's `{text, id, kind, device}` (drain.mjs renderBatchItems) is Rust's user item record: the text
-        // is its `prompt`, the id the submission the record answers (`op-0`, the first submit), the device its transcript meta.
+        // The stored rows. Node's row (transcript-intake.mjs `pushUserOrSyntheticItem`, the `pushItem` call) is
+        // `{kind, id, text, at, messageId, device}`; Rust's user item record holds each of them but `id`:
+        //   kind      `kind: 'user'`        = the record's role `user` and form `message`;
+        //   text      `text`                = the record's `prompt` (the display text, `promptDisplayText`);
+        //   at        `...transcriptMeta`   = `meta.transcript.at` (transcript-metadata.mjs `createTranscriptRouteMetadata`),
+        //             each side's own clock: Rust's is the rig clock and Node's the recorded `at` of the submit;
+        //   messageId `newTranscriptMessageId()` = `meta.transcript.messageId`, `msg_` and 32 hex digits, random on both sides;
+        //   device    `extra.device`        = `meta.transcript.device`.
+        // DIFFERENCE: Node's `id` is the submission id (`sub1`); Rust's record has its own item id and keeps the submission id
+        // on the queue record only, so a prompt that never queued has no row carrying it. `id` is left out of both sides.
+        let clock = rig.clock.0.load(std::sync::atomic::Ordering::SeqCst);
+        let random_id = |id: &Value| {
+            let id = id.as_str().unwrap();
+            let digits = id.strip_prefix("msg_").unwrap();
+            assert!(digits.len() == 32 && digits.bytes().all(|b| b.is_ascii_hexdigit()), "{id}");
+            json!("msg_<random>")
+        };
         let rows: Vec<Value> = store
             .iter()
             .filter(|record| record["k"] == "item" && record["role"] == "user")
             .map(|record| {
                 assert_eq!(record["op"]["id"], "op-0", "{name}: the row answers the first submit");
-                let mut row = json!({ "text": record["prompt"]["inline"], "id": "sub1", "kind": "user" });
-                if let Some(device) = record["body"]["inline"].pointer("/meta/transcript/device") {
+                assert_eq!(record["form"], "message");
+                let meta = &record["body"]["inline"]["meta"]["transcript"];
+                assert_eq!(meta["at"], json!(clock), "Rust stamps its clock");
+                let mut row = json!({ "kind": "user", "text": record["prompt"]["inline"], "at": case["at"], "messageId": random_id(&meta["messageId"]) });
+                if let Some(device) = meta.get("device") {
                     row["device"] = device.clone();
                 }
                 row
             })
             .collect();
-        assert_eq!(&rows, node["items"].as_array().unwrap(), "{name}: stored rows");
+        let node_rows: Vec<Value> = node["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                let mut row = row.clone();
+                assert_eq!(row.as_object_mut().unwrap().remove("id"), Some(json!("sub1")));
+                row
+            })
+            .collect();
+        assert_eq!(rows.len(), node_rows.len(), "{name}: stored rows");
+        for (rust, node) in rows.iter().zip(&node_rows) {
+            assert_eq!(rust.as_object().unwrap().len(), node.as_object().unwrap().len(), "{name}: the same fields: {rust} / {node}");
+            assert_eq!(rust, node, "{name}: stored row");
+        }
         // The queue: Node's `queued` (the same entries as `pending`) against Rust's.
         let queued: Vec<Value> = handle.cell.queue.load().iter().map(|queued| node_entry(&queued.entry, rig.clock.0.load(std::sync::atomic::Ordering::SeqCst), case["at"].as_i64().unwrap(), &store)).collect();
         assert_eq!(&queued, node["queued"].as_array().unwrap(), "{name}: queue entries");

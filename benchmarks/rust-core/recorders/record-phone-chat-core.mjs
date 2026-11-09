@@ -54,6 +54,8 @@ const { createSessionFlow } = await importFrom(tree, 'src/tui/session/session-fl
 const { createRunTurn } = await importFrom(tree, 'src/tui/session/turn.mjs');
 const { createAbortAction } = await importFrom(tree, 'src/tui/session/session-api/intake/abort.mjs');
 const { createSubmissionIntake } = await importFrom(tree, 'src/tui/session/session-api/intake/submission.mjs');
+const { createTranscriptIntake } = await importFrom(tree, 'src/tui/session/transcript-intake.mjs');
+const { createTranscriptRouteMetadata } = await importFrom(tree, 'src/runtime/shared/transcript-metadata.mjs');
 const { flushTuiSteeringPersist } = await importFrom(tree, 'src/tui/session/tui-steering-persist.mjs');
 
 /** A value as the fixture keeps it: callbacks have no JSON form, so they read as a marker. */
@@ -63,7 +65,7 @@ const plain = (value) =>
   JSON.parse(
     JSON.stringify(value ?? null, (_key, held) => {
       if (typeof held === 'function') return '[function]';
-      return typeof held === 'string' ? held.replace(/^(ts_[0-9a-z]+_)[0-9a-f]{8}$/, '$1<random>') : held;
+      return typeof held === 'string' ? held.replace(/^(ts_[0-9a-z]+_)[0-9a-f]{8}$/, '$1<random>').replace(/^msg_[0-9a-f]{32}$/, 'msg_<random>') : held;
     }),
   );
 
@@ -129,12 +131,13 @@ function boot(sessionId) {
       events.push({ call: 'pushItem', item: plain(item) });
       return state.items.push(item);
     },
-    pushUserOrSyntheticItem: (text, id, kind, extra) => {
-      events.push({ call: 'pushUserOrSyntheticItem', text, id, kind, extra: plain(extra) });
-      return state.items.push({ text, id, kind, ...extra });
-    },
     patchItem: (id, patch) => Object.assign(state.items.find((item) => item.id === id) || {}, patch),
     replaceItems: (items) => items,
+    // The store's immediate flush (frame-batched-store.mjs `flushImmediate`): one microtask later it publishes the state as it
+    // then stands, which is what a viewer is shown. Recorded as a `publish` event carrying that state's queue and busy flag.
+    flushEmitImmediate: () => {
+      queueMicrotask(() => events.push({ call: 'publish', queued: state.queued.map((entry) => entry.id), busy: state.busy, items: state.items.length }));
+    },
     tuiDebug() {},
     pushNotice() {},
     syncContextStats() {},
@@ -146,6 +149,8 @@ function boot(sessionId) {
     flushToolResults() {},
     autoClearBeforeSubmit() {},
   };
+  // Node's own intake builds the row (kind, id, text, route metadata, message id, device) and hands it to `pushItem`, recorded whole.
+  Object.assign(bag, createTranscriptIntake({ getState: bag.getState, flags, pushItem: bag.pushItem, patchItem: bag.patchItem, transcriptRouteMetadata: (at = Date.now()) => createTranscriptRouteMetadata(runtime.session, bag.routeState(), at) }));
   Object.assign(bag, createSessionFlow(bag));
   bag.runTurn = createRunTurn(bag);
   const { abort } = createAbortAction(bag);
