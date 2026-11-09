@@ -146,7 +146,7 @@ async fn a_toast_behind_an_unacknowledged_record_answers_only_when_it_is_publish
     // The record is at the store, unacknowledged.
     arrived.notified().await;
 
-    let mut toast = Box::pin(directory.push_toast(&handle.id, "mcp sign-in started: linear", "info"));
+    let mut toast = Box::pin(directory.push_toast(&handle.id, TEXT, "info"));
     assert!(futures::poll!(toast.as_mut()).is_pending());
     // The inbox is in order: once this answers, the actor has taken the toast.
     let (tx, taken) = tokio::sync::oneshot::channel();
@@ -154,14 +154,37 @@ async fn a_toast_behind_an_unacknowledged_record_answers_only_when_it_is_publish
     taken.await.expect("the actor answers");
 
     assert!(futures::poll!(toast.as_mut()).is_pending(), "the held toast is not yet answered");
-    assert!(published_toasts(&rig, &handle.id).is_none_or(|toasts| toasts.is_empty()), "nothing of it is published");
+    assert!(toast_frames(&rig, &handle.id).is_empty(), "nothing of it is published");
     assert!(!renamed.is_finished(), "the record before it is still held");
 
+    // The record is acknowledged; the toast's frame is then released, and held again just before it is recorded.
+    let (feed_arrived, feed_go) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
+    *super::testing::lock(&rig.feeds.publish_gate) = Some((TEXT.to_owned(), feed_arrived.clone(), feed_go.1));
     go.0.send(()).expect("the commit waits");
+    feed_arrived.notified().await;
+    assert!(futures::poll!(toast.as_mut()).is_pending(), "the toast is released but not yet published");
+    assert!(toast_frames(&rig, &handle.id).is_empty());
+
+    feed_go.0.send(()).expect("the publication waits");
     assert!(toast.await, "answered once published");
-    let shown = published_toasts(&rig, &handle.id).expect("published");
-    assert_eq!(shown.iter().map(|toast| toast["text"].clone()).collect::<Vec<_>>(), [json!("mcp sign-in started: linear")]);
+    // The history, not the newest state: the toast's 3 s expiry may already have cleared it.
+    let frames = toast_frames(&rig, &handle.id);
+    assert_eq!(frames.len(), 1, "one frame carries the toast");
+    let toasts = frames[0]["params"]["value"]["toasts"].as_array().expect("toasts");
+    assert_eq!(toasts.iter().map(|toast| (toast["text"].clone(), toast["tone"].clone())).collect::<Vec<_>>(), [(json!(TEXT), json!("info"))]);
     renamed.await.expect("joined").expect("name/set");
+}
+
+const TEXT: &str = "mcp sign-in started: linear";
+
+/// The runtime frames of `thread`'s whole publication history that carry the sign-in toast.
+fn toast_frames(rig: &Rig, thread: &ThreadId) -> Vec<Value> {
+    rig.feeds
+        .history(thread.as_str())
+        .into_iter()
+        .map(|(_, frame)| frame)
+        .filter(|frame| frame["params"]["value"]["toasts"].as_array().is_some_and(|toasts| toasts.iter().any(|toast| toast["text"] == TEXT)))
+        .collect()
 }
 
 /// `thread/clear` empties the queue and cancels the timers: past the toast's 3 s nothing more is published.

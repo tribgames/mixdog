@@ -750,6 +750,15 @@ pub struct RecFeed {
     inner: MockFeed,
     pub frames: Mutex<Vec<(u64, Value)>>,
     published: Arc<tokio::sync::Notify>,
+    gate: PublishGate,
+}
+
+/// The next publication that carries a toast with this text tells `.1` it arrived, then waits for `.2` before the frames are recorded.
+type PublishGate = Arc<Mutex<Option<(String, Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>>;
+
+fn carries_toast(frame: &Value, text: &str) -> bool {
+    frame["method"] == "thread/runtime/updated"
+        && frame["params"]["value"]["toasts"].as_array().is_some_and(|toasts| toasts.iter().any(|toast| toast["text"] == text))
 }
 
 impl FeedSource for RecFeed {
@@ -772,11 +781,20 @@ impl Feed for RecFeed {
     }
 
     fn publish(&self, frames: &[FeedFrame], view: Option<Arc<dyn FeedView>>) -> Result<(), PublishError> {
-        lock(&self.frames).extend(
-            frames
-                .iter()
-                .map(|f| (f.seq, serde_json::from_slice(&f.bytes).expect("frames are JSON"))),
-        );
+        let decoded: Vec<(u64, Value)> =
+            frames.iter().map(|f| (f.seq, serde_json::from_slice(&f.bytes).expect("frames are JSON"))).collect();
+        let held = {
+            let mut gate = lock(&self.gate);
+            match gate.as_ref() {
+                Some((text, ..)) if decoded.iter().any(|(_, frame)| carries_toast(frame, text)) => gate.take(),
+                _ => None,
+            }
+        };
+        if let Some((_, arrived, go)) = held {
+            arrived.notify_one();
+            let _ = go.recv();
+        }
+        lock(&self.frames).extend(decoded);
         let published = self.inner.publish(frames, view);
         self.published.notify_waiters();
         published
@@ -821,9 +839,17 @@ pub struct RecFeeds {
     /// Wakes whenever any feed took frames: the signal a test waits on instead of polling the clock
     /// (`tests::eventually_on`).
     pub published: Arc<tokio::sync::Notify>,
+    /// The next publication of any feed that carries a toast with `.0`'s text tells `.1` it arrived, then waits for `.2`.
+    pub publish_gate: PublishGate,
 }
 
 impl RecFeeds {
+    /// Every frame of `id`'s feeds in publication order, as `(seq, decoded frame)`: append-only, whatever the newest state is.
+    pub fn history(&self, id: &str) -> Vec<(u64, Value)> {
+        let feeds = lock(&self.feeds);
+        feeds.get(&FeedId::from(id)).into_iter().flatten().flat_map(|feed| lock(&feed.frames).clone()).collect()
+    }
+
     /// Frames of the newest feed instance of `id`, as `(seq, method, params)`.
     pub fn frames(&self, id: &str) -> Vec<(u64, String, Value)> {
         let feeds = lock(&self.feeds);
@@ -849,6 +875,7 @@ impl FeedFactory for RecFeeds {
             inner: MockFeed::new(id.clone(), epoch, view, MockLimits::default()),
             frames: Mutex::new(Vec::new()),
             published: self.published.clone(),
+            gate: self.publish_gate.clone(),
         });
         lock(&self.feeds).entry(id).or_default().push(feed.clone());
         feed
