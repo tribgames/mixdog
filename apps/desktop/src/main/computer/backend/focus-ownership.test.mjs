@@ -19,6 +19,7 @@ async function runWithStealTriggers(directory) {
     env: { ...process.env, FIXTURE_DIRECTORY: directory },
   });
   const output = [];
+  const markers = [];
   let partial = '';
   let stderr = '';
   child.stderr.setEncoding('utf8').on('data', (chunk) => {
@@ -29,16 +30,26 @@ async function runWithStealTriggers(directory) {
     const lines = (partial + chunk).split(/\r?\n/);
     partial = lines.pop();
     for (const line of lines) {
-      if (line === 'awaiting-steal') child.stdin.write('steal\n');
+      if (line.startsWith('awaiting-')) markers.push(line);
       else output.push(line);
+      if (line === 'awaiting-steal') child.stdin.write('steal\n');
     }
   });
-  const code = await new Promise((resolve, reject) => {
+  const { code, signal } = await new Promise((resolve, reject) => {
     child.on('error', reject);
-    child.on('close', resolve);
+    child.on('close', (exitCode, exitSignal) => resolve({ code: exitCode, signal: exitSignal }));
   });
-  assert.equal(code, 0, stderr);
-  return JSON.parse([...output, partial].join('\n').trim());
+  // A stub that never got the signal it waits for ends here by the spawn
+  // timeout; say which wait it was in rather than only that it failed.
+  const report = () =>
+    `stub exit code ${code}, signal ${signal}; waiting markers seen: [${markers.join(', ')}]; ` +
+    `last marker: ${markers.at(-1) ?? 'none'}; stdout tail: ${JSON.stringify([...output, partial].slice(-5))}; stderr: ${stderr}`;
+  assert.equal(code, 0, report());
+  try {
+    return JSON.parse([...output, partial].join('\n').trim());
+  } catch (error) {
+    throw new Error(`${error.message}; ${report()}`);
+  }
 }
 
 test('session release leaves focus alone, and background input returns it only while the user did not move it', {
@@ -79,24 +90,30 @@ public static class MixWin32 {
   // Reads left before a delayed steal lands; negative means none is pending.
   public static int StealAfterReads = -1;
   public static IntPtr StealWith;
-  // A steal the test triggers. PlanSteal is called before the call under test;
-  // ArmSteal inside the operation. The first foreground read after that reports
-  // "awaiting-steal" on stdout and blocks until the test answers with a line on
-  // stdin, then the steal lands on that read. An unlock waits for the planned
-  // steal to land, so the steal always falls inside the lock's hold, however
-  // long the test takes to answer.
-  public static bool StealPlanned, StealArmed;
-  static readonly System.Threading.ManualResetEvent StealLanded = new System.Threading.ManualResetEvent(true);
-  public static void PlanSteal() { StealLanded.Reset(); StealPlanned = true; }
-  public static void ArmSteal() { StealArmed = true; }
+  // The stub's own account of what happened and in which order. It is the only
+  // thing the assertions order events by; nothing here waits while holding it,
+  // and nothing in the stub ever waits inside a call the lock code makes under
+  // its own synchronization.
+  static readonly object eventSync = new object();
+  static readonly System.Collections.Generic.List<string> events = new System.Collections.Generic.List<string>();
+  public static void Log(string name) { lock (eventSync) { events.Add(name); } }
+  public static string TakeEvents() {
+    lock (eventSync) { string text = string.Join(",", events.ToArray()); events.Clear(); return text; }
+  }
+  static void Marker(string name) { Console.Out.WriteLine(name); Console.Out.Flush(); }
+  // A steal the test triggers. ArmSteal is called inside the operation; the
+  // first foreground read after that reports "awaiting-steal" on stdout and
+  // blocks until the test answers with a line on stdin, then the steal lands on
+  // that read. That read is on the calling thread outside the lock code's
+  // synchronization, so the hold's timer can end the lock before or after the
+  // steal lands without either waiting on the other.
+  public static bool StealArmed;
+  public static void ArmSteal() { StealArmed = true; Log("armed"); }
   static void AwaitSteal() {
     StealArmed = false;
-    Console.Out.WriteLine("awaiting-steal");
-    Console.Out.Flush();
+    Marker("awaiting-steal");
     Console.In.ReadLine();
     TrySteal(StealWith);
-    StealPlanned = false;
-    StealLanded.Set();
   }
   public static IntPtr Foreground() {
     if (StealAfterReads == 0) TrySteal(StealWith);
@@ -124,14 +141,14 @@ public static class MixWin32 {
       if (!LockGranted || Locked) return false;
       Locks++; Locked = true; LockClock.Restart(); return true;
     }
-    if (StealPlanned) StealLanded.WaitOne();
+    Log("unlock");
     if (!Locked) return false;
     Unlocks++; Locked = false; HeldMs = LockClock.ElapsedMilliseconds; Unlocked.Set(); return true;
   }
   // Set once an unlock has really ended the lock. A call that blocks on it
   // finishes only after the lock's own hold ended, whatever the timing.
   public static readonly System.Threading.ManualResetEvent Unlocked = new System.Threading.ManualResetEvent(false);
-  public static void AwaitUnlock() { Unlocked.WaitOne(); }
+  public static void AwaitUnlock() { Marker("awaiting-unlock"); Unlocked.WaitOne(); }
   public static void InstallLock() { MixForegroundLock.Native = NativeLock; }
   public static void InstallHost(IMixLeaseChannel host) { MixForegroundLock.Host = host; }
   // Steals the target makes again after a restore, and a restore Windows refuses.
@@ -147,7 +164,8 @@ public static class MixWin32 {
   // worker's unlocks then answer false.
   public static bool StealLifts;
   public static void TrySteal(IntPtr value) {
-    if (Locked && !StealPassesLock) { RefusedSteals++; return; }
+    if (Locked && !StealPassesLock) { RefusedSteals++; Log("steal:refused"); return; }
+    Log("steal:landed");
     if (StealLifts) Locked = false;
     Current = value;
   }
@@ -406,16 +424,40 @@ foreach($scenario in @('locked_delayed_steal','unlocked_delayed_steal','own_lock
   [MixWin32]::FocusCalls=0; [MixWin32]::Current=[IntPtr]2; [MixWin32]::HeldMs=-1
   [MixWin32]::Locks=0; [MixWin32]::Unlocks=0; [MixWin32]::RefusedSteals=0
   [MixInputObservation]::Current=New-Object ObservedInput
-  [MixWin32]::PlanSteal()
+  [void][MixWin32]::TakeEvents()
   $reply=Invoke-BackgroundWindow ([IntPtr]1) {
     [MixWin32]::ArmSteal()
+    [MixWin32]::Log('op_end')
     @{ delivery_accepted=$true; delivery='background'; text='invoked' }
   }
-  $results+=@{scenario=$scenario; restored=([MixWin32]::Current -eq [IntPtr]2); calls=[MixWin32]::FocusCalls;
-    refused=[MixWin32]::RefusedSteals; locks=[MixWin32]::Locks; unlocks=[MixWin32]::Unlocks; heldMs=[MixWin32]::HeldMs;
+  $results+=@{scenario=$scenario; delayed=$true; events=[MixWin32]::TakeEvents(); releasedBy=[string]$reply.foreground_lock.released_by;
+    restored=([MixWin32]::Current -eq [IntPtr]2); calls=[MixWin32]::FocusCalls;
+    refused=[MixWin32]::RefusedSteals; locks=[MixWin32]::Locks; unlocks=[MixWin32]::Unlocks;
     locked=[MixWin32]::Locked; restore=[string]$reply.foreground_lock.restore; release=[string]$reply.foreground_lock.release;
     unlockErrors=@($reply.foreground_lock.unlock_errors).Count; stealSeen=($null -ne $reply.foreground_lock.steal_seen_at)}
 }
+# The hold's timer ends the lock before the operation arms the steal: the order
+# the loop above can meet under load. Nothing may wait on anything that is
+# behind the lock code's own synchronization, so this must complete, with the
+# steal landing on an unlocked foreground and being restored.
+[MixWin32]::LockGranted=$true; [MixWin32]::StealPassesLock=$false; [MixWin32]::StealLifts=$false
+[MixWin32]::StealWith=[IntPtr]1
+[MixWin32]::FocusCalls=0; [MixWin32]::Current=[IntPtr]2
+[MixWin32]::Locks=0; [MixWin32]::Unlocks=0; [MixWin32]::RefusedSteals=0
+[MixInputObservation]::Current=New-Object ObservedInput
+[void][MixWin32]::Unlocked.Reset()
+[void][MixWin32]::TakeEvents()
+$reply=Invoke-BackgroundWindow ([IntPtr]1) {
+  [MixWin32]::AwaitUnlock()
+  [MixWin32]::ArmSteal()
+  [MixWin32]::Log('op_end')
+  @{ delivery_accepted=$true; delivery='background'; text='invoked' }
+}
+$results+=@{scenario='expire_before_steal'; delayed=$true; events=[MixWin32]::TakeEvents(); releasedBy=[string]$reply.foreground_lock.released_by;
+  restored=([MixWin32]::Current -eq [IntPtr]2); calls=[MixWin32]::FocusCalls;
+  refused=[MixWin32]::RefusedSteals; locks=[MixWin32]::Locks; unlocks=[MixWin32]::Unlocks;
+  locked=[MixWin32]::Locked; restore=[string]$reply.foreground_lock.restore; release=[string]$reply.foreground_lock.release;
+  unlockErrors=@($reply.foreground_lock.unlock_errors).Count; stealSeen=($null -ne $reply.foreground_lock.steal_seen_at)}
 [MixWin32]::LockGranted=$false; [MixWin32]::StealPassesLock=$false; [MixWin32]::StealLifts=$false
 [MixWin32]::SelfActivating=$false
 $script:state=@{Map=@{}; Generation=0; LastFocus=[IntPtr]1; HeldPointerTargets=@{'hwnd:0x5'=@(11,22)}}
@@ -426,10 +468,12 @@ $results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32
 [Console]::WriteLine(($results | ConvertTo-Json -Compress))
 `
     );
-    const rows = await runWithStealTriggers(directory);
+    const everything = await runWithStealTriggers(directory);
+    const rows = everything.filter((row) => !row.delayed);
+    const delayed = everything.filter((row) => row.delayed);
     assert.deepEqual(
       rows.map((row) => row.calls),
-      [0, 1, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 0],
+      [0, 1, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0],
       JSON.stringify(rows.map((row) => [row.scenario, row.calls, row.restore]))
     );
     assert.deepEqual(
@@ -459,9 +503,6 @@ $results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32
         false,
         false,
         false,
-        true,
-        true,
-        true,
         false,
       ]
     );
@@ -531,42 +572,61 @@ $results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32
     // sees it and restores once; a steal that lifted the worker's own lock
     // leaves an unknown release (three false unlocks, each error recorded),
     // which no longer stops the restore.
-    const [lockedLate, unlockedLate, lifted] = rows.slice(24, 27);
+    // Which comes first, the steal or the hold's timer, depends on how long the
+    // test takes to answer the stub, so each row is read against the order the
+    // stub itself recorded, never against time.
+    const [lockedLate, unlockedLate, lifted, expireFirst] = delayed;
+    const order = (row) => row.events.split(',');
+    const happened = (row, name) => order(row).includes(name);
+    const unlockFirst = (row) => {
+      const events = order(row);
+      return events.indexOf('unlock') >= 0 && events.indexOf('unlock') < events.findIndex((e) => e.startsWith('steal:'));
+    };
+    // An unlock that comes before the operation ended can only be the hold's own
+    // timer; any other early unlock is a release requested too soon.
+    for (const row of delayed) {
+      const events = order(row);
+      const unlockAt = events.indexOf('unlock');
+      if (unlockAt >= 0 && unlockAt < events.indexOf('op_end')) {
+        assert.equal(row.releasedBy, 'deadline', `${row.scenario} unlocked early: ${row.events}`);
+      }
+      assert.equal(happened(row, 'steal:refused') + happened(row, 'steal:landed'), 1, `${row.scenario}: ${row.events}`);
+    }
+    assert.deepEqual([lockedLate.scenario, lockedLate.restored, lockedLate.locks, lockedLate.unlocks, lockedLate.locked],
+      ['locked_delayed_steal', true, 1, 1, false]);
+    // No Release ended this hold: nothing restored, so the lock ran to its own timer.
+    assert.equal(lockedLate.releasedBy, 'deadline', lockedLate.events);
+    if (happened(lockedLate, 'steal:refused')) {
+      // The hold was in force when the steal came: refused, and never restored.
+      assert.deepEqual([lockedLate.refused, lockedLate.calls, unlockFirst(lockedLate)], [1, 0, false], lockedLate.events);
+    } else {
+      // The timer had already ended it: the watch saw the steal and restored once.
+      assert.deepEqual([lockedLate.refused, lockedLate.calls, unlockFirst(lockedLate)], [0, 1, true], lockedLate.events);
+    }
+    // Never locked, so the watch alone catches and restores it, and nothing unlocks.
     assert.deepEqual(
-      [
-        lockedLate.scenario,
-        lockedLate.refused,
-        lockedLate.calls,
-        lockedLate.restored,
-        lockedLate.locks,
-        lockedLate.unlocks,
-      ],
-      ['locked_delayed_steal', 1, 0, true, 1, 1]
+      [unlockedLate.scenario, unlockedLate.locks, unlockedLate.calls, unlockedLate.restored, unlockedLate.restore, unlockedLate.stealSeen, unlockedLate.events],
+      ['unlocked_delayed_steal', 0, 1, true, 'restored', true, 'armed,op_end,steal:landed']
     );
+    assert.equal(lifted.scenario, 'own_lock_lifted');
+    assert.deepEqual([lifted.calls, lifted.restore, lifted.restored], [1, 'restored', true], lifted.events);
+    if (unlockFirst(lifted)) {
+      // The timer ended the lock first; the steal then met no lock at all.
+      assert.deepEqual([lifted.locks, lifted.unlocks, lifted.release, lifted.unlockErrors, lifted.releasedBy], [1, 1, 'released', 1, 'deadline'], lifted.events);
+    } else {
+      // A steal that lifted the worker's own lock leaves an unknown release (three
+      // false unlocks, each error recorded), answering the steal it just saw.
+      assert.deepEqual([lifted.locks, lifted.unlocks, lifted.release, lifted.unlockErrors], [1, 0, 'unknown', 3], lifted.events);
+      assert.ok(order(lifted).indexOf('unlock') > order(lifted).indexOf('steal:landed'), lifted.events);
+    }
+    // Forced: the timer ends the lock before the steal is even armed. It must
+    // complete, with the one unlock first, the steal landing unlocked and restored.
     assert.deepEqual(
-      [
-        unlockedLate.scenario,
-        unlockedLate.locks,
-        unlockedLate.calls,
-        unlockedLate.restored,
-        unlockedLate.restore,
-        unlockedLate.stealSeen,
-      ],
-      ['unlocked_delayed_steal', 0, 1, true, 'restored', true]
+      [expireFirst.scenario, expireFirst.events.split(',')[0], expireFirst.releasedBy, expireFirst.release, expireFirst.locks, expireFirst.unlocks, expireFirst.refused, expireFirst.calls, expireFirst.restore, expireFirst.restored],
+      ['expire_before_steal', 'unlock', 'deadline', 'released', 1, 1, 0, 1, 'restored', true],
+      expireFirst.events
     );
-    assert.deepEqual(
-      [
-        lifted.scenario,
-        lifted.locks,
-        lifted.unlocks,
-        lifted.release,
-        lifted.unlockErrors,
-        lifted.calls,
-        lifted.restore,
-        lifted.restored,
-      ],
-      ['own_lock_lifted', 1, 0, 'unknown', 3, 1, 'restored', true]
-    );
+    assert.ok(unlockFirst(expireFirst) && order(expireFirst).indexOf('armed') > order(expireFirst).indexOf('unlock'), expireFirst.events);
     assert.equal(rows[9].failure, '');
     assert.match(rows[10].failure, /provider_failed/);
     // The late self-activation is refused while locked: nothing to restore, and
