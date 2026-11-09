@@ -5,13 +5,14 @@
     {
       "bytes": 48191,
       "path": "node-model-lists.json",
-      "sha256": "4b5bcc97de6d19f087c1215b830719a789daa0b01187492ee6bc3d9b4fe2c06b"
+      "sha256": "f02713108303481fab6d909833b96b982b9c6682930c98989ec7dae6040df05e"
     }
   ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
     "files": 9139,
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",

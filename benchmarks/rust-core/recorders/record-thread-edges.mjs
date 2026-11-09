@@ -11,7 +11,7 @@
 // Output: native/core/fixtures/thread-edges/golden.json
 import { join } from 'node:path';
 import './lib/ts-register.mjs';
-import { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, exactProductIdentity, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const args = parseArgs();
 const tree = resolveTree(args);
@@ -56,16 +56,45 @@ const recorded = triggers.map(({ name, writes }) => {
   return { name, steps };
 });
 
+// The roster's own gate (`desktopSessionSummaries`, the second gate) on list rows as the catalog holds them: the rows that carry
+// what the gate reads beyond a header (message counts, the cli-resume mark), so they are given as rows. `kept` is Node's answer.
+const row = (id, extra) => ({ id, title: 'A title', preview: '', cwd: 'C:/w', updatedAt: 1000, createdAt: 500, messageCount: 0, ...extra });
+const gateRows = [
+  row('g_plain', {}),
+  row('g_nul_cwd', { cwd: 'C:/w\0x' }),
+  row('g_project_no_path', { cwd: '', desktopSession: { classification: 'project' } }),
+  row('g_project_stored_path', { cwd: '', desktopSession: { classification: 'project', projectPath: 'C:/p' } }),
+  row('g_project_nul_path', { cwd: '', desktopSession: { classification: 'project', projectPath: 'C:/p\0' } }),
+  row('g_project_workspace', { cwd: '', desktopSession: { classification: 'project' }, workspace: { projectPath: 'C:/p', cwd: 'C:/p-wt' } }),
+  row('g_project_workspace_nul', { cwd: '', desktopSession: { classification: 'project' }, workspace: { projectPath: 'C:/p\0', cwd: 'C:/p-wt' } }),
+  row('g_task_no_cwd', { cwd: '', desktopSession: { classification: 'task' } }),
+  row('g_legacy_no_cwd', { cwd: '' }),
+  row('g_bad_classification', { desktopSession: { classification: 'other' } }),
+  row('g_meta_array', { desktopSession: [] }),
+  row('g_meta_string', { desktopSession: 'x' }),
+  row('g_untitled_empty', { title: '' }),
+  row('g_untitled_two_messages', { title: '', messageCount: 2, realTurnCount: 1 }),
+  row('g_untitled_two_messages_no_turn_count', { title: '', messageCount: 2 }),
+  row('g_untitled_one_message', { title: '', messageCount: 1, realTurnCount: 1 }),
+  row('g_untitled_no_real_turn', { title: '', messageCount: 2, realTurnCount: 0 }),
+  row('g_cli_resume_only', { title: '', messageCount: 2, realTurnCount: 1, detachedReason: 'cli-resume' }),
+  row('g_cli_resume_titled', { title: 'Resumed', messageCount: 2, detachedReason: 'cli-resume' }),
+  row('g_preview_only', { title: '', preview: 'hello there' }),
+  row('g_home_one_message', { id: 'sess_home_ada', title: '', messageCount: 1 }),
+  row('sess_home_bob', { title: '', messageCount: 0 }),
+  row('g_other_one_message', { title: '', messageCount: 1 }),
+];
+const gate = gateRows.map((r) => ({ row: r, kept: desktopSessionSummaries([r]).length > 0 }));
+
 const finalOut = join(FIXTURES_ROOT, 'thread-edges');
 const out = stageSet(finalOut);
-writeJson(join(out, 'golden.json'), { note: 'the roster Node pushed after each catalog write of each trigger (header-only records)', triggers: recorded });
+writeJson(join(out, 'golden.json'), { note: 'the roster Node pushed after each catalog write of each trigger (header-only records); gate: the roster gate on list rows', triggers: recorded, gate });
 writeSetManifest(out, {
   set: 'thread-edges',
   recorder: 'benchmarks/rust-core/recorders/record-thread-edges.mjs',
   command: 'node benchmarks/rust-core/recorders/record-thread-edges.mjs --tree <tree>',
-  extra: { triggers: recorded.length },
-  identityTree: tree,
-  identityRef: 'b6f10295a2f698afc85332467192de28500bd146',
+  extra: { triggers: recorded.length, gateRows: gate.length },
+  identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146'),
 });
 commitStage(out, finalOut);
 console.log(`triggers=${recorded.length} published=${recorded.flatMap((t) => t.steps).filter((s) => s.published).length}`);

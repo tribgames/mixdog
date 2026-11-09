@@ -688,7 +688,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         )),
     });
     // The `modelCatalog` section (`model/catalog/updated`): the `model/list` rows, pushed when they change.
-    let model_catalog = mixdog_core_domains::domains::ai_admin::model_catalog_feed::ModelCatalogFeed::start(model_list.clone(), state.publisher.clone(), config.changes());
+    let model_catalog = mixdog_core_domains::domains::ai_admin::model_catalog_feed::ModelCatalogFeed::start(model_list.clone(), state.publisher.clone(), _provider_sync.applied.clone());
     let web_search_models = Arc::new(mixdog_core_domains::domains::ai_admin::web_search_models::WebSearchModelsService::new(
         b.catalog.clone(),
         config.clone(),

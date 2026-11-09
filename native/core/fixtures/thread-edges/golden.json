@@ -1,5 +1,5 @@
 {
-  "note": "the roster Node pushed after each catalog write of each trigger (header-only records)",
+  "note": "the roster Node pushed after each catalog write of each trigger (header-only records); gate: the roster gate on list rows",
   "triggers": [
     {
       "name": "create",
@@ -562,6 +562,323 @@
           "published": true
         }
       ]
+    }
+  ],
+  "gate": [
+    {
+      "row": {
+        "id": "g_plain",
+        "title": "A title",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_nul_cwd",
+        "title": "A title",
+        "preview": "",
+        "cwd": "C:/w\u0000x",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_project_no_path",
+        "title": "A title",
+        "preview": "",
+        "cwd": "",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0,
+        "desktopSession": {
+          "classification": "project"
+        }
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_project_stored_path",
+        "title": "A title",
+        "preview": "",
+        "cwd": "",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0,
+        "desktopSession": {
+          "classification": "project",
+          "projectPath": "C:/p"
+        }
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_project_nul_path",
+        "title": "A title",
+        "preview": "",
+        "cwd": "",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0,
+        "desktopSession": {
+          "classification": "project",
+          "projectPath": "C:/p\u0000"
+        }
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_project_workspace",
+        "title": "A title",
+        "preview": "",
+        "cwd": "",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0,
+        "desktopSession": {
+          "classification": "project"
+        },
+        "workspace": {
+          "projectPath": "C:/p",
+          "cwd": "C:/p-wt"
+        }
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_project_workspace_nul",
+        "title": "A title",
+        "preview": "",
+        "cwd": "",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0,
+        "desktopSession": {
+          "classification": "project"
+        },
+        "workspace": {
+          "projectPath": "C:/p\u0000",
+          "cwd": "C:/p-wt"
+        }
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_task_no_cwd",
+        "title": "A title",
+        "preview": "",
+        "cwd": "",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0,
+        "desktopSession": {
+          "classification": "task"
+        }
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_legacy_no_cwd",
+        "title": "A title",
+        "preview": "",
+        "cwd": "",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_bad_classification",
+        "title": "A title",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0,
+        "desktopSession": {
+          "classification": "other"
+        }
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_meta_array",
+        "title": "A title",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0,
+        "desktopSession": []
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_meta_string",
+        "title": "A title",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0,
+        "desktopSession": "x"
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_untitled_empty",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_untitled_two_messages",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 2,
+        "realTurnCount": 1
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_untitled_two_messages_no_turn_count",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 2
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_untitled_one_message",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 1,
+        "realTurnCount": 1
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_untitled_no_real_turn",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 2,
+        "realTurnCount": 0
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_cli_resume_only",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 2,
+        "realTurnCount": 1,
+        "detachedReason": "cli-resume"
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_cli_resume_titled",
+        "title": "Resumed",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 2,
+        "detachedReason": "cli-resume"
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_preview_only",
+        "title": "",
+        "preview": "hello there",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "sess_home_ada",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 1
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "sess_home_bob",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_other_one_message",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 1
+      },
+      "kept": false
     }
   ]
 }
