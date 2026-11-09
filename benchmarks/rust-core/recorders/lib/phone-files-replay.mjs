@@ -15,6 +15,10 @@ import { REPO_ROOT } from './common.mjs';
 import { FIXED_NOW_MS, filesRelayScript, filesScript, play, treeOf, windowAnswers } from './phone-files-script.mjs';
 import { startRelay } from './phone-relay-core.mjs';
 
+/** The cores' data dirs (postgres included) live on the idle SSD: the shared build disk's queue made postgres's shutdown checkpoint outlast
+ *  the core's stop limit (Node's, unchanged). Removed when the replay ends. */
+const REPLAY_WORLDS = 'C:\\Users\\tempe\\.mixdog\\data\\scratch\\rust-core\\replay-worlds\\w5';
+
 const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null));
 
@@ -120,7 +124,7 @@ const PHONE_ID = '0123456789abcdef0123456789abcdef';
 /** One scenario on a freshly started core; `relay` makes the phone a paired device behind a relay the core dials (what a relay-origin
  *  connection is), otherwise the phone is the loopback connection every client of this core has. */
 async function replayScenario({ exe, world, name, make, expected, relay }) {
-  const coreRoot = `${world.root}-core-${name}`;
+  const coreRoot = join(REPLAY_WORLDS, `core-${name}`);
   const core = await startCore(exe, coreRoot, relay);
   const { adapter } = await here('apps/desktop/src/renderer/remote-protocol-files.ts');
   const { connect, sessionReducer } = await here('packages/protocol-client/src/index.ts');
@@ -257,8 +261,12 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
 }
 
 export async function replayFiles({ exe, world, golden }) {
-  const main = await replayScenario({ exe, world, name: 'main', make: filesScript, expected: golden.scenarios.main });
-  const relay = await startRelay({ repoRoot: REPO_ROOT, clients: [], capabilities: RELAY_CAPABILITIES });
-  const paired = await replayScenario({ exe, world, name: 'relay', make: filesRelayScript, expected: golden.scenarios.relay, relay });
-  return main || paired;
+  try {
+    const main = await replayScenario({ exe, world, name: 'main', make: filesScript, expected: golden.scenarios.main });
+    const relay = await startRelay({ repoRoot: REPO_ROOT, clients: [], capabilities: RELAY_CAPABILITIES });
+    const paired = await replayScenario({ exe, world, name: 'relay', make: filesRelayScript, expected: golden.scenarios.relay, relay });
+    return main || paired;
+  } finally {
+    rmSync(REPLAY_WORLDS, { recursive: true, force: true });
+  }
 }
