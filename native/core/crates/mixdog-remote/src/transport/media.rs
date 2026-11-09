@@ -166,19 +166,25 @@ impl<L: MediaLink> Inner<L> {
     /// One loop seals every queued refusal, as ordinary records: refusals never wait on bulk
     /// admission and never hold a promise per request.
     async fn refuse(&self) {
-        self.state().refusing = true;
         loop {
             let id = {
-                let state = self.state();
+                let mut state = self.state();
                 match state.refusals.first() {
                     Some(id) if !state.closed => id.clone(),
-                    _ => break,
+                    _ => {
+                        // Cleared with the check that ends the loop, so a refusal queued after it starts a pump.
+                        state.refusing = false;
+                        return;
+                    }
                 }
             };
             let seen = self.generation();
             let sent = match self.link.send(Media::Error { id: id.clone() }.to_json(), None).await {
                 Ok(sent) => sent,
-                Err(()) => break,
+                Err(()) => {
+                    self.state().refusing = false;
+                    return;
+                }
             };
             if sent {
                 let mut state = self.state();
@@ -189,7 +195,6 @@ impl<L: MediaLink> Inner<L> {
                 self.changed(&self.refuser, seen).await;
             }
         }
-        self.state().refusing = false;
     }
 
     fn close(&self) {
@@ -298,7 +303,9 @@ impl<L: MediaLink> TransportMedia<L> {
                 return true;
             }
             state.refusals.push(id);
-            let start = !state.refusing;
+            // Claimed here, under the lock that checked it: a second overflow before the pump task
+            // runs must not start another pump for the same queue head (Node sets it before yielding).
+            let start = !std::mem::replace(&mut state.refusing, true);
             drop(state);
             if start {
                 let inner = inner.clone();
