@@ -186,6 +186,8 @@ mod assembly_tests;
 mod recorded_145_tests;
 #[cfg(test)]
 mod phone_chat_tests;
+#[cfg(test)]
+mod roster_rows_tests;
 
 use std::sync::Arc;
 
