@@ -24,6 +24,7 @@ test('a lane is one cargo run per filter on its package', () => {
 
 // The command line itself: the patch-release job runs `k1-lanes.mjs patch-bytes`, which once ran every lane.
 const cli = (...args) => spawnSync(process.execPath, [fileURLToPath(new URL('./k1-lanes.mjs', import.meta.url)), '--dry-run', ...args], { encoding: 'utf8' });
+// `filter(Boolean)` drops only the empty line after the last newline; the Set folds a lane's several filters (one output line each) into the lane.
 const lanesOf = (stdout) => [...new Set(stdout.split(/\r?\n/).filter(Boolean).map((line) => line.split('\t')[0]))];
 
 test('a named lane runs that lane only, whatever its position and with or without --runner', () => {
