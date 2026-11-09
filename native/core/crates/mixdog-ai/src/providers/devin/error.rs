@@ -197,6 +197,16 @@ pub fn protocol_error(message: &str) -> ProviderError {
     error
 }
 
+/// `transportError` (`devin-wire-transport.mjs:247-261`): what the raw `fetch` threw, as `Devin connection failed: …`
+/// with every known secret redacted; an error that is not a transport fault passes unchanged.
+pub fn connection_failed(mut error: ProviderError, secrets: &[String]) -> ProviderError {
+    if error.transport.is_some() {
+        error.message = format!("Devin connection failed: {}", redact(&error.message, secrets));
+        error.code = Some("unavailable".to_owned());
+    }
+    error
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

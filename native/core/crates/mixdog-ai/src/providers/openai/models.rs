@@ -340,6 +340,46 @@ mod tests {
         ("gpt-5.9", "gpt-5", false),
     ];
 
+    struct Ctx;
+
+    impl crate::providers::openai::config::WireContext for Ctx {
+        fn request_id(&self) -> String {
+            "0".repeat(32)
+        }
+        fn now_unix_ms(&self) -> u64 {
+            0
+        }
+        fn turn_state(&self, _: &str, _: &str) -> Option<String> {
+            None
+        }
+    }
+
+    struct Creds;
+
+    #[async_trait]
+    impl crate::providers::openai::adapter::CredentialSource for Creds {
+        async fn current(&self) -> Result<crate::providers::openai::adapter::Credential, ProviderError> {
+            Ok(crate::providers::openai::adapter::Credential { bearer: "t".into(), account_id: Some("a".into()) })
+        }
+        async fn after_rejection(&self, _: &crate::providers::openai::adapter::Credential) -> Result<Option<crate::providers::openai::adapter::Credential>, ProviderError> {
+            Ok(None)
+        }
+    }
+
+    /// The catalog that outlives its timer reads as the real Node function did (`sites.openaiCatalog`).
+    #[tokio::test(start_paused = true)]
+    async fn a_catalog_that_outlives_its_timer_reads_as_nodes() {
+        use crate::providers::openai::config::{CodexIdentity, NoFacts, OpenAiConfig};
+        use crate::transport::site_probe::{TimingOut, assert_transport};
+
+        let identity = CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "0.166.0".into(), beta_features: "b".into() };
+        let config = OpenAiConfig::codex(false, false, identity, Arc::new(NoFacts), Arc::new(Ctx));
+        let transport = TimingOut::new();
+        let models = OpenAiModels::new(OpenAiCodec::new(config, TransportKind::Http1), transport.clone(), Arc::new(Creds), ListingLookup::new());
+        models.list_models().await.expect_err("never answers");
+        assert_transport("openaiCatalog", &transport);
+    }
+
     #[test]
     fn the_newest_of_each_family_is_latest_as_nodes_pass_marks_it() {
         let mut rows: Vec<ModelRecord> = NODE_MARKS.iter().filter_map(|(id, ..)| codex_record(&json!({ "slug": id }))).collect();

@@ -316,7 +316,14 @@ impl VertexAuth {
                 },
                 VERTEX_TOKEN,
             )
-            .await?;
+            .await
+            .map_err(|mut error| {
+                // `_post`'s catch (`vertex-ai-auth.mjs:570-572`) words what the fetch threw.
+                let cause = if error.message.is_empty() { "token request failed" } else { error.message.as_str() };
+                error.message = format!("Vertex AI authentication failed: {cause}");
+                error.code = Some("EVERTEXAUTH".to_owned());
+                error
+            })?;
         let status = response.status;
         let reply = response.read_all().await?;
         if (200..300).contains(&status) { Ok(reply.body) } else { Err(token_failure(status, &reply.body, what)) }
@@ -411,5 +418,24 @@ impl RequestAuth for VertexAuth {
             *cached = None;
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod site_tests {
+    use super::*;
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_dispatcher;
+    use crate::transport::site_probe::assert_thrown;
+
+    /// A token request arms no timer: it ends at the dispatcher and reads as the real Node function did (`sites.vertexToken`).
+    #[tokio::test(start_paused = true)]
+    async fn a_token_request_reads_as_nodes_when_the_dispatcher_ends_it() {
+        let credential =
+            parse_adc(r#"{"type":"authorized_user","client_id":"c","client_secret":"s","refresh_token":"r"}"#, "adc.json").unwrap();
+        let transport = TimingOut::new();
+        let error = VertexAuth::new(transport.clone(), credential, Box::new(|| 0)).authorize().await.expect_err("never answers");
+        assert_dispatcher("vertexToken", &transport);
+        assert_thrown("vertexToken", &error.message);
     }
 }

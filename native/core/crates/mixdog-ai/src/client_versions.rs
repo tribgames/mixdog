@@ -16,7 +16,7 @@
 //! dialect's version before it goes out ([`ClientVersions::warm`]); what it then puts on the wire
 //! is read at request time ([`Live`]), so a version learned later reaches the next request.
 
-use crate::transport::deadlines::NODE_DISPATCHER;
+use crate::transport::deadlines::abort_signal;
 use std::cmp::Ordering;
 use std::convert::Infallible;
 use std::fmt;
@@ -233,15 +233,12 @@ async fn fetch_text(http: &dyn HttpSend, url: &str, headers: &[(String, String)]
         headers: headers.to_vec(),
         body: Vec::new(),
     };
-    let exchange = async {
-        let response = http.send(request, NODE_DISPATCHER).await.ok()?;
-        if !response.is_success() {
-            return None;
-        }
-        let read = response.read_all().await.ok()?;
-        Some(String::from_utf8_lossy(&read.body).into_owned())
-    };
-    tokio::time::timeout(deadline, exchange).await.ok().flatten()
+    let response = http.send(request, abort_signal(deadline)).await.ok()?;
+    if !response.is_success() {
+        return None;
+    }
+    let read = response.read_all().await.ok()?;
+    Some(String::from_utf8_lossy(&read.body).into_owned())
 }
 
 /// `parseNpmLatest`: the registry document's `version`, when it is x.y.z.

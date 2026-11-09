@@ -61,7 +61,7 @@ const realSetTimeout = globalThis.setTimeout;
 // `setTimeout(() => controller.abort())`, `AbortSignal.timeout`) are recorded and armed at 1 ms, against a server that
 // never answers: the site's own code throws what it throws when the timer fires, without waiting its 30 s.
 let site = null;
-const SITE_TIMER_CALLERS = ['stall-policy.mjs', 'anthropic-oauth-credentials.mjs', 'provider-admin.mjs'];
+const SITE_TIMER_CALLERS = ['stall-policy.mjs', 'anthropic-oauth-credentials.mjs', 'provider-admin.mjs', 'openai-oauth-tokens.mjs', 'cursor-wire-transport.mjs'];
 globalThis.setTimeout = (callback, ms, ...rest) => {
   const limit = Error.stackTraceLimit;
   Error.stackTraceLimit = 40;
@@ -339,6 +339,26 @@ async function recordSites() {
   const compatModels = await load(`${providers}/openai-compat-models.mjs`);
   const { AnthropicProvider } = await load(`${providers}/anthropic.mjs`);
   const { createCustomProvider } = await load(`${providers}/custom-provider.mjs`);
+  const cursorAuth = await load(`${providers}/cursor-auth.mjs`);
+  const cursorTransport = await load(`${providers}/cursor-wire-transport.mjs`);
+  const openaiTokens = await load(`${providers}/openai-oauth-tokens.mjs`);
+  const openaiCatalog = await load(`${providers}/openai-oauth-catalog.mjs`);
+  const museLogin = await load(`${providers}/muse-code-oauth-login.mjs`);
+  const antigravityLogin = await load(`${providers}/antigravity-oauth-login.mjs`);
+  const opencodeTokens = await load(`${providers}/opencode-go-oauth-tokens.mjs`);
+  const vertexAuth = await load(`${providers}/vertex-ai-auth.mjs`);
+  const npmVersion = await load(`${providers}/npm-cli-version.mjs`);
+  const stall = await load(`${orchestrator}/stall-policy.mjs`);
+  const devinWire = await load(`${providers}/devin-wire-transport.mjs`);
+  const modelCatalog = await load('src/runtime/shared/llm/model-catalog.mjs');
+  process.env.MIXDOG_LLM_HEADERS_TIMEOUT_MS = String(TRANSPORT_TIMEOUT_MS);
+  process.env.MIXDOG_LLM_BODY_TIMEOUT_MS = String(TRANSPORT_TIMEOUT_MS);
+  // The credential files the refresh sites read, in the scratch tree.
+  const cursorFile = join(scratch, 'cursor-oauth.json');
+  const openaiFile = join(scratch, 'openai-oauth.json');
+  process.env.CURSOR_OAUTH_CREDENTIALS_PATH = cursorFile;
+  process.env.OPENAI_OAUTH_CREDENTIALS_PATH = openaiFile;
+  const signedIn = { access_token: 'a', refresh_token: 'r', expires_at: 1 };
 
   const xaiToken = 'https://auth.x.ai/oauth2/token';
   const input = (protocol, path, port) => ({ name: 'Probe', protocol, baseURL: `http://127.0.0.1:${port}${path}`, apiKey: 'sk-DUMMY-probe-secret-0123456789' });
@@ -370,6 +390,55 @@ async function recordSites() {
     customAnthropicListing: listing('anthropic', ''),
     customOpenaiChatProbe: probe('openai-chat', '/v1'),
     customAnthropicProbe: probe('anthropic', ''),
+    // Requests that arm no timer of their own: they end at the shared dispatcher's headers timeout (`http-agent.mjs:413`,
+    // 600_000 by default, shortened below for the recording).
+    devinUnary: ({ port }) =>
+      devinWire.devinUnary({
+        baseUrl: `http://127.0.0.1:${port}`,
+        path: '/exa.auth_pb.AuthService/GetUserJwt',
+        requestType: 'GetUserJwtRequest',
+        responseType: 'GetUserJwtResponse',
+        message: { metadata: { apiKey: 'k' } },
+      }),
+    vertexToken: async () => {
+      const adc = join(scratch, 'adc.json');
+      writeFileSync(adc, JSON.stringify({ type: 'authorized_user', client_id: 'c', client_secret: 's', refresh_token: 'r' }));
+      const manager = new vertexAuth.VertexAccessTokenManager({
+        authMode: vertexAuth.VERTEX_ADC_MODE,
+        env: { GOOGLE_APPLICATION_CREDENTIALS: adc },
+        fetchFn: fetch,
+      });
+      return manager.getAccessToken();
+    },
+    antigravityVersion: () => antigravityTokens.ensureAntigravityVersion(),
+    // The catalog loader swallows the failure and logs it: the logged line is what shows.
+    modelsDev: () => modelCatalog.loadModelsDevCatalog({ force: true }),
+    cursorRefresh: async () => {
+      writeFileSync(cursorFile, JSON.stringify(signedIn));
+      return cursorAuth.resolveCursorOAuthAccessToken({ forceRefresh: true });
+    },
+    openaiRefresh: async () => {
+      writeFileSync(openaiFile, JSON.stringify(signedIn));
+      return openaiTokens.refreshStoredTokens({ force: true });
+    },
+    openaiCatalog: () => openaiCatalog.refreshCodexCatalog(async () => ({ access_token: 'a', account_id: 'x' })),
+    museDeviceAuth: () => museLogin.requestDeviceAuthorization(),
+    antigravityCodeExchange: () => antigravityLogin.exchangeAuthorizationCode({ code: 'abc', verifier: 'v' }),
+    antigravityProject: () => antigravityLogin.discoverAccount('tok'),
+    opencodeConsole: () => opencodeTokens.consoleRequest('https://opencode.ai/auth/device/token', { method: 'POST', body: {} }),
+    vertexMetadataProbe: () => vertexAuth.probeVertexMetadata(),
+    npmVersion: () => npmVersion.fetchRemoteVersion('https://registry.npmjs.org/@openai/codex/latest', npmVersion.parseNpmLatest),
+    // Node's `callCursorUnary` against a server that never answers the handshake: its own timer ends it
+    // (`cursor-wire-transport.mjs:274`), the dashboard reads at the default 5_000, the model list at 15_000
+    // (`cursor-wire-models.mjs:30`). The connect timer of `openCursorStream` ends the stream with its `close` error (`:151`).
+    cursorUsageCall: ({ port }) =>
+      cursorTransport.callCursorUnary({ accessToken: 'a', path: cursorTransport.USAGE_PATH, body: new Uint8Array(), url: `https://127.0.0.1:${port}` }),
+    cursorModelsCall: ({ port }) =>
+      cursorTransport.callCursorUnary({ accessToken: 'a', path: cursorTransport.USAGE_PATH, body: new Uint8Array(), url: `https://127.0.0.1:${port}`, timeoutMs: 15_000 }),
+    cursorConnect: ({ port }) =>
+      new Promise((_, reject) => {
+        cursorTransport.openCursorStream({ accessToken: 'a', url: `https://127.0.0.1:${port}` }).onClose((error) => reject(error));
+      }),
   };
 
   const realFetch = globalThis.fetch;
@@ -392,6 +461,12 @@ async function recordSites() {
       }
     };
     const entry = { armed: null, fetchRejected: null, thrown: null };
+    const realWrite = process.stderr.write.bind(process.stderr);
+    const logged = [];
+    process.stderr.write = (chunk, ...rest) => {
+      if (String(chunk).startsWith('[model-catalog]')) logged.push(portless(String(chunk).trimEnd()));
+      return realWrite(chunk, ...rest);
+    };
     try {
       const value = await run({ port: quiet.port });
       entry.thrown = { resolved: true };
@@ -399,6 +474,8 @@ async function recordSites() {
     } catch (error) {
       entry.thrown = { name: error.name ?? null, code: error.code ?? null, message: portless(String(error.message)) };
     }
+    process.stderr.write = realWrite;
+    if (logged.length) entry.logged = logged;
     Object.assign(entry, { armed: site.armed, fetchRejected: site.rejected });
     globalThis.fetch = realFetch;
     AbortSignal.timeout = realAbortTimeout;

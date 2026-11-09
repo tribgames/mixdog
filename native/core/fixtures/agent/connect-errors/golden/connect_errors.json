@@ -1938,6 +1938,296 @@
           "message": "model discovery timed out after 60s"
         }
       }
+    },
+    "devinUnary": {
+      "armed": [],
+      "fetchRejected": [
+        {
+          "name": "TypeError",
+          "message": "fetch failed"
+        }
+      ],
+      "thrown": {
+        "name": "DevinWireError",
+        "code": "unavailable",
+        "message": "Devin connection failed: fetch failed"
+      }
+    },
+    "vertexToken": {
+      "armed": [],
+      "fetchRejected": [
+        {
+          "name": "TypeError",
+          "message": "fetch failed"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": "EVERTEXAUTH",
+        "message": "Vertex AI authentication failed: fetch failed"
+      }
+    },
+    "antigravityVersion": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 5000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      }
+    },
+    "modelsDev": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 10000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      },
+      "logged": [
+        "[model-catalog] models.dev fetch failed: The operation was aborted due to timeout"
+      ]
+    },
+    "cursorRefresh": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "openaiRefresh": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "AbortError",
+          "message": "This operation was aborted"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": null,
+        "message": "OpenAI OAuth token refresh failed (OpenAI OAuth token refresh timed out after 30000ms). Re-authenticate via provider login."
+      }
+    },
+    "openaiCatalog": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 4000
+        },
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 10000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        },
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      }
+    },
+    "museDeviceAuth": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": null,
+        "message": "[muse-code-oauth] request to auth.meta.com timed out"
+      }
+    },
+    "antigravityCodeExchange": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "antigravityProject": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "opencodeConsole": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 20000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "vertexMetadataProbe": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 1000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      },
+      "value": null
+    },
+    "npmVersion": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 4000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      }
+    },
+    "cursorUsageCall": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 4000
+        },
+        {
+          "via": "setTimeout",
+          "ms": 5000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "ProviderTimeoutError",
+        "code": "EPROVIDERTIMEOUT",
+        "message": "Cursor request timed out after 5000ms"
+      }
+    },
+    "cursorModelsCall": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 15000
+        }
+      ],
+      "fetchRejected": [],
+      "thrown": {
+        "name": "ProviderTimeoutError",
+        "code": "EPROVIDERTIMEOUT",
+        "message": "Cursor request timed out after 15000ms"
+      }
+    },
+    "cursorConnect": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [],
+      "thrown": {
+        "name": "Error",
+        "code": "stream_aborted",
+        "message": "Cursor stream was aborted"
+      }
     }
   }
 }

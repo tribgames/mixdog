@@ -6,6 +6,8 @@ use crate::transport::Exchange;
 use crate::transport::deadlines::TOKEN_EXCHANGE;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::login::LoginFailure;
+use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::provider::WireRequest;
 use mixdog_protocol::JsonValue;
 
@@ -65,6 +67,53 @@ pub async fn call_under(
     headers: Vec<(&str, String)>,
     body: Vec<u8>,
 ) -> Result<Reply, LoginFailure> {
+    try_call_under(http, exchange, method, url, headers, body)
+        .await
+        .map_err(|err| failed("transport", err.message))
+}
+
+/// The hint Node's sign-in pages add to a request that got no answer (`OAUTH_NETWORK_HINT`).
+pub const NETWORK_HINT: &str = "Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY.";
+
+/// `oauthNetworkCause` (`oauth-token-utils.mjs:246`): the transport cause of a request that got no answer, as a code
+/// ("timed out" for a timer). The typed fault names the codes it can; any other reads as Node's generic "network error".
+pub fn network_cause(error: &ProviderError) -> String {
+    if error.timed_out {
+        return "timed out".to_owned();
+    }
+    match error.transport {
+        Some(TransportFault::Dns) => "ENOTFOUND".to_owned(),
+        Some(TransportFault::Reset) => "ECONNRESET".to_owned(),
+        Some(TransportFault::Connect { os_code: Some(111 | 10061) }) => "ECONNREFUSED".to_owned(),
+        _ => "network error".to_owned(),
+    }
+}
+
+/// `oauthRequestError`: `<operation> request failed (<cause>). <hint>`.
+pub fn request_failed(operation: &str, error: &ProviderError) -> String {
+    format!("{operation} request failed ({}). {NETWORK_HINT}", network_cause(error))
+}
+
+/// [`call`] keeping the transport's typed error, for the sites whose Node code words the failure itself.
+pub async fn try_call(
+    http: &dyn HttpSend,
+    method: &str,
+    url: &str,
+    headers: Vec<(&str, String)>,
+    body: Vec<u8>,
+) -> Result<Reply, ProviderError> {
+    try_call_under(http, TOKEN_EXCHANGE, method, url, headers, body).await
+}
+
+/// [`call_under`] keeping the transport's typed error.
+pub async fn try_call_under(
+    http: &dyn HttpSend,
+    exchange: Exchange,
+    method: &str,
+    url: &str,
+    headers: Vec<(&str, String)>,
+    body: Vec<u8>,
+) -> Result<Reply, ProviderError> {
     let response = http
         .send(
             WireRequest {
@@ -79,12 +128,8 @@ pub async fn call_under(
             },
             exchange,
         )
-        .await
-        .map_err(|err| failed("transport", err.message))?;
-    let read = response
-        .read_all()
-        .await
-        .map_err(|err| failed("transport", err.message))?;
+        .await?;
+    let read = response.read_all().await?;
     Ok(Reply {
         status: read.status.unwrap_or(0),
         headers: read.headers,

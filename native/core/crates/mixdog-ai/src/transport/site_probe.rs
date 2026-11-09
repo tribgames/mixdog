@@ -64,12 +64,34 @@ pub(crate) fn recorded(site: &str) -> Value {
 /// The class and window the site chose are Node's: its first request read as the raw `fetch` of Node's site rejected
 /// (the call class's text, label and milliseconds included), and its window is one of the timers Node armed.
 pub(crate) fn assert_transport(site: &str, transport: &TimingOut) {
+    assert_text(site, transport);
+    assert_window(site, transport);
+}
+
+/// A site that arms no timer: Node's request ends at the shared dispatcher's headers timeout
+/// (`shared/llm/http-agent.mjs:413`, 600_000 unless `MIXDOG_LLM_HEADERS_TIMEOUT_MS` says otherwise; the recording
+/// shortens it), and so does the Rust one.
+pub(crate) fn assert_dispatcher(site: &str, transport: &TimingOut) {
+    assert_text(site, transport);
+    assert!(recorded(site)["armed"].as_array().unwrap().is_empty(), "{site}: Node armed a timer");
+    let seen = transport.seen();
+    assert_eq!(seen.first().unwrap().after, Duration::from_millis(600_000), "{site}");
+}
+
+/// The text the call class gives the first request is one the raw `fetch` of Node's site rejected with.
+fn assert_text(site: &str, transport: &TimingOut) {
     let golden = recorded(site);
     let seen = transport.seen();
     let first = seen.first().unwrap_or_else(|| panic!("{site}: the site sent no request"));
     let rejected: Vec<&str> = golden["fetchRejected"].as_array().unwrap().iter().map(|r| r["message"].as_str().unwrap()).collect();
     assert!(rejected.contains(&first.text.as_str()), "{site}: Rust reads {:?}, Node's fetch rejected {rejected:?}", first.text);
-    let armed: Vec<u64> = golden["armed"].as_array().unwrap().iter().map(|a| a["ms"].as_u64().unwrap()).collect();
+}
+
+/// The window the site's first request got is one of the timers Node armed.
+pub(crate) fn assert_window(site: &str, transport: &TimingOut) {
+    let seen = transport.seen();
+    let first = seen.first().unwrap_or_else(|| panic!("{site}: the site sent no request"));
+    let armed: Vec<u64> = recorded(site)["armed"].as_array().unwrap().iter().map(|a| a["ms"].as_u64().unwrap()).collect();
     assert!(armed.contains(&(first.after.as_millis() as u64)), "{site}: window {:?} is not one of Node's timers {armed:?}", first.after);
 }
 

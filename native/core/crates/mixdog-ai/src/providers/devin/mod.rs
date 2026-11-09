@@ -368,7 +368,8 @@ impl ProviderAdapter for DevinAdapter {
             execution_id: random_uuid(),
         });
         let wire = codec.encode(&request)?;
-        let head = self.http.send(wire, DEVIN_STREAM).await?;
+        // `transportError` (`devin-wire-transport.mjs:243-261`) words what the raw `fetch` threw.
+        let head = self.http.send(wire, DEVIN_STREAM).await.map_err(|error| error::connection_failed(error, &[]))?;
         if (300..400).contains(&head.status) {
             let mut error = error::protocol_error("Devin server redirected the request; redirects are refused");
             error.status = Some(head.status);

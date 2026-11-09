@@ -6,7 +6,7 @@
 //! ([`CacheRuntime`]) runs the detached create and the delayed delete.
 
 use crate::transport::deadlines::CACHE_CREATE;
-use crate::transport::deadlines::NODE_DISPATCHER;
+use crate::transport::deadlines::CACHE_DELETE;
 use std::sync::Arc;
 
 use futures::FutureExt;
@@ -375,7 +375,7 @@ impl CreateJob {
                 if registry.name_is_live(&name, clock.now_ms()) {
                     return;
                 }
-                let _ = http.send(request, NODE_DISPATCHER).await;
+                let _ = http.send(request, CACHE_DELETE).await;
             }
             .boxed(),
         );

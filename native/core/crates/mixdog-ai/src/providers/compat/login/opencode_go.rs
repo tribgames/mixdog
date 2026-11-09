@@ -431,6 +431,21 @@ use crate::oauth::http::testing::finish;
         )
     }
 
+    /// A Console request that outlives its timer reads as the real Node function did (`sites.opencodeConsole`).
+    #[tokio::test(start_paused = true)]
+    async fn a_console_request_that_outlives_its_timer_reads_as_nodes() {
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+        use crate::transport::site_probe::login_message;
+
+        let transport = TimingOut::new();
+        let http: Http = transport.clone();
+        let failure = post_json(&http, "/auth/device/token", serde_json::json!({})).await.err().expect("never answers");
+        assert_transport("opencodeConsole", &transport);
+        assert_thrown("opencodeConsole", login_message(&failure));
+    }
+
     const DEVICE: &str = r#"{"device_code":"DC","user_code":"WXYZ","verification_uri_complete":"/device?code=WXYZ","interval":3,"expires_in":900}"#;
 
     #[tokio::test]

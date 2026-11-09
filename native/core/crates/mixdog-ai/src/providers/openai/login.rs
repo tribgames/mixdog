@@ -137,14 +137,15 @@ impl PkceProvider for OpenAiLogin {
             .append_pair("code_verifier", verifier)
             .finish()
             .into_bytes();
-        let reply = http::call(
+        let reply = http::try_call(
             self.http.as_ref(),
             "POST",
             &self.token_url,
             vec![("Content-Type", "application/x-www-form-urlencoded".to_owned())],
             body,
         )
-        .await?;
+        .await
+        .map_err(|error| failed("transport", &http::request_failed("[openai-oauth] token exchange", &error)))?;
         if !reply.ok() {
             return Err(match classify_refresh_failure(Some(reply.status), &reply.body) {
                 RefreshFailure::Definitive => LoginFailure::Denied,
