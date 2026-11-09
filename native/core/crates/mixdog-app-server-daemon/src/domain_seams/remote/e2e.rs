@@ -15,19 +15,22 @@ use std::time::Duration;
 use std::time::Instant;
 
 use mixdog_app_protocol::limits::Limits;
-use mixdog_app_protocol::RequestId;
+use bytes::Bytes;
+use mixdog_app_protocol::limits::CloseCode;
 use mixdog_app_server::AppServer;
-use mixdog_app_server::error_data;
-use mixdog_app_server::error_frame;
 use mixdog_app_server::Outgoing;
 use mixdog_app_server_transport::ConnectionHub;
+use mixdog_app_server_transport::ConnectionOrigin;
+use mixdog_app_server_transport::Incoming;
+use mixdog_app_server_transport::SocketClosed;
+use mixdog_app_server_transport::SocketRead;
+use mixdog_app_server_transport::SocketWrite;
 use mixdog_app_server::HostMedia;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::ConnectionNotifier;
 use mixdog_core_api::HostCapability;
 use mixdog_core_api::HostChannel;
 use mixdog_core_api::HostError;
-use mixdog_core_api::call::CallContext;
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::call::Reply;
 use mixdog_core_api::feed::FeedSource;
@@ -61,6 +64,7 @@ use mixdog_remote::registry::LinkKind;
 use mixdog_remote::registry::LocalKind;
 use serde_json::Value;
 use serde_json::json;
+use tokio::sync::mpsc;
 use tokio::sync::watch;
 
 use super::LateDialer;
@@ -204,6 +208,9 @@ struct Harness {
     /// `turn/start` params that reached the thread.
     turns: Arc<Mutex<Vec<Value>>>,
     closed: watch::Receiver<Vec<ConnectionId>>,
+    /// The server's own hub and server: a client in this process attaches to them as the daemon's listeners do.
+    hub: ConnectionHub,
+    server: AppServer,
 }
 
 fn listed() -> Value {
@@ -275,7 +282,9 @@ impl Harness {
         let core = Arc::new(Core { live, mock, screen, registry: remote.registry.clone(), owners, closed: closed_tx });
         let hub = ConnectionHub::new(Limits::default()).unwrap();
         let origins = hub.clone();
+        let own_hub = hub.clone();
         let server = AppServer::new(core.clone(), Outgoing::new(), Arc::new(move |id| origins.origin_of(id)), crate::server::server_config(Limits::default(), Default::default())).unwrap();
+        let own_server = server.clone();
         late_dialer
             .bind(hub, Arc::new(move |accepted| crate::server::spawn_drive(server.clone(), accepted)), remote.registry.clone())
             .unwrap();
@@ -285,7 +294,7 @@ impl Harness {
         relay.legs.recv().await.expect("the relay ended");
         remote.runtime.watch_connected().wait_for(|up| *up).await.expect("the runtime ended");
         remote.runtime.list_clients().await.unwrap();
-        Self { dir, core, registry: remote.registry, runtime: remote.runtime, published, relay, identity, desktop, reads, turns, closed }
+        Self { dir, core, registry: remote.registry, runtime: remote.runtime, published, relay, identity, desktop, reads, turns, closed, hub: own_hub, server: own_server }
     }
 
     /// The phone `id` of `credential` pairs and states who it is; the connection the core opened for it.
@@ -305,6 +314,21 @@ impl Harness {
         (phone, connection)
     }
 
+    /// A connection the server's hub holds for a client of this process, of `origin` and stated `kind`, named `Pixel`; what the server
+    /// writes to it is what the client reads.
+    async fn client(&self, origin: ConnectionOrigin, kind: &str) -> Client {
+        let (to_server, read) = mpsc::unbounded_channel();
+        let (write, from_server) = mpsc::unbounded_channel();
+        let accepted = self.hub.attach(origin, ChannelRead(read), ChannelWrite(write)).unwrap();
+        crate::server::spawn_drive(self.server.clone(), accepted);
+        let mut client = Client { to_server, from_server };
+        let initialized = client
+            .call(&json!({ "id": 0, "method": "initialize", "params": { "clientInfo": { "name": "Pixel", "version": VERSION, "kind": kind }, "capabilities": {} } }))
+            .await;
+        assert!(initialized.get("result").is_some(), "{initialized}");
+        client
+    }
+
     async fn closed(&self, connection: ConnectionId) {
         self.closed.clone().wait_for(|closed| closed.contains(&connection)).await.expect("the core ended");
     }
@@ -312,6 +336,49 @@ impl Harness {
     async fn viewing(&self, wanted: &[&str]) {
         let wanted: Vec<String> = wanted.iter().map(|id| (*id).to_owned()).collect();
         self.published.remote_viewing.subscribe().wait_for(|ids| *ids == wanted).await.expect("the publisher ended");
+    }
+}
+
+struct ChannelRead(mpsc::UnboundedReceiver<Incoming>);
+
+impl SocketRead for ChannelRead {
+    async fn next(&mut self) -> Option<Incoming> {
+        self.0.recv().await
+    }
+}
+
+struct ChannelWrite(mpsc::UnboundedSender<String>);
+
+impl SocketWrite for ChannelWrite {
+    async fn text(&mut self, frame: Bytes) -> Result<(), SocketClosed> {
+        self.0.send(String::from_utf8_lossy(&frame).into_owned()).map_err(|_| SocketClosed)
+    }
+
+    async fn ping(&mut self) -> Result<(), SocketClosed> {
+        Ok(())
+    }
+
+    async fn close(&mut self, _code: CloseCode) -> Result<(), SocketClosed> {
+        Ok(())
+    }
+}
+
+/// A client of this process on the server's hub.
+struct Client {
+    to_server: mpsc::UnboundedSender<Incoming>,
+    from_server: mpsc::UnboundedReceiver<String>,
+}
+
+impl Client {
+    /// Sends the request and returns the frame the server wrote for its id, as written.
+    async fn call(&mut self, request: &Value) -> Value {
+        self.to_server.send(Incoming::Text(request.to_string())).unwrap();
+        loop {
+            let frame: Value = serde_json::from_str(&self.from_server.recv().await.expect("the server ended")).unwrap();
+            if frame["id"] == request["id"] {
+                return frame;
+            }
+        }
     }
 }
 
@@ -569,92 +636,117 @@ fn a_local_client_is_recorded_by_what_it_states_and_a_relay_or_claimed_phone_is_
 
 const SCREEN_ACCESS: &str = include_str!("../../../../../fixtures/screen-access/screen-access.json");
 
-/// A reply as the core's wire carries it, from the frame Node sent the phone for the same call: `{ id, ok: true, value }` is the
-/// result, `{ id, ok: false, error }` the remote domain's error with that text, framed by the server's single error mapping. Every
-/// recorded field is used (id, ok, value, error); the rest of the error body is the wire's own.
+/// The frame the core's wire carries for what Node sent the phone: `{ id, ok: true, value }` becomes `{ id, result }`, and
+/// `{ id, ok: false, error }` becomes `{ id, error }` with the JSON-RPC error body of a remote domain error carrying that text (the body is
+/// the wire's own: code -32600, reason `domainError`). Any other recorded key is kept as it is, so a frame that is not exactly one of the
+/// two shapes is not equal to what the server writes.
 fn wire_of(node: &Value) -> Value {
-    let id = RequestId::Integer(node["id"].as_i64().unwrap());
-    let unread: Vec<&String> = node.as_object().unwrap().keys().filter(|key| !["id", "ok", "value", "error"].contains(&key.as_str())).collect();
-    assert!(unread.is_empty(), "recorded reply fields this replay does not compare: {unread:?}");
-    match node["ok"].as_bool().unwrap() {
-        true => json!({ "id": node["id"], "result": node["value"] }),
+    let mut frame = node.as_object().unwrap().clone();
+    match frame.remove("ok").unwrap().as_bool().unwrap() {
+        true => {
+            let value = frame.remove("value").unwrap();
+            frame.insert("result".to_owned(), value);
+        }
         false => {
-            let refusal = CoreError::DomainError { domain: "remote".into(), code: None, message: Some(node["error"].as_str().unwrap().into()), detail: None };
-            serde_json::from_slice(&error_frame(&id, &error_data(&refusal))).unwrap()
+            let text = frame.remove("error").unwrap();
+            let body = json!({ "code": -32600, "message": "domainError", "data": { "reason": "domainError", "domain": "remote", "message": text } });
+            frame.insert("error".to_owned(), body);
         }
     }
+    Value::Object(frame)
 }
 
-/// A refusal the core's service gave, framed by that same mapping.
-fn wire_of_error(id: i64, refused: &CoreError) -> Value {
-    serde_json::from_slice(&error_frame(&RequestId::Integer(id), &error_data(refused))).unwrap()
-}
-
-/// The recorded scenario `name` (by its leading words), with the guard that every key in it is one this replay reads.
+/// The recorded scenario `name` (by its leading words), checked to hold exactly the keys this replay reads, in it and in its `before`.
 fn recorded(name: &str) -> Value {
+    fn keys(value: &Value, wanted: &[&str], at: &str) {
+        let mut found: Vec<&str> = value.as_object().unwrap().keys().map(String::as_str).collect();
+        found.sort_unstable();
+        let mut wanted = wanted.to_vec();
+        wanted.sort_unstable();
+        assert_eq!(found, wanted, "{at}");
+    }
     let all: Value = serde_json::from_str(SCREEN_ACCESS).unwrap();
     let scenario = all["scenarios"].as_array().unwrap().iter().find(|scenario| scenario["name"].as_str().unwrap().starts_with(name)).unwrap_or_else(|| panic!("no recorded scenario {name}")).clone();
-    let read = ["name", "reply", "hostAsked", "before"];
-    let unread: Vec<&String> = scenario.as_object().unwrap().keys().filter(|key| !read.contains(&key.as_str())).collect();
-    assert!(unread.is_empty(), "recorded fields this replay does not compare: {unread:?}");
+    match scenario.get("before") {
+        Some(before) => {
+            keys(&scenario, &["name", "before", "reply", "hostAsked"], name);
+            keys(before, &["reply", "hostAsked"], name);
+        }
+        None => keys(&scenario, &["name", "reply", "hostAsked"], name),
+    }
     scenario
 }
 
-fn displays_request(connection: ConnectionId, origin: Origin) -> CoreRequest {
-    CoreRequest {
-        method: Method("browser/screenDisplays"),
-        params: json!({}),
-        op: None,
-        ctx: CallContext::connection(connection, origin, tokio_util::sync::CancellationToken::new()),
-    }
+/// The request the phone sends for the display list, with the id Node's recording used.
+fn displays_call(reply: &Value) -> Value {
+    json!({ "id": reply["id"], "method": "browser/screenDisplays", "params": {} })
 }
 
 /// Node's composed screen access (`screen-access.json`: the frame the real relay-client call dispatch sent the phone, over the real
-/// relay asking the real publisher), against the production wiring. Every recorded scenario is replayed and every reply is compared
-/// whole: a paired phone's answer is the frame it received over the relay; a refusal is the error the service gave, framed by the
-/// server's own mapping, against the frame Node's refusal maps to. The host is asked exactly as often as Node's was.
+/// relay asking the real publisher), against the production wiring. Every recorded scenario is replayed over a connection the
+/// server's dispatch serves, and the frame the server writes is compared as a whole to the frame Node's recorded reply maps to
+/// (`wire_of`). The host is asked exactly as often as Node's was.
+///
+/// The local-client scenario is replayed the same way: Node's dispatch is relay-only, so the frame it recorded is the one a relay
+/// connection with no paired device gets. A relay peer whose pairing ended is closed with "device unpaired" before it can ask anything, so its refusal has no connection of its
+/// own to be written to. The two unpair scenarios put the question on a relay-origin connection that holds no paired device (the state
+/// `phone_credential` reads after the unpair), on the same hub and dispatch.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_composed_screen_access_answers_as_nodes_relay_and_publisher_did() {
     let all: Value = serde_json::from_str(SCREEN_ACCESS).unwrap();
     assert_eq!(all["scenarios"].as_array().unwrap().len(), 4, "every recorded scenario is replayed below");
+    let asked = |h: &Harness| h.desktop.asked.lock().unwrap().len() as u64;
+    let unpaired_relay_peer = ConnectionOrigin::Relay { peer_id: "gone".to_owned() };
+
+    // The first recorded scenario: a paired phone, over its relay channel.
+    let allowed = recorded("a paired, E2EE-established phone");
+    let h = Harness::start(true).await;
+    let (mut phone, _) = h.connect("p1", CRED).await;
+    phone.send(&displays_call(&allowed["reply"]).to_string());
+    assert_eq!(answer(&mut phone, 7).await, wire_of(&allowed["reply"]), "a paired phone");
+    assert_eq!(asked(&h), allowed["hostAsked"].as_u64().unwrap());
+    h.runtime.close().await;
 
     // Allowed, then unpaired (the relay confirms the unpair): the phone, then its connection.
     let revoked = recorded("a paired phone is allowed, then");
     let h = Harness::start(true).await;
     let (mut phone, connection) = h.connect("p1", CRED).await;
-    phone.send(&json!({ "id": 7, "method": "browser/screenDisplays", "params": {} }).to_string());
+    phone.send(&displays_call(&revoked["before"]["reply"]).to_string());
     assert_eq!(answer(&mut phone, 7).await, wire_of(&revoked["before"]["reply"]), "before the unpair");
-    assert_eq!(h.desktop.asked.lock().unwrap().len() as u64, revoked["before"]["hostAsked"].as_u64().unwrap());
+    assert_eq!(asked(&h), revoked["before"]["hostAsked"].as_u64().unwrap());
     h.runtime.revoke_client(CRED).await.unwrap();
     assert_eq!(phone.closed().await, "device unpaired");
     h.closed(connection).await;
-    let refused = h.core.live.call(displays_request(connection, Origin::Relay)).await.unwrap_err();
-    assert_eq!(wire_of_error(7, &refused), wire_of(&revoked["reply"]), "after the unpair");
-    assert_eq!(h.desktop.asked.lock().unwrap().len() as u64, revoked["before"]["hostAsked"].as_u64().unwrap() + revoked["hostAsked"].as_u64().unwrap());
-
-    // The paired phone alone (the first recorded scenario): the same frame, whole.
-    let allowed = recorded("a paired, E2EE-established phone");
-    assert_eq!(allowed["reply"], revoked["before"]["reply"]);
-    assert_eq!(allowed["hostAsked"], revoked["before"]["hostAsked"]);
+    let mut gone = h.client(unpaired_relay_peer.clone(), "phone").await;
+    assert_eq!(gone.call(&displays_call(&revoked["reply"])).await, wire_of(&revoked["reply"]), "after the unpair");
+    assert_eq!(asked(&h), revoked["before"]["hostAsked"].as_u64().unwrap() + revoked["hostAsked"].as_u64().unwrap());
 
     // A local client, even one naming itself after the paired device.
     let local = recorded("a local client");
-    let named = ConnectionId(9001);
-    h.core.connection_opened(named, Origin::Local, "Pixel", ConnectionKind::Cli);
-    let refused = h.core.live.call(displays_request(named, Origin::Local)).await.unwrap_err();
-    assert_eq!(wire_of_error(7, &refused), wire_of(&local["reply"]), "a local client");
-    assert_eq!(h.desktop.asked.lock().unwrap().len() as u64, revoked["before"]["hostAsked"].as_u64().unwrap() + local["hostAsked"].as_u64().unwrap());
+    // Node's refusal frame is the access rule's answer for a connection that holds no paired device, so it is read off a relay-origin
+    // connection that holds none. Over its own loopback connection the method table refuses the local client before the rule is
+    // asked (`browser/screenDisplays` is a relay method): that is the server's own `permissionDenied` frame, which Node has no
+    // counterpart of, so it is compared to its fixed body.
+    let mut nobody = h.client(unpaired_relay_peer.clone(), "phone").await;
+    assert_eq!(nobody.call(&displays_call(&local["reply"])).await, wire_of(&local["reply"]), "a connection with no paired device");
+    let mut named = h.client(ConnectionOrigin::Loopback, "cli").await;
+    assert_eq!(
+        named.call(&displays_call(&local["reply"])).await,
+        json!({ "id": local["reply"]["id"], "error": { "code": -32600, "message": "permissionDenied", "data": { "reason": "permissionDenied", "method": "browser/screenDisplays", "origin": "local" } } }),
+        "a local client"
+    );
+    assert_eq!(asked(&h), revoked["before"]["hostAsked"].as_u64().unwrap() + revoked["hostAsked"].as_u64().unwrap() + local["hostAsked"].as_u64().unwrap());
     h.runtime.close().await;
 
-    // An unpair the relay has not confirmed is in force: the device's connection is refused, and the host is not asked.
+    // An unpair the relay has not confirmed is in force: the device's connection is closed, and nothing it could ask reaches the host.
     let unpaired = recorded("a device whose unpair is in force");
     let h = Harness::start(false).await;
     let (mut phone, connection) = h.connect("p1", CRED).await;
     assert!(h.runtime.revoke_client(CRED).await.is_err(), "the relay refused the unpair");
     assert_eq!(phone.closed().await, "device unpaired");
     h.closed(connection).await;
-    let refused = h.core.live.call(displays_request(connection, Origin::Relay)).await.unwrap_err();
-    assert_eq!(wire_of_error(7, &refused), wire_of(&unpaired["reply"]), "an unpair in force");
-    assert_eq!(h.desktop.asked.lock().unwrap().len() as u64, unpaired["hostAsked"].as_u64().unwrap());
+    let mut gone = h.client(unpaired_relay_peer, "phone").await;
+    assert_eq!(gone.call(&displays_call(&unpaired["reply"])).await, wire_of(&unpaired["reply"]), "an unpair in force");
+    assert_eq!(asked(&h), unpaired["hostAsked"].as_u64().unwrap());
     h.runtime.close().await;
 }
