@@ -84,7 +84,40 @@ pub(super) fn roster_row(row: &serde_json::Map<String, Value>, name: Option<&str
     let had_conversation = message_count >= 2 && row.get("detachedReason").and_then(Value::as_str) != Some("cli-resume") && real_turns.is_none_or(|n| n >= 1.0);
     let agent_home = !mixdog_store::agent_mode::agent_id_of_home_session(&text("id")).is_empty();
     let manual = name.is_some_and(|name| !mixdog_store::title::normalize_session_title(name, "", 100).is_empty());
-    !title(&text("preview"), 32).is_empty() || manual || !title(&text("title"), 32).is_empty() || had_conversation || (agent_home && message_count > 0)
+    !mixdog_store::title::roster_preview_title(&text("preview")).is_empty() || manual || !title(&text("title"), 32).is_empty() || had_conversation || (agent_home && message_count > 0)
+}
+
+/// The fields of the row `desktopSessionSummaries` (`desktop-state.ts:180-208, 244`) derives, which the list row leaves as the index
+/// stored them: the classification (stored, else a legacy row with a folder is a project; the host's task workspace, which could make
+/// it a task, is not known here), the project path (workspace record, then folder, then stored path; none for a task), the activity
+/// time (`lastUsedAt`, else `updatedAt`) and the creation time when positive.
+fn on_roster(mut thread: mixdog_protocol::ThreadSummary, row: &serde_json::Map<String, Value>) -> mixdog_protocol::ThreadSummary {
+    let number = |key: &str| row.get(key).and_then(Value::as_f64).filter(|n| n.is_finite() && *n != 0.0);
+    let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::trim).unwrap_or_default().to_owned();
+    let meta = row.get("desktopSession").and_then(Value::as_object);
+    let cwd = text(row.get("cwd"));
+    let project = match meta.and_then(|meta| meta.get("classification")).and_then(Value::as_str) {
+        Some(stored) => stored == "project",
+        None => !cwd.is_empty(),
+    };
+    let valid = |value: Option<&Value>| Some(text(value)).filter(|s| !s.is_empty() && !s.contains('\0'));
+    let workspace = row.get("workspace").and_then(Value::as_object).filter(|w| valid(w.get("projectPath")).is_some() && valid(w.get("cwd")).is_some());
+    thread.classification = Value::String(if project { "project" } else { "task" }.into());
+    thread.project_path = project.then(|| {
+        workspace.and_then(|w| valid(w.get("projectPath"))).unwrap_or_else(|| if cwd.is_empty() { text(meta.and_then(|meta| meta.get("projectPath"))) } else { cwd })
+    });
+    thread.activity_at = number("lastUsedAt").or_else(|| number("updatedAt")).map(|at| at as i64);
+    let word = |key: &str| text(row.get(key));
+    let kind = word("sourceType").to_lowercase();
+    if kind == "schedule" || kind == "webhook" {
+        thread.source_name = Some(word("sourceName")).filter(|name| !name.is_empty());
+        thread.source_type = Some(kind);
+    }
+    thread.provider = Some(word("provider")).filter(|s| !s.is_empty());
+    thread.model = Some(word("model")).filter(|s| !s.is_empty());
+    thread.agent_session = (word("visibility") == "agent-only" || (word("owner") == "agent" && word("agent") != "lead")).then_some(true);
+    thread.created_at = number("createdAt").filter(|at| *at > 0.0).map(|at| at as i64);
+    thread
 }
 
 /// Decides and publishes what one row write means to the app feed.
@@ -105,7 +138,7 @@ impl ThreadEdgePublisher {
         match (edge.before.as_ref().and_then(listed), listed(&edge.after)) {
             (None, Some(now)) => self.send(&id, &now, |thread| (STARTED, ThreadStartedParams { thread })).await,
             (Some(was), Some(now)) => {
-                let (was, shown) = (summary_of_list_row(&id, &Value::Object(was.row), now.archived), summary_of_list_row(&id, &Value::Object(now.row.clone()), now.archived));
+                let (was, shown) = (on_roster(summary_of_list_row(&id, &Value::Object(was.row.clone()), now.archived), &was.row), on_roster(summary_of_list_row(&id, &Value::Object(now.row.clone()), now.archived), &now.row));
                 if was != shown {
                     self.send(&id, &now, |thread| (SUMMARY_UPDATED, ThreadSummaryUpdatedParams { thread })).await;
                 }
@@ -120,7 +153,7 @@ impl ThreadEdgePublisher {
     async fn send<P: serde::Serialize>(&self, id: &ThreadId, now: &LeadRow, params: impl FnOnce(mixdog_protocol::ThreadSummary) -> (&'static str, P)) {
         match self.list.summary_of(id, now).await {
             Ok(Some(thread)) => {
-                let (method, params) = params(thread);
+                let (method, params) = params(on_roster(thread, &now.row));
                 self.app.notify(method, &params);
             }
             Ok(None) => {}

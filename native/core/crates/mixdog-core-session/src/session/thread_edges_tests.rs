@@ -2,7 +2,6 @@
 //! as the writes of the index: the notifications Rust publishes are the roster's changes, and nothing for a roster Node
 //! would not have pushed.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -53,18 +52,35 @@ impl super::thread_list::ListOverlay for Idle {
     }
 }
 
-/// `started` / `updated` / `deleted` and the thread, with the row the notification carries.
-fn changes(before: &BTreeMap<String, Value>, after: &BTreeMap<String, Value>) -> Vec<(String, String, Option<Value>)> {
+/// Node's complete roster row as the protocol's `ThreadSummary`: the same fields under their protocol names
+/// (`inheritedFromSessionId` is `forkedFromId`), plus the archived flag the app feed's row always carries (`archived` is announced by
+/// `thread/archived`, not by the roster).
+fn thread_of_row(row: &Value) -> Value {
+    let mut out = row.as_object().expect("roster row").clone();
+    if let Some(from) = out.shift_remove("inheritedFromSessionId") {
+        out.insert("forkedFromId".into(), from);
+    }
+    out.insert("archived".into(), Value::Bool(false));
+    // The list row's own fields, which a header-only row gives the same value: the session mode and the last message's preview.
+    out.insert("sessionMode".into(), Value::String("coding".into()));
+    out.insert("lastMessagePreview".into(), Value::String(String::new()));
+    Value::Object(out)
+}
+
+/// What Rust must publish for one roster change, in the order Node's roster holds the rows (changed and new rows by roster position,
+/// then the rows that left): `(method, params)` with the complete params.
+fn changes(before: &[Value], after: &[Value]) -> Vec<(String, Value)> {
+    let held = |roster: &[Value], id: &Value| roster.iter().find(|row| row["id"] == *id).cloned();
     let mut out = Vec::new();
-    for (id, row) in after {
-        match before.get(id) {
-            None => out.push(("thread/started".to_owned(), id.clone(), Some(row.clone()))),
-            Some(was) if was != row => out.push(("thread/summary/updated".to_owned(), id.clone(), Some(row.clone()))),
+    for row in after {
+        match held(before, &row["id"]) {
+            None => out.push(("thread/started".to_owned(), serde_json::json!({ "thread": thread_of_row(row) }))),
+            Some(was) if was != *row => out.push(("thread/summary/updated".to_owned(), serde_json::json!({ "thread": thread_of_row(row) }))),
             Some(_) => {}
         }
     }
-    for id in before.keys().filter(|id| !after.contains_key(*id)) {
-        out.push(("thread/deleted".to_owned(), id.clone(), None));
+    for row in before.iter().filter(|row| held(after, &row["id"]).is_none()) {
+        out.push(("thread/deleted".to_owned(), serde_json::json!({ "threadId": row["id"] })));
     }
     out
 }
@@ -99,7 +115,7 @@ async fn the_notifications_are_the_changes_of_nodes_roster_for_every_trigger() {
     let mut published = 0;
     for trigger in golden["triggers"].as_array().expect("triggers") {
         let name = trigger["name"].as_str().expect("name");
-        let mut roster: BTreeMap<String, Value> = BTreeMap::new();
+        let mut roster: Vec<Value> = Vec::new();
         let mut seen = String::new();
         for step in trigger["steps"].as_array().expect("steps") {
             let mut header = step["record"].as_object().expect("record").clone();
@@ -110,40 +126,37 @@ async fn the_notifications_are_the_changes_of_nodes_roster_for_every_trigger() {
             for edge in written {
                 publisher.publish(edge).await;
             }
-            let sent: Vec<Value> = app
+            let sent: Vec<(String, Value)> = app
                 .drain_text()
                 .into_iter()
                 .filter(|text| text.contains("thread/"))
-                .map(|text| serde_json::from_str(&text[text.find('{').expect("json body")..]).unwrap_or_else(|error| panic!("{error}: {text}")))
+                .map(|text| serde_json::from_str::<Value>(&text[text.find('{').expect("json body")..]).unwrap_or_else(|error| panic!("{error}: {text}")))
+                .map(|frame| (frame["method"].as_str().unwrap_or_default().to_owned(), frame["params"].clone()))
                 .collect();
-            let next: BTreeMap<String, Value> = step["roster"].as_array().expect("roster").iter().map(|row| (row["id"].as_str().expect("id").to_owned(), row.clone())).collect();
-            // Node pushes the roster only when it changed; its changes are the notifications.
+            let next = step["roster"].as_array().expect("roster").clone();
+            // Node pushes the roster only when its canonical JSON changed; its changes are the notifications, whole and in order.
             let want = if step["published"] == true { changes(&roster, &next) } else { Vec::new() };
             roster = next;
-            let got: Vec<(String, String)> = sent.iter().map(|frame| (frame["method"].as_str().unwrap_or_default().to_owned(), thread_of(frame))).collect();
-            let mut want_kinds: Vec<(String, String)> = want.iter().map(|(method, id, _)| (method.clone(), id.clone())).collect();
-            want_kinds.sort();
-            let mut got_sorted = got.clone();
-            got_sorted.sort();
-            assert_eq!(got_sorted, want_kinds, "{name}: after the write of {id}: {seen}");
+            assert_eq!(sent, want, "{name}: after the write of {id}: {seen}");
             seen.push_str(&format!("{id} "));
-            for (method, id, node) in &want {
-                let Some(node) = node else { continue };
-                let frame = sent.iter().find(|f| f["method"] == *method && thread_of(f) == *id).expect("sent");
-                let row = &frame["params"]["thread"];
-                for field in ["title", "updatedAt", "preview", "messageCount", "cwd"] {
-                    assert_eq!(row[field], node[field], "{name}: {method} {id}: {field}");
-                }
-                published += 1;
-            }
+            published += want.len();
         }
     }
-    assert!(published >= 10, "the replay compared {published} rows");
+    assert!(published >= 10, "the replay compared {published} notifications");
 }
 
-fn thread_of(frame: &Value) -> String {
-    let params = &frame["params"];
-    params["thread"]["id"].as_str().or_else(|| params["threadId"].as_str()).unwrap_or_default().to_owned()
+/// `compactedSessionTitle` on handoffs of every shape, each against Node's answer, and the roster's preview title (compacted first, then
+/// generated) that decides whether a row with only a preview is kept.
+#[test]
+fn the_compacted_title_is_nodes_for_every_handoff_shape() {
+    let golden = golden();
+    let cases = golden["compacted"].as_array().expect("compacted cases");
+    assert!(cases.len() >= 15);
+    for case in cases {
+        let input = case["input"].as_str().expect("input");
+        assert_eq!(mixdog_store::title::compacted_session_title(input), case["title"].as_str().expect("title"), "{input:?}");
+    }
+    assert!(cases.iter().any(|case| case["title"] == "Recover this task"));
 }
 
 /// The roster's own gate (`desktopSessionSummaries`, `desktop-state.ts:144-246`) on list rows: a cwd with a NUL, a project with no

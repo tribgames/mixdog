@@ -262,6 +262,65 @@ pub fn generated_session_title(value: &str, fallback: &str, max_length: usize) -
     if has_meaningful_text(&title) { title } else { fallback.to_owned() }
 }
 
+static COMPACTED_LEAD: LazyLock<Regex> = LazyLock::new(|| re(r"^a previous model worked on this task\b", "i"));
+static COMPACTED_EVENT_LINE: LazyLock<Regex> = LazyLock::new(|| re(r"^\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\]\s+([a-z]+):\s*(.*)$", "i"));
+static COMPACTED_ID: LazyLock<Regex> = LazyLock::new(|| re(r"\s+#(\d+)\s*$", ""));
+static COMPACTED_END: LazyLock<Regex> = LazyLock::new(|| re(r"^<\/?prior-compacted-context>|^\[context compacted\b|^session_id=", "i"));
+static MEDIA_PLACEHOLDER: LazyLock<Regex> = LazyLock::new(|| re(r"^\[(?:Image|Video)\]$", "i"));
+
+/// `compactedSessionTitle(value, '')`: the earliest real user entry of a compact handoff, which can be the only copy of the
+/// prompt that named a CLI session. Media-only entries stay provisional.
+pub fn compacted_session_title(value: &str) -> String {
+    if COMPACTED_LEAD.find(value.trim_start_matches(is_js_space)).is_none() && !value.contains("\u{3c}prior-compacted-context>") {
+        return String::new();
+    }
+    let lines: Vec<&str> = value.split('\n').map(|line| line.strip_suffix('\r').unwrap_or(line)).collect();
+    // (at, id, index, title)
+    let mut entries: Vec<(String, u64, usize, String)> = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        let Some(event) = COMPACTED_EVENT_LINE.find(line) else { continue };
+        if !line[event.group(2).expect("kind")].eq_ignore_ascii_case("u") {
+            continue;
+        }
+        let body = &line[event.group(3).expect("text")];
+        let id = COMPACTED_ID.find(body);
+        let mut parts = vec![id.as_ref().map_or(body, |m| &body[..m.start()]).to_owned()];
+        for next in &lines[index + 1..] {
+            if COMPACTED_EVENT_LINE.find(next).is_some() || COMPACTED_END.find(next).is_some() {
+                break;
+            }
+            parts.push((*next).to_owned());
+        }
+        let display = parts.join("\n");
+        let display = js_trim(&display);
+        let legacy = legacy_media_display(display);
+        let source = match &legacy {
+            Some((text, _)) if !text.is_empty() => text.lines().find(|l| !js_trim(l).is_empty()).unwrap_or(text),
+            _ => display,
+        };
+        let title = generated_session_title(source, legacy.as_ref().map_or("", |(_, placeholder)| placeholder), 32);
+        if title.is_empty() {
+            continue;
+        }
+        let at = line[event.group(1).expect("time")].to_owned();
+        let id = id.and_then(|m| m.group(1).and_then(|g| body[g].parse::<u64>().ok())).unwrap_or(9_007_199_254_740_991);
+        entries.push((at, id, index, title));
+    }
+    entries.sort_by(|a, b| (&a.0, a.1, a.2).cmp(&(&b.0, b.1, b.2)));
+    entries
+        .iter()
+        .find(|e| MEDIA_PLACEHOLDER.find(js_trim(&e.3)).is_none())
+        .or(entries.first())
+        .map(|e| e.3.clone())
+        .unwrap_or_default()
+}
+
+/// The desktop roster's title from a preview: `compactedSessionTitle(preview, '') || generatedSessionTitle(preview, '')`.
+pub fn roster_preview_title(preview: &str) -> String {
+    let compacted = compacted_session_title(preview);
+    if compacted.is_empty() { generated_session_title(preview, "", 32) } else { compacted }
+}
+
 /// `sessionSummaryTitle(session, fallback)`; an empty `title` counts as absent.
 pub fn session_summary_title(title: Option<&str>, preview: Option<&str>, fallback: &str) -> String {
     match title.filter(|t| !t.is_empty()) {
