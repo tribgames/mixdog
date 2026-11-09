@@ -208,6 +208,10 @@ pub struct ProviderCatalog {
     /// Why each provider's latest listing failed (`providerCatalogFailure`).
     failures: Arc<CatalogFailureStore>,
     now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// Test-only seam: runs after a listing is spawned and before the caller polls its deadline, standing in for a
+    /// caller descheduled there while another worker runs the listing.
+    #[cfg(test)]
+    after_spawn: Option<Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>>,
 }
 
 impl ProviderCatalog {
@@ -224,6 +228,8 @@ impl ProviderCatalog {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0, |d| d.as_millis() as u64)
             }),
+            #[cfg(test)]
+            after_spawn: None,
         }
     }
 
@@ -258,6 +264,10 @@ impl ProviderCatalog {
     /// settles, and while it overran a deadline nobody asks the provider again.
     async fn list_bounded(&self, source: &ModelSource, epoch: u64) -> Listing {
         let provider = source.provider().clone();
+        // The deadline's instant is fixed before the listing can start (Node arms it synchronously, `CD:123-124`, and
+        // runs the provider a microtask later, `:73-74`): another worker may run the listing at once, and its own
+        // timer must never be due before this one.
+        let deadline = tokio::time::sleep(LIST_DEADLINE);
         let flight = {
             let mut flights = self.flights.lock().unwrap_or_else(PoisonError::into_inner);
             match flights.latest.get(&provider) {
@@ -288,10 +298,14 @@ impl ProviderCatalog {
                 }
             }
         };
-        // Node's deadline timer is set before the listing's own 4 s fetch timer, so on a tie it wins; poll it first.
+        #[cfg(test)]
+        if let Some(hook) = &self.after_spawn {
+            hook().await;
+        }
+        // On a tie with the listing's own timer the deadline wins; poll it first.
         tokio::select! {
             biased;
-            () = tokio::time::sleep(LIST_DEADLINE) => {
+            () = deadline => {
                 flight.timed_out.store(true, Ordering::SeqCst);
                 Err(deadline_error(&provider))
             }
@@ -641,6 +655,45 @@ mod tests {
             read_as_recorded(&catalog, &sources, &calls, &mut codes, now, &at, &scenario[point], &format!("{name}: {point}")).await;
         }
         drain(&catalog, name).await;
+    }
+
+    /// A caller descheduled between starting the listing and polling its deadline, while the listing runs to its own
+    /// 4 s timer (on another worker in production; here the seam yields to it and moves time on): the deadline was
+    /// fixed when the caller came in, so the tie still reads as Node's first point, a missed deadline at 4000 ms.
+    #[tokio::test(start_paused = true)]
+    async fn a_caller_descheduled_after_starting_the_listing_still_misses_a_tied_deadline() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/catalog-deadline-tie/golden.json")).unwrap();
+        let recorded = &golden["scenarios"][0]["first"];
+        let start = tokio::time::Instant::now();
+        let (tie, calls) = slow("tie", Some(LIST_DEADLINE));
+        let mut catalog = ProviderCatalog::new(CatalogSnapshot::default());
+        let (flights, started) = (catalog.flights.clone(), calls.clone());
+        catalog.after_spawn = Some(Arc::new(move || {
+            let (flights, started) = (flights.clone(), started.clone());
+            async move {
+                // The listing starts and arms its own timer,
+                while started.load(Ordering::SeqCst) == 0 {
+                    tokio::task::yield_now().await;
+                }
+                // then reaches it and settles before the caller runs again.
+                tokio::time::advance(LIST_DEADLINE).await;
+                while !flights.lock().unwrap().running.is_empty() {
+                    tokio::task::yield_now().await;
+                }
+            }
+            .boxed()
+        }));
+        let outcome = catalog.refresh_asking(std::slice::from_ref(&tie), Ask::Due).await;
+        let failed: Vec<serde_json::Value> = outcome
+            .failed
+            .iter()
+            .map(|(p, e)| serde_json::json!({ "name": p.as_str(), "models": [], "error": { "code": e.code, "message": e.message } }))
+            .collect();
+        let mut expected = recorded["entries"].clone();
+        expected[0].as_object_mut().unwrap().remove("retryAt");
+        assert_eq!(serde_json::Value::Array(failed), expected);
+        assert_eq!(serde_json::json!(start.elapsed().as_millis() as u64), recorded["at"]);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
     /// The latest operation's work for `provider`.
