@@ -1162,6 +1162,15 @@ crate::client_request_definitions! {
         mutation: op(Room),
         origins: [Local, Ssh, Relay],
     },
+    /// Today's `agentRoomAction('reset', …)`: the room's log starts over, its members' sessions are emptied.
+    RoomReset => "room/reset" {
+        params: RoomResetParams,
+        result: JsonValue,
+        scope: global("room"),
+        class: C2,
+        mutation: op(Room),
+        origins: [Local, Ssh, Relay],
+    },
     /// Today's `agentRoomAction('remove', …)`.
     RoomRemove => "room/remove" {
         params: RoomRemoveParams,
