@@ -42,7 +42,7 @@ fn question(id: &str, to: &str) -> Delegated {
 
 /// Returns once the feed's last publication is want.
 async fn shown(feed: &Feed, want: Option<(String, Vec<Value>)>) {
-    crate::session::testing::eventually_on(&[&feed.1], || (last(feed) == want).then_some(())).await;
+    crate::eventually_on!(&[&feed.1], || (last(feed) == want).then_some(())).await;
 }
 
 fn last(feed: &Feed) -> Option<(String, Vec<Value>)> {
@@ -88,7 +88,7 @@ async fn a_runtime_shows_the_questions_waiting_for_it_and_those_that_come_until_
     drop(hub);
     drop(host);
     for publisher in publishers {
-        publisher.await.unwrap();
+        crate::session::testing::awaiting("a drain task to end once every owner of its queue is gone", publisher).await.unwrap();
     }
     assert_eq!(ids(&feed), ["q2"]);
 }

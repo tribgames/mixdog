@@ -278,10 +278,10 @@ mod tests {
         ));
         // The close has begun and is held: a teardown running both at once would have logged the cancel by now.
         assert!(futures::poll!(teardown.as_mut()).is_pending());
-        close_started.await.unwrap();
+        crate::session::testing::awaiting("the close to begin", close_started).await.unwrap();
         assert!(log.lock().unwrap().is_empty(), "the descendants wait for the close");
         finish.send(()).unwrap();
-        assert!(teardown.await);
+        assert!(crate::session::testing::awaiting("the teardown to end once the close has", teardown).await);
         assert_eq!(*log.lock().unwrap(), ["close_all", "cancel_descendants"]);
     }
 }

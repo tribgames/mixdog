@@ -5344,9 +5344,13 @@ impl SessionActor {
             prompt_history::Next::Idle => {}
             prompt_history::Next::Flush(batch) => self.flush_prompts(batch),
             prompt_history::Next::Wait { epoch, delay } => {
+                #[cfg(any(test, feature = "test-support"))]
+                self.cell.prompt_timers.fetch_add(1, SeqCst);
                 let jobs = self.jobs_tx.clone();
+                // The wait starts as it is armed, as Node's `setTimeout` does, not when the task first runs.
+                let due = tokio::time::sleep(delay);
                 drop(tokio::spawn(async move {
-                    tokio::time::sleep(delay).await;
+                    due.await;
                     let _ = jobs.send(JobDone::PromptRetryDue(epoch));
                 }));
             }

@@ -159,7 +159,7 @@ impl EffortDecisionLog {
     #[cfg(test)]
     async fn appended(&self) {
         let appends = std::mem::take(&mut *self.appends.lock().unwrap());
-        futures::future::join_all(appends).await;
+        mixdog_core_session::session::testing::awaiting("every effort-decision append to land", futures::future::join_all(appends)).await;
     }
 
     /// `process.env.MIXDOG_EFFORT_DECISIONS_LOG || join(resolvePluginData(), 'effort-judge',

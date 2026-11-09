@@ -669,7 +669,7 @@ mod tests {
     async fn switch_now_switches_the_conversation_in_place() {
         use mixdog_core_ports::ports::route::SessionRoutes;
         use crate::session::thread_state::SessionThreads;
-        use crate::session::tests::eventually_on;
+        use crate::eventually_on;
         use crate::session::tests::idle;
         use crate::session::tests::start_thread;
         use crate::session::tests::turn;
@@ -693,7 +693,7 @@ mod tests {
         let directory = Arc::new(SessionDirectory::new(rig.deps()));
         let handle = start_thread(&directory).await;
         turn(&handle, "hello", "op-1").await;
-        eventually_on(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.view.load_full().items.len() == 2).then_some(())).await;
+        eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.view.load_full().items.len() == 2).then_some(())).await;
         let threads = Arc::new(SessionThreads::new(directory.clone()));
         threads.patch_header(&handle.id, obj(json!({ "provider": "openai", "model": "gpt-a" })), Vec::new()).await.expect("route");
         let change = Arc::new(Change(Mutex::default()));

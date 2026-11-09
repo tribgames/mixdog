@@ -392,7 +392,7 @@ impl ReapingShells {
     async fn released(&self) {
         let tasks = std::mem::take(&mut *self.releases.lock().unwrap_or_else(PoisonError::into_inner));
         for task in tasks {
-            task.await.expect("a session's computer release");
+            mixdog_core_session::session::testing::awaiting("a session's computer release to end", task).await.expect("a session's computer release");
         }
     }
 }
@@ -435,7 +435,7 @@ impl SettlingSnapshots {
     async fn settled(&self) {
         let tasks = std::mem::take(&mut *self.settlements.lock().unwrap_or_else(PoisonError::into_inner));
         for task in tasks {
-            task.await.expect("a turn's computer settlement");
+            mixdog_core_session::session::testing::awaiting("a turn's computer settlement to end", task).await.expect("a turn's computer settlement");
         }
     }
 }
@@ -745,24 +745,34 @@ mod tests {
     }
 
     /// Node bounds each shutdown release (`client.mjs:761`): a helper that never answers is given up on after the timeout, so `release_all` ends and the stop steps after it
-    /// (memory, PostgreSQL) still run. Paused time: the timeout elapses without a sleep.
+    /// (memory, PostgreSQL) still run. The clock is paused and held, so the timeout elapses only by the test's own advance.
     #[tokio::test(start_paused = true)]
     async fn a_stuck_helper_release_ends_at_the_shutdown_timeout() {
+        use mixdog_core_session::session::testing::{HeldClock, awaiting};
+
+        let _held = HeldClock::hold();
         let stuck = Arc::new(Stuck(tokio::sync::Notify::new()));
         let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(stuck.clone(), plain(), quiet()).await.expect("helper");
         let backend = pool.backend("stuck");
         let read = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
         let mut call = tokio::spawn(async move { backend.run(read, CancellationToken::new()).await });
         // The call's spawn is the helper that never answers; a call that ends without spawning it is the failure.
-        tokio::select! {
-            biased;
-            () = stuck.0.notified() => {}
-            ended = &mut call => panic!("the call ended without spawning the helper: {ended:?}"),
-        }
+        awaiting("the call to spawn the helper", async {
+            tokio::select! {
+                biased;
+                () = stuck.0.notified() => {}
+                ended = &mut call => panic!("the call ended without spawning the helper: {ended:?}"),
+            }
+        })
+        .await;
         assert!(pool.entries().get("stuck").is_some_and(|entry| entry.process.is_bound()));
-        let started = tokio::time::Instant::now();
-        assert_eq!(pool.release_all().await, 0, "the stuck release is unconfirmed");
-        assert!(started.elapsed() >= SHUTDOWN_RELEASE, "the release was given its whole bound");
+        // The test polls the release itself, so its timeout is armed against the clock as it stands before any advance.
+        let mut release = std::pin::pin!(pool.release_all());
+        assert!(futures::poll!(release.as_mut()).is_pending(), "the stuck helper's release waits");
+        tokio::time::advance(SHUTDOWN_RELEASE - Duration::from_millis(1)).await;
+        assert!(futures::poll!(release.as_mut()).is_pending(), "the release is given its whole bound");
+        tokio::time::advance(Duration::from_millis(1)).await;
+        assert_eq!(awaiting("the stuck release to end at the timeout", release).await, 0, "the stuck release is unconfirmed");
         assert!(!pool.entries().contains_key("stuck"), "the session's state goes anyway");
         call.abort();
     }

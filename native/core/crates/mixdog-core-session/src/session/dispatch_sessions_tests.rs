@@ -21,7 +21,7 @@ use crate::session::agent_registry::RuntimeRelease;
 use crate::session::agent_registry::SessionTurns;
 use crate::session::close::SessionClose;
 use crate::session::testing::Rig;
-use crate::session::tests::eventually_on;
+use crate::eventually_on;
 
 fn golden() -> Value {
     serde_json::from_str(include_str!("../../../../fixtures/dispatch-sessions/golden.json")).expect("golden.json")
@@ -176,14 +176,14 @@ async fn an_ask_answers_the_reply_and_an_abort_ends_the_turn_with_nodes_text() {
                 let (threads, id, cancel) = (threads.clone(), id.clone(), cancel.clone());
                 async move { threads.ask(&id, prompt, None, Arc::new(Immediate), &cancel).await }
             });
-            eventually_on(&[&changed], || started.lock().unwrap().then_some(())).await;
+            eventually_on!(&[&changed], || started.lock().unwrap().then_some(())).await;
             cancel.abort("parent aborted");
             let answer = asking.await.expect("ask");
-            eventually_on(&[&changed], || signal.lock().unwrap().clone()).await;
+            eventually_on!(&[&changed], || signal.lock().unwrap().clone()).await;
             assert_eq!(signal.lock().unwrap().as_deref(), Some("parent aborted"), "{prompt}: the turn ends with the signal's reason");
             let live = directory.handle(&thread).expect("the thread is loaded while its turn runs");
             // Not just the run gone: the next ask is refused as busy until the Goal settlement is back.
-            eventually_on(&[&live.cell.stepped], || (!live.cell.busy.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
+            eventually_on!(&[&live.cell.stepped], || (!live.cell.busy.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
             answer
         }
     };

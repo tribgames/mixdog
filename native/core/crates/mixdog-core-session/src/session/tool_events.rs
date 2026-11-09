@@ -132,15 +132,18 @@ impl ToolEventsLog {
     #[cfg(test)]
     pub async fn flush(&self) {
         let drained = lock(&self.queue).drained.clone();
-        loop {
-            let idle = drained.notified();
-            tokio::pin!(idle);
-            idle.as_mut().enable();
-            if !lock(&self.queue).running {
-                return;
+        super::testing::awaiting("the tool-events queue to drain", async {
+            loop {
+                let idle = drained.notified();
+                tokio::pin!(idle);
+                idle.as_mut().enable();
+                if !lock(&self.queue).running {
+                    return;
+                }
+                idle.await;
             }
-            idle.await;
-        }
+        })
+        .await;
     }
 }
 

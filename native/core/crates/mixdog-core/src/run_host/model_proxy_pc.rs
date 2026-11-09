@@ -591,12 +591,15 @@ mod tests {
                         let provider = at("provider");
                         let asks = futures::future::join_all(step["models"].as_array().unwrap().iter().map(|model| probe.usable(&provider, model.as_str().unwrap())));
                         tokio::pin!(asks);
-                        tokio::select! {
-                            biased;
-                            () = counting.began.notified() => counting.release.notify_one(),
-                            _ = &mut asks => panic!("the burst ended before a measurement began"),
-                        }
-                        let results = asks.await;
+                        mixdog_core_session::session::testing::awaiting("the burst to begin a measurement", async {
+                            tokio::select! {
+                                biased;
+                                () = counting.began.notified() => counting.release.notify_one(),
+                                _ = &mut asks => panic!("the burst ended before a measurement began"),
+                            }
+                        })
+                        .await;
+                        let results = mixdog_core_session::session::testing::awaiting("the burst's asks to end once the measurement is released", asks).await;
                         counting.gated.store(false, Ordering::SeqCst);
                         results.iter().map(outcome).collect()
                     }

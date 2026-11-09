@@ -10,7 +10,7 @@ use super::SessionDirectory;
 use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::testing::lock;
-use super::tests::eventually_on;
+use crate::eventually_on;
 use super::tests::idle;
 use super::tests::start_thread;
 use super::tests::turn;
@@ -42,18 +42,18 @@ async fn the_first_turns_visible_output_warms_and_every_busy_change_wakes() {
     speaking_turns(&rig);
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
-    eventually_on(&[&rig.code_graph.called], || calls(&rig).contains(&"schedule:cwd:default".to_owned()).then_some(())).await;
+    eventually_on!(&[&rig.code_graph.called], || calls(&rig).contains(&"schedule:cwd:default".to_owned()).then_some(())).await;
     assert!(calls(&rig).contains(&"wake".to_owned()), "the create settling wakes: {:?}", calls(&rig));
     take(&rig);
 
     turn(&handle, "one", "op-1").await;
-    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    eventually_on(&[&rig.code_graph.called], || (calls(&rig).len() == 3).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    eventually_on!(&[&rig.code_graph.called], || (calls(&rig).len() == 3).then_some(())).await;
     assert_eq!(take(&rig), ["wake", "schedule:first-visible:0", "wake"]);
 
     turn(&handle, "two", "op-2").await;
-    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    eventually_on(&[&rig.code_graph.called], || (calls(&rig).len() == 2).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    eventually_on!(&[&rig.code_graph.called], || (calls(&rig).len() == 2).then_some(())).await;
     assert_eq!(take(&rig), ["wake", "wake"], "only the runtime's first turn warms");
 }
 
@@ -70,7 +70,7 @@ async fn every_cwd_apply_warms_unless_lazy_before_the_first_turn() {
     handle.cwd_applied(false).expect("applied");
     // A turn after the applies: the control lane took them first.
     turn(&handle, "one", "op-1").await;
-    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert!(
         !calls(&rig).iter().any(|call| call.starts_with("schedule:cwd")),
         "lazy: no cwd warm before the first turn: {:?}",
@@ -79,9 +79,9 @@ async fn every_cwd_apply_warms_unless_lazy_before_the_first_turn() {
     take(&rig);
 
     handle.cwd_applied(true).expect("applied");
-    eventually_on(&[&rig.code_graph.called], || calls(&rig).contains(&"schedule:cwd-change:0".to_owned()).then_some(())).await;
+    eventually_on!(&[&rig.code_graph.called], || calls(&rig).contains(&"schedule:cwd-change:0".to_owned()).then_some(())).await;
     handle.cwd_applied(false).expect("applied");
-    eventually_on(&[&rig.code_graph.called], || calls(&rig).contains(&"schedule:cwd:default".to_owned()).then_some(())).await;
+    eventually_on!(&[&rig.code_graph.called], || calls(&rig).contains(&"schedule:cwd:default".to_owned()).then_some(())).await;
     let scheduled: Vec<String> = take(&rig).into_iter().filter(|call| call.starts_with("schedule")).collect();
     assert_eq!(scheduled, ["schedule:cwd-change:0", "schedule:cwd:default"]);
 }

@@ -483,7 +483,7 @@ mod tests {
         // One poll runs the gate through everything that does not wait, to its decision: an admitted turn would be `Ready`.
         assert!(futures::poll!(admit.as_mut()).is_pending(), "the turn waits for the transition");
         drop(transition);
-        let _guard = admit.await.unwrap();
+        let _guard = crate::session::testing::awaiting("the turn to be admitted once the transition is dropped", admit).await.unwrap();
     }
 
     #[tokio::test]

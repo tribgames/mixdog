@@ -1279,6 +1279,8 @@ impl DirInner {
             stepped: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             busy: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            prompt_timers: Default::default(),
         });
         let handle = Arc::new(SessionHandle {
             id: id.clone(),
