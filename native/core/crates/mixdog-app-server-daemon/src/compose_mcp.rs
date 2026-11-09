@@ -267,12 +267,14 @@ impl mixdog_tools::exec::TaskNotifier for LateBoardNotifier {
 /// The sessions' toasts for the MCP service (`SessionToasts`): the session directory is built after the services, so it is read through the late cell.
 pub struct LateSessionToasts(pub Arc<mixdog_core::run_host::compose_parts::LateDirectory>);
 
-#[async_trait::async_trait]
 impl mixdog_mcp::mcp_service::SessionToasts for LateSessionToasts {
-    async fn toast(&self, thread: &str, text: &str, tone: &str) {
-        if let Some(directory) = self.0.directory() {
-            directory.push_toast(&ThreadId::from(thread), text, tone).await;
-        }
+    /// Before the directory exists no session is served, so nothing addressed it: not closed, and no runtime.
+    fn closed(&self) -> bool {
+        self.0.directory().is_some_and(|directory| mixdog_mcp::mcp_service::SessionToasts::closed(&*directory))
+    }
+
+    fn incarnation(&self, thread: &str) -> Option<Arc<dyn mixdog_mcp::mcp_service::Incarnation>> {
+        mixdog_mcp::mcp_service::SessionToasts::incarnation(&*self.0.directory()?, thread)
     }
 }
 
@@ -728,9 +730,14 @@ mod tests {
 
     struct Quiet;
 
-    #[async_trait]
     impl mixdog_mcp::mcp_service::SessionToasts for Quiet {
-        async fn toast(&self, _: &str, _: &str, _: &str) {}
+        fn closed(&self) -> bool {
+            false
+        }
+
+        fn incarnation(&self, _: &str) -> Option<Arc<dyn mixdog_mcp::mcp_service::Incarnation>> {
+            None
+        }
     }
     #[async_trait]
     impl GmailVerifier for Quiet {

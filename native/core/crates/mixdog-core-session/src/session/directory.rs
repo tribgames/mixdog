@@ -183,6 +183,10 @@ pub(crate) struct DirInner {
     owner_teardown: std::sync::OnceLock<Arc<dyn OwnerTeardown>>,
     /// What each runtime's teardown does to its own session (`ExitClose`).
     exit_close: std::sync::OnceLock<Arc<dyn ExitClose>>,
+    /// The shutdown began: the session service is closed.
+    closed: std::sync::atomic::AtomicBool,
+    /// The close work of each unloaded runtime still running, by thread: the next open of the thread waits for it.
+    teardowns: Mutex<HashMap<ThreadId, Vec<oneshot::Receiver<()>>>>,
     /// Cancels the staged-originals deadline timer when the directory goes.
     _prune: tokio_util::sync::DropGuard,
     /// Woken whenever a thread leaves the directory (a test waits on `handle(..)` turning `None`).
@@ -291,6 +295,8 @@ impl SessionDirectory {
             goal_events: Mutex::new(None),
             owner_teardown: std::sync::OnceLock::new(),
             exit_close: std::sync::OnceLock::new(),
+            closed: Default::default(),
+            teardowns: Default::default(),
             _prune: prune.drop_guard(),
             #[cfg(any(test, feature = "test-support"))]
             left: Default::default(),
@@ -329,6 +335,17 @@ impl SessionDirectory {
     /// The concrete handle of a loaded thread.
     pub fn handle(&self, id: &ThreadId) -> Option<Arc<SessionHandle>> {
         self.inner.loaded(id)
+    }
+
+    /// Node's `stop()` sets `closed` first (`session-service.mjs:257`), before it tears the entries down: every session call
+    /// then answers `session service is closed`. [`Self::shutdown_for`] does it as its first step.
+    pub(super) fn begin_close(&self) {
+        self.inner.closed.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Whether the shutdown began (Node's session service `isClosed()`).
+    pub fn is_closed(&self) -> bool {
+        self.inner.closed.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// The turn gate, for the tests that hold a start's admission or a delete's fence.
@@ -696,6 +713,7 @@ impl SessionDirectory {
     /// then every loaded thread is closed as its runtime's own session ([`ExitClose`]); then every loaded thread stops (a live run is cancelled) and its memory ingest is awaited,
     /// all of them together bounded at 2500 ms.
     pub async fn shutdown_for(&self, reason: &str) {
+        self.begin_close();
         if is_process_exit_reason(reason)
             && let Some(hook) = self.inner.owner_teardown.get()
         {
@@ -885,8 +903,9 @@ impl DirInner {
     }
 
     /// Drops the loaded thread whose cell is `cell` when it still has no subscriber, and
-    /// closes the cell under the shard lock. False when a subscriber came back meanwhile.
-    pub(crate) fn unload(&self, id: &ThreadId, cell: &Arc<ControlCell>) -> bool {
+    /// closes the cell under the shard lock. False when a subscriber came back meanwhile. `teardown` is the unloaded runtime's
+    /// own close work (its memory ingest): it runs from here, and the next open of the thread waits for it ([`Self::settle_teardowns`]).
+    pub(crate) fn unload(&self, id: &ThreadId, cell: &Arc<ControlCell>, teardown: futures::future::BoxFuture<'static, ()>) -> bool {
         let mut shard = lock(self.shard(id));
         let ours = matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(&h.cell, cell));
         // The check and the close are one transition of the admission word: an attach that
@@ -895,9 +914,25 @@ impl DirInner {
             return false;
         }
         shard.remove(id);
+        let (done, finished) = oneshot::channel::<()>();
+        lock(&self.teardowns).entry(id.clone()).or_default().push(finished);
+        tokio::spawn(async move {
+            teardown.await;
+            let _ = done.send(());
+        });
         #[cfg(any(test, feature = "test-support"))]
         self.left.notify_waiters();
         true
+    }
+
+    /// Waits for the teardowns of the runtimes of `id` that unloaded before now (`settleTeardown`, `entries/disposal.mjs:22`):
+    /// a runtime for the same thread must never open while the previous one still closes, as two must never write one session.
+    /// A teardown that ends without finishing (its task dropped) ends the wait too.
+    async fn settle_teardowns(&self, id: &ThreadId) {
+        let pending = lock(&self.teardowns).remove(id).unwrap_or_default();
+        for finished in pending {
+            let _ = finished.await;
+        }
     }
 
     pub(crate) fn deps(&self) -> &Arc<SessionDeps> {
@@ -1038,6 +1073,7 @@ impl DirInner {
                     let me = self.me.upgrade().expect("the directory is alive while used");
                     let thread = id.clone();
                     mixdog_rt::spawn("session-open", TaskClass::Work, async move {
+                        me.settle_teardowns(&thread).await;
                         let result = me.load(&thread, prewarm).await;
                         // `resumeSession`'s `_refreshResumedTools`: a thread opened for use (not
                         // for a delete or an op record) takes its tool surface as it resolves now,

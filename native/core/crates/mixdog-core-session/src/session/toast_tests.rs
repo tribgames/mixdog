@@ -110,7 +110,8 @@ async fn a_posted_notice_is_the_toast_node_showed() {
     for flow in golden["flows"].as_array().expect("flows") {
         let Some(notice) = flow["events"].as_array().expect("events").iter().find_map(|event| event.get("notice")) else { continue };
         let handle = start_thread(&directory).await;
-        assert!(directory.push_toast(&handle.id, notice["text"].as_str().unwrap(), notice["tone"].as_str().unwrap()).await, "{}", flow["name"]);
+        let session = directory.hosting(&handle.id).expect("hosted");
+        session.push_toast(notice["text"].as_str().unwrap(), notice["tone"].as_str().unwrap()).await.unwrap_or_else(|cause| panic!("{}: {cause}", flow["name"]));
         let shown = published_toasts(&rig, &handle.id).expect("published");
         let without_ids: Vec<Value> = shown.iter().map(|toast| json!({ "text": toast["text"], "tone": toast["tone"] })).collect();
         assert_eq!(Value::Array(without_ids), flow["toasts"], "{}", flow["name"]);
@@ -118,7 +119,7 @@ async fn a_posted_notice_is_the_toast_node_showed() {
         posted += 1;
     }
     assert!(posted > 0, "the recording holds notices");
-    assert!(!directory.push_toast(&ThreadId::from("not-loaded"), "x", "info").await);
+    assert!(directory.hosting(&ThreadId::from("not-loaded")).is_none(), "a cold session has no incarnation");
 }
 
 /// An earlier record the store has not acknowledged holds the outbox, and with it the toast: `push_toast` (the sign-in notice
@@ -146,7 +147,8 @@ async fn a_toast_behind_an_unacknowledged_record_answers_only_when_it_is_publish
     // The record is at the store, unacknowledged.
     arrived.notified().await;
 
-    let mut toast = Box::pin(directory.push_toast(&handle.id, TEXT, "info"));
+    let session = directory.hosting(&handle.id).expect("hosted");
+    let mut toast = Box::pin(session.push_toast(TEXT, "info"));
     assert!(futures::poll!(toast.as_mut()).is_pending());
     // The inbox is in order: once this answers, the actor has taken the toast.
     let (tx, taken) = tokio::sync::oneshot::channel();
@@ -166,7 +168,7 @@ async fn a_toast_behind_an_unacknowledged_record_answers_only_when_it_is_publish
     assert!(toast_frames(&rig, &handle.id).is_empty());
 
     feed_go.0.send(()).expect("the publication waits");
-    assert!(toast.await, "answered once published");
+    toast.await.expect("answered once published");
     // The history, not the newest state: the toast's 3 s expiry may already have cleared it.
     let frames = toast_frames(&rig, &handle.id);
     assert_eq!(frames.len(), 1, "one frame carries the toast");

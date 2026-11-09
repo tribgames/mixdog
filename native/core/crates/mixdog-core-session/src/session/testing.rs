@@ -751,7 +751,15 @@ pub struct RecFeed {
     pub frames: Mutex<Vec<(u64, Value)>>,
     published: Arc<tokio::sync::Notify>,
     gate: PublishGate,
+    /// This feed's place among the thread's feed instances (one per incarnation), and the shared event log it tells each new toast to.
+    instance: usize,
+    timeline: Timeline,
+    shown: Mutex<std::collections::HashSet<String>>,
 }
+
+/// A test's ordered event log, shared by the sources it wants in one sequence.
+pub type EventLog = Arc<Mutex<Vec<Value>>>;
+pub type Timeline = Arc<Mutex<Option<EventLog>>>;
 
 /// The next publication that carries a toast with this text tells `.1` it arrived, then waits for `.2` before the frames are recorded.
 type PublishGate = Arc<Mutex<Option<(String, Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>>;
@@ -793,6 +801,20 @@ impl Feed for RecFeed {
         if let Some((_, arrived, go)) = held {
             arrived.notify_one();
             let _ = go.recv();
+        }
+        if let Some(log) = lock(&self.timeline).clone() {
+            let mut shown = lock(&self.shown);
+            for (_, frame) in &decoded {
+                if frame["method"] != "thread/runtime/updated" {
+                    continue;
+                }
+                for toast in frame["params"]["value"]["toasts"].as_array().into_iter().flatten() {
+                    if shown.insert(toast["id"].as_str().unwrap_or_default().to_owned()) {
+                        let label = char::from(b'A' + self.instance as u8).to_string();
+                        lock(&log).push(json!({ "notice": { "text": toast["text"], "tone": toast["tone"] }, "incarnation": label }));
+                    }
+                }
+            }
         }
         lock(&self.frames).extend(decoded);
         let published = self.inner.publish(frames, view);
@@ -841,13 +863,20 @@ pub struct RecFeeds {
     pub published: Arc<tokio::sync::Notify>,
     /// The next publication of any feed that carries a toast with `.0`'s text tells `.1` it arrived, then waits for `.2`.
     pub publish_gate: PublishGate,
+    /// When set, each toast a feed publishes for the first time is told to this log as `{notice: {text, tone}, incarnation}`.
+    pub timeline: Timeline,
 }
 
 impl RecFeeds {
     /// Every frame of `id`'s feeds in publication order, as `(seq, decoded frame)`: append-only, whatever the newest state is.
     pub fn history(&self, id: &str) -> Vec<(u64, Value)> {
+        self.histories(id).into_iter().flatten().collect()
+    }
+
+    /// The frames of each feed instance of `id` (one per incarnation of the thread), oldest instance first.
+    pub fn histories(&self, id: &str) -> Vec<Vec<(u64, Value)>> {
         let feeds = lock(&self.feeds);
-        feeds.get(&FeedId::from(id)).into_iter().flatten().flat_map(|feed| lock(&feed.frames).clone()).collect()
+        feeds.get(&FeedId::from(id)).into_iter().flatten().map(|feed| lock(&feed.frames).clone()).collect()
     }
 
     /// Frames of the newest feed instance of `id`, as `(seq, method, params)`.
@@ -871,7 +900,11 @@ impl RecFeeds {
 
 impl FeedFactory for RecFeeds {
     fn thread_feed(&self, id: FeedId, epoch: FeedEpoch, view: Arc<dyn FeedView>) -> Arc<dyn Feed> {
+        let instance = lock(&self.feeds).get(&id).map_or(0, Vec::len);
         let feed = Arc::new(RecFeed {
+            instance,
+            timeline: self.timeline.clone(),
+            shown: Mutex::default(),
             inner: MockFeed::new(id.clone(), epoch, view, MockLimits::default()),
             frames: Mutex::new(Vec::new()),
             published: self.published.clone(),
@@ -1327,14 +1360,23 @@ impl Rig {
 pub struct Closes {
     pub seen: Arc<Mutex<Vec<(ThreadId, Vec<Value>)>>>,
     pub delay: Mutex<std::time::Duration>,
+    /// When set, each ingest tells this log `{teardown: "done"}` as it ends.
+    pub timeline: Mutex<Option<EventLog>>,
+    /// Told (one permit each) as an ingest ends.
+    pub ended: Arc<tokio::sync::Notify>,
 }
 
 impl super::CloseIngest for Closes {
     fn ingest(&self, id: &ThreadId, _cwd: &str, messages: Vec<Value>) -> futures::future::BoxFuture<'static, ()> {
-        let (seen, id, delay) = (self.seen.clone(), id.clone(), *lock(&self.delay));
+        let (seen, id, delay, timeline) = (self.seen.clone(), id.clone(), *lock(&self.delay), lock(&self.timeline).clone());
+        let ended = self.ended.clone();
         Box::pin(async move {
             tokio::time::sleep(delay).await;
             lock(&seen).push((id, messages));
+            if let Some(log) = timeline {
+                lock(&log).push(json!({ "teardown": "done" }));
+            }
+            ended.notify_one();
         })
     }
 }

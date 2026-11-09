@@ -26,6 +26,8 @@ pub mod mcp_logins;
 pub mod mcp_server_input;
 pub mod mcp_secrets;
 pub mod mcp_service;
+#[cfg(feature = "test-support")]
+pub mod scripted;
 pub mod setup_actions;
 pub mod setup_runtime;
 pub mod naming;
