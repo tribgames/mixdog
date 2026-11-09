@@ -37,27 +37,21 @@ before(async () => {
       jsx: 'automatic',
       plugins: [
         {
-          name: 'preserve-model-catalog-module-url',
+          // The footer's renderer is replaced by a backend the test steers.
+          name: 'stub-statusline-render',
           setup(build) {
-            build.onResolve({ filter: /\/model-catalog\.mjs$/ }, () => ({
-              path: pathToFileURL(resolve('src/runtime/agent/orchestrator/providers/model-catalog.mjs')).href,
-              external: true,
+            build.onResolve({ filter: /statusline-render\.mjs$/ }, () => ({ path: 'statusline-render', namespace: 'stub' }));
+            build.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({
+              contents: `
+                export function renderStatusline(args) {
+                  return globalThis[Symbol.for('mixdog.status-panels.test.backend')](args);
+                }
+              `,
+              loader: 'js',
             }));
           },
         },
       ],
-    }),
-    build({
-      stdin: {
-        contents: `
-          export function renderStatusline(args) {
-            return globalThis[Symbol.for('mixdog.status-panels.test.backend')](args);
-          }
-        `,
-      },
-      outfile: join(directory, 'ui', 'statusline.mjs'),
-      platform: 'node',
-      format: 'esm',
     }),
   ]);
   panels = await import(pathToFileURL(output).href);
