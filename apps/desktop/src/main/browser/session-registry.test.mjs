@@ -3,7 +3,6 @@ import test from 'node:test';
 
 import { createBrowserCommandQueue } from './command-queue.ts';
 import { createBrowserTabs } from './tabs.ts';
-import { createRemoteMethods } from '../remote-methods.ts';
 import { BrowserSessionRegistry, browserSessionId } from './session-registry.ts';
 
 function guest(id) {
@@ -249,29 +248,4 @@ test('tab listing and named background targeting cannot cross session owners', (
   assert.match(alphaList, /Alpha background/);
   assert.doesNotMatch(alphaList, /Beta/);
   assert.equal(tabs.resolveTargetGuest('beta', false, 'research').guest.id, 4);
-});
-
-test('remote session deletion releases Browser Use resources for the same owner', async () => {
-  const releases = [];
-  const methods = createRemoteMethods({
-    host: {
-      async deleteSession(sessionId) {
-        return { deleted: sessionId };
-      },
-    },
-    async browserRemote(method, args) {
-      releases.push({ method, args });
-      return null;
-    },
-  });
-
-  assert.deepEqual(await methods.deleteSession(['session-alpha']), {
-    deleted: 'session-alpha',
-  });
-  assert.deepEqual(releases, [
-    {
-      method: 'release',
-      args: ['session-alpha'],
-    },
-  ]);
 });

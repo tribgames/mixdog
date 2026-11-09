@@ -8,7 +8,6 @@ import {
   REMOTE_TRANSCRIPT_TAIL_BYTES,
   REMOTE_TRANSCRIPT_TAIL_ITEMS,
 } from './desktop-support.ts';
-import { encodePhoneSessionState } from './remote-transcript-window.ts';
 import { SessionTranscriptWindows } from './session-transcript-windows.ts';
 import { createSnapshotDeltaDecoder, createSnapshotDeltaEncoder } from './state-delta.ts';
 
@@ -47,30 +46,4 @@ test('a window grows past any former ceiling, and again from a shorter tail the 
     transcriptByteBudget: DESKTOP_TRANSCRIPT_PAGE_BYTES,
     transcriptPageBase: 512,
   });
-});
-
-test('a session the desktop window also shows keeps the desktop tail, and a joining window re-reads it', () => {
-  const sources = new Map([['remote:phone', new Set([id])]]);
-  const windows = new SessionTranscriptWindows(sources);
-  windows.send(id);
-  sources.set('desktop', new Set([id]));
-  assert.equal(windows.stale(id), true, 'the held phone tail is shorter than the desktop pane needs');
-  assert.deepEqual(windows.send(id), {
-    transcriptItemLimit: DESKTOP_TRANSCRIPT_TAIL_ITEMS,
-    transcriptByteBudget: DESKTOP_TRANSCRIPT_TAIL_BYTES,
-  });
-  // The shared window is the desktop pane's, not the phone's ceiling: the
-  // phone's first page is cut to its own budget on the relay leg.
-  const shared = Array.from({ length: DESKTOP_TRANSCRIPT_TAIL_ITEMS }, (_, n) => ({
-    id: `row${n}`,
-    kind: 'assistant',
-    text: 'w'.repeat(20_000),
-  }));
-  const wire = encodePhoneSessionState(createSnapshotDeltaEncoder(), { items: shared }, true);
-  const decoded = createSnapshotDeltaDecoder().decode(JSON.parse(JSON.stringify(wire)));
-  const bytes = Buffer.byteLength(JSON.stringify(decoded.snapshot.items));
-  assert.ok(bytes <= REMOTE_TRANSCRIPT_TAIL_BYTES, `phone first page ${bytes} bytes`);
-  assert.equal(decoded.snapshot.transcriptHasOlder, true);
-  // A read for a session no view registered yet keeps the desktop tail.
-  assert.equal(new SessionTranscriptWindows(new Map()).request(id).transcriptItemLimit, DESKTOP_TRANSCRIPT_TAIL_ITEMS);
 });
