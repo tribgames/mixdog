@@ -71,9 +71,14 @@ pub fn emit(origin: Origin, channel: Channel, line: &str) {
     match installed {
         Some(sink) => sink(origin, channel, line),
         None => {
-            let _ = writeln!(std::io::stderr().lock(), "{line}");
+            let _ = std::io::stderr().lock().write_all(bare(line).as_bytes());
         }
     }
+}
+
+/// The bytes of a line written straight to the descriptor, before any redirect.
+pub fn bare(line: &str) -> String {
+    format!("{line}\n")
 }
 
 /// The lines [`emit`] gets on this thread while the guard lives, in order, instead of the installed sink.
