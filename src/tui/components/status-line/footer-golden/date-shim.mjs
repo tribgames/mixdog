@@ -21,6 +21,8 @@ const realSetImmediate = globalThis.setImmediate;
 let scheduled = 0;
 let pending = 0;
 let idleWaiters = [];
+// This identifies, by stack, the single scheduling site in b6f10295a's statusline.mjs:542-571
+// (oauthUsageSegmentReady). If that source changes, this exemption must be revisited.
 // Node's OAuth arm check (statusline.mjs oauthUsageSegmentReady) is a poll: while the provider stays unarmed every
 // render schedules it again ("stay unarmed; next tick retries"). Its outcome depends only on the files and the clock,
 // which a stage holds fixed, so once it has run in a stage and been scheduled again it left the provider unarmed and

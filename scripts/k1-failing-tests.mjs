@@ -15,6 +15,7 @@
 // test loads, that no longer exists in this tree. A file in class b or c with a missing import is flagged "IMPORT".
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((pairs, arg, i, all) => (arg.startsWith('--') ? [...pairs, [arg.slice(2), all[i + 1]]] : pairs), []));
 const root = resolve(args.root ?? '.');
@@ -28,7 +29,7 @@ const normalize = (text) =>
     .trim();
 
 const FILE_MARK = /^[✔✖] (\S+\.mjs) \(/;
-function parseLog(logPath) {
+export function parseLog(logPath) {
   const lines = readFileSync(logPath, 'utf8').split(/\r?\n/);
   const start = lines.indexOf('✖ failing tests:');
   // stderr reasons of process exits: the text between the previous file marker and this file's own marker
@@ -39,7 +40,7 @@ function parseLog(logPath) {
     if (!mark) continue;
     if (i < start || start < 0) {
       const error = lines.slice(segmentStart, i).find((line) => /^\s*\w*Error(?: \[\w+\])?: /.test(line));
-      exitReason.set(slash(mark[1]), error ? normalize(error) : 'no error line in stderr');
+      exitReason.set(slash(mark[1]), error ? normalize(error) : null);
     }
     segmentStart = i + 1;
   }
@@ -50,13 +51,14 @@ function parseLog(logPath) {
     const name = /^✖ (.+?) \([\d.]+ms\)$/.exec(lines[i + 1] ?? '')?.[1];
     let j = i + 2;
     while (j < lines.length && !lines[j].trim()) j += 1;
-    if (name) blockReason.set(`${slash(block[1])}\0${name}`, normalize(lines[j] ?? ''));
+    if (name) blockReason.set(`${slash(block[1])}\0${name}`, lines[j]?.trim() ? normalize(lines[j]) : null);
   }
   const failures = new Map();
   for (const [, file, name] of lines.join('\n').matchAll(/\[failure-summary\] FAILED (\S+) > (.+)/g)) {
     const key = slash(file);
     const exited = /\(test process exited with code/.test(name);
-    const reason = exited ? exitReason.get(slash(name.split(' (test process')[0])) ?? 'no error line in stderr' : blockReason.get(`${slash(file)}\0${name}`) ?? 'no message in the failing tests block';
+    // null = no recognizable reason in the log; it never matches anything, not even another null.
+    const reason = (exited ? exitReason.get(slash(name.split(' (test process')[0])) : blockReason.get(`${slash(file)}\0${name}`)) ?? null;
     if (!failures.has(key)) failures.set(key, []);
     failures.get(key).push({ name: normalize(name), reason });
   }
@@ -94,19 +96,26 @@ function missingImport(file) {
   return null;
 }
 
+// A failure matches the reference only when both sides have a reason and the name and the reason are equal.
+const matches = (f, r) => f.reason !== null && r.reason !== null && r.name === f.name && r.reason === f.reason;
+export function classify(file, failures, reference, deleted) {
+  if (deleted.has(file)) return { cls: 'a' };
+  const differing = failures.get(file).filter((f) => !(reference.get(file) ?? []).some((r) => matches(f, r)));
+  if (!differing.length) return { cls: 'b' };
+  return { cls: 'c', why: `${differing.length} test(s) without an identical failure on the reference, e.g. "${differing[0].name}": ${differing[0].reason ?? 'no reason in the log'}` };
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+function main() {
 const failures = parseLog(args.run);
 const reference = parseLog(args.reference);
 const deleted = deletedByManifest(args.manifest);
-const sameFailureOnReference = (file) =>
-  failures.get(file).every((f) => (reference.get(file) ?? []).some((r) => r.name === f.name && r.reason === f.reason));
 const rows = [...failures.keys()].sort().map((file) => {
   const missing = existsSync(resolve(root, file)) ? missingImport(file) : `${file} is not in this tree`;
-  if (deleted.has(file)) return { file, cls: 'a', missing };
-  if (sameFailureOnReference(file)) return { file, cls: 'b', missing };
-  const differing = failures.get(file).filter((f) => !(reference.get(file) ?? []).some((r) => r.name === f.name && r.reason === f.reason));
-  return { file, cls: 'c', missing, why: `${differing.length} test(s) without an identical failure on the reference, e.g. "${differing[0].name}": ${differing[0].reason}` };
+  return { file, missing, ...classify(file, failures, reference, deleted) };
 });
 for (const { file, cls, missing, why } of rows) console.log(`${cls}\t${file}${missing ? `\tIMPORT ${missing}` : ''}${why ? `\t${why}` : ''}`);
 const count = (cls) => rows.filter((row) => row.cls === cls).length;
 console.log(`total ${rows.length}: a (on the delete list) ${count('a')}, b (every failing test fails identically on the reference) ${count('b')}, c (not on the reference) ${count('c')}`);
 console.log(`import check: ${rows.filter((r) => r.missing).length} files have a missing import (a ${rows.filter((r) => r.missing && r.cls === 'a').length}, b ${rows.filter((r) => r.missing && r.cls === 'b').length}, c ${rows.filter((r) => r.missing && r.cls === 'c').length})`);
+}
