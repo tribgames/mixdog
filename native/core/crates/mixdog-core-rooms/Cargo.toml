@@ -28,6 +28,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt", "macros", "time"] }
 uuid = { workspace = true, features = ["v4", "v7"] }
 mixdog-core-base = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

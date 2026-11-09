@@ -48,6 +48,7 @@ members = [
     "crates/mixdog-app-server-daemon",
     "crates/mixdog-app-server-client",
     "crates/mixdog-cli",
+    "crates/mixdog-workspace-hack",
 ]
 
 [workspace.package]

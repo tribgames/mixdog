@@ -47,6 +47,7 @@ tokio-tungstenite = { workspace = true, features = ["connect", "handshake", "rus
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
 mixdog-js = { workspace = true, features = ["fixture-tools"] }

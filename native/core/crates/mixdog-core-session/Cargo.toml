@@ -50,6 +50,7 @@ mixdog-core-prompt = { workspace = true }
 mixdog-core-run = { workspace = true }
 mixdog-core-review = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [features]
 test-support = ["dep:tempfile", "dep:mixdog-core-review", "mixdog-core-review/test-support", "mixdog-core-api/mock", "mixdog-rt/test-support"]

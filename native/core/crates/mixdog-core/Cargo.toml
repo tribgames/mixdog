@@ -48,6 +48,7 @@ mixdog-core-prompt = { workspace = true }
 mixdog-core-rooms = { workspace = true }
 mixdog-core-run = { workspace = true }
 mixdog-core-session = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

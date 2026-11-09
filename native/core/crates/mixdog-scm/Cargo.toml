@@ -27,6 +27,7 @@ tokio = { workspace = true, features = ["sync", "time", "rt"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
 mixdog-core-api = { workspace = true, features = ["mock"] }

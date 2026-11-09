@@ -43,6 +43,7 @@ tokio-tungstenite = { workspace = true, features = ["connect", "handshake", "rus
 tokio-util = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
 # WP-WEBRTC tests

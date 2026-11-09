@@ -17,6 +17,7 @@ chrono = { workspace = true }
 chrono-tz = { workspace = true }
 iana-time-zone = { workspace = true }
 sha2 = { workspace = true, optional = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [features]
 # The loader of the tool references recorded goldens carry (`fixture_tools`): a dev-dependency of the crates that replay them.

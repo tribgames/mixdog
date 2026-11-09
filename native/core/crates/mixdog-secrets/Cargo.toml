@@ -20,6 +20,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

@@ -13,6 +13,7 @@ mixdog-js = { workspace = true }
 rand = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

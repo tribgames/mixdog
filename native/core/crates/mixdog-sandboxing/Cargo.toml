@@ -9,3 +9,4 @@ workspace = true
 
 [dependencies]
 mixdog-protocol = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }

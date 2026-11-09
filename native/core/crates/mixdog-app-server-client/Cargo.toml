@@ -22,6 +22,7 @@ tokio = { workspace = true, features = ["rt", "sync", "macros", "time", "net", "
 # Loopback `ws://` only (remote targets arrive through a tunnel or the relay as a loopback port), so no TLS feature.
 tokio-tungstenite = { workspace = true, features = ["connect"] }
 uuid = { workspace = true, features = ["v7"] }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
