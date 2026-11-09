@@ -34,9 +34,11 @@ export function summariesOfThreadRows(
     const activityAt = finite(core.activityAt);
     const readMessageCount = finite(core.readMessageCount);
     const readRevision = finite(core.readRevision);
-    const { working: _w, leadWorking: _l, agentWorking: _a, ...rest } = summary as DesktopSessionSummary & Record<string, unknown>;
+    // The core's row says compactCount: 0 for a thread never compacted; Node's summary has no such field until the first compaction (>= 1).
+    const { working: _w, leadWorking: _l, agentWorking: _a, compactCount, ...rest } = summary as DesktopSessionSummary & Record<string, unknown>;
     return {
       ...rest,
+      ...(typeof compactCount === 'number' && compactCount > 0 ? { compactCount } : {}),
       ...(activityAt ? { activityAt } : {}),
       // The runtime's own activity flags, not the projection's reading of `working` (it would make every working row a lead's).
       ...(core.working === true ? { working: true } : {}),

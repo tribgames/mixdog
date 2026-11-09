@@ -363,9 +363,7 @@ export function createRosterFeed<S>(options: {
     const flag = method === 'thread/archived' ? true : method === 'thread/unarchived' ? false : undefined;
     const id = method === 'thread/deleted' || flag !== undefined ? String(params.threadId ?? '') : thread ? idOf(thread) : '';
     if (!id) return;
-    // An edge's thread is the list row plus the thread's own route and birth time (live recording: provider, model, createdAt),
-    // which neither the listing nor Node's roster row carries.
-    const row = method === 'thread/deleted' ? null : thread ? (({ provider, model, createdAt, ...listRow }) => listRow)(thread as ThreadRow) : null;
+    const row = method === 'thread/deleted' ? null : thread ? (thread as ThreadRow) : null;
     if (reading || !known) {
       if (flag === undefined) edges.set(id, row);
       else if (edges.has(id)) edges.set(id, archiveOf(flag)(edges.get(id)) ?? null);

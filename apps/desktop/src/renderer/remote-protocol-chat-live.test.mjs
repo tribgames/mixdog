@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { createRosterFeed } from './remote-protocol-chat.ts';
 import { summariesOfThreadRows } from '../main/protocol/thread-rows.ts';
-import { assertParity, createParity, RUST_GAP } from './remote-protocol-chat-parity.mjs';
+import { assertParity, createParity } from './remote-protocol-chat-parity.mjs';
 
 const read = (name) => JSON.parse(readFileSync(new URL(name, import.meta.url), 'utf8'));
 const live = read('./remote-protocol-chat-live.recorded.json');
@@ -66,11 +66,11 @@ live.steps.forEach((step, at) => {
   });
 });
 
-// Not exercised by the live scenario: a retired bot (`agentDeleted`) and a room session (`agentRoom`) need an agent home / room made through
-// the protocol. Node's roster carries them; the core's list rows have no such field at all, so these stay todo until the same branch lands
-// and the scenario creates such rows.
-for (const field of ['agentDeleted', 'agentRoom']) {
-  test(`a live row carries ${field} where Node's roster does`, { todo: RUST_GAP }, () => {
-    assert.ok(live.steps.at(-1).listed.data.some((row) => field in row));
+// The scenario makes a room (`agentRoom`) and an agent whose definition is deleted: both sides have such rows, so the whole-row comparison
+// above covers them.
+for (const field of ['agentRoom', 'agentHome']) {
+  test(`both Node's roster and the live core's list have a row with ${field}`, () => {
+    assert.ok(node.states.at(-1).roster.some((row) => field in row));
+    assert.ok(live.steps.at(-1).listed.data.some((row) => field in row) || field === 'agentHome');
   });
 }

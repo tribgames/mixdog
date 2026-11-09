@@ -71,7 +71,7 @@ let nextId = 1;
 const EDGES = new Set(['thread/started', 'thread/summary/updated', 'thread/deleted', 'thread/archived', 'thread/unarchived']);
 socket.on('message', (data) => {
   const frame = JSON.parse(data.toString('utf8'));
-  if (frame.id !== undefined && pending.has(frame.id)) { const p = pending.get(frame.id); pending.delete(frame.id); frame.error ? p.reject(new Error(JSON.stringify(frame.error))) : p.resolve(frame.result); }
+  if (frame.id !== undefined && pending.has(frame.id)) { const p = pending.get(frame.id); pending.delete(frame.id); frame.error ? p.reject(new Error(`: ${JSON.stringify(frame.error)}`)) : p.resolve(frame.result); }
   else if (frame.method) {
     if (EDGES.has(frame.method)) edges.push({ method: frame.method, params: frame.params });
     for (const check of [...waiters]) check();
@@ -79,7 +79,7 @@ socket.on('message', (data) => {
 });
 const call = (method, params) => new Promise((resolve, reject) => {
   const id = nextId++;
-  pending.set(id, { resolve, reject });
+  pending.set(id, { resolve, reject, method });
   socket.send(JSON.stringify({ id, method, params }));
 });
 // The core requires a lowercase UUIDv7 `opId`: the client library's own generator.
@@ -93,13 +93,13 @@ const until = (ready, what) => {
   return deadline.race(done.promise, what);
 };
 
-// What the app feed has said, folded the way a listener folds it (an edge's thread is the list row plus provider, model and createdAt).
+// What the app feed has said, folded the way a listener folds it (an edge's thread is the list row plus provider and model).
 const folded = () => {
   const rows = new Map();
   for (const { method, params } of edges) {
     if (method === 'thread/deleted') rows.delete(params.threadId);
     else if (method === 'thread/archived' || method === 'thread/unarchived') { const row = rows.get(params.threadId); if (row) rows.set(params.threadId, { ...row, archived: method === 'thread/archived' }); }
-    else { const { provider, model, createdAt, ...row } = params.thread; rows.set(row.id, row); }
+    else { const { provider, model, ...row } = params.thread; rows.set(row.id, row); }
   }
   return rows;
 };
@@ -111,12 +111,25 @@ async function step(name, action, settled = () => true) {
   await action();
   // The settled state is awaited before the list is read, so the list is the settled one.
   await until(() => settled(folded()), `the rows of ${name} to settle`);
-  const listed = await call('thread/list', { limit: 1000 });
-  const want = new Map(listed.data.map((row) => [row.id, row]));
-  await until(() => {
+  let listed;
+  let want = new Map();
+  const unequal = () => {
     const have = folded();
-    return have.size === want.size && [...want].every(([id, row]) => same(have.get(id), row));
-  }, `the app feed to fold to the core's list after ${name}`);
+    return [...want].filter(([id, row]) => !same(have.get(id), row)).map(([id, row]) => ({ id, list: row, feed: have.get(id) ?? null }))
+      .concat([...have].filter(([id]) => !want.has(id)).map(([id, row]) => ({ id, list: null, feed: row })));
+  };
+  // A hang's last-seen text names what still differs between the feed's fold and the list.
+  const lastSeen = core.tail;
+  core.tail = () => `${lastSeen()}\nfeed fold vs list: ${JSON.stringify(unequal())}`;
+  // A write can land after the rows looked settled: the list is read again after each further edge until it and the feed's fold agree.
+  for (;;) {
+    const seen = edges.length;
+    listed = await call('thread/list', { limit: 1000 });
+    want = new Map(listed.data.map((row) => [row.id, row]));
+    if (unequal().length === 0) break;
+    await until(() => edges.length !== seen, `the app feed to fold to the core's list after ${name}`);
+  }
+  core.tail = lastSeen;
   steps.push({ name, listed, edges: edges.slice(from) });
 }
 
@@ -125,42 +138,64 @@ try {
   await call('initialize', { clientInfo: { name: 'ph2-chat-live', title: 'PH-2 live roster', version: '1.4.5', kind: 'tui' }, capabilities: {} });
   socket.send(JSON.stringify({ method: 'initialized' }));
   await call('app/subscribe', {});
-  // The roster's sessions: sess_0 / sess_1 / sess_2 (a fork of sess_0, favorite) / sess_3 / sess_4.
+  // The roster's threads, made the way Node's host makes them (remote-protocol-chat-roster.record.mjs): a thread with a route in its draft
+  // and a first answered prompt (Node stores no thread without one), then named; sess_2 is a fork of sess_0.
   const made = {};
+  const turned = new Map();
+  socket.on('message', (data) => { const f = JSON.parse(data.toString('utf8')); if (f.method === 'turn/completed') { turned.set(f.params.threadId, (turned.get(f.params.threadId) || 0) + 1); for (const check of [...waiters]) check(); } });
+  /** One answered prompt on `id`: its `count`-th turn. */
+  const turn = async (id, count, prompt) => {
+    await call('thread/resume', { threadId: id, window: { lastItems: 200 } });
+    await op('turn/start', { threadId: id, input: { prompt, options: { clientSubmissionId: `ph2-chat-live-${prompt.replaceAll(' ', '-')}` } } });
+    await until(() => turned.get(id) >= count, `the turn ${count} of ${id} to complete`);
+  };
+  const newTask = async (name, project) => {
+    made[name] = (await op('thread/start', { kind: 'project', projectPath: projects[project], draft: { route } })).thread.id;
+    await turn(made[name], 1, `hello ${name}`);
+  };
+  // A turn's last write (lastUsedAt = updatedAt = its completion) lands after `turn/completed`: a step is over when each turned row says so.
+  const answered = (names, count) => (rows) => names.every((name) => { const row = rows.get(made[name]); return row && row.messageCount === count * 2 && row.activityAt === row.updatedAt; });
   await step('created', async () => {
     for (const [name, project] of [['sess_0', 'b'], ['sess_1', 'a'], ['sess_3', 'a'], ['sess_4', 'b']]) {
-      made[name] = (await op('thread/start', { kind: 'project', projectPath: projects[project], draft: { route } })).thread.id;
+      await newTask(name, project);
       await op('thread/name/set', { threadId: made[name], title: `Title ${name.slice(-1)}` });
     }
-    const fork = await op('thread/fork', { threadId: made.sess_0 });
-    made.sess_2 = fork.thread.id;
+    // Node's inheritSession: a new session in the source's project, then inheritFrom into it.
+    made.sess_2 = (await op('thread/start', { kind: 'project', projectPath: projects.b })).thread.id;
+    await op('thread/fork', { threadId: made.sess_0, intoThreadId: made.sess_2 });
     await op('thread/name/set', { threadId: made.sess_2, title: 'Title 2' });
     await op('thread/metadata/update', { threadId: made.sess_2, favorite: true });
     await op('thread/readState/update', { threadId: made.sess_1, messageCount: 0, consumedUnread: true });
-  });
-  // A row reaches the index writer (and so the app feed's edges) when a turn is written: one answered turn on sess_1 and sess_0.
-  // A turn's last write (lastUsedAt = updatedAt = its completion) lands after `turn/completed`: the step is over when each turned row says so.
-  const turned = (rows) => ['sess_1', 'sess_0'].every((name) => { const row = rows.get(made[name]); return row && row.messageCount === 2 && row.activityAt === row.updatedAt; });
+  }, (rows) => answered(['sess_0', 'sess_1', 'sess_3', 'sess_4'], 1)(rows) && rows.get(made.sess_1).readRevision === 1);
   await step('turns', async () => {
-    for (const name of ['sess_1', 'sess_0']) {
-      await call('thread/resume', { threadId: made[name], window: { lastItems: 200 } });
-      let completed = false;
-      const finished = latch();
-      const onTurn = (data) => { const f = JSON.parse(data.toString('utf8')); if (f.method === 'turn/completed' && f.params?.threadId === made[name]) { completed = true; finished.resolve(); } };
-      socket.on('message', onTurn);
-      await op('turn/start', { threadId: made[name], input: { prompt: `hello ${name}`, options: { clientSubmissionId: `ph2-chat-live-${name}` } } });
-      await deadline.race(completed ? Promise.resolve() : finished.promise, `the turn of ${name} to complete`);
-      socket.off('message', onTurn);
-    }
-  }, turned);
+    for (const name of ['sess_1', 'sess_0']) await turn(made[name], 2, `again ${name}`);
+  }, answered(['sess_1', 'sess_0'], 2));
   await step('archive', () => op('thread/archive', { threadId: made.sess_3 }));
   await step('unarchive', () => op('thread/unarchive', { threadId: made.sess_3 }));
   await step('archive-again', () => op('thread/archive', { threadId: made.sess_3 }));
   await step('delete', async () => {
-    made.sess_5 = (await op('thread/start', { kind: 'project', projectPath: projects.a, draft: { route } })).thread.id;
+    await newTask('sess_5', 'a');
     await op('thread/name/set', { threadId: made.sess_5, title: 'Title 5' });
     await op('thread/delete', { threadId: made.sess_5 });
   });
+  const saveBot = async (name) => {
+    const saved = await op('agent/saveAgentDefinition', { payload: { kind: 'bot', name, description: `${name} bot`, body: `You are ${name}.`, route } });
+    return (saved.value ?? saved).id;
+  };
+  await step('agent-home', async () => {
+    made.botOne = await saveBot('Bot One');
+    made.botTwo = await saveBot('Bot Two');
+    const opened = await op('agent/home/open', { agentId: made.botOne });
+    made.botOneHome = opened.sessionId ?? opened.threadId ?? opened.thread?.id;
+    if (made.botOneHome !== `sess_home_${made.botOne}`) throw new Error(`agent/home/open answered ${JSON.stringify(opened)}`);
+    await turn(made.botOneHome, 1, 'hello Bot One');
+  }, (rows) => rows.get(made.botOneHome)?.messageCount === 2);
+  await step('room', async () => {
+    const created = await op('room/create', { input: { name: 'Room One', members: [made.botOne, made.botTwo] } });
+    made.room = created.roomId;
+    made.roomLog = created.sessionId;
+  });
+  await step('agent-delete', () => op('agent/deleteAgentDefinition', { agentId: made.botOne }));
   out = {
     manifest: {
       binary: bin, binarySha256: sha256(bin), binaryBuilt: statSync(bin).mtime.toISOString(),

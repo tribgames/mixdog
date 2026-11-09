@@ -41,63 +41,161 @@ const { createRelayCatalogs } = await load('main/remote-relay-catalog.ts');
 const { createKeyedListDeltaDecoder } = await load('shared/list-delta.ts');
 const { createRemoteRosterCache, readRosterStamp } = await load('shared/remote-roster-cache.ts');
 const { createRemoteCatalog } = await load('shared/remote-catalog.ts');
-const { _sessionSummary } = await import(pathToFileURL(join(exportDir, 'src/runtime/agent/orchestrator/session/store-summary-index.mjs')).href);
-const { desktopSessionSummaries } = await load('main/desktop-state.ts');
-const { DesktopSessionMetadata } = await load('main/desktop-session-metadata.ts');
 const { byActivityThenId } = await import(pathToFileURL(join(exportDir, 'src/runtime/agent/orchestrator/session/catalog-db/schema.mjs')).href);
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 // ── The scenario: the same actions remote-protocol-chat-live.record.mjs makes against a running mixdogd ─────────────────────────────
-// Node's store rows are Node's own `_sessionSummary` (store-summary-index.mjs) of session records the way Node writes them, and the
-// sidebar overlays are Node's own DesktopSessionMetadata (rename, favorite, read cursor, archive, forget) over a scratch directory.
-// The clock is virtual: every store write takes the next tick, so the timestamps are Node's order of writes, nothing from the wall clock.
-//   session-record.mjs:199 / session-crud.mjs:237  a created session has lastUsedAt = updatedAt = its creation tick
-//   ask-turn-settle.mjs:134                         a settled turn sets lastUsedAt (and updatedAt) to its completion tick
-//   desktop-session-metadata.ts setName/setArchived/setFavorite/markRead: sidebar metadata, no write to the session record
-let clockTick = 1_000_000;
-const tick = () => (clockTick += 1000);
+// Everything here is Node's own product code from the exact export, run for real: the Node daemon (`ensureDaemon`) in the harness's isolated
+// env with its fake provider, and Node's SessionHost (session-host.ts, run unchanged) attached to it. A thread is made the way the desktop
+// makes a new task (`submitNewTask`: reserve, `configureDraft` with the draft route, first prompt), named, favorited, read, forked
+// (`inheritSession`), archived and deleted through the host; the roster of an action is what the host's `listSessions` answers after it. Times
+// are the real clock's, so the comparison maps them by order (remote-protocol-chat-parity.mjs). A thread with no prompt is never stored
+// (Node refuses to name it: "Session is not available."), so a first prompt is part of making one.
 const PROJECT = { a: 'C:\\proj\\a', b: 'C:\\proj\\b' };
-const sessions = new Map();
-const metaDir = mkdtempSync(join(tmpdir(), 'ph2-chat-node-meta-'));
-const meta = new DesktopSessionMetadata(() => metaDir);
-const create = (name, project, extra = {}) => {
-  const at = tick();
-  sessions.set(name, { id: name, cwd: PROJECT[project], desktopSession: { classification: 'project', projectPath: PROJECT[project] }, createdAt: at, updatedAt: at, lastUsedAt: at, messages: [], ...extra });
+const harness = process.argv[4];
+if (!harness) throw new Error('usage: <export dir> <out file> <real-turn-harness dir>');
+const { createHash: sha } = await import('node:crypto');
+const { mkdirSync, rmSync } = await import('node:fs');
+process.env.HARNESS_ENV_ROOT = join(harness, 'run', 'env-ph2-chat-node');
+const hload = (name) => import(pathToFileURL(join(harness, 'lib', name)).href);
+const { daemonEnv, isolatedPaths } = await hload('env.mjs');
+const { startFakeProvider } = await hload('fake-provider.mjs');
+const { createDeadline, latch } = await hload('deadline.mjs');
+const PINNED = ['env.mjs', 'fake-provider.mjs', 'deadline.mjs', 'scenarios.mjs'];
+const envPaths = isolatedPaths();
+rmSync(envPaths.envRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+for (const d of [envPaths.dataDir, envPaths.runtimeRoot, envPaths.appData, envPaths.localAppData, envPaths.tmp, envPaths.workspace]) mkdirSync(d, { recursive: true });
+const projects = { a: join(envPaths.workspace, 'a'), b: join(envPaths.workspace, 'b') };
+for (const p of Object.values(projects)) mkdirSync(p, { recursive: true });
+const provider = await startFakeProvider({ workspace: envPaths.workspace });
+writeFileSync(join(envPaths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { 'custom-harness': { type: 'custom', schemaVersion: 2, name: 'harness', protocol: 'openai-chat', baseURL: provider.baseURL, auth: 'none', enabled: true, modelOverrides: { 'harness-model': { manual: true } } } } } }));
+const route = { provider: 'custom-harness', model: 'harness-model' };
+for (const key of Object.keys(process.env)) if (/^MIXDOG_/i.test(key)) delete process.env[key];
+Object.assign(process.env, daemonEnv(envPaths));
+// The daemon is forked with this process's flags; it runs as a plain script.
+process.execArgv = [];
+const { SessionHost } = await load('main/session-host.ts');
+const sessionClient = await import(pathToFileURL(join(exportDir, 'src/standalone/session-client.mjs')).href);
+const { createSessionProtocolClient } = await import(pathToFileURL(join(exportDir, 'src/standalone/session-protocol.mjs')).href);
+const { createDesktopRuntime } = await import(pathToFileURL(join(exportDir, 'src/standalone/daemon-desktop-runtime.mjs')).href);
+
+const deadline = createDeadline(300_000, () => 'node roster recording');
+const discovery = await deadline.race(sessionClient.ensureDaemon({ cwd: envPaths.workspace, attempts: 2, readyTimeoutMs: 60_000 }), 'the Node daemon');
+const turnsDone = new Map();
+const waiters = new Set();
+const wake = () => waiters.forEach((check) => check());
+const hasTurnDone = (v) => (Array.isArray(v) ? v.some(hasTurnDone) : v && typeof v === 'object' ? v.kind === 'turndone' || Object.values(v).some(hasTurnDone) : false);
+const runtime = {
+  ...createDesktopRuntime({ getLocalSessionBridge: () => null }),
+  attachSessionClient: async (options) => {
+    const attached = await sessionClient.attachSession({
+      discovery,
+      cwd: envPaths.workspace,
+      onFrame: (frame) => {
+        if (frame?.sessionId && hasTurnDone(frame)) turnsDone.set(frame.sessionId, (turnsDone.get(frame.sessionId) || 0) + 1);
+        options.onFrame(frame);
+        wake();
+      },
+      onFatal: options.onFatal,
+    });
+    return createSessionProtocolClient({ call: (name, args, callOptions) => attached.call(name, args, callOptions), close: (reason) => attached.close(reason) });
+  },
 };
-const ordered = (rows) => [...rows].sort(byActivityThenId);
-const roster = () =>
-  meta.withReadCursors(meta.withFavoriteFlags(meta.withRetiredFlags(meta.withArchiveFlags(desktopSessionSummaries(ordered([...sessions.values()].map(_sessionSummary)), meta.titles, meta.names, '')))));
+const userData = envPaths.appData;
+const host = await SessionHost.create({ userDataPath: userData, resourcesPath: envPaths.workspace, appPath: envPaths.workspace, packaged: false }, runtime);
+/** Resolves when `ready()` holds, checked again at each frame and each catalog publication. */
+const until = (ready, what) => {
+  const done = latch();
+  const check = () => { if (ready()) { waiters.delete(check); done.resolve(); } };
+  waiters.add(check);
+  check();
+  return deadline.race(done.promise, what);
+};
+/** Resolves at the next frame or catalog publication. */
+const nextEvent = (what) => {
+  const done = latch();
+  const check = () => { waiters.delete(check); done.resolve(); };
+  waiters.add(check);
+  return deadline.race(done.promise, what);
+};
+host.subscribeSessions(() => wake());
+const listed = async () => plain(await host.listSessions());
+/** The rows are settled when `ok(rows)` holds; a catalog publication re-checks. */
+async function settled(ok, what) {
+  let rows = await listed();
+  while (!ok(rows)) {
+    await nextEvent(what);
+    rows = await listed();
+  }
+}
+const made = {};
+const notes = [];
+const originalWarn = console.warn;
+const retireWarned = latch();
+console.warn = (...args) => {
+  const text = args.map((a) => String(a?.stack ?? a)).join(' ');
+  if (/Could not archive the threads of removed agents/.test(text)) { notes.push(text.split('\n')[0]); retireWarned.resolve(); }
+  else originalWarn(...args);
+};
+const turn = async (id, count, send) => {
+  await send();
+  await until(() => turnsDone.get(id) >= count, `the turn ${count} of ${id}`);
+  await settled((rows) => { const row = rows.find((r) => r.id === id); return row && row.messageCount === count * 2 && row.activityAt === row.updatedAt; }, `the row of ${id}`);
+};
+const newTask = async (name, project) => {
+  await host.startProject(projects[project]);
+  const accepted = await host.submitNewTask(`hello ${name}`, { id: `sub-${name}` }, { projectPath: projects[project], route });
+  made[name] = accepted.sessionId;
+  await turn(made[name], 1, async () => {});
+};
+const turns = {};
+const second = async (name) => { turns[name] = (turns[name] || 1) + 1; await turn(made[name], turns[name], () => host.submitToSession(made[name], `again ${name}`, { id: `sub-${name}-${turns[name]}` })); };
+const saveBot = async (name) => (await host.invokeCapability('saveAgentDefinition', [{ kind: 'bot', name, description: `${name} bot`, body: `You are ${name}.`, route }])).value.id;
 
 const ACTIONS = [
   ['created', async () => {
     for (const [name, project] of [['sess_0', 'b'], ['sess_1', 'a'], ['sess_3', 'a'], ['sess_4', 'b']]) {
-      create(name, project);
-      await meta.setName(name, `Title ${name.slice(-1)}`);
+      await newTask(name, project);
+      await host.renameSession(made[name], `Title ${name.slice(-1)}`);
     }
-    create('sess_2', 'b', { inheritedFromSessionId: 'sess_0' });
-    await meta.setName('sess_2', 'Title 2');
-    await meta.setFavorite('sess_2', true);
-    await meta.markRead('sess_1', 0, true, { messageCount: 0, compactCount: 0 });
+    made.sess_2 = (await host.inheritSession(made.sess_0, null)).sessionId;
+    await host.renameSession(made.sess_2, 'Title 2');
+    await host.setSessionFavorite(made.sess_2, true);
+    await host.markSessionRead(made.sess_1, 0, true);
   }],
-  ['turns', async () => {
-    for (const name of ['sess_1', 'sess_0']) {
-      const s = sessions.get(name);
-      s.messages.push({ role: 'user', content: `hello ${name}` }, { role: 'assistant', content: 'ok' });
-      s.updatedAt = s.lastUsedAt = tick();
-    }
-  }],
-  ['archive', async () => { await meta.setArchived('sess_3', true); }],
-  ['unarchive', async () => { await meta.setArchived('sess_3', false); }],
-  ['archive-again', async () => { await meta.setArchived('sess_3', true); }],
+  ['turns', async () => { for (const name of ['sess_1', 'sess_0']) await second(name); }],
+  ['archive', async () => { await host.setSessionArchived(made.sess_3, true); }],
+  ['unarchive', async () => { await host.setSessionArchived(made.sess_3, false); }],
+  ['archive-again', async () => { await host.setSessionArchived(made.sess_3, true); }],
   ['delete', async () => {
-    create('sess_5', 'a');
-    await meta.setName('sess_5', 'Title 5');
-    sessions.delete('sess_5');
-    await meta.forget('sess_5');
+    await newTask('sess_5', 'a');
+    await host.renameSession(made.sess_5, 'Title 5');
+    await host.deleteSession(made.sess_5);
+  }],
+  // An agent's home thread: opened, then spoken in.
+  ['agent-home', async () => {
+    made.botOne = await saveBot('Bot One');
+    made.botTwo = await saveBot('Bot Two');
+    made.botOneHome = (await host.openAgentHome(made.botOne)).sessionId;
+    await turn(made.botOneHome, 1, () => host.submitToSession(made.botOneHome, 'hello Bot One', { id: 'sub-home' }));
+  }],
+  // A group room of both bots (its log is a stored session the catalog stamps with `agentRoom`).
+  ['room', async () => {
+    const created = await host.agentRoomAction('create', [{ name: 'Room One', members: [made.botOne, made.botTwo] }]);
+    made.room = created.roomId;
+    made.roomLog = created.sessionId;
+  }],
+  // The agent is deleted. The host archives its home once the definition is proven deleted -- through `agentDefinitionPresence`, which this
+  // export's desktop contract (shared/contract-capabilities.ts READ_CAPABILITIES) does not list as a read, so it is sent as a configure and
+  // refused ("session action agentDefinitionPresence is unavailable"). The refusal is the host's own warning, noted below; the roster is
+  // whatever the host then lists.
+  ['agent-delete', async () => {
+    await host.invokeCapability('deleteAgentDefinition', [made.botOne]);
+    await deadline.race(retireWarned.promise, 'the host to try to archive the deleted agent\'s home');
   }],
 ];
-
+const roster = () => listed();
 function desktop(rows) {
   const listeners = new Set();
   let gate = null;
@@ -208,7 +306,7 @@ livePhone.published.splice(0);
 const rosters = [{ name: 'start', roster: [] }];
 for (const [name, act] of ACTIONS) {
   await act();
-  const next = plain(roster());
+  const next = await roster();
   rosters.push({ name, roster: next });
   live.publish(next);
   note(`action:${name}`, livePhone, undefined);
@@ -259,8 +357,12 @@ const tieRows = [
 ].map((row) => ({ preview: '', title: row.id, messageCount: 0, cwd: PROJECT.a, classification: 'project', projectPath: PROJECT.a, ...row, activityAt: Number(row.lastUsedAt) || row.updatedAt }));
 steps.push({ name: 'order-ties', coreRows: plain(tieRows), order: [...tieRows].sort(byActivityThenId).map((r) => r.id) });
 
-await meta.flush();
-const manifest = { exact: true, commit: COMMIT, tree: execFileSync('git', ['-C', NODE_CHECKOUT, 'rev-parse', `${COMMIT}^{tree}`]).toString().trim(), filesCompared: checked, crlfOnlyDifferences: eolOnly, source: 'git archive of the whole tree, every file compared with its git blob id; remote-view-sync.ts, remote-relay-catalog.ts, view-synchronizer.ts, list-delta.ts, remote-roster-cache.ts, desktop-session-metadata.ts, store-summary-index.mjs run unchanged', actions: ACTIONS.map(([name]) => name) };
-writeFileSync(outFile, `${JSON.stringify({ manifest, states: rosters, steps }, null, 2)}\n`);
+console.warn = originalWarn;
+await host.dispose().catch(() => {});
+await sessionClient.shutdownDaemon(discovery, { waitForExit: true, timeoutMs: 30_000 }).catch(() => {});
+await provider.close();
+const sha256 = (file) => sha('sha256').update(readFileSync(file)).digest('hex');
+const manifest = { exact: true, commit: COMMIT, tree: execFileSync('git', ['-C', NODE_CHECKOUT, 'rev-parse', `${COMMIT}^{tree}`]).toString().trim(), filesCompared: checked, crlfOnlyDifferences: eolOnly, source: 'git archive of the whole tree, every file compared with its git blob id; the Node daemon (session-client.mjs ensureDaemon) and session-host.ts run unchanged for the actions; remote-view-sync.ts, remote-relay-catalog.ts, view-synchronizer.ts, list-delta.ts, remote-roster-cache.ts run unchanged for the phone side', harness: Object.fromEntries(PINNED.map((name) => [`lib/${name}`, sha256(join(harness, 'lib', name))])), hostNotes: notes, actions: ACTIONS.map(([name]) => name) };
+writeFileSync(outFile, `${JSON.stringify({ manifest, made, projects, states: rosters, steps }, null, 2)}\n`);
 console.log(`recorded ${steps.length} steps over ${checked} verified files`);
 process.exit(0);
