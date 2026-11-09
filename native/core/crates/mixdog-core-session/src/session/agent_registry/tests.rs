@@ -542,6 +542,33 @@ async fn a_deleted_sessions_settled_row_becomes_a_tombstone() {
     assert!(rig.store.map("s-lead").unwrap().contains_key("sessionId"));
 }
 
+/// Releasing a tag whose session was deleted: Node's `closeSession` counts a record that is
+/// already gone as closed (`session-close.mjs` `finishClose`, `outcome.absent`), so the close
+/// flow goes on to forget the row and the tag can start a fresh session.
+#[tokio::test]
+async fn closing_a_deleted_session_counts_as_closed() {
+    use mixdog_agent::agent_tool::host::Sessions;
+
+    use crate::session::thread_state::SessionThreads;
+    use crate::session::SessionDirectory;
+
+    let srig = crate::session::testing::Rig::new();
+    let directory = Arc::new(SessionDirectory::new(srig.deps()));
+    let rig = Rig::new();
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
+    let sessions = AgentSessions::new(
+        directory.clone(),
+        Arc::new(SessionThreads::new(directory.clone())),
+        registry,
+        Arc::new(Statusline::default()),
+        rig.clock.clone(),
+        Arc::new(ClosedShells::default()),
+        Arc::new(mixdog_tools::fs::ReadState::default()),
+    );
+    let options = mixdog_agent::agent_tool::host::CloseOptions { tombstone: false, owner_close: true };
+    assert!(sessions.close_session("sess_deleted", "cli-agent-close", options).await);
+}
+
 /// `lead-worker-index.mjs` `updateLeadWorkerCwd` against the real Node index
 /// (`fixtures/desktop/settings/lead-worker-cwd-twin.json`): every call answers what Node's did and
 /// leaves, for each Lead row of its scenario, the row text Node left (key order included).

@@ -9,7 +9,7 @@
 //! read is never swept: the store answers `Err` for the whole listing and nothing happens.
 //!
 //! What this port leaves to others: the sub-agent tree retention (three days archive, thirty
-//! delete; `sub-agent-retention.mjs`) is the retention job's; the summary-index repair, the
+//! delete; `sub-agent-retention.mjs`) is `session_retention`'s; the summary-index repair, the
 //! legacy `.hb`/`.own` marker reap and the compaction-archive orphan reap have no counterpart
 //! because the Rust store holds no summary index and writes none of those sidecars.
 
