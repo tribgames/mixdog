@@ -102,6 +102,25 @@ async fn a_status_is_written_until_the_session_is_closed() {
     threads.set_status("sess_unknown", "idle").await;
 }
 
+/// `decisions.md` "Node daemon hot paths found by profiling" 5: the approval gate reads the calling session's `run`
+/// stamp on every tool call. For a session this process holds that is its live header: the store is not read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_run_stamp_of_a_held_session_reads_no_stored_record() {
+    use mixdog_core_ports::ports::run_stamps::RunStamps;
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    let id = threads(&directory).create(hidden_header()).await.expect("created");
+    let thread = ThreadId::from(id.as_str());
+    let (heads, headers) = (rig.store.head_reads.load(std::sync::atomic::Ordering::SeqCst), rig.store.header_reads.load(std::sync::atomic::Ordering::SeqCst));
+    let stamps = crate::session::run_stamps::DirectoryRunStamps::new(directory.clone());
+    let first = stamps.stamp_of(&thread).await;
+    for _ in 0..5 {
+        assert_eq!(stamps.stamp_of(&thread).await, first);
+    }
+    assert_eq!(rig.store.head_reads.load(std::sync::atomic::Ordering::SeqCst), heads, "a gate decision read a transcript");
+    assert_eq!(rig.store.header_reads.load(std::sync::atomic::Ordering::SeqCst), headers, "a gate decision read a stored record");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_ask_answers_the_reply_and_an_abort_ends_the_turn_with_nodes_text() {
     let rig = Rig::new();
