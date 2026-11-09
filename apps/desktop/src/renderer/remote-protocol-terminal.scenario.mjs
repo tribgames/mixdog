@@ -5,10 +5,9 @@
 // Prints the trace on a marker line; remote-protocol-terminal.slow.test.mjs compares it with the recording.
 import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
-import net from 'node:net';
 import { join } from 'node:path';
-import readline from 'node:readline';
 import WebSocket from 'ws';
+import { DEADLINE_MS, bounded, openClockSocket, stopCore } from './remote-protocol-terminal-deadlines.mjs';
 import { createPhoneWorld, protocolDialect } from '../../../../benchmarks/rust-core/recorders/lib/phone-world.mjs';
 import { play, sizeClaimScript, terminalScript } from '../../../../benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs';
 
@@ -21,7 +20,6 @@ const ROOT = golden.root;
 const CORE_ROOT = `${ROOT}-core`;
 const CLOCK_DIR = join(CORE_ROOT, 'clock');
 const BIN =process.env.MIXDOGD_BIN || 'D:\\mixdog-build\\pool\\w11-target\\debug\\mixdogd.exe';
-const DEADLINE_MS = 60_000;
 
 async function startCore() {
   rmSync(CORE_ROOT, { recursive: true, force: true });
@@ -67,45 +65,12 @@ function untilFile(dir, child, read, what) {
   });
 }
 
-/** Rejects with `message` if `promise` has not settled within the deadline: the guard that turns a wait that would never end into a failure. */
-function bounded(promise, message) {
-  let timer;
-  const deadline = new Promise((_, reject) => {
-    timer = realSetTimeout(() => reject(new Error(`${message} (no answer within ${DEADLINE_MS} ms)`)), DEADLINE_MS);
-  });
-  return Promise.race([promise, deadline]).finally(() => realClearTimeout(timer));
-}
-
 /** The manual lease clock's socket: the core writes its port into the clock directory, and answers each command with one line. */
 async function openClock(core) {
   const port = await untilFile(CLOCK_DIR, core.child, (dir) => Number(readFileSync(join(dir, 'port'), 'utf8')) || null, "the core to publish the lease clock's port");
-  const socket = net.connect(port, '127.0.0.1');
-  await bounded(
-    new Promise((resolve, reject) => {
-      socket.once('connect', resolve);
-      socket.once('error', reject);
-    }),
-    `the connection to the lease clock on port ${port} to open`,
-  ).catch((error) => {
-    socket.destroy();
-    throw error;
-  });
-  return { socket, lines: readline.createInterface({ input: socket }) };
+  return openClockSocket(port);
 }
 
-/** Ends the core and its children, and resolves when `taskkill` has finished and the core has exited (its files are released then). One
- *  deadline covers both: `taskkill` is a process of its own and can hang like the core can. */
-function stopCore(core) {
-  // A core that has already exited emits no further `exit`: waiting for one would end the process with nothing printed.
-  const gone = core.child.exitCode !== null || core.child.signalCode !== null;
-  const exited = gone ? Promise.resolve() : new Promise((resolve) => core.child.once('exit', resolve));
-  const killed = new Promise((resolve, reject) => {
-    const killer = spawn('taskkill', ['/PID', String(core.child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
-    killer.once('error', reject);
-    killer.once('exit', resolve);
-  });
-  return bounded(Promise.all([killed, exited]), `taskkill to end the core (pid ${core.child.pid}) and the core to exit`);
-}
 async function main() {
   const repo = new URL('../../../../', import.meta.url);
   const script = terminalScript(ROOT);

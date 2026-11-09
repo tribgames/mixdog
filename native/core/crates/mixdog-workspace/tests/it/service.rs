@@ -555,6 +555,30 @@ async fn watch_refuses_a_relative_path_even_when_it_exists_from_the_working_dire
     assert_eq!(env.service.open_os_watches(), 0);
 }
 
+/// Every input Node's `absoluteLocalPath` refused (apps/mobile/fixtures/absolute-local-path/golden.json, the recording with the working
+/// directory on this process's drive) is refused by `fs/watch` with Node's message, and nothing is watched; a non-string `path` included.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn watch_refuses_every_input_node_refuses_with_nodes_message() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/absolute-local-path/golden.json")).unwrap();
+    let drive = std::env::current_dir().unwrap().to_string_lossy().chars().next().unwrap().to_ascii_uppercase().to_string();
+    let recorded = golden["drives"].get(&drive).unwrap_or_else(|| panic!("absolute-local-path has no recording with the working directory on drive {drive}"));
+    let env = env();
+    let mut refused = 0;
+    for (input, answer) in golden["inputs"].as_array().unwrap().iter().zip(recorded.as_array().unwrap()) {
+        let Some(message) = answer["error"]["message"].as_str() else { continue };
+        let mut params = json!({ "watchId": "refused", "recursive": false });
+        if input.get("absent").is_none() {
+            params["path"] = input["value"].clone();
+        }
+        let error = env.service.call(request("fs/watch", params)).await.err().unwrap_or_else(|| panic!("{}: Node refused it and it was watched", input["name"]));
+        assert!(format!("{error:?}").contains(message), "{}: Node says {message:?}, got {error:?}", input["name"]);
+        refused += 1;
+    }
+    assert!(refused > 0);
+    assert_eq!(env.service.open_os_watches(), 0);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn watch_pushes_batched_changes_and_connection_close_drops_the_os_watch() {
     let env = env();

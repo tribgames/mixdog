@@ -179,64 +179,25 @@ mod tests {
         assert_eq!(err.message, "Path resolves outside the project.");
     }
 
-    fn answer(text: &str) -> Result<String, String> {
-        absolute_local_path(text).map(|path| path.to_string_lossy().into_owned()).map_err(|error| error.message)
-    }
-
-    /// Node's `absoluteLocalPath` for each class of input on a Windows host (expected values from `path.win32` of Node 22 with the
-    /// working directory on the drive `D:`; here the drive is the test's own).
+    /// Node's `absoluteLocalPath` for every recorded input (apps/mobile/fixtures/absolute-local-path/golden.json, a Windows host), as the
+    /// recording with the working directory on this process's drive answered it. Non-string inputs are answered by the service's param
+    /// check (tests/it/service.rs), not by this helper.
     #[cfg(windows)]
     #[test]
-    fn absolute_local_path_answers_each_class_as_node_does() {
-        let drive: String = std::env::current_dir().unwrap().to_string_lossy().chars().take(2).collect();
-        let on_drive = |rest: &str| Ok(format!("{drive}{rest}"));
-        for (text, expected) in [
-            ("relative/dir", Err("path must be absolute.".to_owned())),
-            ("C:foo", Err("path must be absolute.".to_owned())),
-            ("C:", Err("path must be absolute.".to_owned())),
-            ("", Err("path is invalid.".to_owned())),
-            ("   ", Err("path is invalid.".to_owned())),
-            ("a\0b", Err("path is invalid.".to_owned())),
-            ("/dir", on_drive("\\dir")),
-            ("\\dir", on_drive("\\dir")),
-            ("/dir/../x/", on_drive("\\x")),
-            ("//server", on_drive("\\server")),
-            ("/", on_drive("\\")),
-            ("//server/share", Ok("\\\\server\\share\\".to_owned())),
-            ("\\\\server\\share\\a\\..\\b\\", Ok("\\\\server\\share\\b".to_owned())),
-            ("C:\\a\\b\\..\\c\\", Ok("C:\\a\\c".to_owned())),
-            ("c:/A/B/", Ok("c:\\A\\B".to_owned())),
-            ("C:\\a\\", Ok("C:\\a".to_owned())),
-            ("C:\\", Ok("C:\\".to_owned())),
-            ("C:\\..", Ok("C:\\".to_owned())),
-            (" D:\\x ", Ok("D:\\x".to_owned())),
-            ("\\\\?\\C:\\x\\y", Ok("\\\\?\\C:\\x\\y".to_owned())),
-            ("\\\\.\\C:\\x", Ok("\\\\.\\C:\\x".to_owned())),
-            ("\\\\?\\UNC\\srv\\sh\\a", Ok("\\\\?\\UNC\\srv\\sh\\a".to_owned())),
-            ("//?/C:/x", Ok("\\\\?\\C:\\x".to_owned())),
-            ("//tmp/Mixed/", Ok("\\\\tmp\\Mixed\\".to_owned())),
-        ] {
-            assert_eq!(answer(text), expected, "{text:?}");
+    fn absolute_local_path_answers_each_recorded_input_as_node_does() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../../apps/mobile/fixtures/absolute-local-path/golden.json")).unwrap();
+        let drive: String = std::env::current_dir().unwrap().to_string_lossy().chars().next().unwrap().to_ascii_uppercase().to_string();
+        let recorded = golden["drives"].get(&drive).unwrap_or_else(|| panic!("absolute-local-path has no recording with the working directory on drive {drive}: record it on a host with that drive (benchmarks/rust-core/recorders/record-absolute-local-path.mjs)"));
+        let mut replayed = 0;
+        for (input, answer) in golden["inputs"].as_array().unwrap().iter().zip(recorded.as_array().unwrap()) {
+            let Some(text) = input["value"].as_str() else { continue };
+            let got = absolute_local_path(text).map(|path| path.to_string_lossy().into_owned()).map_err(|error| error.message);
+            let want = match answer.get("result") {
+                Some(result) => Ok(result.as_str().unwrap().to_owned()),
+                None => Err(answer["error"]["message"].as_str().unwrap().to_owned()),
+            };
+            assert_eq!(got, want, "{}: {text:?}", input["name"]);
+            replayed += 1;
         }
-    }
-
-    /// The same classes on a POSIX host (`path.posix` of Node 22).
-    #[cfg(not(windows))]
-    #[test]
-    fn absolute_local_path_answers_each_class_as_node_does() {
-        for (text, expected) in [
-            ("relative/dir", Err("path must be absolute.")),
-            ("C:foo", Err("path must be absolute.")),
-            ("\\dir", Err("path must be absolute.")),
-            ("C:\\a", Err("path must be absolute.")),
-            ("", Err("path is invalid.")),
-            ("/dir/../x/", Ok("/x")),
-            ("//server/share", Ok("/server/share")),
-            ("//tmp/Mixed/", Ok("/tmp/Mixed")),
-            ("/", Ok("/")),
-            ("//", Ok("/")),
-        ] {
-            assert_eq!(answer(text), expected.map(str::to_owned).map_err(str::to_owned), "{text:?}");
-        }
-    }
-}
+        assert_eq!(replayed, golden["inputs"].as_array().unwrap().iter().filter(|input| input["value"].is_string()).count());
+    }}
