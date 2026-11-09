@@ -147,9 +147,9 @@ pub(crate) fn login_message(failure: &mixdog_core_api::domain::login::LoginFailu
     }
 }
 
-/// Node's own code words this site's failure (a wrapper over the fetch's text); the recording shows it does.
-pub(crate) fn assert_node_wraps(site: &str) {
-    let golden = recorded(site);
-    let thrown = golden["thrown"]["message"].as_str().unwrap();
-    assert!(!golden["fetchRejected"].as_array().unwrap().iter().any(|r| r["message"] == thrown), "{site}: Node passes the fetch's text on");
+/// For a site whose Node caller swallows the failure (the recording resolves): the error this port's listing returns
+/// carries the text Node's `fetch` rejected with.
+pub(crate) fn assert_rejected_as_nodes(site: &str, message: &str) {
+    let rejected: Vec<String> = recorded(site)["fetchRejected"].as_array().unwrap().iter().map(|r| r["message"].as_str().unwrap().to_owned()).collect();
+    assert!(rejected.iter().any(|r| r == message), "{site}: Rust returns {message:?}, Node's fetch rejected {rejected:?}");
 }

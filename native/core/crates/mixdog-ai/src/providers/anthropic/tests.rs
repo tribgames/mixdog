@@ -378,13 +378,21 @@ fn api_adapter(http: Arc<ScriptedHttp>) -> AnthropicAdapter {
 #[tokio::test(start_paused = true)]
 async fn a_model_list_that_outlives_its_timer_reads_as_nodes() {
     use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_rejected_as_nodes;
     use crate::transport::site_probe::assert_transport;
+    use crate::transport::site_probe::recorded;
     use mixdog_core_api::domain::provider::ModelListing as _;
 
     let transport = TimingOut::new();
     let adapter = AnthropicAdapter::api_key(config("http://127.0.0.1:1"), transport.clone(), Arc::new(FixedKey), cpu_bulk());
-    adapter.list_models().await.expect_err("the list never answers");
+    let error = adapter.list_models().await.expect_err("the list never answers");
     assert_transport("anthropicModelList", &transport);
+    assert_rejected_as_nodes("anthropicModelList", &error.message);
+
+    // Node's catch swallows it and lists its built-in rows (the recording resolves); so does the catalog's source.
+    assert_eq!(recorded("anthropicModelList")["thrown"]["resolved"], true);
+    let source = crate::catalog::ModelSource::of_adapter(mixdog_protocol::ProviderId::from("anthropic"), Arc::new(adapter)).unwrap();
+    assert!(!source.list().await.expect("the failure is swallowed into the floor").is_empty());
 }
 
 pub(super) fn cpu_bulk() -> mixdog_rt::CpuBulk {

@@ -190,8 +190,9 @@ mod site_tests {
     async fn the_probe_and_the_mint_read_as_nodes_when_the_server_never_answers() {
         let transport = TimingOut::new();
         let http: Arc<dyn HttpSend> = transport.clone();
-        assert_eq!(probe_project(&http).await, None);
+        let found = probe_project(&http).await;
         assert_transport("vertexMetadataProbe", &transport);
+        assert_eq!(found.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null), crate::transport::site_probe::recorded("vertexMetadataProbe")["value"]);
 
         let mint = TimingOut::new();
         let error = MetadataAuth::new(mint.clone(), "p", Box::new(|| 0)).authorize().await.expect_err("never answers");
