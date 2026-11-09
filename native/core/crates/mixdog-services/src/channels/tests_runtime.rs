@@ -780,6 +780,43 @@ async fn a_schedule_read_back_before_the_deferred_start_has_no_scheduler_stamped
     e.runtime.scheduled_start_settled().await;
     e.runtime.stop_owned_runtime("test").await.unwrap();
 }
+/// Recorded from the Node daemon at b6f10295a (harness case `saveSchedule`: `saveSchedule` →
+/// `getChannelSetup`, then `saveScheduleSettled`'s second `getChannelSetup` after the start has
+/// completed). Only the machine-specific values are masked, the same way on both sides: the relay
+/// device id (`<id>`) and the next-fire instant (`<ts>`, a clock value). The recording ran in
+/// Asia/Seoul, which the replayed call states instead of defaulting to it.
+const NODE_SAVE: &str = r#"{"name":"harness-schedule","description":"A schedule","time":"0 9 * * *","whenCron":"0 9 * * *","timezone":"Asia/Seoul","enabled":true,"instructions":"Say hello.","owner":"lead","executorAgentId":null,"consecutiveFailures":0}"#;
+const NODE_READBACK_AT_ONCE: &str = r#"{"webhook":{"enabled":true,"port":3333,"publicUrl":"https://relay.example/hook/<id>"},"schedules":[{"name":"harness-schedule","description":"A schedule","time":"0 9 * * *","whenCron":"0 9 * * *","timezone":"Asia/Seoul","enabled":true,"instructions":"Say hello.","owner":"lead","executorAgentId":null,"consecutiveFailures":0}],"webhooks":[]}"#;
+const NODE_READBACK_SETTLED: &str = r#"{"webhook":{"enabled":true,"port":3333,"publicUrl":"https://relay.example/hook/<id>"},"schedules":[{"name":"harness-schedule","description":"A schedule","time":"0 9 * * *","whenCron":"0 9 * * *","timezone":"Asia/Seoul","enabled":true,"instructions":"Say hello.","owner":"lead","executorAgentId":null,"nextFireAt":"<ts>","consecutiveFailures":0}],"webhooks":[]}"#;
+
+/// A readback right after the save sees the start's relay identity but not yet the scheduler's
+/// stamped next fire; the next one, after the start completed, sees both (Node's order).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_readbacks_after_a_schedule_save_match_the_node_recording() {
+    let e = env().await;
+    *e.base.0.lock().unwrap() = Some("https://relay.example/hook/<id>".into());
+    let saved = e
+        .admin
+        .save_schedule(&json!({"name": "harness-schedule", "description": "A schedule", "time": "0 9 * * *", "timezone": "Asia/Seoul", "instructions": "Say hello."}))
+        .await
+        .unwrap();
+    assert_eq!(saved, serde_json::from_str::<Value>(NODE_SAVE).unwrap());
+    let at_once = e.admin.get_channel_setup().await.unwrap();
+    assert_eq!(at_once, serde_json::from_str::<Value>(NODE_READBACK_AT_ONCE).unwrap());
+    e.runtime.scheduled_start_settled().await;
+    let mut settled = Value::Null;
+    for _ in 0..100 {
+        settled = e.admin.get_channel_setup().await.unwrap();
+        if settled["schedules"][0].get("nextFireAt").is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(settled["schedules"][0]["nextFireAt"].is_string());
+    settled["schedules"][0]["nextFireAt"] = json!("<ts>");
+    assert_eq!(settled, serde_json::from_str::<Value>(NODE_READBACK_SETTLED).unwrap());
+    e.runtime.stop_owned_runtime("test").await.unwrap();
+}
 /// The same for a start stuck in the provider init, which `stop_owned_runtime` alone would leave
 /// (nothing is running yet, so it returns early): the shutdown cancels and joins it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
