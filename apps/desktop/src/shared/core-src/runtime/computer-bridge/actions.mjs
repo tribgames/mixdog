@@ -1,0 +1,139 @@
+/**
+ * One action catalogue, with explicit capabilities for each execution boundary.
+ * Native reads and public replay-safe reads deliberately have different scopes.
+ */
+const catalogue = {};
+function action(name, capabilities) {
+  catalogue[name] = Object.freeze({
+    policy: name,
+    ...capabilities,
+  });
+}
+const nativeRead = { nativeRead: true, retainNativeRefs: true, observeOnly: true };
+const hostRead = { hostRead: true, observeOnly: true };
+const replay = { replaySafe: true };
+action('list_windows', { ...nativeRead, ...hostRead, ...replay, policy: 'list' });
+action('window_snapshot', nativeRead);
+action('related_windows', nativeRead);
+action('snapshot', { ...nativeRead, ...hostRead, policy: 'capture' });
+action('find', { ...nativeRead, ...hostRead, policy: 'capture' });
+action('clipboard_read', { ...nativeRead, ...hostRead, ...replay, foreground: true });
+action('wait', { ...nativeRead, ...hostRead, ...replay, policy: 'act' });
+action('window_bounds', { ...nativeRead, ...hostRead, policy: 'capture' });
+action('window_capture', nativeRead);
+action('validate_background_input', nativeRead);
+action('window_predicates', { ...nativeRead, ...hostRead });
+action('accessibility_probe', nativeRead);
+action('window_integrity', nativeRead);
+action('input_recovery_state', nativeRead);
+action('input_idle_state', nativeRead);
+action('ocr_image', nativeRead);
+action('ocr_status', nativeRead);
+// Host-internal: whether a saved-login owner's runtime process has ended.
+action('process_fate', nativeRead);
+action('release_session', { retainNativeRefs: true });
+action('release_cursor_theme', { retainNativeRefs: true });
+// Handing held input, focus and pointer back changes no target's content, so a
+// turn's end keeps the refs of its last observation for a follow-up turn.
+action('release_held_input', { retainNativeRefs: true });
+// Ending a sequence's no-activate holds sends no input to any target.
+action('release_sequence_holds', { retainNativeRefs: true });
+action('restore_input_state', { retainNativeRefs: true });
+action('list_apps', { ...hostRead, ...replay, policy: 'list' });
+action('list_installed_apps', { ...nativeRead, ...replay, policy: 'list' });
+action('list_history', { ...hostRead, ...replay, policy: 'list' });
+action('capture', { ...hostRead, ...replay });
+action('screenshot', { ...hostRead, policy: 'capture' });
+action('zoom', { ...hostRead, ...replay, policy: 'capture' });
+action('verify', { ...hostRead, ...replay });
+action('diagnose', { observeOnly: true, ...replay });
+action('wait_for_user', { ...hostRead, ...replay });
+for (const name of [
+  'invoke',
+  'set_value',
+  'toggle',
+  'click',
+  'double_click',
+  'right_click',
+  'middle_click',
+  'triple_click',
+  'mouse_down',
+  'mouse_up',
+  'mouse_move',
+  'drag',
+  'type',
+  'key',
+  'key_down',
+  'key_up',
+  'scroll',
+]) {
+  action(name, {
+    observationBound: true,
+    autoCapture: true,
+    backgroundPressRelease: [
+      'click',
+      'double_click',
+      'right_click',
+      'middle_click',
+      'triple_click',
+      'drag',
+      'key',
+    ].includes(name),
+    focusGuard: ['invoke', 'set_value', 'toggle'].includes(name),
+    policy: 'act',
+  });
+}
+const FOREGROUND_ACTION_POLICY = { launch: 'launch', invoke_menu: 'menu' };
+for (const name of [
+  'focus_window',
+  'move_window',
+  'window_state',
+  'close_window',
+  'terminate_process',
+  'launch',
+  'invoke_menu',
+]) {
+  action(name, {
+    autoCapture: true,
+    foreground: true,
+    policy: FOREGROUND_ACTION_POLICY[name] || 'window',
+  });
+}
+action('clipboard_write', { foreground: true });
+// A saved login written into the focused field of the user's browser window:
+// an input bound to a fresh observation, always on the foreground lane, with no
+// automatic capture (the reply never carries the field it filled).
+action('fill_saved_login', { observationBound: true, foreground: true, policy: 'act' });
+action('sequence', { policy: 'act' });
+// turn_settle: the runtime's settlement of one agent turn (turn_id), which
+// alone retires a saved-login fill's protection (desktop secret-input.ts).
+for (const name of ['execution_end', 'session_release', 'session_abort', 'turn_settle']) {
+  action(name, { lifecycle: true, observeOnly: true });
+}
+export const COMPUTER_ACTIONS = Object.freeze(catalogue);
+export const COMPUTER_POLICY_ACTIONS = Object.freeze([
+  'list',
+  'capture',
+  'diagnose',
+  'act',
+  'window',
+  'menu',
+  'verify',
+  'launch',
+  'clipboard_read',
+  'clipboard_write',
+]);
+export function computerActionsWith(capability) {
+  return Object.keys(COMPUTER_ACTIONS).filter((name) => COMPUTER_ACTIONS[name][capability] === true);
+}
+export function computerActionPolicy(name) {
+  return COMPUTER_ACTIONS[name]?.policy || name;
+}
+export function computerActionHas(name, capability) {
+  return COMPUTER_ACTIONS[name]?.[capability] === true;
+}
+export function computerPowerShellActionArray(capability) {
+  return `@(${computerActionsWith(capability)
+    .map((name) => `'${name}'`)
+    .join(',')})`;
+}
