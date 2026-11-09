@@ -3846,6 +3846,7 @@ dependencies = [
  "tracing",
  "url",
  "x25519-dalek",
+ "zstd",
 ]
 
 [[package]]
@@ -4015,7 +4016,9 @@ version = "1.4.5"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "bytes",
  "chrono",
+ "flate2",
  "futures",
  "libc",
  "mixdog-agent",
@@ -4053,10 +4056,12 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-tungstenite",
  "tokio-util",
  "tracing",
  "uuid",
  "windows-sys 0.61.2",
+ "zstd",
 ]
 
 [[package]]

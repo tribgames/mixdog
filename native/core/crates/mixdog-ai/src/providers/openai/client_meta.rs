@@ -103,8 +103,11 @@ impl Metadata {
         } else {
             codex_uuid_v7(&explicit_turn.map_or_else(|| format!("{raw_session}:turn"), str::to_owned))
         };
-        let window_id = thread.map_or_else(|| format!("{thread_id}:0"), |t| format!("{}:{}", t.id, t.window));
-        let started_at = session_started_at(raw_session, now_ms);
+        // `codexWireSendOpts` fixes the window at `<wire id>:0`; the compaction count (`RequestThread::window`) never reaches the wire.
+        let window_id = thread.map_or_else(|| format!("{thread_id}:0"), |t| format!("{}:0", t.id));
+        // Node's session mints the turn id from the turn's start (`mintUuidV7(startedAt)`) and sends that start as
+        // `turnStartedAtUnixMs`, so a v7 turn id carries it.
+        let started_at = session_started_at(explicit_turn.filter(|t| is_v7(&t.to_lowercase())).unwrap_or(raw_session), now_ms);
         let mut turn = Map::new();
         turn.insert("installation_id".into(), json!(installation_id));
         turn.insert("session_id".into(), json!(session_id));

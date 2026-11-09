@@ -20,6 +20,8 @@ use std::fmt;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
@@ -42,8 +44,11 @@ use mixdog_core_api::domain::provider::WireDecoder;
 use mixdog_core_api::domain::provider::WireRequest;
 use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
+use mixdog_rt::CpuBulk;
+use mixdog_rt::LaneToken;
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_util::sync::CancellationToken;
 use tokio_tungstenite::tungstenite::handshake::client::Request;
 use tokio_tungstenite::tungstenite::http::HeaderName;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
@@ -74,6 +79,10 @@ const TURN_STATE_HEADER: &str = "x-codex-turn-state";
 const MAX_TURN_STATE_SCOPES: usize = 4096;
 /// A failure body is read up to this many bytes for classification.
 const ERROR_BODY_LIMIT: usize = 1024 * 1024;
+/// `REQ_COMPRESSION_MIN_BYTES`: a smaller request body is never compressed.
+const ZSTD_MIN_BYTES: usize = 8 * 1024;
+/// zstd's default level, which `zlib.zstdCompress` uses.
+const ZSTD_LEVEL: i32 = 3;
 
 // ---------------------------------------------------------------------------
 // Credentials
@@ -120,17 +129,44 @@ struct TurnStates {
     order: VecDeque<String>,
 }
 
+/// Where the clock and the request ids come from: the system, or (a recording
+/// that must equal another's byte for byte) a fixed source.
+struct Sources {
+    now: Box<dyn Fn() -> u64 + Send + Sync>,
+    request_id: Box<dyn Fn() -> String + Send + Sync>,
+}
+
+impl Default for Sources {
+    fn default() -> Self {
+        Self {
+            now: Box::new(|| {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+            }),
+            request_id: Box::new(|| rand::random::<[u8; 16]>().iter().map(|b| format!("{b:02x}")).collect()),
+        }
+    }
+}
+
 /// The values the codec and decoder read that no request carries: the clock,
 /// request ids, and the `x-codex-turn-state` tokens of live turns. One per
 /// process; the adapter writes the tokens its responses issue.
 #[derive(Default)]
 pub struct SessionContext {
     states: Mutex<TurnStates>,
+    sources: Sources,
 }
 
 impl SessionContext {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A context whose clock and request ids are the given ones: the wire
+    /// parity recording runs both sides on one fixed clock and id.
+    pub fn with_sources(now: impl Fn() -> u64 + Send + Sync + 'static, request_id: impl Fn() -> String + Send + Sync + 'static) -> Self {
+        Self { states: Mutex::default(), sources: Sources { now: Box::new(now), request_id: Box::new(request_id) } }
     }
 
     /// The first token a turn is issued wins for the whole turn; a new turn
@@ -163,13 +199,11 @@ impl SessionContext {
 
 impl WireContext for SessionContext {
     fn request_id(&self) -> String {
-        rand::random::<[u8; 16]>().iter().map(|b| format!("{b:02x}")).collect()
+        (self.sources.request_id)()
     }
 
     fn now_unix_ms(&self) -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        (self.sources.now)()
     }
 
     fn turn_state(&self, scope: &str, turn_id: &str) -> Option<String> {
@@ -200,12 +234,18 @@ pub struct OpenAiAdapter {
     pool: Arc<WsPool>,
     mode: TransportMode,
     models: OpenAiModels,
+    compress_lane: CpuBulk,
+    /// `_openaiReqZstdLatch`: set once a request the backend refused (400/415) as compressed was accepted plain, after
+    /// which no body is compressed.
+    zstd_latched: AtomicBool,
 }
 
 /// The seams and sources an adapter runs on.
 pub struct AdapterLinks {
     pub http: Arc<dyn HttpSend>,
     pub dial: Arc<dyn WsDial>,
+    /// The lane the HTTP/SSE request body's compression runs on.
+    pub compress_lane: CpuBulk,
     pub credentials: Arc<dyn CredentialSource>,
     /// The same context the codec's config was built with.
     pub context: Arc<SessionContext>,
@@ -240,6 +280,8 @@ impl OpenAiAdapter {
             pool: Arc::new(WsPool::default()),
             mode: TransportMode::default(),
             models,
+            compress_lane: links.compress_lane,
+            zstd_latched: AtomicBool::new(false),
         }
     }
 
@@ -276,13 +318,45 @@ impl OpenAiAdapter {
         }
     }
 
+    /// `encodeRequestBody`: the Codex backend takes a zstd request body, so a body of at least 8 KiB is compressed (off
+    /// the main lanes) unless the request already names an encoding or the latch is set. A compression that cannot
+    /// run sends the plain body.
+    async fn compressed(&self, wire: &WireRequest) -> Option<WireRequest> {
+        if self.codec.route() != Route::Codex
+            || self.zstd_latched.load(Ordering::Relaxed)
+            || wire.body.len() < ZSTD_MIN_BYTES
+            || wire.headers.iter().any(|(name, _)| name.eq_ignore_ascii_case("content-encoding"))
+        {
+            return None;
+        }
+        let raw = wire.body.clone();
+        let cancel = CancellationToken::new();
+        let _cancel_on_drop = cancel.clone().drop_guard();
+        let job = self.compress_lane.submit_wait(&cancel, move |_| zstd::stream::encode_all(raw.as_slice(), ZSTD_LEVEL)).await.ok()?;
+        let body = job.await.ok()?.ok()?;
+        let mut request = wire.clone();
+        request.body = body;
+        request.headers.push(("Content-Encoding".into(), "zstd".into()));
+        Some(request)
+    }
+
     async fn open_http(
         &self,
         codec: &OpenAiCodec,
         request: &ModelRequest,
         wire: WireRequest,
     ) -> Result<Opened, ProviderError> {
-        let response = self.http.send(wire, MODEL_STREAM_FETCH).await?;
+        let packed = self.compressed(&wire).await;
+        let mut response = self.http.send(packed.clone().unwrap_or_else(|| wire.clone()), MODEL_STREAM_FETCH).await?;
+        // `resendIfEncodingRejected`: a 400/415 of a compressed request is drained and the same request sent plain;
+        // the latch is set only when that plain request is accepted (the encoding was the cause).
+        if packed.is_some() && matches!(response.status, 400 | 415) {
+            let _ = read_failure(response).await;
+            response = self.http.send(wire, MODEL_STREAM_FETCH).await?;
+            if response.is_success() {
+                self.zstd_latched.store(true, Ordering::Relaxed);
+            }
+        }
         if response.is_success() {
             let token = header(&response.headers, TURN_STATE_HEADER).map(str::to_owned);
             self.remember_turn_state(request, token.as_deref());

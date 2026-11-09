@@ -172,7 +172,7 @@ fn adapter(codex: bool, http: Arc<Http>, dial: Arc<Dial>) -> OpenAiAdapter {
     OpenAiAdapter::new(
         ProviderId::from(if codex { "openai-oauth" } else { "openai" }),
         OpenAiCodec::new(config, TransportKind::WebSocket),
-        AdapterLinks { http, dial, credentials: Arc::new(Creds), context, listing: ListingLookup::new() },
+        AdapterLinks { http, dial, compress_lane: mixdog_rt::testing::tokens().cpu_bulk, credentials: Arc::new(Creds), context, listing: ListingLookup::new() },
     )
 }
 

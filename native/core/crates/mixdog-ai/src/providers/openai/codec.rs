@@ -15,6 +15,7 @@ use serde_json::Map;
 use serde_json::Value;
 
 use super::body::build_with;
+use super::cache_key;
 use super::client_meta::Metadata;
 use super::delta;
 use super::config::CODEX_HTTP_BETA;
@@ -80,19 +81,14 @@ impl OpenAiCodec {
                         push(&name, value);
                     }
                 } else {
-                    if let Some(key) = request.options.prompt_cache_key.as_deref().filter(|k| !k.is_empty()) {
-                        push("session_id", key.to_owned());
-                        push("session-id", key.to_owned());
-                        push("thread-id", key.to_owned());
-                    }
-                    if let Some(thread) = &request.options.thread {
-                        push(
-                            "x-codex-window-id",
-                            format!("{}:{}", thread.id, thread.window),
-                        );
-                        if let Some(state) = self.turn_state(request) {
-                            push("x-codex-turn-state", state);
-                        }
+                    // `_buildOpenAIHttpFallbackHeaders`: the three anchors carry the body's cache key; the thread's
+                    // window and metadata ride only the WebSocket.
+                    let key = cache_key::codex_prompt_cache_key(&request.options);
+                    push("session_id", key.clone());
+                    push("session-id", key.clone());
+                    push("thread-id", key);
+                    if let Some(state) = self.turn_state(request) {
+                        push("x-codex-turn-state", state);
                     }
                 }
             }

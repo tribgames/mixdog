@@ -49,6 +49,7 @@ tracing = { workspace = true }
 url = { workspace = true }
 # Only for the credential-read counter: `mixdog_ai::work` adds the reads the secret stores perform.
 mixdog-secrets = { workspace = true, optional = true }
+zstd = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [features]
