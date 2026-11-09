@@ -18,7 +18,7 @@ import {
 } from '../../../shared/transcript-metadata.mjs';
 import { AGENT_MESSAGE_NOTE } from '../../../shared/agent-message-envelope.mjs';
 import { agentHomeSessionId } from './agent-home.mjs';
-import { QUOTA_KINDS } from '../providers/provider-error-kind.mjs';
+import { QUOTA_KINDS } from '../../../../../../../../../packages/protocol-client/src/rows/provider-error-kind.mjs';
 
 const ROOM_PREFIX = 'sess_room_';
 const MEMBER_PREFIX = 'sess_rmem_';

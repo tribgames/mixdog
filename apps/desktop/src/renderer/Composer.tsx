@@ -82,7 +82,7 @@ import {
   composerPlaceholder,
 } from './composer-surfaces';
 import { disabledMentionedSkills, useComposerSkillHighlight, useSkillCatalog } from './composer-skill-mentions';
-import { isInMarkdownCode } from '../shared/core-src/runtime/shared/skill-mentions.mjs';
+import { isInMarkdownCode } from '../../../../packages/protocol-client/src/rows/skill-mentions.mjs';
 import { ComposerBanners } from './ComposerBanners';
 import {
   type ComposerModelControlProps,
