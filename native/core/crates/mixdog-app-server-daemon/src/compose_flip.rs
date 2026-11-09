@@ -2472,7 +2472,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     bot_summaries.bind(thread_list.clone(), b.sections.clone()).map_err(|_| ComposeError::AlreadyBound("bot work summaries"))?;
     // The index writer's row writes reach the app feed: `thread/started`, `thread/summary/updated`, `thread/deleted` (Node's roster push).
     catalog_index
-        .observe_rows(mixdog_core_session::session::thread_edges::ThreadEdges::start(mixdog_core_session::session::thread_edges::ThreadEdgePublisher::new(thread_list.clone(), b.sections.clone())))
+        .observe_rows(mixdog_core_session::session::thread_edges::ThreadEdges::start(mixdog_core_session::session::thread_edges::ThreadEdgePublisher::new(thread_list.clone(), b.sections.clone(), agents.clone())))
         .map_err(|_| ComposeError::AlreadyBound("thread edges"))?;
     let room_summaries = mixdog_core_session::session::thread_list::RoomSummaries::new(thread_list.clone(), b.sections.clone(), directory.clone());
     late_room_summaries.bind(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room summaries"))?;

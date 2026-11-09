@@ -34,6 +34,14 @@ fn golden() -> Value {
     serde_json::from_str(include_str!("../../../../fixtures/thread-edges/golden.json")).expect("golden json")
 }
 
+struct Workspace(String);
+#[async_trait::async_trait]
+impl super::TaskWorkspace for Workspace {
+    async fn path(&self) -> Result<String, String> {
+        Ok(self.0.clone())
+    }
+}
+
 struct NoRooms;
 #[async_trait::async_trait]
 impl super::thread_list::ListRooms for NoRooms {
@@ -110,11 +118,13 @@ async fn the_notifications_are_the_changes_of_nodes_roster_for_every_trigger() {
     let attached = mixdog_core_api::feed::subscribe(&source, "app".into(), mixdog_core_api::feed::Window::Fixed, None, &app).unwrap();
     mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
     let list = Arc::new(ThreadListService::new(store.clone(), Arc::new(Idle), Arc::new(NoRooms)));
-    let publisher = ThreadEdgePublisher::new(list, Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)));
+    let section = Arc::new(mixdog_core_base::state::SectionFeedState::new(feed));
 
     let mut published = 0;
     for trigger in golden["triggers"].as_array().expect("triggers") {
         let name = trigger["name"].as_str().expect("name");
+        // The task workspace the host reported for this trigger (Node's `taskWorkspace` input of the roster).
+        let publisher = ThreadEdgePublisher::new(list.clone(), section.clone(), Arc::new(Workspace(trigger["taskWorkspace"].as_str().expect("task workspace").to_owned())));
         let mut roster: Vec<Value> = Vec::new();
         let mut seen = String::new();
         for step in trigger["steps"].as_array().expect("steps") {
@@ -174,6 +184,7 @@ fn the_roster_gate_keeps_the_rows_node_kept() {
     for case in cases {
         let row = case["row"].as_object().expect("row");
         let name = case["names"][row["id"].as_str().expect("id")].as_str();
-        assert_eq!(super::thread_edges::roster_row(row, name), case["kept"], "{}", row["id"]);
+        let workspace = case["taskWorkspace"].as_str().unwrap_or_default();
+        assert_eq!(super::thread_edges::roster_row(row, name, workspace), case["kept"], "{}", row["id"]);
     }
 }
