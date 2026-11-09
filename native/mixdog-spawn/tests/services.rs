@@ -179,6 +179,28 @@ async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause(
     service.call(request("terminal/dispose", json!({ "tabId": id }), 2)).await.unwrap();
 }
 
+/// Node pushed the output of every running terminal to a phone reading the lane, whether or not it had attached: a tab's `process:<id>`
+/// feed is live from its ensure, so a `feed/subscribe` finds it.
+#[tokio::test(flavor = "multi_thread")]
+async fn terminal_ensure_opens_the_output_feed_without_an_attach() {
+    let manager = manager();
+    let made = scoped();
+    let feeds = ProcessFeeds::new(manager.clone(), made.clone());
+    let service = TerminalService::new(manager, feeds, Arc::new(MockStatePublisher::default()), TerminalServiceConfig::default());
+    let cwd = temp_dir().as_path().to_string_lossy().into_owned();
+    let Reply::Value(ensured) = service
+        .call(request("terminal/ensure", json!({ "tabId": "term_feed", "options": { "cwd": cwd } }), 1))
+        .await
+        .unwrap()
+    else {
+        panic!("terminal/ensure answers with a value");
+    };
+    assert_eq!(ensured["id"], json!("term_feed"));
+    let ids: Vec<String> = made.ids().iter().map(ToString::to_string).collect();
+    assert_eq!(ids, vec!["process:term_feed".to_owned()]);
+    service.tabs().dispose_all();
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn terminal_ensure_names_a_fresh_tab_and_attach_answers_replay_or_not_running() {
     let manager = manager();

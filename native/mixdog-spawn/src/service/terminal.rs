@@ -252,6 +252,9 @@ impl DomainService for TerminalService {
                     .ensure(params.tab_id.as_ref().map(|id| id.as_str()), request)
                     .await
                     .map_err(terminal_failure)?;
+                // Node pushed `termData` of every running terminal to a phone reading the lane: the output feed exists from the
+                // first ensure and pumping, so a `feed/subscribe` of `process:<id>` finds it and reads its output.
+                self.feeds.open_terminal(&attached.id);
                 let _ = self.changes.send(Change::Tabs);
                 Ok(Reply::Value(json!({
                     "id": attached.id,

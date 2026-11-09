@@ -18,6 +18,7 @@ import { activeOverrides } from '../notification-decision';
 import { devicePreferencesIn, storedOverride, storedPreferences } from '../notification-preferences';
 import { desktopSettingsFromConfig, storedPinsState } from '../settings-store';
 import { markdownDefaultViewSetting } from '../../shared/editor-settings';
+import { terminalActivityRows } from '../../shared/terminal-protocol';
 
 /** What only this process knows. */
 export interface OperationHost {
@@ -186,5 +187,5 @@ export function termActivity(snapshot: DesktopSectionsSnapshot): { id: string; s
   if (!entry) {
     throw Object.assign(new Error('The core has not pushed section terminalActivity.'), { code: 'sectionUnavailable' });
   }
-  return Object.entries(record(entry.value)).map(([id, state]) => ({ id, state }));
+  return terminalActivityRows(entry.value);
 }

@@ -259,6 +259,17 @@ impl ProcessFeeds {
         })
     }
 
+    /// The feed of a terminal tab, live and pumping before anyone subscribes: a `feed/subscribe` attaches the publisher's own source,
+    /// which never passes the [`Gate`] that starts the pump, so a tab read only through the feed lane would never be pumped.
+    pub(crate) fn open_terminal(self: &Arc<Self>, handle: &str) {
+        let _ = self.feed(handle, true);
+        let entry = self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(handle).cloned();
+        let Some(entry) = entry else { return };
+        if !entry.started.swap(true, Ordering::AcqRel) {
+            Arc::clone(self).start_pump(entry);
+        }
+    }
+
     /// Ends the feed of a disposed tab: its subscribers are detached.
     pub(crate) fn close(&self, handle: &str) {
         let removed = self.entries.lock().unwrap_or_else(|e| e.into_inner()).remove(handle);

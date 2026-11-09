@@ -653,12 +653,7 @@ export function optionalGithubLoginOptions(value: unknown): { openBrowser?: bool
   return openBrowser === undefined ? {} : { openBrowser };
 }
 
-export function requiredString(value: unknown, name: string, maximum = 32_768): string {
-  if (typeof value !== 'string') throw new TypeError(`${name} must be a string.`);
-  const text = value.trim();
-  if (!text || text.length > maximum) throw new TypeError(`${name} is invalid.`);
-  return text;
-}
+export { requiredString } from '../shared/remote-arguments';
 
 /** A paired device's local nickname: a string, where only an explicit '' clears
  *  it. Anything else is refused rather than read as a clear. */

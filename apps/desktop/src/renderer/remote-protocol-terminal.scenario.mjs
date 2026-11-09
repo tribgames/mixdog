@@ -1,0 +1,181 @@
+// The phone's terminal and folder-watch adapter against a REAL mixdogd, in its own process (the shim keeps module-level state). The
+// script is the one the Node recorder played (benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs); here the page's calls go
+// through the adapter and the phone's protocol client, through the world's relay end (a real E2EE handshake), into a freshly started
+// core on a loopback WebSocket. The relay end only carries frames both ways: the core answers for itself.
+// Prints the trace on a marker line; remote-protocol-terminal.slow.test.mjs compares it with the recording.
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import WebSocket from 'ws';
+import { createPhoneWorld, protocolDialect } from '../../../../benchmarks/rust-core/recorders/lib/phone-world.mjs';
+import { play, terminalScript } from '../../../../benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs';
+
+// The world replaces the timers with a virtual clock; this scenario's own deadlines are real.
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
+const wait = (ms) => new Promise((resolve) => realSetTimeout(resolve, ms));
+
+const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-terminal/golden.json', import.meta.url), 'utf8'));
+const ROOT = golden.root;
+const CORE_ROOT = `${ROOT}-core`;
+const BIN = process.env.MIXDOGD_BIN || 'D:\\mixdog-build\\pool\\w11-target\\debug\\mixdogd.exe';
+const DEADLINE_MS = 60_000;
+
+async function startCore() {
+  rmSync(CORE_ROOT, { recursive: true, force: true });
+  for (const dir of ['runtime', 'data', 'home']) mkdirSync(join(CORE_ROOT, dir), { recursive: true });
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) if (key.startsWith('MIXDOG_')) delete env[key];
+  Object.assign(env, { MIXDOG_RUNTIME_ROOT: join(CORE_ROOT, 'runtime'), MIXDOG_DATA_DIR: join(CORE_ROOT, 'data'), MIXDOG_HOME: join(CORE_ROOT, 'home') });
+  const child = spawn(BIN, ['serve'], { env, stdio: 'ignore', windowsHide: true });
+  const discovery = join(CORE_ROOT, 'runtime', 'daemon.json');
+  // A debug core spends about a minute migrating its stores before it serves.
+  for (let i = 0; i < 1200; i += 1) {
+    await wait(200);
+    try {
+      const record = JSON.parse(readFileSync(discovery, 'utf8'));
+      if (record.core?.state === 'serving' && record.core.rpc?.port) {
+        return { child, url: `ws://127.0.0.1:${record.core.rpc.port}/rpc`, token: record.endpoints.session.token };
+      }
+    } catch {}
+  }
+  child.kill();
+  throw new Error('the core did not come up');
+}
+
+const stopCore = (core) => spawnSync('taskkill', ['/PID', String(core.child.pid), '/T', '/F'], { stdio: 'ignore' });
+
+async function main() {
+  const repo = new URL('../../../../', import.meta.url);
+  const script = terminalScript(ROOT);
+  rmSync(ROOT, { recursive: true, force: true });
+  for (const dir of [script.cwd, script.watched]) mkdirSync(dir, { recursive: true });
+  const core = await startCore();
+
+  // The relay end: every frame the phone sends goes to the core, every frame the core sends goes to the phone, each direction in order.
+  let socket = null;
+  let up = Promise.resolve();
+  let down = Promise.resolve();
+  let opened = null;
+  let leg = null;
+  // The last app-feed stamp the core sent: a reveal injected below continues that feed.
+  let appStamp = null;
+  let seqShift = 0;
+  const dialect = {
+    ...protocolDialect({}),
+    onFrame(current, frame, log) {
+      leg = current;
+      opened ??= new Promise((resolve, reject) => {
+        const ws = new WebSocket(core.url, { headers: { Authorization: `Bearer ${core.token}` }, perMessageDeflate: false });
+        ws.once('open', () => resolve(ws));
+        ws.once('error', reject);
+        ws.on('message', (data) => {
+          const value = JSON.parse(data.toString('utf8'));
+          // A reveal injected below takes a seq of the app feed: the core's later frames are shifted past it, so the feed stays gap-free.
+          if (value.feed?.id === 'app' && Number.isInteger(value.feed.seq)) {
+            value.feed.seq += seqShift;
+            appStamp = value.feed;
+          }
+          down = down.then(() => leg.toPhone(value)).then(() => log({ ev: 'core-frame' }));
+        });
+      });
+      if (process.env.DEBUG_FRAMES && /feed\/|terminal/.test(frame.method ?? '')) console.error('>>', JSON.stringify(frame).slice(0, 300));
+      up = up.then(async () => {
+        socket ??= await opened;
+        socket.send(JSON.stringify(frame));
+      });
+    },
+  };
+  const world = await createPhoneWorld({ tree: decodeURIComponent(repo.pathname.slice(1)), dialect, paired: true, registration: 200 });
+
+  const events = { activity: [], sizeOwner: [], folder: [], run: [], output: '' };
+  const watchers = new Set();
+  const changed = () => {
+    for (const check of [...watchers]) check();
+  };
+  let rawCall;
+  let rawFire;
+  let probeHost;
+  const probe = {
+    group: 'scenario-probe',
+    install: (host) => {
+      rawCall = host.ctx.call;
+      rawFire = host.ctx.fire;
+      probeHost = host;
+    },
+  };
+  const { adapter } = await import('./remote-protocol-terminal.ts');
+  const { installPhoneShim } = await import('./remote-shim-boot.ts');
+  installPhoneShim([adapter, probe]);
+  const api = globalThis.window.mixdogDesktop;
+  await world.waitFor((e) => e.ev === 'socket');
+  await world.accept();
+
+  const push = (list) => (event) => {
+    list.push(event);
+    changed();
+  };
+  const off = [];
+  off.push(api.subscribeTermSizeOwner(push(events.sizeOwner)));
+  off.push(api.onTerminalRunRequested(push(events.run)));
+  const lanes = {
+    terminal: () => [
+      api.subscribeTermData((event) => {
+        events.output += event.data;
+        changed();
+      }),
+      api.subscribeTermActivity(push(events.activity)),
+    ],
+    files: () => [api.subscribeFolderChanges(push(events.folder))],
+  };
+  const held = new Map();
+
+  const driver = {
+    call: (name, params) => rawCall(name, params),
+    fire: (name, params) => rawFire(name, params),
+    lane(lane, on) {
+      if (on) held.set(lane, lanes[lane]());
+      else for (const stop of held.get(lane) ?? []) stop();
+    },
+    touch: (file) => writeFileSync(file, `${Date.now()}`),
+    // The agent's reveal comes from the `terminal` tool of a running turn, which no model-free core run reaches: the frame the core
+    // publishes for it (terminal_host.rs `AppFeedOpen::publish_open`, its params as that crate's test pins them) continues the app feed.
+    run(request) {
+      if (!appStamp) throw new Error('no app-feed frame to continue');
+      seqShift += 1;
+      appStamp = { ...appStamp, seq: appStamp.seq + 1 };
+      const stamp = appStamp;
+      down = down.then(() => leg.toPhone({ method: 'ui/openRequested', params: { kind: 'terminal', ...request }, feed: stamp }));
+    },
+    waitFor: (test) =>
+      new Promise((resolve, reject) => {
+        const timer = realSetTimeout(() => {
+          watchers.delete(check);
+          reject(new Error(`timed out waiting; state: ${JSON.stringify({ ...events, output: events.output.slice(-300), tabs: probeHost.client().store.section('terminalTabs', null)?.value })}`));
+        }, DEADLINE_MS);
+        const check = () => {
+          if (!test(events)) return;
+          realClearTimeout(timer);
+          watchers.delete(check);
+          resolve();
+        };
+        watchers.add(check);
+        check();
+      }),
+    events: () => events,
+  };
+  try {
+    const trace = await play(script, driver);
+    process.stdout.write(`\n@@TRACE@@${JSON.stringify(trace)}\n`);
+  } finally {
+    for (const stop of off) stop();
+    stopCore(core);
+  }
+}
+main().then(
+  () => process.exit(0),
+  (error) => {
+    console.error(error);
+    process.exit(1);
+  }
+);
