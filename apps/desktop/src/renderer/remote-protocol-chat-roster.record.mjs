@@ -372,12 +372,20 @@ const tieRows = [
 ].map((row) => ({ preview: '', title: row.id, messageCount: 0, cwd: PROJECT.a, classification: 'project', projectPath: PROJECT.a, ...row, activityAt: Number(row.lastUsedAt) || row.updatedAt }));
 steps.push({ name: 'order-ties', coreRows: plain(tieRows), order: [...tieRows].sort(byActivityThenId).map((r) => r.id) });
 
+// A prompt with no display text: the submission intake refuses it (submission.mjs `submission`, promptDisplayText), and the host answers
+// false / not accepted. Asked of the real host on a real session, so the phone's refusal is Node's own answer.
+const refusals = {};
+for (const prompt of ['', '   ']) {
+  refusals[`submitToSession ${JSON.stringify(prompt)}`] = await deadline.race(host.submitToSession(made.sess_1, prompt, { id: `sub-blank-${prompt.length}` }), `Node's host to answer a blank submitToSession (${prompt.length} chars)`);
+  refusals[`submitNewTask ${JSON.stringify(prompt)}`] = await deadline.race(host.submitNewTask(prompt, { id: `sub-new-blank-${prompt.length}` }, { projectPath: projects.a, route }), `Node's host to answer a blank submitNewTask (${prompt.length} chars)`);
+}
+
 console.warn = originalWarn;
 await host.dispose().catch(() => {});
 await sessionClient.shutdownDaemon(discovery, { waitForExit: true, timeoutMs: 30_000 }).catch(() => {});
 await provider.close();
 const sha256 = (file) => sha('sha256').update(readFileSync(file)).digest('hex');
 const manifest = { exact: true, commit: COMMIT, tree: execFileSync('git', ['-C', NODE_CHECKOUT, 'rev-parse', `${COMMIT}^{tree}`]).toString().trim(), filesCompared: checked, crlfOnlyDifferences: eolOnly, source: 'git archive of the whole tree, every file compared with its git blob id; the Node daemon (session-client.mjs ensureDaemon) and session-host.ts run unchanged for the actions; remote-view-sync.ts, remote-relay-catalog.ts, view-synchronizer.ts, list-delta.ts, remote-roster-cache.ts run unchanged for the phone side', harness: Object.fromEntries(PINNED.map((name) => [`lib/${name}`, sha256(join(harness, 'lib', name))])), hostNotes: notes, actions: ACTIONS.map(([name]) => name) };
-writeFileSync(outFile, `${JSON.stringify({ manifest, made, projects, states: rosters, steps }, null, 2)}\n`);
+writeFileSync(outFile, `${JSON.stringify({ manifest, made, projects, refusals, states: rosters, steps }, null, 2)}\n`);
 console.log(`recorded ${steps.length} steps over ${checked} verified files`);
 process.exit(0);

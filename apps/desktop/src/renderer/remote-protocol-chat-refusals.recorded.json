@@ -1,0 +1,223 @@
+{
+  "manifest": {
+    "binary": "D:\\mixdog-build\\pool\\w5-target\\debug\\mixdogd.exe",
+    "binarySha256": "c94ee265c2d9f194011d4457d11c75753b09320856c06832fd99b73ca349761d",
+    "binaryBuilt": "2026-11-09T23:47:11.456Z",
+    "harness": {
+      "lib/env.mjs": "358840d97f5df0ec1649b0c66d55be23ea31e1498cc9f5274505cb0767ead715",
+      "lib/scenarios.mjs": "e8c34cc876cf300d803a533f3ae5aa0e08553fff2f20ba3db7e6a5906e5c37d8",
+      "lib/stage.mjs": "e31c94a547bb1263c65db9ab7015089e7186227369c10f95aca3e3bb5cd58689",
+      "lib/fake-provider.mjs": "53d200f2b45e147baa971086bb87462e4399f15ac0c80d170d39ae93b391f699",
+      "lib/proc.mjs": "55b1e92d2fac78d4e46780f544a2e7d0929f9661bb76e71aac83ae8f238d8979",
+      "lib/deadline.mjs": "d89fb8c88b96bcb122df03c55964d2fa40d7cd0bbe36325d6ab8aa7878073539",
+      "lib/pg-version.json": "5e8cca4e89784fde84e58ee38173ac8202f9975ef9295a80dc1570fce8b977fc"
+    },
+    "source": "running mixdogd serve, isolated env (real-turn harness env.mjs / stage.mjs / fake-provider.mjs, pinned above), driven over the WebSocket JSON-RPC protocol"
+  },
+  "thread": "01a1c2b9-0bda-7723-aeae-13c0519d3937",
+  "project": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-refusals\\ws\\a",
+  "unregistered": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-refusals\\ws\\never-registered",
+  "cases": [
+    {
+      "name": "abortSession-idle",
+      "call": "abortSession",
+      "args": [
+        "01a1c2b9-0bda-7723-aeae-13c0519d3937",
+        {}
+      ],
+      "request": {
+        "method": "turn/interrupt",
+        "params": {
+          "threadId": "01a1c2b9-0bda-7723-aeae-13c0519d3937"
+        }
+      },
+      "reply": {
+        "error": {
+          "code": -32600,
+          "data": {
+            "reason": "turnNotActive",
+            "threadId": "01a1c2b9-0bda-7723-aeae-13c0519d3937"
+          },
+          "message": "turnNotActive"
+        }
+      }
+    },
+    {
+      "name": "submitToSession-empty",
+      "call": "submitToSession",
+      "args": [
+        "01a1c2b9-0bda-7723-aeae-13c0519d3937",
+        "",
+        {
+          "id": "refusals-empty"
+        }
+      ],
+      "request": {
+        "method": "turn/start",
+        "params": {
+          "threadId": "01a1c2b9-0bda-7723-aeae-13c0519d3937",
+          "input": {
+            "prompt": "",
+            "options": {
+              "clientSubmissionId": "refusals-empty"
+            }
+          }
+        }
+      },
+      "reply": {
+        "result": {
+          "kind": "started",
+          "turnId": "01a1c2b9-12c2-724d-8e01-e39210d9ebea"
+        }
+      }
+    },
+    {
+      "name": "submitToSession-blank",
+      "call": "submitToSession",
+      "args": [
+        "01a1c2b9-0bda-7723-aeae-13c0519d3937",
+        "   ",
+        {
+          "id": "refusals-blank"
+        }
+      ],
+      "request": {
+        "method": "turn/start",
+        "params": {
+          "threadId": "01a1c2b9-0bda-7723-aeae-13c0519d3937",
+          "input": {
+            "prompt": "   ",
+            "options": {
+              "clientSubmissionId": "refusals-blank"
+            }
+          }
+        }
+      },
+      "reply": {
+        "result": {
+          "kind": "queued",
+          "queuedId": "01a1c2b9-12cf-7252-b9dc-925ef386ff8a"
+        }
+      }
+    },
+    {
+      "name": "submitNewTask-empty",
+      "call": "submitNewTask",
+      "args": [
+        "",
+        {
+          "id": "refusals-new-empty"
+        },
+        {}
+      ],
+      "request": {
+        "method": "thread/start",
+        "params": {
+          "kind": "task",
+          "draft": {},
+          "initialInput": {
+            "prompt": "",
+            "options": {
+              "clientSubmissionId": "refusals-new-empty"
+            }
+          }
+        }
+      },
+      "reply": {
+        "result": {
+          "thread": {
+            "id": "01a1c2b9-12d9-7493-bdff-988a8f1224ad",
+            "preview": "",
+            "title": "",
+            "updatedAt": 1794268271450,
+            "messageCount": 0,
+            "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-refusals\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
+            "classification": "task",
+            "projectPath": null,
+            "activityAt": 1794268271321,
+            "compactCount": 0,
+            "createdAt": 1794268271321
+          },
+          "turn": {
+            "kind": "started",
+            "turnId": "01a1c2b9-138c-7476-97e5-97a8e0b2fe63"
+          },
+          "subscription": {
+            "id": "c1-3",
+            "mode": "snapshot",
+            "epoch": "0e114b3f774f4ca08fc1529c1f8ca1ae",
+            "startSeq": 8
+          }
+        }
+      }
+    },
+    {
+      "name": "openAgentHome-unknown-agent",
+      "call": "openAgentHome",
+      "args": [
+        "nobody"
+      ],
+      "request": {
+        "method": "agent/home/open",
+        "params": {
+          "agentId": "nobody"
+        }
+      },
+      "reply": {
+        "error": {
+          "code": -32600,
+          "data": {
+            "reason": "domainError",
+            "domain": "agent",
+            "message": "Agent \"nobody\" is not available."
+          },
+          "message": "domainError"
+        }
+      }
+    },
+    {
+      "name": "provideSecretInput-unknown-id",
+      "call": "provideSecretInput",
+      "args": [
+        "secret_abcdefgh12345",
+        "value"
+      ],
+      "request": {
+        "method": "approval/provideSecret",
+        "params": {
+          "requestId": "secret_abcdefgh12345",
+          "secret": "value"
+        }
+      },
+      "reply": {
+        "result": {}
+      }
+    },
+    {
+      "name": "startProjectTask-unknown",
+      "call": "startProjectTask",
+      "args": [
+        "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-refusals\\ws\\never-registered"
+      ],
+      "request": {
+        "method": "project/directory",
+        "params": {
+          "path": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-refusals\\ws\\never-registered",
+          "owner": true
+        }
+      },
+      "reply": {
+        "error": {
+          "code": -32600,
+          "data": {
+            "reason": "domainError",
+            "domain": "workspace",
+            "code": "PROJECT_UNAVAILABLE",
+            "message": "Project is not available."
+          },
+          "message": "domainError"
+        }
+      }
+    }
+  ]
+}

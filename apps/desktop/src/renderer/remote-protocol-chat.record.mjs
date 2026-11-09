@@ -107,8 +107,6 @@ await record('abortSession-restored', 'abortSession', [S, {}], {
 await record('abortSession-idle', 'abortSession', [S, {}], { abort: { ...full(S), aborted: false } }, (h) => h.abortSession(S, {}));
 await record('submitToSession-accepted', 'submitToSession', [S, 'hi', { id: 'sub1' }], { submit: { ...full(S), accepted: true } }, (h) =>
   h.submitToSession(S, 'hi', { id: 'sub1' }));
-await record('submitToSession-refused', 'submitToSession', [S, 'hi', { id: 'sub2' }], { submit: { ...full(S), accepted: false } }, (h) =>
-  h.submitToSession(S, 'hi', { id: 'sub2' }));
 await record('resolveToolApproval-approved', 'resolveToolApprovalForSession', [S, 'ap1', { approved: true }], {
   approve: { ...full(S), approved: true },
 }, (h) => h.resolveToolApprovalForSession(S, 'ap1', { approved: true }));
@@ -220,8 +218,6 @@ const submitEcho = (accepted) => (a) => ({ ...full(a.sessionId), sessionId: a.se
 const createEcho = (a) => full(a.sessionId ?? 'sess_new_1');
 await record('submitNewTask-accepted', 'submitNewTask', ['build it', { id: 'sub9' }, {}], { create: createEcho, submit: submitEcho(true), unsubscribe: {}, list: { sessions: [] } },
   (_h, r) => r.submitNewTask(['build it', { id: 'sub9' }, {}]), { client: clientOf() });
-await record('submitNewTask-refused', 'submitNewTask', ['build it', { id: 'sub10' }, {}], { create: createEcho, submit: submitEcho(false), unsubscribe: {}, list: { sessions: [] } },
-  (_h, r) => r.submitNewTask(['build it', { id: 'sub10' }, {}]), { client: clientOf() });
 await record('submitNewTask-route', 'submitNewTask', ['build it', { id: 'sub11' }, { route: { provider: 'p2', model: 'm2' } }],
   { create: createEcho, submit: submitEcho(true), configure: (a) => ({ ...full(a.sessionId), value: { provider: 'p2', model: 'm2' } }), unsubscribe: {}, list: { sessions: [] } },
   (_h, r) => r.submitNewTask(['build it', { id: 'sub11' }, { route: { provider: 'p2', model: 'm2' } }]), { client: clientOf() });

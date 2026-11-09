@@ -1,8 +1,8 @@
 {
   "manifest": {
     "binary": "D:\\mixdog-build\\pool\\w5-target\\debug\\mixdogd.exe",
-    "binarySha256": "cab9e17521a61bd7f4b361fade2494265126801e14cf6270e962724a38626d37",
-    "binaryBuilt": "2026-11-09T22:57:22.231Z",
+    "binarySha256": "c94ee265c2d9f194011d4457d11c75753b09320856c06832fd99b73ca349761d",
+    "binaryBuilt": "2026-11-09T23:47:11.456Z",
     "server": null,
     "taskWorkspace": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
     "harness": {
@@ -17,17 +17,17 @@
     "source": "running mixdogd serve, isolated env (real-turn harness env.mjs / stage.mjs / fake-provider.mjs, pinned above), driven over the WebSocket JSON-RPC protocol"
   },
   "made": {
-    "sess_0": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
-    "sess_1": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
-    "sess_3": "01a1c28b-307e-7260-9e1a-a42817d45397",
-    "sess_4": "01a1c28b-3213-7541-b785-3f4edb7f4499",
-    "sess_2": "01a1c28b-3357-71fc-a3a9-08b361294f3f",
-    "sess_5": "01a1c28b-3621-7355-b338-7369d4ce64ce",
+    "sess_0": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
+    "sess_1": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
+    "sess_3": "01a1c2be-7725-7226-99f4-62148d7cf4b7",
+    "sess_4": "01a1c2be-7f85-732f-8a62-34910960659d",
+    "sess_2": "01a1c2be-8207-7401-894f-d7bd37e19a4f",
+    "sess_5": "01a1c2be-8831-7218-bbb6-6cfe0ebbaff8",
     "botOne": "bot-one",
     "botTwo": "bot-two",
     "botOneHome": "sess_home_bot-one",
-    "room": "mw9v7p3e4599c7c5",
-    "roomLog": "sess_room_mw9v7p3e4599c7c5"
+    "room": "mw9x7thfdddd0324",
+    "roomLog": "sess_room_mw9x7thfdddd0324"
   },
   "projects": {
     "a": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
@@ -39,88 +39,88 @@
       "listed": {
         "data": [
           {
-            "id": "01a1c28b-3357-71fc-a3a9-08b361294f3f",
+            "id": "01a1c2be-8207-7401-894f-d7bd37e19a4f",
             "preview": "hello sess_0",
             "title": "Title 2",
-            "updatedAt": 1794265265112,
+            "updatedAt": 1794268627783,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "forkedFromId": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
-            "activityAt": 1794265264983,
+            "forkedFromId": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
+            "activityAt": 1794268627463,
             "compactCount": 0,
             "favorite": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264983
+            "createdAt": 1794268627463
           },
           {
-            "id": "01a1c28b-3213-7541-b785-3f4edb7f4499",
+            "id": "01a1c2be-7f85-732f-8a62-34910960659d",
             "preview": "hello sess_4",
             "title": "Title 4",
-            "updatedAt": 1794265264962,
+            "updatedAt": 1794268627412,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "activityAt": 1794265264962,
+            "activityAt": 1794268627412,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264659
+            "createdAt": 1794268626821
           },
           {
-            "id": "01a1c28b-307e-7260-9e1a-a42817d45397",
+            "id": "01a1c2be-7725-7226-99f4-62148d7cf4b7",
             "preview": "hello sess_3",
             "title": "Title 3",
-            "updatedAt": 1794265264638,
+            "updatedAt": 1794268626751,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-            "activityAt": 1794265264638,
+            "activityAt": 1794268626751,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264254
+            "createdAt": 1794268624677
           },
           {
-            "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+            "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
             "preview": "hello sess_1",
             "title": "Title 1",
-            "updatedAt": 1794265264237,
+            "updatedAt": 1794268624461,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-            "activityAt": 1794265264237,
+            "activityAt": 1794268624461,
             "compactCount": 0,
             "readMessageCount": 0,
             "readRevision": 1,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265263934
+            "createdAt": 1794268623281
           },
           {
-            "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+            "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
             "preview": "hello sess_0",
             "title": "Title 0",
-            "updatedAt": 1794265263906,
+            "updatedAt": 1794268623219,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "activityAt": 1794265263906,
+            "activityAt": 1794268623219,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265262695
+            "createdAt": 1794268622211
           }
         ]
       },
@@ -129,22 +129,22 @@
           "method": "thread/started",
           "params": {
             "thread": {
-              "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+              "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
               "preview": "hello sess_0",
               "title": "",
-              "updatedAt": 1794265263146,
+              "updatedAt": 1794268622735,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "activityAt": 1794265262695,
+              "activityAt": 1794268622211,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_0",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265262695
+              "createdAt": 1794268622211
             }
           }
         },
@@ -152,22 +152,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+              "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
               "preview": "hello sess_0",
               "title": "hello sess_0",
-              "updatedAt": 1794265263146,
+              "updatedAt": 1794268622735,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "activityAt": 1794265262695,
+              "activityAt": 1794268622211,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_0",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265262695
+              "createdAt": 1794268622211
             }
           }
         },
@@ -175,22 +175,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+              "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
               "preview": "hello sess_0",
               "title": "hello sess_0",
-              "updatedAt": 1794265263576,
+              "updatedAt": 1794268623098,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "activityAt": 1794265262695,
+              "activityAt": 1794268622211,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_0",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265262695
+              "createdAt": 1794268622211
             }
           }
         },
@@ -198,22 +198,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+              "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
               "preview": "hello sess_0",
               "title": "hello sess_0",
-              "updatedAt": 1794265263576,
+              "updatedAt": 1794268623098,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "activityAt": 1794265262695,
+              "activityAt": 1794268622211,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265262695
+              "createdAt": 1794268622211
             }
           }
         },
@@ -221,20 +221,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+              "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
               "preview": "hello sess_0",
               "title": "hello sess_0",
-              "updatedAt": 1794265263906,
+              "updatedAt": 1794268623219,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "activityAt": 1794265263906,
+              "activityAt": 1794268623219,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265262695
+              "createdAt": 1794268622211
             }
           }
         },
@@ -242,20 +242,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+              "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
               "preview": "hello sess_0",
               "title": "Title 0",
-              "updatedAt": 1794265263906,
+              "updatedAt": 1794268623219,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "activityAt": 1794265263906,
+              "activityAt": 1794268623219,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265262695
+              "createdAt": 1794268622211
             }
           }
         },
@@ -263,22 +263,22 @@
           "method": "thread/started",
           "params": {
             "thread": {
-              "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+              "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
               "preview": "hello sess_1",
               "title": "",
-              "updatedAt": 1794265264031,
+              "updatedAt": 1794268623447,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265263934,
+              "activityAt": 1794268623281,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_1",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265263934
+              "createdAt": 1794268623281
             }
           }
         },
@@ -286,22 +286,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+              "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
               "preview": "hello sess_1",
               "title": "hello sess_1",
-              "updatedAt": 1794265264031,
+              "updatedAt": 1794268623447,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265263934,
+              "activityAt": 1794268623281,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_1",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265263934
+              "createdAt": 1794268623281
             }
           }
         },
@@ -309,22 +309,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+              "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
               "preview": "hello sess_1",
               "title": "hello sess_1",
-              "updatedAt": 1794265264184,
+              "updatedAt": 1794268624044,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265263934,
+              "activityAt": 1794268623281,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_1",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265263934
+              "createdAt": 1794268623281
             }
           }
         },
@@ -332,22 +332,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+              "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
               "preview": "hello sess_1",
               "title": "hello sess_1",
-              "updatedAt": 1794265264184,
+              "updatedAt": 1794268624044,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265263934,
+              "activityAt": 1794268623281,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265263934
+              "createdAt": 1794268623281
             }
           }
         },
@@ -355,20 +355,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+              "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
               "preview": "hello sess_1",
               "title": "hello sess_1",
-              "updatedAt": 1794265264237,
+              "updatedAt": 1794268624461,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265264237,
+              "activityAt": 1794268624461,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265263934
+              "createdAt": 1794268623281
             }
           }
         },
@@ -376,20 +376,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+              "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
               "preview": "hello sess_1",
               "title": "Title 1",
-              "updatedAt": 1794265264237,
+              "updatedAt": 1794268624461,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265264237,
+              "activityAt": 1794268624461,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265263934
+              "createdAt": 1794268623281
             }
           }
         },
@@ -397,22 +397,22 @@
           "method": "thread/started",
           "params": {
             "thread": {
-              "id": "01a1c28b-307e-7260-9e1a-a42817d45397",
+              "id": "01a1c2be-7725-7226-99f4-62148d7cf4b7",
               "preview": "hello sess_3",
               "title": "",
-              "updatedAt": 1794265264368,
+              "updatedAt": 1794268625537,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265264254,
+              "activityAt": 1794268624677,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_3",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265264254
+              "createdAt": 1794268624677
             }
           }
         },
@@ -420,22 +420,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-307e-7260-9e1a-a42817d45397",
+              "id": "01a1c2be-7725-7226-99f4-62148d7cf4b7",
               "preview": "hello sess_3",
               "title": "hello sess_3",
-              "updatedAt": 1794265264368,
+              "updatedAt": 1794268625537,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265264254,
+              "activityAt": 1794268624677,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_3",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265264254
+              "createdAt": 1794268624677
             }
           }
         },
@@ -443,22 +443,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-307e-7260-9e1a-a42817d45397",
+              "id": "01a1c2be-7725-7226-99f4-62148d7cf4b7",
               "preview": "hello sess_3",
               "title": "hello sess_3",
-              "updatedAt": 1794265264599,
+              "updatedAt": 1794268626625,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265264254,
+              "activityAt": 1794268624677,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_3",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265264254
+              "createdAt": 1794268624677
             }
           }
         },
@@ -466,22 +466,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-307e-7260-9e1a-a42817d45397",
+              "id": "01a1c2be-7725-7226-99f4-62148d7cf4b7",
               "preview": "hello sess_3",
               "title": "hello sess_3",
-              "updatedAt": 1794265264599,
+              "updatedAt": 1794268626625,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265264254,
+              "activityAt": 1794268624677,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265264254
+              "createdAt": 1794268624677
             }
           }
         },
@@ -489,20 +489,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-307e-7260-9e1a-a42817d45397",
+              "id": "01a1c2be-7725-7226-99f4-62148d7cf4b7",
               "preview": "hello sess_3",
               "title": "hello sess_3",
-              "updatedAt": 1794265264638,
+              "updatedAt": 1794268626751,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265264638,
+              "activityAt": 1794268626751,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265264254
+              "createdAt": 1794268624677
             }
           }
         },
@@ -510,20 +510,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-307e-7260-9e1a-a42817d45397",
+              "id": "01a1c2be-7725-7226-99f4-62148d7cf4b7",
               "preview": "hello sess_3",
               "title": "Title 3",
-              "updatedAt": 1794265264638,
+              "updatedAt": 1794268626751,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265264638,
+              "activityAt": 1794268626751,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265264254
+              "createdAt": 1794268624677
             }
           }
         },
@@ -531,22 +531,22 @@
           "method": "thread/started",
           "params": {
             "thread": {
-              "id": "01a1c28b-3213-7541-b785-3f4edb7f4499",
+              "id": "01a1c2be-7f85-732f-8a62-34910960659d",
               "preview": "hello sess_4",
               "title": "",
-              "updatedAt": 1794265264760,
+              "updatedAt": 1794268627007,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "activityAt": 1794265264659,
+              "activityAt": 1794268626821,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_4",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265264659
+              "createdAt": 1794268626821
             }
           }
         },
@@ -554,22 +554,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-3213-7541-b785-3f4edb7f4499",
+              "id": "01a1c2be-7f85-732f-8a62-34910960659d",
               "preview": "hello sess_4",
               "title": "hello sess_4",
-              "updatedAt": 1794265264760,
+              "updatedAt": 1794268627007,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "activityAt": 1794265264659,
+              "activityAt": 1794268626821,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_4",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265264659
+              "createdAt": 1794268626821
             }
           }
         },
@@ -577,22 +577,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-3213-7541-b785-3f4edb7f4499",
+              "id": "01a1c2be-7f85-732f-8a62-34910960659d",
               "preview": "hello sess_4",
               "title": "hello sess_4",
-              "updatedAt": 1794265264920,
+              "updatedAt": 1794268627309,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "activityAt": 1794265264659,
+              "activityAt": 1794268626821,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_4",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265264659
+              "createdAt": 1794268626821
             }
           }
         },
@@ -600,22 +600,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-3213-7541-b785-3f4edb7f4499",
+              "id": "01a1c2be-7f85-732f-8a62-34910960659d",
               "preview": "hello sess_4",
               "title": "hello sess_4",
-              "updatedAt": 1794265264920,
+              "updatedAt": 1794268627309,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "activityAt": 1794265264659,
+              "activityAt": 1794268626821,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265264659
+              "createdAt": 1794268626821
             }
           }
         },
@@ -623,20 +623,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-3213-7541-b785-3f4edb7f4499",
+              "id": "01a1c2be-7f85-732f-8a62-34910960659d",
               "preview": "hello sess_4",
               "title": "hello sess_4",
-              "updatedAt": 1794265264962,
+              "updatedAt": 1794268627412,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "activityAt": 1794265264962,
+              "activityAt": 1794268627412,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265264659
+              "createdAt": 1794268626821
             }
           }
         },
@@ -644,20 +644,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-3213-7541-b785-3f4edb7f4499",
+              "id": "01a1c2be-7f85-732f-8a62-34910960659d",
               "preview": "hello sess_4",
               "title": "Title 4",
-              "updatedAt": 1794265264962,
+              "updatedAt": 1794268627412,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "activityAt": 1794265264962,
+              "activityAt": 1794268627412,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265264659
+              "createdAt": 1794268626821
             }
           }
         },
@@ -665,20 +665,20 @@
           "method": "thread/started",
           "params": {
             "thread": {
-              "id": "01a1c28b-3357-71fc-a3a9-08b361294f3f",
+              "id": "01a1c2be-8207-7401-894f-d7bd37e19a4f",
               "preview": "hello sess_0",
               "title": "",
-              "updatedAt": 1794265265074,
+              "updatedAt": 1794268627632,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "activityAt": 1794265264983,
+              "activityAt": 1794268627463,
               "compactCount": 0,
               "lastMessagePreview": "hello sess_0",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265264983
+              "createdAt": 1794268627463
             }
           }
         },
@@ -686,20 +686,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-3357-71fc-a3a9-08b361294f3f",
+              "id": "01a1c2be-8207-7401-894f-d7bd37e19a4f",
               "preview": "hello sess_0",
               "title": "",
-              "updatedAt": 1794265265112,
+              "updatedAt": 1794268627783,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "activityAt": 1794265264983,
+              "activityAt": 1794268627463,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265264983
+              "createdAt": 1794268627463
             }
           }
         },
@@ -707,21 +707,21 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-3357-71fc-a3a9-08b361294f3f",
+              "id": "01a1c2be-8207-7401-894f-d7bd37e19a4f",
               "preview": "hello sess_0",
               "title": "Title 0",
-              "updatedAt": 1794265265112,
+              "updatedAt": 1794268627783,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "forkedFromId": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
-              "activityAt": 1794265264983,
+              "forkedFromId": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
+              "activityAt": 1794268627463,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265264983
+              "createdAt": 1794268627463
             }
           }
         },
@@ -729,21 +729,21 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-3357-71fc-a3a9-08b361294f3f",
+              "id": "01a1c2be-8207-7401-894f-d7bd37e19a4f",
               "preview": "hello sess_0",
               "title": "Title 2",
-              "updatedAt": 1794265265112,
+              "updatedAt": 1794268627783,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "forkedFromId": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
-              "activityAt": 1794265264983,
+              "forkedFromId": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
+              "activityAt": 1794268627463,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265264983
+              "createdAt": 1794268627463
             }
           }
         },
@@ -751,22 +751,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-3357-71fc-a3a9-08b361294f3f",
+              "id": "01a1c2be-8207-7401-894f-d7bd37e19a4f",
               "preview": "hello sess_0",
               "title": "Title 2",
-              "updatedAt": 1794265265112,
+              "updatedAt": 1794268627783,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "forkedFromId": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
-              "activityAt": 1794265264983,
+              "forkedFromId": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
+              "activityAt": 1794268627463,
               "compactCount": 0,
               "favorite": true,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265264983
+              "createdAt": 1794268627463
             }
           }
         },
@@ -774,22 +774,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+              "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
               "preview": "hello sess_1",
               "title": "Title 1",
-              "updatedAt": 1794265264237,
+              "updatedAt": 1794268624461,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265264237,
+              "activityAt": 1794268624461,
               "compactCount": 0,
               "readMessageCount": 0,
               "readRevision": 1,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265263934
+              "createdAt": 1794268623281
             }
           }
         }
@@ -800,88 +800,88 @@
       "listed": {
         "data": [
           {
-            "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+            "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
             "preview": "hello sess_0",
             "title": "Title 0",
-            "updatedAt": 1794265265610,
+            "updatedAt": 1794268628576,
             "messageCount": 4,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "activityAt": 1794265265610,
+            "activityAt": 1794268628576,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265262695
+            "createdAt": 1794268622211
           },
           {
-            "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+            "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
             "preview": "hello sess_1",
             "title": "Title 1",
-            "updatedAt": 1794265265442,
+            "updatedAt": 1794268628245,
             "messageCount": 4,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-            "activityAt": 1794265265442,
+            "activityAt": 1794268628245,
             "compactCount": 0,
             "readMessageCount": 0,
             "readRevision": 1,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265263934
+            "createdAt": 1794268623281
           },
           {
-            "id": "01a1c28b-3357-71fc-a3a9-08b361294f3f",
+            "id": "01a1c2be-8207-7401-894f-d7bd37e19a4f",
             "preview": "hello sess_0",
             "title": "Title 2",
-            "updatedAt": 1794265265112,
+            "updatedAt": 1794268627783,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "forkedFromId": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
-            "activityAt": 1794265264983,
+            "forkedFromId": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
+            "activityAt": 1794268627463,
             "compactCount": 0,
             "favorite": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264983
+            "createdAt": 1794268627463
           },
           {
-            "id": "01a1c28b-3213-7541-b785-3f4edb7f4499",
+            "id": "01a1c2be-7f85-732f-8a62-34910960659d",
             "preview": "hello sess_4",
             "title": "Title 4",
-            "updatedAt": 1794265264962,
+            "updatedAt": 1794268627412,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "activityAt": 1794265264962,
+            "activityAt": 1794268627412,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264659
+            "createdAt": 1794268626821
           },
           {
-            "id": "01a1c28b-307e-7260-9e1a-a42817d45397",
+            "id": "01a1c2be-7725-7226-99f4-62148d7cf4b7",
             "preview": "hello sess_3",
             "title": "Title 3",
-            "updatedAt": 1794265264638,
+            "updatedAt": 1794268626751,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-            "activityAt": 1794265264638,
+            "activityAt": 1794268626751,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264254
+            "createdAt": 1794268624677
           }
         ]
       },
@@ -890,15 +890,15 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+              "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
               "preview": "hello sess_1",
               "title": "Title 1",
-              "updatedAt": 1794265264237,
+              "updatedAt": 1794268624461,
               "messageCount": 3,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265264237,
+              "activityAt": 1794268624461,
               "compactCount": 0,
               "readMessageCount": 0,
               "readRevision": 1,
@@ -907,7 +907,7 @@
               "lastMessagePreview": "again sess_1",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265263934
+              "createdAt": 1794268623281
             }
           }
         },
@@ -915,15 +915,15 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+              "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
               "preview": "hello sess_1",
               "title": "Title 1",
-              "updatedAt": 1794265265297,
+              "updatedAt": 1794268628148,
               "messageCount": 3,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265264237,
+              "activityAt": 1794268624461,
               "compactCount": 0,
               "readMessageCount": 0,
               "readRevision": 1,
@@ -932,7 +932,7 @@
               "lastMessagePreview": "again sess_1",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265263934
+              "createdAt": 1794268623281
             }
           }
         },
@@ -940,15 +940,15 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+              "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
               "preview": "hello sess_1",
               "title": "Title 1",
-              "updatedAt": 1794265265297,
+              "updatedAt": 1794268628148,
               "messageCount": 4,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265264237,
+              "activityAt": 1794268624461,
               "compactCount": 0,
               "readMessageCount": 0,
               "readRevision": 1,
@@ -957,7 +957,7 @@
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265263934
+              "createdAt": 1794268623281
             }
           }
         },
@@ -965,22 +965,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+              "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
               "preview": "hello sess_1",
               "title": "Title 1",
-              "updatedAt": 1794265265442,
+              "updatedAt": 1794268628245,
               "messageCount": 4,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265265442,
+              "activityAt": 1794268628245,
               "compactCount": 0,
               "readMessageCount": 0,
               "readRevision": 1,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265263934
+              "createdAt": 1794268623281
             }
           }
         },
@@ -988,22 +988,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+              "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
               "preview": "hello sess_0",
               "title": "Title 0",
-              "updatedAt": 1794265263906,
+              "updatedAt": 1794268623219,
               "messageCount": 3,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "activityAt": 1794265263906,
+              "activityAt": 1794268623219,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "again sess_0",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265262695
+              "createdAt": 1794268622211
             }
           }
         },
@@ -1011,22 +1011,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+              "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
               "preview": "hello sess_0",
               "title": "Title 0",
-              "updatedAt": 1794265265574,
+              "updatedAt": 1794268628475,
               "messageCount": 3,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "activityAt": 1794265263906,
+              "activityAt": 1794268623219,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "again sess_0",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265262695
+              "createdAt": 1794268622211
             }
           }
         },
@@ -1034,22 +1034,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+              "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
               "preview": "hello sess_0",
               "title": "Title 0",
-              "updatedAt": 1794265265574,
+              "updatedAt": 1794268628475,
               "messageCount": 4,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "activityAt": 1794265263906,
+              "activityAt": 1794268623219,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265262695
+              "createdAt": 1794268622211
             }
           }
         },
@@ -1057,20 +1057,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+              "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
               "preview": "hello sess_0",
               "title": "Title 0",
-              "updatedAt": 1794265265610,
+              "updatedAt": 1794268628576,
               "messageCount": 4,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-              "activityAt": 1794265265610,
+              "activityAt": 1794268628576,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265262695
+              "createdAt": 1794268622211
             }
           }
         }
@@ -1081,89 +1081,89 @@
       "listed": {
         "data": [
           {
-            "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+            "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
             "preview": "hello sess_0",
             "title": "Title 0",
-            "updatedAt": 1794265265610,
+            "updatedAt": 1794268628576,
             "messageCount": 4,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "activityAt": 1794265265610,
+            "activityAt": 1794268628576,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265262695
+            "createdAt": 1794268622211
           },
           {
-            "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+            "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
             "preview": "hello sess_1",
             "title": "Title 1",
-            "updatedAt": 1794265265442,
+            "updatedAt": 1794268628245,
             "messageCount": 4,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-            "activityAt": 1794265265442,
+            "activityAt": 1794268628245,
             "compactCount": 0,
             "readMessageCount": 0,
             "readRevision": 1,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265263934
+            "createdAt": 1794268623281
           },
           {
-            "id": "01a1c28b-3357-71fc-a3a9-08b361294f3f",
+            "id": "01a1c2be-8207-7401-894f-d7bd37e19a4f",
             "preview": "hello sess_0",
             "title": "Title 2",
-            "updatedAt": 1794265265112,
+            "updatedAt": 1794268627783,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "forkedFromId": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
-            "activityAt": 1794265264983,
+            "forkedFromId": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
+            "activityAt": 1794268627463,
             "compactCount": 0,
             "favorite": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264983
+            "createdAt": 1794268627463
           },
           {
-            "id": "01a1c28b-3213-7541-b785-3f4edb7f4499",
+            "id": "01a1c2be-7f85-732f-8a62-34910960659d",
             "preview": "hello sess_4",
             "title": "Title 4",
-            "updatedAt": 1794265264962,
+            "updatedAt": 1794268627412,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "activityAt": 1794265264962,
+            "activityAt": 1794268627412,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264659
+            "createdAt": 1794268626821
           },
           {
-            "id": "01a1c28b-307e-7260-9e1a-a42817d45397",
+            "id": "01a1c2be-7725-7226-99f4-62148d7cf4b7",
             "preview": "hello sess_3",
             "title": "Title 3",
-            "updatedAt": 1794265264638,
+            "updatedAt": 1794268626751,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-            "activityAt": 1794265264638,
+            "activityAt": 1794268626751,
             "compactCount": 0,
             "archived": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264254
+            "createdAt": 1794268624677
           }
         ]
       },
@@ -1171,7 +1171,7 @@
         {
           "method": "thread/archived",
           "params": {
-            "threadId": "01a1c28b-307e-7260-9e1a-a42817d45397"
+            "threadId": "01a1c2be-7725-7226-99f4-62148d7cf4b7"
           }
         }
       ]
@@ -1181,88 +1181,88 @@
       "listed": {
         "data": [
           {
-            "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+            "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
             "preview": "hello sess_0",
             "title": "Title 0",
-            "updatedAt": 1794265265610,
+            "updatedAt": 1794268628576,
             "messageCount": 4,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "activityAt": 1794265265610,
+            "activityAt": 1794268628576,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265262695
+            "createdAt": 1794268622211
           },
           {
-            "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+            "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
             "preview": "hello sess_1",
             "title": "Title 1",
-            "updatedAt": 1794265265442,
+            "updatedAt": 1794268628245,
             "messageCount": 4,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-            "activityAt": 1794265265442,
+            "activityAt": 1794268628245,
             "compactCount": 0,
             "readMessageCount": 0,
             "readRevision": 1,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265263934
+            "createdAt": 1794268623281
           },
           {
-            "id": "01a1c28b-3357-71fc-a3a9-08b361294f3f",
+            "id": "01a1c2be-8207-7401-894f-d7bd37e19a4f",
             "preview": "hello sess_0",
             "title": "Title 2",
-            "updatedAt": 1794265265112,
+            "updatedAt": 1794268627783,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "forkedFromId": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
-            "activityAt": 1794265264983,
+            "forkedFromId": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
+            "activityAt": 1794268627463,
             "compactCount": 0,
             "favorite": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264983
+            "createdAt": 1794268627463
           },
           {
-            "id": "01a1c28b-3213-7541-b785-3f4edb7f4499",
+            "id": "01a1c2be-7f85-732f-8a62-34910960659d",
             "preview": "hello sess_4",
             "title": "Title 4",
-            "updatedAt": 1794265264962,
+            "updatedAt": 1794268627412,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "activityAt": 1794265264962,
+            "activityAt": 1794268627412,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264659
+            "createdAt": 1794268626821
           },
           {
-            "id": "01a1c28b-307e-7260-9e1a-a42817d45397",
+            "id": "01a1c2be-7725-7226-99f4-62148d7cf4b7",
             "preview": "hello sess_3",
             "title": "Title 3",
-            "updatedAt": 1794265264638,
+            "updatedAt": 1794268626751,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-            "activityAt": 1794265264638,
+            "activityAt": 1794268626751,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264254
+            "createdAt": 1794268624677
           }
         ]
       },
@@ -1270,7 +1270,7 @@
         {
           "method": "thread/unarchived",
           "params": {
-            "threadId": "01a1c28b-307e-7260-9e1a-a42817d45397"
+            "threadId": "01a1c2be-7725-7226-99f4-62148d7cf4b7"
           }
         }
       ]
@@ -1280,89 +1280,89 @@
       "listed": {
         "data": [
           {
-            "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+            "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
             "preview": "hello sess_0",
             "title": "Title 0",
-            "updatedAt": 1794265265610,
+            "updatedAt": 1794268628576,
             "messageCount": 4,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "activityAt": 1794265265610,
+            "activityAt": 1794268628576,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265262695
+            "createdAt": 1794268622211
           },
           {
-            "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+            "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
             "preview": "hello sess_1",
             "title": "Title 1",
-            "updatedAt": 1794265265442,
+            "updatedAt": 1794268628245,
             "messageCount": 4,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-            "activityAt": 1794265265442,
+            "activityAt": 1794268628245,
             "compactCount": 0,
             "readMessageCount": 0,
             "readRevision": 1,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265263934
+            "createdAt": 1794268623281
           },
           {
-            "id": "01a1c28b-3357-71fc-a3a9-08b361294f3f",
+            "id": "01a1c2be-8207-7401-894f-d7bd37e19a4f",
             "preview": "hello sess_0",
             "title": "Title 2",
-            "updatedAt": 1794265265112,
+            "updatedAt": 1794268627783,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "forkedFromId": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
-            "activityAt": 1794265264983,
+            "forkedFromId": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
+            "activityAt": 1794268627463,
             "compactCount": 0,
             "favorite": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264983
+            "createdAt": 1794268627463
           },
           {
-            "id": "01a1c28b-3213-7541-b785-3f4edb7f4499",
+            "id": "01a1c2be-7f85-732f-8a62-34910960659d",
             "preview": "hello sess_4",
             "title": "Title 4",
-            "updatedAt": 1794265264962,
+            "updatedAt": 1794268627412,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "activityAt": 1794265264962,
+            "activityAt": 1794268627412,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264659
+            "createdAt": 1794268626821
           },
           {
-            "id": "01a1c28b-307e-7260-9e1a-a42817d45397",
+            "id": "01a1c2be-7725-7226-99f4-62148d7cf4b7",
             "preview": "hello sess_3",
             "title": "Title 3",
-            "updatedAt": 1794265264638,
+            "updatedAt": 1794268626751,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-            "activityAt": 1794265264638,
+            "activityAt": 1794268626751,
             "compactCount": 0,
             "archived": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264254
+            "createdAt": 1794268624677
           }
         ]
       },
@@ -1370,7 +1370,7 @@
         {
           "method": "thread/archived",
           "params": {
-            "threadId": "01a1c28b-307e-7260-9e1a-a42817d45397"
+            "threadId": "01a1c2be-7725-7226-99f4-62148d7cf4b7"
           }
         }
       ]
@@ -1380,89 +1380,89 @@
       "listed": {
         "data": [
           {
-            "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+            "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
             "preview": "hello sess_0",
             "title": "Title 0",
-            "updatedAt": 1794265265610,
+            "updatedAt": 1794268628576,
             "messageCount": 4,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "activityAt": 1794265265610,
+            "activityAt": 1794268628576,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265262695
+            "createdAt": 1794268622211
           },
           {
-            "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+            "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
             "preview": "hello sess_1",
             "title": "Title 1",
-            "updatedAt": 1794265265442,
+            "updatedAt": 1794268628245,
             "messageCount": 4,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-            "activityAt": 1794265265442,
+            "activityAt": 1794268628245,
             "compactCount": 0,
             "readMessageCount": 0,
             "readRevision": 1,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265263934
+            "createdAt": 1794268623281
           },
           {
-            "id": "01a1c28b-3357-71fc-a3a9-08b361294f3f",
+            "id": "01a1c2be-8207-7401-894f-d7bd37e19a4f",
             "preview": "hello sess_0",
             "title": "Title 2",
-            "updatedAt": 1794265265112,
+            "updatedAt": 1794268627783,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "forkedFromId": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
-            "activityAt": 1794265264983,
+            "forkedFromId": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
+            "activityAt": 1794268627463,
             "compactCount": 0,
             "favorite": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264983
+            "createdAt": 1794268627463
           },
           {
-            "id": "01a1c28b-3213-7541-b785-3f4edb7f4499",
+            "id": "01a1c2be-7f85-732f-8a62-34910960659d",
             "preview": "hello sess_4",
             "title": "Title 4",
-            "updatedAt": 1794265264962,
+            "updatedAt": 1794268627412,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "activityAt": 1794265264962,
+            "activityAt": 1794268627412,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264659
+            "createdAt": 1794268626821
           },
           {
-            "id": "01a1c28b-307e-7260-9e1a-a42817d45397",
+            "id": "01a1c2be-7725-7226-99f4-62148d7cf4b7",
             "preview": "hello sess_3",
             "title": "Title 3",
-            "updatedAt": 1794265264638,
+            "updatedAt": 1794268626751,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-            "activityAt": 1794265264638,
+            "activityAt": 1794268626751,
             "compactCount": 0,
             "archived": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264254
+            "createdAt": 1794268624677
           }
         ]
       },
@@ -1471,22 +1471,22 @@
           "method": "thread/started",
           "params": {
             "thread": {
-              "id": "01a1c28b-3621-7355-b338-7369d4ce64ce",
+              "id": "01a1c2be-8831-7218-bbb6-6cfe0ebbaff8",
               "preview": "hello sess_5",
               "title": "",
-              "updatedAt": 1794265266436,
+              "updatedAt": 1794268629312,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265265697,
+              "activityAt": 1794268629041,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_5",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265265697
+              "createdAt": 1794268629041
             }
           }
         },
@@ -1494,22 +1494,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-3621-7355-b338-7369d4ce64ce",
+              "id": "01a1c2be-8831-7218-bbb6-6cfe0ebbaff8",
               "preview": "hello sess_5",
               "title": "hello sess_5",
-              "updatedAt": 1794265266436,
+              "updatedAt": 1794268629312,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265265697,
+              "activityAt": 1794268629041,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_5",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265265697
+              "createdAt": 1794268629041
             }
           }
         },
@@ -1517,22 +1517,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-3621-7355-b338-7369d4ce64ce",
+              "id": "01a1c2be-8831-7218-bbb6-6cfe0ebbaff8",
               "preview": "hello sess_5",
               "title": "hello sess_5",
-              "updatedAt": 1794265266700,
+              "updatedAt": 1794268629667,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265265697,
+              "activityAt": 1794268629041,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "hello sess_5",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265265697
+              "createdAt": 1794268629041
             }
           }
         },
@@ -1540,22 +1540,22 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-3621-7355-b338-7369d4ce64ce",
+              "id": "01a1c2be-8831-7218-bbb6-6cfe0ebbaff8",
               "preview": "hello sess_5",
               "title": "hello sess_5",
-              "updatedAt": 1794265266700,
+              "updatedAt": 1794268629667,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265265697,
+              "activityAt": 1794268629041,
               "compactCount": 0,
               "working": true,
               "leadWorking": true,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265265697
+              "createdAt": 1794268629041
             }
           }
         },
@@ -1563,20 +1563,20 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-3621-7355-b338-7369d4ce64ce",
+              "id": "01a1c2be-8831-7218-bbb6-6cfe0ebbaff8",
               "preview": "hello sess_5",
               "title": "hello sess_5",
-              "updatedAt": 1794265266782,
+              "updatedAt": 1794268629863,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265266782,
+              "activityAt": 1794268629863,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265265697
+              "createdAt": 1794268629041
             }
           }
         },
@@ -1584,27 +1584,27 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "01a1c28b-3621-7355-b338-7369d4ce64ce",
+              "id": "01a1c2be-8831-7218-bbb6-6cfe0ebbaff8",
               "preview": "hello sess_5",
               "title": "Title 5",
-              "updatedAt": 1794265266782,
+              "updatedAt": 1794268629863,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
               "classification": "project",
               "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-              "activityAt": 1794265266782,
+              "activityAt": 1794268629863,
               "compactCount": 0,
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265265697
+              "createdAt": 1794268629041
             }
           }
         },
         {
           "method": "thread/deleted",
           "params": {
-            "threadId": "01a1c28b-3621-7355-b338-7369d4ce64ce"
+            "threadId": "01a1c2be-8831-7218-bbb6-6cfe0ebbaff8"
           }
         }
       ]
@@ -1617,12 +1617,12 @@
             "id": "sess_home_bot-one",
             "preview": "hello Bot One",
             "title": "hello Bot One",
-            "updatedAt": 1794265267582,
+            "updatedAt": 1794268632487,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
             "classification": "task",
             "projectPath": null,
-            "activityAt": 1794265267582,
+            "activityAt": 1794268632487,
             "incomingTail": [
               2
             ],
@@ -1632,92 +1632,92 @@
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265267334
+            "createdAt": 1794268632123
           },
           {
-            "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+            "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
             "preview": "hello sess_0",
             "title": "Title 0",
-            "updatedAt": 1794265265610,
+            "updatedAt": 1794268628576,
             "messageCount": 4,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "activityAt": 1794265265610,
+            "activityAt": 1794268628576,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265262695
+            "createdAt": 1794268622211
           },
           {
-            "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+            "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
             "preview": "hello sess_1",
             "title": "Title 1",
-            "updatedAt": 1794265265442,
+            "updatedAt": 1794268628245,
             "messageCount": 4,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-            "activityAt": 1794265265442,
+            "activityAt": 1794268628245,
             "compactCount": 0,
             "readMessageCount": 0,
             "readRevision": 1,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265263934
+            "createdAt": 1794268623281
           },
           {
-            "id": "01a1c28b-3357-71fc-a3a9-08b361294f3f",
+            "id": "01a1c2be-8207-7401-894f-d7bd37e19a4f",
             "preview": "hello sess_0",
             "title": "Title 2",
-            "updatedAt": 1794265265112,
+            "updatedAt": 1794268627783,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "forkedFromId": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
-            "activityAt": 1794265264983,
+            "forkedFromId": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
+            "activityAt": 1794268627463,
             "compactCount": 0,
             "favorite": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264983
+            "createdAt": 1794268627463
           },
           {
-            "id": "01a1c28b-3213-7541-b785-3f4edb7f4499",
+            "id": "01a1c2be-7f85-732f-8a62-34910960659d",
             "preview": "hello sess_4",
             "title": "Title 4",
-            "updatedAt": 1794265264962,
+            "updatedAt": 1794268627412,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "activityAt": 1794265264962,
+            "activityAt": 1794268627412,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264659
+            "createdAt": 1794268626821
           },
           {
-            "id": "01a1c28b-307e-7260-9e1a-a42817d45397",
+            "id": "01a1c2be-7725-7226-99f4-62148d7cf4b7",
             "preview": "hello sess_3",
             "title": "Title 3",
-            "updatedAt": 1794265264638,
+            "updatedAt": 1794268626751,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-            "activityAt": 1794265264638,
+            "activityAt": 1794268626751,
             "compactCount": 0,
             "archived": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264254
+            "createdAt": 1794268624677
           }
         ]
       },
@@ -1729,12 +1729,12 @@
               "id": "sess_home_bot-one",
               "preview": "hello Bot One",
               "title": "",
-              "updatedAt": 1794265267412,
+              "updatedAt": 1794268632208,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1794265267412,
+              "activityAt": 1794268632208,
               "incomingTail": [],
               "compactCount": 0,
               "working": true,
@@ -1744,7 +1744,7 @@
               "lastMessagePreview": "hello Bot One",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265267334
+              "createdAt": 1794268632123
             }
           }
         },
@@ -1755,12 +1755,12 @@
               "id": "sess_home_bot-one",
               "preview": "hello Bot One",
               "title": "hello Bot One",
-              "updatedAt": 1794265267412,
+              "updatedAt": 1794268632208,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1794265267412,
+              "activityAt": 1794268632208,
               "incomingTail": [],
               "compactCount": 0,
               "working": true,
@@ -1770,7 +1770,7 @@
               "lastMessagePreview": "hello Bot One",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265267334
+              "createdAt": 1794268632123
             }
           }
         },
@@ -1781,12 +1781,12 @@
               "id": "sess_home_bot-one",
               "preview": "hello Bot One",
               "title": "hello Bot One",
-              "updatedAt": 1794265267525,
+              "updatedAt": 1794268632353,
               "messageCount": 1,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1794265267525,
+              "activityAt": 1794268632353,
               "incomingTail": [],
               "compactCount": 0,
               "working": true,
@@ -1796,7 +1796,7 @@
               "lastMessagePreview": "hello Bot One",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265267334
+              "createdAt": 1794268632123
             }
           }
         },
@@ -1807,12 +1807,12 @@
               "id": "sess_home_bot-one",
               "preview": "hello Bot One",
               "title": "hello Bot One",
-              "updatedAt": 1794265267525,
+              "updatedAt": 1794268632353,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1794265267525,
+              "activityAt": 1794268632353,
               "incomingTail": [
                 2
               ],
@@ -1824,7 +1824,7 @@
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265267334
+              "createdAt": 1794268632123
             }
           }
         },
@@ -1835,12 +1835,12 @@
               "id": "sess_home_bot-one",
               "preview": "hello Bot One",
               "title": "hello Bot One",
-              "updatedAt": 1794265267582,
+              "updatedAt": 1794268632487,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1794265267582,
+              "activityAt": 1794268632487,
               "incomingTail": [
                 2
               ],
@@ -1850,7 +1850,7 @@
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265267334
+              "createdAt": 1794268632123
             }
           }
         }
@@ -1861,19 +1861,19 @@
       "listed": {
         "data": [
           {
-            "id": "sess_room_mw9v7p3e4599c7c5",
+            "id": "sess_room_mw9x7thfdddd0324",
             "preview": "",
             "title": "Room One",
-            "updatedAt": 1794265267670,
+            "updatedAt": 1794268632706,
             "messageCount": 0,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
             "classification": "task",
             "projectPath": null,
-            "activityAt": 1794265267670,
+            "activityAt": 1794268632706,
             "incomingTail": [],
             "compactCount": 0,
             "agentRoom": {
-              "id": "mw9v7p3e4599c7c5",
+              "id": "mw9x7thfdddd0324",
               "name": "Room One",
               "members": [
                 "bot-one",
@@ -1889,18 +1889,18 @@
             },
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265267658
+            "createdAt": 1794268632579
           },
           {
             "id": "sess_home_bot-one",
             "preview": "hello Bot One",
             "title": "hello Bot One",
-            "updatedAt": 1794265267582,
+            "updatedAt": 1794268632487,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
             "classification": "task",
             "projectPath": null,
-            "activityAt": 1794265267582,
+            "activityAt": 1794268632487,
             "incomingTail": [
               2
             ],
@@ -1910,92 +1910,92 @@
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265267334
+            "createdAt": 1794268632123
           },
           {
-            "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+            "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
             "preview": "hello sess_0",
             "title": "Title 0",
-            "updatedAt": 1794265265610,
+            "updatedAt": 1794268628576,
             "messageCount": 4,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "activityAt": 1794265265610,
+            "activityAt": 1794268628576,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265262695
+            "createdAt": 1794268622211
           },
           {
-            "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+            "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
             "preview": "hello sess_1",
             "title": "Title 1",
-            "updatedAt": 1794265265442,
+            "updatedAt": 1794268628245,
             "messageCount": 4,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-            "activityAt": 1794265265442,
+            "activityAt": 1794268628245,
             "compactCount": 0,
             "readMessageCount": 0,
             "readRevision": 1,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265263934
+            "createdAt": 1794268623281
           },
           {
-            "id": "01a1c28b-3357-71fc-a3a9-08b361294f3f",
+            "id": "01a1c2be-8207-7401-894f-d7bd37e19a4f",
             "preview": "hello sess_0",
             "title": "Title 2",
-            "updatedAt": 1794265265112,
+            "updatedAt": 1794268627783,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "forkedFromId": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
-            "activityAt": 1794265264983,
+            "forkedFromId": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
+            "activityAt": 1794268627463,
             "compactCount": 0,
             "favorite": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264983
+            "createdAt": 1794268627463
           },
           {
-            "id": "01a1c28b-3213-7541-b785-3f4edb7f4499",
+            "id": "01a1c2be-7f85-732f-8a62-34910960659d",
             "preview": "hello sess_4",
             "title": "Title 4",
-            "updatedAt": 1794265264962,
+            "updatedAt": 1794268627412,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "activityAt": 1794265264962,
+            "activityAt": 1794268627412,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264659
+            "createdAt": 1794268626821
           },
           {
-            "id": "01a1c28b-307e-7260-9e1a-a42817d45397",
+            "id": "01a1c2be-7725-7226-99f4-62148d7cf4b7",
             "preview": "hello sess_3",
             "title": "Title 3",
-            "updatedAt": 1794265264638,
+            "updatedAt": 1794268626751,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-            "activityAt": 1794265264638,
+            "activityAt": 1794268626751,
             "compactCount": 0,
             "archived": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264254
+            "createdAt": 1794268624677
           }
         ]
       },
@@ -2004,19 +2004,19 @@
           "method": "thread/started",
           "params": {
             "thread": {
-              "id": "sess_room_mw9v7p3e4599c7c5",
+              "id": "sess_room_mw9x7thfdddd0324",
               "preview": "",
               "title": "Room One",
-              "updatedAt": 1794265267670,
+              "updatedAt": 1794268632706,
               "messageCount": 0,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1794265267670,
+              "activityAt": 1794268632706,
               "incomingTail": [],
               "compactCount": 0,
               "agentRoom": {
-                "id": "mw9v7p3e4599c7c5",
+                "id": "mw9x7thfdddd0324",
                 "name": "Room One",
                 "members": [
                   "bot-one",
@@ -2032,7 +2032,7 @@
               },
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265267658
+              "createdAt": 1794268632579
             }
           }
         }
@@ -2043,19 +2043,19 @@
       "listed": {
         "data": [
           {
-            "id": "sess_room_mw9v7p3e4599c7c5",
+            "id": "sess_room_mw9x7thfdddd0324",
             "preview": "",
             "title": "Room One",
-            "updatedAt": 1794265267670,
+            "updatedAt": 1794268632706,
             "messageCount": 0,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
             "classification": "task",
             "projectPath": null,
-            "activityAt": 1794265267670,
+            "activityAt": 1794268632706,
             "incomingTail": [],
             "compactCount": 0,
             "agentRoom": {
-              "id": "mw9v7p3e4599c7c5",
+              "id": "mw9x7thfdddd0324",
               "name": "Room One",
               "members": [
                 "bot-two"
@@ -2069,18 +2069,18 @@
             },
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265267658
+            "createdAt": 1794268632579
           },
           {
             "id": "sess_home_bot-one",
             "preview": "hello Bot One",
             "title": "Bot One",
-            "updatedAt": 1794265267582,
+            "updatedAt": 1794268632487,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
             "classification": "task",
             "projectPath": null,
-            "activityAt": 1794265267582,
+            "activityAt": 1794268632487,
             "incomingTail": [
               2
             ],
@@ -2092,92 +2092,92 @@
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265267334
+            "createdAt": 1794268632123
           },
           {
-            "id": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
+            "id": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
             "preview": "hello sess_0",
             "title": "Title 0",
-            "updatedAt": 1794265265610,
+            "updatedAt": 1794268628576,
             "messageCount": 4,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "activityAt": 1794265265610,
+            "activityAt": 1794268628576,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265262695
+            "createdAt": 1794268622211
           },
           {
-            "id": "01a1c28b-2f3f-7189-b18c-706f2a8dc815",
+            "id": "01a1c2be-71b1-76ab-8da7-8bd5d5e39e43",
             "preview": "hello sess_1",
             "title": "Title 1",
-            "updatedAt": 1794265265442,
+            "updatedAt": 1794268628245,
             "messageCount": 4,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-            "activityAt": 1794265265442,
+            "activityAt": 1794268628245,
             "compactCount": 0,
             "readMessageCount": 0,
             "readRevision": 1,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265263934
+            "createdAt": 1794268623281
           },
           {
-            "id": "01a1c28b-3357-71fc-a3a9-08b361294f3f",
+            "id": "01a1c2be-8207-7401-894f-d7bd37e19a4f",
             "preview": "hello sess_0",
             "title": "Title 2",
-            "updatedAt": 1794265265112,
+            "updatedAt": 1794268627783,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "forkedFromId": "01a1c28b-2a6f-7473-ba8b-9bf878b1bdf0",
-            "activityAt": 1794265264983,
+            "forkedFromId": "01a1c2be-6d83-7573-b6a1-0b40a3330106",
+            "activityAt": 1794268627463,
             "compactCount": 0,
             "favorite": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264983
+            "createdAt": 1794268627463
           },
           {
-            "id": "01a1c28b-3213-7541-b785-3f4edb7f4499",
+            "id": "01a1c2be-7f85-732f-8a62-34910960659d",
             "preview": "hello sess_4",
             "title": "Title 4",
-            "updatedAt": 1794265264962,
+            "updatedAt": 1794268627412,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\b",
-            "activityAt": 1794265264962,
+            "activityAt": 1794268627412,
             "compactCount": 0,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264659
+            "createdAt": 1794268626821
           },
           {
-            "id": "01a1c28b-307e-7260-9e1a-a42817d45397",
+            "id": "01a1c2be-7725-7226-99f4-62148d7cf4b7",
             "preview": "hello sess_3",
             "title": "Title 3",
-            "updatedAt": 1794265264638,
+            "updatedAt": 1794268626751,
             "messageCount": 2,
             "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
             "classification": "project",
             "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\ws\\a",
-            "activityAt": 1794265264638,
+            "activityAt": 1794268626751,
             "compactCount": 0,
             "archived": true,
             "lastMessagePreview": "ok",
             "provider": "custom-harness",
             "model": "harness-model",
-            "createdAt": 1794265264254
+            "createdAt": 1794268624677
           }
         ]
       },
@@ -2189,12 +2189,12 @@
               "id": "sess_home_bot-one",
               "preview": "hello Bot One",
               "title": "Bot One",
-              "updatedAt": 1794265267582,
+              "updatedAt": 1794268632487,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1794265267582,
+              "activityAt": 1794268632487,
               "incomingTail": [
                 2
               ],
@@ -2204,7 +2204,7 @@
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265267334
+              "createdAt": 1794268632123
             }
           }
         },
@@ -2215,12 +2215,12 @@
               "id": "sess_home_bot-one",
               "preview": "hello Bot One",
               "title": "Bot One",
-              "updatedAt": 1794265267582,
+              "updatedAt": 1794268632487,
               "messageCount": 2,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1794265267582,
+              "activityAt": 1794268632487,
               "incomingTail": [
                 2
               ],
@@ -2232,7 +2232,7 @@
               "lastMessagePreview": "ok",
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265267334
+              "createdAt": 1794268632123
             }
           }
         },
@@ -2240,19 +2240,19 @@
           "method": "thread/summary/updated",
           "params": {
             "thread": {
-              "id": "sess_room_mw9v7p3e4599c7c5",
+              "id": "sess_room_mw9x7thfdddd0324",
               "preview": "",
               "title": "Room One",
-              "updatedAt": 1794265267670,
+              "updatedAt": 1794268632706,
               "messageCount": 0,
               "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-live\\home\\.mixdog\\data\\userdata\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
-              "activityAt": 1794265267670,
+              "activityAt": 1794268632706,
               "incomingTail": [],
               "compactCount": 0,
               "agentRoom": {
-                "id": "mw9v7p3e4599c7c5",
+                "id": "mw9x7thfdddd0324",
                 "name": "Room One",
                 "members": [
                   "bot-two"
@@ -2266,7 +2266,7 @@
               },
               "provider": "custom-harness",
               "model": "harness-model",
-              "createdAt": 1794265267658
+              "createdAt": 1794268632579
             }
           }
         }

@@ -507,7 +507,8 @@ async fn interrupt_cancels_the_run_while_the_control_lane_is_full() {
         filled += 1;
     }
     assert_eq!(filled, 32, "the control lane holds 32");
-    handle.interrupt(&turn_id, None).expect("interrupt");
+    let stopped = handle.interrupt_active(None).expect("interrupt of the running turn");
+    assert_eq!(stopped, json!({ "cancelRequested": true, "turnId": turn_id }));
 
     let expected = format!("Session \"{}\" closed: runtime abort (reason=cli-abort)", handle.id.as_str());
     assert_eq!(seen_rx.await.expect("the script observed the cancel"), expected);

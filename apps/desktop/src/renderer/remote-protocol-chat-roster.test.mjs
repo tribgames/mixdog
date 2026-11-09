@@ -151,6 +151,8 @@ test('an edge that changes nothing publishes nothing (Node skipped an unchanged 
   r.published.length = 0;
   // The core's own last announcement of the one session nothing touched afterwards (Title 4), delivered again.
   const title4 = live.made.sess_4;
+  // Title 4's other edges (all in step "created") are earlier states of the row: step "created" compares the folded row with Node's whole.
+  // Only its last edge is the row's final state, the one whose redelivery is a no-change.
   const last = live.steps.flatMap((s) => s.edges).filter((e) => e.params.thread?.id === title4).at(-1);
   r.edge(last);
   assert.deepEqual(r.published, nodeStep('unchanged:delete').published);
