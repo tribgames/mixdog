@@ -236,11 +236,12 @@ const captures = {
 };
 
 // 2. A turn's baseline whose capture hangs: the turn still gets its token.
-const beginStarted = Date.now();
 const beginToken = await turnSnapshot.beginTurnSnapshot(repos.begin, 'bounds-begin', { checkpointId: 'cp-1' });
+const beginEnded = Date.now();
 const beginHung = spawnOf('begin');
-if (!beginToken || Date.now() - beginHung.t < 30_000 - 200) throw new Error(`begin: ${JSON.stringify(beginToken)}`);
-const begin = { hung: hungRecord(beginHung), token: beginToken, afterSeconds: seconds(Date.now() - beginStarted) };
+if (beginHung.verb !== 'write-tree') throw new Error(`begin: hung ${beginHung.verb}`);
+if (!beginToken || beginEnded - beginHung.t < 30_000 - 200) throw new Error(`begin: ${JSON.stringify(beginToken)}`);
+const begin = { hung: hungRecord(beginHung), token: beginToken, afterSeconds: seconds(beginEnded - beginHung.t) };
 
 // 3. The `git apply` of an Undo hangs.
 const applyPatch = 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-one\n+two\n';
@@ -255,17 +256,18 @@ const ignoreSession = 'bounds-ignore';
 await turnSnapshot.beginTurnSnapshot(repos.ignore, ignoreSession, { checkpointId: 'cp' });
 edit(ignoreSession, repos.ignore, 'two\n');
 await turnSnapshot.completeTurnSnapshot(ignoreSession);
-const ignoreStarted = Date.now();
 const changes = await turnSnapshot.getTurnChanges(ignoreSession, { checkpointId: 'cp' });
+const ignoreEnded = Date.now();
 const ignoreHung = spawnOf('check-ignore');
+if (ignoreHung.verb !== 'check-ignore') throw new Error(`check-ignore: hung ${ignoreHung.verb}`);
 if (changes.status !== 'ready' || changes.files.some((f) => f.ignored)) throw new Error(`check-ignore: ${JSON.stringify(changes)}`);
-if (Date.now() - ignoreHung.t < 10_000 - 200) throw new Error('check-ignore ended before its limit');
+if (ignoreEnded - ignoreHung.t < 10_000 - 200) throw new Error('check-ignore ended before its limit');
 const ignoredPaths = {
   hung: hungRecord(ignoreHung),
   status: changes.status,
   files: changes.files.map((f) => f.path),
   flaggedIgnored: 0,
-  afterSeconds: seconds(Date.now() - ignoreStarted),
+  afterSeconds: seconds(ignoreEnded - ignoreHung.t),
 };
 
 // 5. The shadow gc of the capture's repository, which the successful capture scheduled a minute
@@ -300,8 +302,8 @@ const sourceLimits = {
   ignoredPathsTimeoutMs: constantAt('src/runtime/shared/turn-snapshot.mjs', /\['check-ignore', '-z', '--stdin'\],\s*\{[\s\S]*?timeoutMs: ([\d_]+)/),
   turnCleanupSettleMs: constantAt('src/session-runtime/turn/turn-run.mjs', /turnCleanupSettleMs = ([\d_]+),/),
 };
-for (const [name, ms] of [['gc', gc.killedAfterSeconds], ['capture', captures.first.afterSeconds], ['apply', applied.afterSeconds], ['ignore', ignoredPaths.afterSeconds]]) {
-  const limit = { gc: sourceLimits.gcTimeoutMs, capture: sourceLimits.commandTimeoutMs, apply: sourceLimits.applyTimeoutMs, ignore: sourceLimits.ignoredPathsTimeoutMs }[name];
+for (const [name, ms] of [['gc', gc.killedAfterSeconds], ['capture', captures.first.afterSeconds], ['begin', begin.afterSeconds], ['apply', applied.afterSeconds], ['ignore', ignoredPaths.afterSeconds]]) {
+  const limit = { gc: sourceLimits.gcTimeoutMs, capture: sourceLimits.commandTimeoutMs, begin: sourceLimits.commandTimeoutMs, apply: sourceLimits.applyTimeoutMs, ignore: sourceLimits.ignoredPathsTimeoutMs }[name];
   if (Math.abs(ms * 1000 - limit) > 2500) throw new Error(`${name}: measured ${ms} s, source ${limit} ms`);
 }
 

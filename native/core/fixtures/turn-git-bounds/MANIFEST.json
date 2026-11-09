@@ -5,18 +5,18 @@
     {
       "bytes": 6088,
       "path": "bounds.json",
-      "sha256": "1d38245399f8183d491b881f399c2795b74575d49290dac829d2bef24e076867"
+      "sha256": "1816ab8d8373ae75b551966f89f38d6943b37252b88e7963b81ebb21cd5453d5"
     }
   ],
   "product": {
-    "appsSha256": "c4eee3f74e6d6fb5c76f161ef1a80fb656a9b53c74f602805a6451f32fdf23da",
-    "commit": null,
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a",
-    "files": 8712,
+    "files": 9139,
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "commitFilesMissingFromTree": 427,
-      "exact": false,
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
       "filesDifferingFromCommit": 0
     },
     "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",

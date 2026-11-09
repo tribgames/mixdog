@@ -669,11 +669,6 @@ fn read_loop(
     }
 }
 
-/// How long one kill of a command's tree is given to empty its job or group, and how many kills
-/// are issued before the exit is announced anyway.
-const KILL_ROUND: Duration = Duration::from_secs(2);
-const KILL_ROUNDS: u32 = 3;
-
 /// Waits for the root, then for the output to end (for at most [`ProcessConfig::output_drain`]),
 /// and publishes the exit as the last event.
 fn wait_and_finish(
@@ -692,11 +687,6 @@ fn wait_and_finish(
     // or stalled consumer would never reach the end of its stream, and closing a ConPTY waits
     // for its output to be read. What is left in the OS buffers is small and goes into the ring.
     proc.feed.release_reader();
-    // A killed command's tree is gone before anything waits on its output or its exit is
-    // announced: a caller that saw the exit may remove what a survivor still held open.
-    if proc.life().killed.is_some() {
-        proc.containment.settle_killed(KILL_ROUND, KILL_ROUNDS);
-    }
     // Closing a ConPTY can wait for its output to be read, and the close is what ends that
     // output; it runs beside the drain so a close that hangs is bounded by the same limit.
     if proc.pty.is_some() {
@@ -719,9 +709,6 @@ fn wait_and_finish(
         life.finalized = true;
         life.killed
     };
-    if killed.is_some() {
-        proc.containment.settle_killed(KILL_ROUND, KILL_ROUNDS);
-    }
     #[cfg(feature = "core-test")]
     crate::testing::exit_window();
     let status = status.unwrap_or(mixdog_core_api::domain::process::ExitStatus::Code(-1));
