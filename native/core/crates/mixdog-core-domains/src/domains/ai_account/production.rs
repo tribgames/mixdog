@@ -202,6 +202,15 @@ impl OAuthProvider for FileOAuth {
     async fn forget(&self, account: &str) -> Result<Value, String> {
         forget_file(self.id, &self.file(account)?).await
     }
+    async fn renew(&self, account: &str, minimum_validity_ms: u64) -> Result<(), String> {
+        if self.id != "anthropic-oauth" {
+            return Err(format!("{} credentials cannot be renewed ahead of use", self.id));
+        }
+        let now = Arc::clone(&self.wiring.now_ms);
+        let session = mixdog_ai::providers::anthropic::OAuthSession::new(self.file(account)?, Arc::clone(&self.wiring.http))
+            .with_clock(Arc::new(move || u64::try_from(now()).unwrap_or(0)));
+        session.ensure_lease(minimum_validity_ms).await.map(drop).map_err(|error| error.message)
+    }
     fn login_flow(&self, account: &str) -> Option<Arc<dyn LoginFlow>> {
         let wiring = &self.wiring;
         let file = self.file(account).ok()?;
