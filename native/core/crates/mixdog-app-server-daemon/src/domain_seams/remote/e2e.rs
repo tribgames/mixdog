@@ -938,6 +938,27 @@ fn at<'a>(root: &'a Value, path: &str) -> &'a Value {
     path.split('.').fold(root, |node, key| &node[key])
 }
 
+/// The recorded frames this test does not replay whole, each with the branch it waits on and why. The test fails when an entry has no
+/// recorded frame, and when a recorded path is neither replayed nor listed here. Node's frames stay in the fixture for the owner to replay.
+const NOT_REPLAYED: &[(&str, &str, &str)] = &[
+    ("before.chat", "phone-chat-live / rs-thread-list-rows", "Node's session rows (`listSessions`); the core's `thread/list` has no such rows. Replayed only as the same answer before and after the unpair."),
+    ("after.chat", "phone-chat-live / rs-thread-list-rows", "as before.chat"),
+    ("before.terminal", "phone-ph2-terminal", "Node's shell profile list (`termProfiles`) from the desktop host"),
+    ("after.terminal", "phone-ph2-terminal", "as before.terminal"),
+    ("before.settings", "phone-ph2-settings-notify", "Node's settings blob (`readSettings`) from the desktop host"),
+    ("after.settings", "phone-ph2-settings-notify", "as before.settings"),
+    ("setup.setNotificationPreferences", "phone-ph2-settings-notify", "Node's roster reply to setNotificationPreferences; its preferences seed `Config`, the input of this test"),
+    ("before.notifications", "phone-ph2-settings-notify", "Node's roster (`getNotificationPreferences`); only the device's preferences in it are compared, as what `Config` stores"),
+    ("after.notifications", "phone-ph2-settings-notify", "as before.notifications"),
+    ("after.notificationsAfterForget", "phone-ph2-settings-notify", "as before.notifications"),
+    ("before.files.grant", "none: the Rust wire has no download-grant step", "Node's `fileDownloadAuthorize`; the core has one `transfer/beginRead`"),
+    ("before.files.unbegun", "none: the Rust wire has no download-grant step", "as before.files.grant"),
+    ("after.files.begin", "none: the Rust wire has no download-grant step", "Node's `fileDownloadBegin` of the revoked grant (refused); the core has one `transfer/beginRead`"),
+    ("before.files.transfer", "none: the Rust wire has no download-grant step", "Node's transfer-begin reply (media shape); here only its size is compared, as an open transfer"),
+    // `feedEvents` is not a frame path: Node sends a compact session-state frame `{e:"T",s,w:{r,ip:{p,a:[row]}}}` to a phone still attached.
+    // The core has no encoder of it (its feed is the thread feed's own protocol); an owner would need that compact encoder on the phone link.
+];
+
 /// What Node's desktop did across an unpair of a paired phone, recorded through its real unpair handler (`unpair-access.json`), replayed
 /// over the composed wiring and the real services that hold a device's state (the remote access service, the workspace and its one-file
 /// grants and transfers, the notification preferences in `Config`): the same phone connection throughout. A frame is the whole frame the
@@ -946,13 +967,7 @@ fn at<'a>(root: &'a Value, path: &str) -> &'a Value {
 /// screen is refused. The registrations and notification preferences go when, and only when, the relay confirmed the unpair; a grant the
 /// attached connection holds stays with it and a new connection of the device holds none.
 ///
-/// NOT_REPLAYED here, each by name, because the composed server's core is a mock (the session catalog needs the bundled Postgres) or the
-/// phone's Rust wire has no counterpart of Node's frame:
-/// - `before/after.chat` (Node's session rows have no counterpart in the core's `thread/list`; the call is replayed before and after the unpair\n///   and answers the same), `before/after.terminal` and `before/after.settings` (Node's shell list and settings blob come from the desktop\n///   host; the core has no counterpart of either frame), `before/after.notifications` (Node's roster; the preferences it shows are compared\n///   as what `Config` stores, below);
-/// - `before.files.grant`, `before.files.unbegun`, `after.files.begin` (Node's download grant is a step the Rust wire does not have:
-///   `fileDownloadAuthorize` and `fileDownloadBegin` are both `transfer/beginRead`); the transfer `before.files.transfer` is replayed as
-///   its effect (an open transfer, then `after.files.range`);
-/// - `feedEvents` (Node's compact session-state frame; the core has no encoder of it, its feed is the thread feed's own protocol).
+/// What is not replayed is named, with its owner, in `NOT_REPLAYED`; the test fails when a recorded frame is neither replayed nor named.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_desktop_did() {
     let all: Value = serde_json::from_str(UNPAIR_ACCESS).unwrap();
@@ -969,6 +984,7 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
         let after = &scenario["after"];
         let h = Harness::start(confirms).await;
         let mut canon = Canon::new(&all["remapped"], h.dir.path());
+        let mut replayed: Vec<&str> = Vec::new();
         let (mut phone, connection) = h.connect("p1", CRED).await;
         let credential = phone_credential(h.registry.clone());
         let download = h.dir.path().join("unpair-download.txt");
@@ -982,6 +998,7 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
                 let wire = answer(&mut $phone, recorded["id"].as_u64().unwrap()).await;
                 let frame = canon.frame($path, &node_of(&wire));
                 assert_eq!(&frame, recorded, "{name}: {}", $path);
+                replayed.push($path);
                 wire
             }};
         }
@@ -1004,6 +1021,7 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
             // Node describes a list of paths, the core one path: the row is the first of the recorded list.
             let listed = json!({ "id": wire["id"], "result": [wire["result"].clone()] });
             assert_eq!(&canon.frame("before.link.resolve", &node_of(&listed)), recorded, "{name}: before.link.resolve");
+            replayed.push("before.link.resolve");
             wire["result"].clone()
         };
         let link = [minted["projectPath"].clone(), minted["relPath"].clone(), minted["accessToken"].clone()];
@@ -1055,11 +1073,13 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
             assert_eq!((described.credential.as_str(), described.kind), (CRED, LinkKind::Phone), "{name}");
             asks.send(&displays_call(&after["screen"]).to_string());
             assert_eq!(answer(asks, after["screen"]["id"].as_u64().unwrap()).await, wire_of(&after["screen"]), "{name}: the screen");
+            replayed.push("after.screen");
             let (mut second, second_connection) = h.connect("p3", CRED).await;
             assert_eq!(credential(second_connection).as_deref(), Some(CRED), "{name}");
             let refusal = &after["secondConnection"]["screen"];
             second.send(&displays_call(refusal).to_string());
             assert_eq!(answer(&mut second, refusal["id"].as_u64().unwrap()).await, wire_of(refusal), "{name}: a second connection");
+            replayed.push("after.secondConnection.screen");
         } else {
             assert_eq!((&after["screen"], &after["secondConnection"]["screen"]), (&Value::Null, &Value::Null));
         }
@@ -1078,6 +1098,24 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
         replay!(*asks, "after.removeNativePush", "remoteAccess/removeNativePush", json!({ "opId": op(3), "token": token }));
         replay!(*asks, "after.removePushSubscription", "remoteAccess/removePushSubscription", json!({ "opId": op(4), "endpoint": PUSH_ENDPOINT }));
         assert_eq!(scenario["feedEvents"].is_null(), confirms, "{name}: Node's feed reached only a phone still attached");
+        // Every recorded group is replayed above or named in NOT_REPLAYED, and a named one still has its recorded frames.
+        for path in all["order"].as_array().unwrap().iter().map(|path| path.as_str().unwrap()) {
+            let recorded = at(scenario, path);
+            let listed = NOT_REPLAYED.iter().any(|(named, _, _)| *named == path);
+            if recorded.is_null() {
+                // A phone that the unpair detached is sent no screen call, so those two paths hold no frame in that scenario.
+                assert!(path.ends_with("screen") && !attached, "{name}: {path} has no recorded frame");
+                assert!(!listed, "{name}: NOT_REPLAYED names {path}, which has no recorded frame");
+                continue;
+            }
+            assert!(recorded["id"].is_u64() && recorded["ok"].is_boolean(), "{name}: {path} is not a recorded frame");
+            assert_ne!(listed, replayed.contains(&path), "{name}: {path} must be replayed or named in NOT_REPLAYED, and not both");
+        }
+        for (named, _, _) in NOT_REPLAYED {
+            assert!(all["order"].as_array().unwrap().iter().any(|path| path == named), "NOT_REPLAYED names {named}, which the recording does not hold");
+        }
+        let feed = &scenario["feedEvents"];
+        assert!(feed.is_null() == confirms && feed.as_array().is_none_or(|frames| !frames.is_empty()), "{name}: the recorded feed frames NOT_REPLAYED names as `feedEvents`");
         h.runtime.close().await;
     }
 }
