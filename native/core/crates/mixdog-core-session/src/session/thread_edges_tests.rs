@@ -152,9 +152,15 @@ fn thread_of(frame: &Value) -> String {
 fn the_roster_gate_keeps_the_rows_node_kept() {
     let golden = golden();
     let cases = golden["gate"].as_array().expect("gate cases");
-    assert!(cases.len() >= 20);
+    assert!(cases.len() >= 28);
+    // The cases that only a user's name, or the task workspace, could move: Node's answers differ with the name, not the folder.
+    let kept = |id: &str| cases.iter().find(|case| case["row"]["id"] == id).expect(id)["kept"].as_bool().unwrap();
+    assert!(!kept("g_meaningless_title") && kept("g_meaningless_title_renamed") && kept("g_renamed_untitled") && !kept("g_renamed_blank"));
+    assert!(kept("g_legacy_in_task_workspace") && kept("g_legacy_outside_task_workspace"));
+    assert_eq!(kept("g_legacy_in_task_workspace_untitled"), kept("g_legacy_outside_task_workspace_untitled"));
     for case in cases {
         let row = case["row"].as_object().expect("row");
-        assert_eq!(super::thread_edges::roster_row(row), case["kept"], "{}", row["id"]);
+        let name = case["names"][row["id"].as_str().expect("id")].as_str();
+        assert_eq!(super::thread_edges::roster_row(row, name), case["kept"], "{}", row["id"]);
     }
 }

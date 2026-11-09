@@ -35,18 +35,20 @@ const SUMMARY_UPDATED: &str = "thread/summary/updated";
 const DELETED: &str = "thread/deleted";
 
 /// The list row of a stored row when it is listed: the catalog's lead gate, then the roster's own (Node's second gate).
-fn listed(row: &StoredRow) -> Option<LeadRow> {
+fn listed(row: &StoredRow, name: Option<&str>) -> Option<LeadRow> {
     if row.deleted {
         return None;
     }
     let Ok(Value::Object(map)) = serde_json::from_str::<Value>(&row.summary) else { return None };
-    (is_lead_visible_row(&map) && roster_row(&map)).then_some(LeadRow { row: map, archived: row.archived })
+    (is_lead_visible_row(&map) && roster_row(&map, name)).then_some(LeadRow { row: map, archived: row.archived })
 }
 
-/// Whether `desktopSessionSummaries` (`desktop-state.ts:144-246`) keeps the row. The names a user gave a session and the host's
-/// task workspace are host facts it takes beside the rows: here the row's own `title` is the name, and a legacy row is a task
-/// or a project by its folder, which only matters when a project has no path (a row with a folder always has one).
-pub(super) fn roster_row(row: &serde_json::Map<String, Value>) -> bool {
+/// Whether `desktopSessionSummaries` (`desktop-state.ts:144-246`) keeps the row. `name` is the name the user gave the session
+/// (Node's `names[id]`, which `renameSession` writes beside the runtime title, `session-host-lifecycle.ts:225-230`): here the
+/// loaded session's header title when `titleSource` is `user` (`name_set`). The host's task workspace, its other input, decides a
+/// legacy row's classification only, and a legacy row with a folder has a project path whichever it is, so it never changes
+/// whether the row is kept (recorded cases `g_legacy_in_task_workspace*`).
+pub(super) fn roster_row(row: &serde_json::Map<String, Value>, name: Option<&str>) -> bool {
     let text = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default().trim().to_owned();
     // Valid workspace paths (`workspaceText`): trimmed, non-empty, no NUL.
     let path = |value: Option<&Value>| value.and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty() && !s.contains('\0')).map(str::to_owned);
@@ -81,7 +83,8 @@ pub(super) fn roster_row(row: &serde_json::Map<String, Value>) -> bool {
     let real_turns = row.get("realTurnCount").and_then(Value::as_f64);
     let had_conversation = message_count >= 2 && row.get("detachedReason").and_then(Value::as_str) != Some("cli-resume") && real_turns.is_none_or(|n| n >= 1.0);
     let agent_home = !mixdog_store::agent_mode::agent_id_of_home_session(&text("id")).is_empty();
-    !title(&text("preview"), 32).is_empty() || !title(&text("title"), 32).is_empty() || had_conversation || (agent_home && message_count > 0)
+    let manual = name.is_some_and(|name| !mixdog_store::title::normalize_session_title(name, "", 100).is_empty());
+    !title(&text("preview"), 32).is_empty() || manual || !title(&text("title"), 32).is_empty() || had_conversation || (agent_home && message_count > 0)
 }
 
 /// Decides and publishes what one row write means to the app feed.
@@ -97,8 +100,11 @@ impl ThreadEdgePublisher {
 
     pub async fn publish(&self, edge: RowEdge) {
         let id = ThreadId::from(edge.id.clone());
-        let before = edge.before.as_ref().and_then(listed);
-        match (before, listed(&edge.after)) {
+        // The name the user gave is known for a loaded session, which is where a rename happens; the row before the write is
+        // judged without it, so a rename that makes a meaningless title count is a start.
+        let name = self.list.user_name(&id);
+        let before = edge.before.as_ref().and_then(|row| listed(row, None));
+        match (before, listed(&edge.after, name.as_deref())) {
             (None, Some(now)) => self.send(&id, &now, |thread| (STARTED, ThreadStartedParams { thread })).await,
             (Some(was), Some(now)) => {
                 let (was, shown) = (summary_of_list_row(&id, &Value::Object(was.row), now.archived), summary_of_list_row(&id, &Value::Object(now.row.clone()), now.archived));

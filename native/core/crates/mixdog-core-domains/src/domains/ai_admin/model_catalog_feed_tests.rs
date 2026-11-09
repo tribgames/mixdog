@@ -155,7 +155,12 @@ async fn the_composed_task_publishes_each_config_change_and_invalidation_once() 
     for pair in calls[1..].chunks(2) {
         let [mutation, read] = pair else { panic!("a mutation and the read after it") };
         let what = format!("{} {}", mutation["action"], mutation["args"]);
-        apply(&rig, &mut sync, &mut applied, mutation).await;
+        let told = feed.invalidations();
+        let invalidated = apply(&rig, &mut sync, &mut applied, mutation).await;
+        // The signal each of Node's mutations ended in, checked before any publication is awaited: a stored change that is only
+        // reloaded (the model preferences) tells the feed nothing, the others invalidate once. A wiring that lost the invalidation
+        // fails here and not by waiting for a publication that cannot come.
+        assert_eq!(feed.invalidations(), told + u64::from(invalidated), "{what}: the invalidation reached the feed");
         if read["value"] == last {
             unchanged += 1;
             continue;
