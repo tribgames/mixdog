@@ -33,6 +33,11 @@ pub trait RouteFacts: Send + Sync {
     async fn ensure_ready(&self, config: &Obj, provider: &str) -> Result<(), String>;
     /// `lookupModelMeta(provider, model)`.
     fn model_meta(&self, provider: &str, model: &str) -> Value;
+    /// `lookupModelMeta(provider, model, { allowFetch: true })`: a placeholder answer is replaced by what the
+    /// provider lists now. Facts with nothing to list answer [`Self::model_meta`].
+    async fn model_meta_fetching(&self, provider: &str, model: &str) -> Value {
+        self.model_meta(provider, model)
+    }
     /// The row whose windows size a route (`window_meta_of` over the cached provider row).
     fn window_meta(&self, provider: &str, model: &str, meta: &Value) -> Option<Value>;
     /// `getModelMetadataSync(model, provider)` is non-null.
@@ -66,6 +71,11 @@ impl RouteFacts for CatalogFacts {
 
     fn model_meta(&self, provider: &str, model: &str) -> Value {
         self.catalog.model_meta_in(provider, model, self.config.agent().get("providers").and_then(|providers| providers.get(provider)))
+    }
+
+    async fn model_meta_fetching(&self, provider: &str, model: &str) -> Value {
+        let agent = self.config.agent();
+        self.catalog.model_meta_fetching(provider, model, agent.get("providers").and_then(|providers| providers.get(provider))).await
     }
 
     fn window_meta(&self, provider: &str, model: &str, meta: &Value) -> Option<Value> {

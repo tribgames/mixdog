@@ -47,8 +47,8 @@ impl RouteFacts for Facts {
     async fn ensure_ready(&self, _: &Map<String, Value>, _: &str) -> Result<(), String> {
         Ok(())
     }
-    fn model_meta(&self, _: &str, model: &str) -> Value {
-        self.0.get(model).cloned().unwrap_or(Value::Null)
+    fn model_meta(&self, provider: &str, model: &str) -> Value {
+        self.0.get(model).cloned().unwrap_or_else(|| json!({ "id": model, "provider": provider }))
     }
     fn window_meta(&self, _: &str, _: &str, _: &Value) -> Option<Value> {
         None
@@ -169,7 +169,8 @@ async fn the_workflow_host_answers_from_the_providers_agents_and_catalog() {
     let host = &rig.hosts;
     assert_eq!(host.custom_agent_ids().await, vec!["reviewer".to_owned()]);
     assert_eq!(host.lookup_model_meta("anthropic", "claude-opus-4-5").await.unwrap()["id"], "claude-opus-4-5");
-    assert_eq!(host.lookup_model_meta("anthropic", "nope").await, None);
+    // `lookupModelMeta(.., { allowFetch: true })` answers the bare placeholder for a model nothing lists.
+    assert_eq!(host.lookup_model_meta("anthropic", "nope").await, Some(json!({ "id": "nope", "provider": "anthropic" })));
     assert!(host.fast_capable("anthropic", Some(&json!({ "supportsFastMode": true })), None, None));
     assert!(!host.fast_capable("anthropic", None, None, None));
     assert_eq!(host.normalize_stored_custom_config(&json!("x")), Err("[custom-provider] config must be an object".to_owned()));

@@ -1654,6 +1654,15 @@ mod liveness {
                     }
                 }
             }
+            // The row `listCompatModels` stores (`provider._enrichedModels`), which `getCachedCompatModelInfo` answers
+            // unchanged, is Node's row key for key. The other providers (mimo, muse, command-code, opencode-go) build
+            // their rows in their own `listModels`, which the stored row does not follow yet.
+            if ["xai", "deepseek", "openrouter"].contains(&case["provider"].as_str().unwrap()) {
+                for (record, node) in rows.iter().zip(expected) {
+                    let stored = crate::catalog::listed_row_of(&case["provider"].as_str().unwrap().into(), record.clone());
+                    assert_eq!(stored.as_ref(), Some(node), "{what}: {} stored row", node["id"]);
+                }
+            }
             for (record, node) in rows.iter().zip(expected) {
                 let row = format!("{what}: {}", node["id"]);
                 assert_eq!(record.reasoning_content_field.as_deref(), node["reasoningContentField"].as_str(), "{row} reasoningContentField");

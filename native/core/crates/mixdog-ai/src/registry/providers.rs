@@ -26,6 +26,11 @@ use serde_json::Map;
 
 use super::accounted::{AccountedAdapter, AccountingDeps};
 use crate::accounts::CredentialState;
+use crate::catalog::AdapterRows;
+use crate::catalog::CachedModelInfo;
+use crate::catalog::ListedRows;
+use crate::catalog::RouteProvider;
+use mixdog_protocol::ProviderId;
 use serde_json::Value;
 
 /// Error code of an init that has no enabled provider.
@@ -79,6 +84,12 @@ pub trait ProviderBuilder: Send + Sync {
     /// for a name no family serves).
     async fn build(&self, name: &str, config: &Value) -> Result<Arc<dyn ProviderAdapter>, String>;
 
+    /// The adapter-owned `getCachedModelInfo` of the provider built under `name`, for a provider whose Node class has
+    /// one; `None` for a class without it (`lookupModelMeta` then never asks it for a stored row).
+    fn cached_model_info(&self, _name: &str) -> Option<Arc<dyn CachedModelInfo>> {
+        None
+    }
+
     /// Ids of a custom provider's additional keys (`customProviderKeyIds`). A roster that was read
     /// and cannot be used lists none (Node); `Err` only when the read never ran, which fails the
     /// build: an empty list would rebuild the provider without its additional keys.
@@ -115,6 +126,9 @@ struct State {
     init_errors: HashMap<String, String>,
     explicitly_disabled: HashSet<String>,
     catalog_revision: u64,
+    /// `_lastAppliedSig`: the signature of the config the last successful `init_providers` applied; `None` once a
+    /// provider has been removed since.
+    last_applied: Option<String>,
     /// name -> signature whose catalog was fetched (or is being fetched).
     catalog_refreshed: HashMap<String, Option<String>>,
 }
@@ -242,17 +256,30 @@ impl ProviderRegistry {
             });
         }
         let plan = Plan { config: self.with_custom_key_ids(config).await?, rebuild: false, add: true, is_off: None };
+        let applied = config_signature(&Value::Object(plan.config.clone()));
         let nothing_pending = !self.state().providers.is_empty() && self.pending(&plan).is_empty();
         if nothing_pending {
             self.refuse_if_nothing_left(&plan.config, &[]).await?;
+            self.note_applied(applied);
             self.ready.send_replace(true);
             return Ok(());
         }
         self.apply_plan(plan).await?;
+        self.note_applied(applied);
         // Only an initialization latches readiness (`initProviders`' tracked promise); the sync
         // of the record (`sync_providers`) does not.
         self.ready.send_replace(true);
         Ok(())
+    }
+
+    /// `if (_lastAppliedSig !== sig) _providerCatalogRevision += 1; _lastAppliedSig = sig` (`initProviders`, registry.mjs:312):
+    /// an init of a config other than the last applied one moves the catalog revision even when it builds nothing.
+    fn note_applied(&self, signature: String) {
+        let mut state = self.state();
+        if state.last_applied.as_deref() != Some(signature.as_str()) {
+            state.catalog_revision += 1;
+        }
+        state.last_applied = Some(signature);
     }
 
     /// Applies the config of record: rebuilds every registered provider whose
@@ -417,6 +444,8 @@ impl ProviderRegistry {
         let had = state.providers.remove(name).is_some();
         if had {
             state.catalog_revision += 1;
+            // `disableProvider`: the live registry no longer reflects the last applied config.
+            state.last_applied = None;
         }
         had
     }
@@ -501,6 +530,19 @@ impl ProviderRegistry {
         for adapter in adapters {
             adapter.release_session(session_id);
         }
+    }
+
+    /// `getProvider(name)` as the route-meta memo reads it: the registered adapter's listing, and its stored-row
+    /// capability when its class has one.
+    pub fn route_provider(&self, name: &str) -> Option<RouteProvider> {
+        if !self.builder.available(name) {
+            return None;
+        }
+        let adapter = Arc::clone(&self.state().providers.get(name)?.adapter);
+        let listing = adapter.models().is_some().then(|| {
+            Arc::new(AdapterRows { provider: ProviderId::from(name), adapter: Arc::clone(&adapter) }) as Arc<dyn ListedRows>
+        });
+        Some(RouteProvider { cached: self.builder.cached_model_info(name), listing })
     }
 
     /// Live instances minus dev-gated providers whose option is off.

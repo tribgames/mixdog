@@ -2,10 +2,9 @@
 //! ladder reads off the route (`step-auto-effort.mjs:164-167`).
 //!
 //! - the provider's cached model row (`providerImpl.getCachedModelInfo`), asked of every provider
-//!   (`autoEffortModel`): the row the catalog lists for the model stands for the adapter's own
-//!   listing. A custom provider's listing is already its discovered rows under the config's
-//!   overrides; before any listing it holds the rows its config states
-//!   (`effectiveCustomModelRows(config, [])`);
+//!   (`autoEffortModel`): the stored row of the registered provider's own listing, for a provider whose class has
+//!   the function (`CatalogService::cached_row`). A custom provider's is its discovered rows under the config's
+//!   overrides; before any listing it holds the rows its config states (`effectiveCustomModelRows(config, [])`);
 //! - the rejected efforts (`rejectedEffortLevelsSync`): the process's rejection store;
 //! - a custom provider's protocol and base URL (`providerClient.customConfig`): its config entry;
 //! - the Anthropic efforts (`anthropicEffortLevelsFor`): [`CatalogCaps::effort_levels_for`].
@@ -15,11 +14,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_ai::catalog::CatalogService;
 use mixdog_ai::effort::RejectionEntry;
-use mixdog_ai::providers::custom::listing::{manual_rows, public_rows};
-use mixdog_ai::providers::custom::reasoning::is_custom_provider_name;
 use mixdog_ai::providers::custom::Protocol;
-use mixdog_protocol::ProviderId;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
 
 use super::builder_env::CatalogCaps;
 use super::process::{EffortRejections, ProcessServices};
@@ -31,25 +27,11 @@ pub(super) fn provider_entry(config: &Config, provider: &str) -> Option<Value> {
     config.agent().get("providers").and_then(|p| p.get(provider)).filter(|v| v.is_object()).cloned()
 }
 
-/// The row a provider's `getCachedModelInfo(model)` answers.
-pub(super) fn cached_row(catalog: &CatalogService, config: &Config, provider: &str, model: &str) -> Option<Map<String, Value>> {
-    let listed = || {
-        let snapshot = catalog.snapshot();
-        let record = snapshot.models_of(&ProviderId::from(provider)).iter().find(|r| r.id == model)?.clone();
-        let mut row = catalog.model_meta(provider, model).as_object().cloned()?;
-        if let Some(custom) = &record.picker.custom_reasoning {
-            row.insert("customReasoning".into(), json!(custom));
-        }
-        Some(row)
-    };
-    if is_custom_provider_name(provider) {
-        return listed().or_else(|| {
-            provider_entry(config, provider).and_then(|entry| {
-                public_rows(&manual_rows(&entry)).into_iter().find(|r| r.get("id").and_then(Value::as_str) == Some(model)).and_then(|r| r.as_object().cloned())
-            })
-        });
-    }
-    listed()
+/// The row a provider's `getCachedModelInfo(model)` answers (`providerImpl.getCachedModelInfo`): the provider's own
+/// stored row, asked of the registered provider; none for a provider whose class has no such function. A custom
+/// provider's holds the rows its config states from the moment it is built.
+pub(super) fn cached_row(catalog: &CatalogService, provider: &str, model: &str) -> Option<Map<String, Value>> {
+    catalog.cached_row(provider, model)?.as_object().cloned()
 }
 
 /// The protocol and base URL of a custom provider's config entry.
@@ -81,7 +63,7 @@ impl ProcessLadder {
 #[async_trait]
 impl LadderSources for ProcessLadder {
     fn cached_row(&self, provider: &str, model: &str) -> Option<Map<String, Value>> {
-        cached_row(&self.catalog, &self.config, provider, model)
+        cached_row(&self.catalog, provider, model)
     }
 
     async fn rejected(&self, provider: &str, model_id: &str) -> Option<RejectionEntry> {

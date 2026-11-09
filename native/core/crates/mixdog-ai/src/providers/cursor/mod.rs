@@ -317,6 +317,8 @@ pub struct CursorAdapter {
     policy: RetryPolicy,
     keepalive: KeepaliveSchedule,
     catalog: ArcSwapOption<Vec<CursorModel>>,
+    /// The rows the last listing stored, which `getCachedModelInfo` answers.
+    rows: crate::catalog::RowStore,
     placeholder: CursorCodecStub,
 }
 
@@ -375,6 +377,7 @@ impl CursorAdapter {
             policy: retry_policy(),
             keepalive: KeepaliveSchedule::SPEC,
             catalog: ArcSwapOption::empty(),
+            rows: crate::catalog::RowStore::default(),
             placeholder: CursorCodecStub,
         }
     }
@@ -487,7 +490,9 @@ impl ModelListing for CursorAdapter {
             error.message = "Cursor listed no parameterized models".to_owned();
             return Err(error);
         }
-        Ok(listing::rows(&models, self.id.as_str()).into_iter().map(listing_row::record).collect())
+        let rows: Vec<ModelRecord> = listing::rows(&models, self.id.as_str()).into_iter().map(listing_row::record).collect();
+        self.rows.replace(rows.iter().map(|row| std::sync::Arc::new(crate::catalog::stored_row(&self.id, row.clone()))).collect());
+        Ok(rows)
     }
 }
 
@@ -542,5 +547,11 @@ impl ProviderAdapter for CursorAdapter {
             }
             return Err(error);
         }
+    }
+}
+
+impl crate::catalog::CachedModelInfo for CursorAdapter {
+    fn cached_row(&self, model: &str) -> Option<std::sync::Arc<serde_json::Value>> {
+        self.rows.find(model)
     }
 }

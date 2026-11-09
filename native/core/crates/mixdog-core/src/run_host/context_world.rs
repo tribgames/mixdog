@@ -594,23 +594,45 @@ mod tests {
     }
 
     /// The provider registry the readiness holds builds nothing: no replayed call prepares a provider.
-    struct NoBuilds;
+    /// The registry's builder as production has it for a custom provider (`build_custom_parts`): an adapter that lists, and
+    /// the adapter-owned `getCachedModelInfo` of its listing (`CustomListing`, seeded from the config's own rows before any
+    /// listing). The wire is never used by this replay.
+    #[derive(Default)]
+    struct CustomBuilder {
+        listings: std::sync::Mutex<HashMap<String, Arc<mixdog_ai::providers::custom::listing::CustomListing>>>,
+    }
+
     #[async_trait]
-    impl mixdog_ai::registry::providers::ProviderBuilder for NoBuilds {
-        async fn build(&self, name: &str, _: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
-            Err(format!("the replay builds no provider ({name})"))
+    impl mixdog_ai::registry::providers::ProviderBuilder for CustomBuilder {
+        async fn build(&self, name: &str, cfg: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
+            let protocol = serde_json::from_value(cfg["protocol"].clone()).map_err(|error| error.to_string())?;
+            let listing = mixdog_ai::providers::custom::listing::CustomListing::new(
+                name,
+                protocol,
+                cfg["baseURL"].as_str().unwrap_or_default(),
+                Vec::new(),
+                Arc::new(Offline),
+                Arc::new(mixdog_ai::providers::connect::rewrite::StaticCredential(None)),
+                true,
+                cfg,
+                mixdog_ai::catalog::ListingLookup::new(),
+            );
+            self.listings.lock().unwrap().insert(name.to_owned(), Arc::new(listing));
+            Ok(Arc::new(mixdog_core_api::domain::mock::MockProvider::new([])))
+        }
+        fn cached_model_info(&self, name: &str) -> Option<Arc<dyn mixdog_ai::catalog::CachedModelInfo>> {
+            self.listings.lock().unwrap().get(name).map(|listing| listing.clone() as Arc<dyn mixdog_ai::catalog::CachedModelInfo>)
         }
         async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
             Ok(Vec::new())
         }
         fn available(&self, _: &str) -> bool {
-            false
+            true
         }
         async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
             Ok(false)
         }
     }
-
     /// `LiveRouteWriter` over the replay's route cell, without the provider preparation (the replay has no provider to
     /// prepare): the same `refresh_route_fields` over the same config and catalog row.
     struct Writer {
@@ -779,8 +801,10 @@ mod tests {
             let io = mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
             let metadata = mixdog_ai::catalog::ModelsDevSource::new(Arc::new(Offline), config_dir.path().to_path_buf(), io);
             let catalog = Arc::new(mixdog_ai::catalog::CatalogService::cold_start(mixdog_ai::catalog::CatalogSnapshot::default(), Vec::new(), metadata).await);
-            let registry = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(NoBuilds)));
+            let registry = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(CustomBuilder::default())));
             let readiness = mixdog_ai::catalog::ProviderReadiness::new(registry, catalog.clone());
+            // The providers of the config are registered the way the daemon registers them at boot.
+            readiness.ensure_providers_ready(config.agent().get("providers").and_then(Value::as_object).cloned()).await.expect("the providers register");
             let facts = Arc::new(mixdog_core_domains::domains::ai_admin::chain::CatalogFacts { catalog: catalog.clone(), readiness, config: config.clone() });
             let models = Arc::new(mixdog_core_domains::domains::ai_admin::model_list::ModelListService {
                 catalog: catalog.clone(),
