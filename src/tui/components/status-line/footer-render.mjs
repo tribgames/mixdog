@@ -20,6 +20,7 @@ import { measuredContextUsage, contextMeasurementLabel } from '../../../../packa
 import { displayModelName, effortDisplayLabel, shortenModelName } from '../../../../packages/protocol-client/src/rows/model-display.mjs';
 import { formatElapsed, num, timeMs } from '../../lib/statusline-format.mjs';
 import { configuredGatewayRoute } from './gateway-status.mjs';
+import { catalogDisplayHint } from './model-display-hint.mjs';
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
@@ -86,8 +87,9 @@ const providerKind = (provider) => {
 
 /* ── L1: model and context segments ─────────────────────────────────────────────────────────────────── */
 
-function formatModelSegment({ provider, model, effort, fast, ultra, cols }, { B, R, D }) {
-  const modelName = shortenModelName(displayModelName(String(model || '').trim(), provider, ''), cols);
+function formatModelSegment({ provider, model, effort, fast, ultra, cols }, { B, R, D }, rosterRows) {
+  const raw = String(model || '').trim();
+  const modelName = shortenModelName(displayModelName(raw, provider, catalogDisplayHint(raw, provider, rosterRows)), cols);
   const bits = [`${B}${modelName}${R}`];
   if (effort) bits.push(`${B}${effortDisplayLabel(effort)}${R}`);
   if (fast === true) bits.push(`${B}${ultra === true ? 'Ultrafast' : 'Fast'}${R}`);
@@ -826,7 +828,7 @@ export function createFooterRenderer({ routeMetaLoaded = false } = {}) {
     // Node asked the gateway for the route's window; the displayed one is the session's (display, else context).
     const sep = ` ${D}│${R} `;
     const l1Parts = [
-      formatModelSegment({ ...args, cols: env.cols }, colors),
+      formatModelSegment({ ...args, cols: env.cols }, colors, data.rosterRows || (() => [])),
       formatContextSegment(ctxPct, env.cols, stats.currentContextSource, colors),
       ...quotaSegmentsFor(args, data, env, state, colors),
     ].filter(Boolean);

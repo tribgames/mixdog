@@ -1,5 +1,5 @@
-// Records the footer scenarios from the Node tree (b6f10295a) into node-footer.golden.json:
-//   node record.mjs <node-tree-root> [out.json]
+// Records the footer scenarios from Node at b6f10295a into node-footer.golden.json:
+//   node record.mjs <node-repo> [out.json]
 // Each scenario runs in its own process (the footer keeps module-level caches), with a fixed clock, UTC,
 // forced colour and the scenario's files as the data dir.
 import { spawnSync } from 'node:child_process';
@@ -7,12 +7,17 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { exportNodeTree } from './node-tree.mjs';
 import { SCENARIOS, T0 } from './scenarios.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const tree = process.argv[2];
+const repo = process.argv[2];
 const out = process.argv[3] || join(here, 'node-footer.golden.json');
-if (!tree) throw new Error('usage: node record.mjs <node-tree-root> [out.json]');
+if (!repo) throw new Error('usage: node record.mjs <node-repo> [out.json]');
+
+// The recording is of exactly b6f10295a (node-tree.mjs exports that commit's sources).
+const { tree, commit } = exportNodeTree(repo);
+const head = { stdout: commit };
 
 const recorded = [];
 for (const scenario of SCENARIOS) {
@@ -59,4 +64,4 @@ for (const scenario of SCENARIOS) {
     rmSync(dir, { recursive: true, force: true });
   }
 }
-writeFileSync(out, `${JSON.stringify({ recordedFrom: 'b6f10295a', T0, scenarios: recorded }, null, 1)}\n`);
+writeFileSync(out, `${JSON.stringify({ recordedFrom: head.stdout.trim(), T0, scenarios: recorded }, null, 1)}\n`);
