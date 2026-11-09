@@ -676,6 +676,8 @@ async fn manual_lease_rig(name: &str) -> (Rig, String, LeaseClock) {
     // The seam as the replay uses it: the port the core published in the directory, then the socket.
     let port: u16 = std::fs::read_to_string(clock_dir.join("port")).unwrap().parse().unwrap();
     let stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    // A clock that never answers fails the test by its message instead of blocking it.
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(30))).unwrap();
     (rig, id, LeaseClock { reader: std::io::BufReader::new(stream) })
 }
 /// The replay's end of the manual lease clock: a command line out, the core's answer line back (a blocking read).
@@ -689,7 +691,7 @@ impl LeaseClock {
         use std::io::{BufRead, Write};
         writeln!(self.reader.get_mut(), "{line}").unwrap();
         let mut answer = String::new();
-        self.reader.read_line(&mut answer).unwrap();
+        self.reader.read_line(&mut answer).unwrap_or_else(|error| panic!("the lease clock did not answer `{line}` within 30 s: {error}"));
         answer.trim_end().to_owned()
     }
     fn advance(&mut self, ms: u64) -> String {

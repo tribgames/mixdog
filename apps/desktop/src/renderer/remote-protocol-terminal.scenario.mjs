@@ -34,33 +34,50 @@ async function startCore() {
   const record = await untilFile(join(CORE_ROOT, 'runtime'), child, (dir) => {
     const found = JSON.parse(readFileSync(join(dir, 'daemon.json'), 'utf8'));
     return found.core?.state === 'serving' && found.core.rpc?.port ? found : null;
-  });
+  }, 'the core to publish its serving discovery record (daemon.json)');
   return { child, url: `ws://127.0.0.1:${record.core.rpc.port}/rpc`, token: record.endpoints.session.token };
 }
 
 /** Resolves with `read(dir)` once it returns a value, trying again on each change in `dir` (a file system notification, no timer). */
-function untilFile(dir, child, read) {
+function untilFile(dir, child, read, what) {
   return new Promise((resolve, reject) => {
     const attempt = () => {
       try {
         const value = read(dir);
         if (!value) return;
-        watcher.close();
+        done();
         resolve(value);
       } catch {}
     };
+    const done = () => {
+      realClearTimeout(timer);
+      watcher.close();
+    };
+    const timer = realSetTimeout(() => {
+      done();
+      reject(new Error(`timed out after ${DEADLINE_MS} ms waiting for ${what} in ${dir}`));
+    }, DEADLINE_MS);
     const watcher = watch(dir, attempt);
     child.once('exit', (status) => {
-      watcher.close();
-      reject(new Error(`the core exited (${status}) before it was ready`));
+      done();
+      reject(new Error(`the core exited (${status}) before ${what}`));
     });
     attempt();
   });
 }
 
+/** Rejects with `message` if `promise` has not settled within the deadline: the guard that turns a wait that would never end into a failure. */
+function bounded(promise, message) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = realSetTimeout(() => reject(new Error(`${message} (no answer within ${DEADLINE_MS} ms)`)), DEADLINE_MS);
+  });
+  return Promise.race([promise, deadline]).finally(() => realClearTimeout(timer));
+}
+
 /** The manual lease clock's socket: the core writes its port into the clock directory, and answers each command with one line. */
 async function openClock(core) {
-  const port = await untilFile(CLOCK_DIR, core.child, (dir) => Number(readFileSync(join(dir, 'port'), 'utf8')) || null);
+  const port = await untilFile(CLOCK_DIR, core.child, (dir) => Number(readFileSync(join(dir, 'port'), 'utf8')) || null, "the core to publish the lease clock's port");
   const socket = net.connect(port, '127.0.0.1');
   await new Promise((resolve, reject) => {
     socket.once('connect', resolve);
@@ -121,7 +138,7 @@ async function main() {
   };
   const world = await createPhoneWorld({ tree: decodeURIComponent(repo.pathname.slice(1)), dialect, paired: true, registration: 200 });
 
-  const events = { activity: [], sizeOwner: [], folder: [], run: [], output: '' };
+  const events = { activity: [], sizeOwner: [], folder: [], run: [], output: {} };
   const watchers = new Set();
   const changed = () => {
     for (const check of [...watchers]) check();
@@ -154,7 +171,7 @@ async function main() {
   const lanes = {
     terminal: () => [
       api.subscribeTermData((event) => {
-        events.output += event.data;
+        events.output[event.id] = (events.output[event.id] ?? '') + event.data;
         changed();
       }),
       api.subscribeTermActivity(push(events.activity)),
@@ -200,7 +217,7 @@ async function main() {
       clock ??= await openClock(core);
       const answer = new Promise((resolve) => clock.lines.once('line', resolve));
       clock.socket.write(`advance ${ms}\n`);
-      const line = await answer;
+      const line = await bounded(answer, `the core did not acknowledge the lease clock step of ${ms} ms`);
       if (!/^lapsed \d+$/.test(line)) throw new Error(`the core refused the clock step: ${line}`);
     },
     close(who) {
@@ -224,7 +241,7 @@ async function main() {
       new Promise((resolve, reject) => {
         const timer = realSetTimeout(() => {
           watchers.delete(check);
-          reject(new Error(`timed out waiting; state: ${JSON.stringify({ ...events, output: events.output.slice(-300), tabs: probeHost.client().store.section('terminalTabs', null)?.value })}`));
+          reject(new Error(`timed out waiting; state: ${JSON.stringify({ ...events, output: Object.fromEntries(Object.entries(events.output).map(([id, text]) => [id, text.slice(-300)])), tabs: probeHost.client().store.section('terminalTabs', null)?.value })}`));
         }, DEADLINE_MS);
         const check = () => {
           if (!test(events)) return;
@@ -240,6 +257,7 @@ async function main() {
   try {
     const trace = JSON.parse(JSON.stringify(await play(script, driver)));
     for (const list of Object.values(events)) if (Array.isArray(list)) list.length = 0;
+    events.output = {};
     const claims = await play(sizeClaimScript(ROOT), driver);
     trace.claims = { steps: claims.steps, sizeOwner: claims.sizeOwner };
     process.stdout.write(`\n@@TRACE@@${JSON.stringify(trace)}\n`);

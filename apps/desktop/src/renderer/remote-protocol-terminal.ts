@@ -79,6 +79,9 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
       const tabs = Array.isArray(sectionValue(client, 'terminalTabs')) ? (sectionValue(client, 'terminalTabs') as Record<string, any>[]) : [];
       const next = new Map<string, { cols: number; rows: number; owner: string }>();
       for (const tab of tabs) if (tab.sizeOwner) next.set(String(tab.id), tab.sizeOwner);
+      const listed = new Set(tabs.map((tab) => String(tab.id)));
+      // A released claim on a tab that is still there pushes a zero size; a disposed tab pushes nothing, as Node's dispose clears its
+      // claims and leases without a `termSizeOwner` (forgetSizeClaims).
       const events: TerminalSizeOwnerEvent[] = [
         ...[...next]
           .filter(([id, owner]) => {
@@ -86,7 +89,7 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
             return !before || before.cols !== owner.cols || before.rows !== owner.rows || before.owner !== owner.owner;
           })
           .map(([id, owner]) => ({ id, cols: owner.cols, rows: owner.rows, own: owner.owner !== '' && owner.owner === connection })),
-        ...[...owners.keys()].filter((id) => !next.has(id)).map((id) => ({ id, cols: 0, rows: 0, own: false })),
+        ...[...owners.keys()].filter((id) => !next.has(id) && listed.has(id)).map((id) => ({ id, cols: 0, rows: 0, own: false })),
       ];
       owners = next;
       // The output of every running terminal rides the terminal lane (Node pushed `termData` for all of them).

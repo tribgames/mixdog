@@ -75,7 +75,7 @@ const { remoteTerminalRun, TERMINAL_RUN_REQUESTED_DESKTOP_EVENT } = await import
 // The phone's connection as the relay holds it: its lanes decide which pushes it reads.
 const state = { lanes: new Set(), channel: {} };
 const clients = new Map([[CONNECTION, state]]);
-const events = { activity: [], sizeOwner: [], folder: [], run: [], output: '' };
+const events = { activity: [], sizeOwner: [], folder: [], run: [], output: {} };
 const waiting = new Set();
 const changed = () => {
   for (const check of [...waiting]) check();
@@ -128,7 +128,7 @@ const operations = createDesktopOperations({
 // The relay's data push goes through its own 16 ms buffer; the text the page gets is the output as it was written.
 operations.subscribeTerminalData((event) => {
   if (!state.lanes.has('terminal')) return;
-  events.output += event.data;
+  events.output[event.id] = (events.output[event.id] ?? '') + event.data;
   changed();
 });
 const methodsOf = (connection) =>
@@ -183,13 +183,16 @@ const driver = {
   events: () => events,
 };
 // A script that never gets its event ends with the unsettled wait; this says where it stood.
-process.on('exit', () => process.stderr.write(`\nstate at exit: ${JSON.stringify({ ...events, output: events.output.slice(-200) })}\n`));
+process.on('exit', () =>
+  process.stderr.write(`\nstate at exit: ${JSON.stringify({ ...events, output: Object.fromEntries(Object.entries(events.output).map(([id, text]) => [id, text.slice(-200)])) })}\n`)
+);
 // Node's folder watches are not persistent (the desktop's own loop is alive), so this process keeps its loop alive while it waits.
 const keepAlive = setInterval(() => {}, 1 << 30);
 // `play` returns the driver's own event lists; the first trace is copied before the second script reuses them.
 const trace = JSON.parse(JSON.stringify(await play(script, driver)));
 // The size-claim cases run after, on their own tabs; only the claims' events are theirs to compare (the tabs' prompts race each other).
 for (const list of Object.values(events)) if (Array.isArray(list)) list.length = 0;
+events.output = {};
 const claimScript = sizeClaimScript(ROOT);
 const claimTrace = await play(claimScript, driver);
 // The tabs' disposals hold timers on the virtual clock; run them so every shell is ended before the clock is released.
