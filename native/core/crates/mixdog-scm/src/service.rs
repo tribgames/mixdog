@@ -86,6 +86,9 @@ pub trait ThreadWorktrees: Send + Sync {
     async fn cwd(&self, thread: &ThreadId) -> Result<Option<String>, CoreError>;
 }
 
+/// The body of the `reviewDiff` publication that says "read the review again": Node's `turn-review-changed` carries no data.
+pub const REVIEW_REREAD: &[u8] = b"{}";
+
 /** Untracked rows a review lists (`git-history.ts` `REVIEW_UNTRACKED_LIMIT`); the rest are only counted. */
 const REVIEW_UNTRACKED_LIMIT: usize = 256;
 const GATE_OFF: &str = "Enable Git & GitHub in Extensions → Plugin before using GitHub actions.";
@@ -210,12 +213,13 @@ impl ScmService {
         reviews: Arc<dyn TurnReviewApi>,
         worktrees: Arc<dyn ThreadWorktrees>,
     ) -> Arc<Self> {
-        // Node's one `onTurnReviewChanged` consumer forwards the signal as the data-less `turn-review-changed` event and the
-        // open session rereads its review: the `reviewDiff` section of every session with a review is the same tell.
+        // Node's one `onTurnReviewChanged` consumer forwards the signal as the data-less global `turn-review-changed` event, which
+        // every open client answers by rereading the review of the session it shows (`use-turn-review-reads.ts`): the same tell is
+        // the `reviewDiff` section of every thread a client holds open, whether or not the thread has a review or a turn.
         let told = publisher.clone();
-        reviews.on_review_changed(Arc::new(move |threads| {
-            for thread in threads {
-                told.publish(SectionName::ReviewDiff, Some(thread.clone()), SectionChange::Set(Bytes::from_static(b"{}")));
+        reviews.on_review_changed(Arc::new(move || {
+            for thread in told.open_keys(SectionName::ReviewDiff) {
+                told.publish(SectionName::ReviewDiff, Some(thread), SectionChange::Set(Bytes::from_static(REVIEW_REREAD)));
             }
         }));
         Arc::new(Self {

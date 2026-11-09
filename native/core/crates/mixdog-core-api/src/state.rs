@@ -26,4 +26,10 @@ pub trait StatePublisher: Send + Sync {
     /// named by `section.feed()` (the app feed, or the thread/scoped feed of `key`). Called by
     /// the owning actor after the state is durable; never waits.
     fn publish(&self, section: SectionName, key: Option<String>, change: SectionChange);
+
+    /// The keys of a scoped `section` that a client holds open (a live feed with a route); none for an app
+    /// section or a publisher that routes nothing. Node's global events reach every open client, whatever it shows.
+    fn open_keys(&self, _section: SectionName) -> Vec<String> {
+        Vec::new()
+    }
 }

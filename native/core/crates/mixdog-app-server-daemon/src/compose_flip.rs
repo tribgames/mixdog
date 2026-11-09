@@ -1248,6 +1248,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let scm = mixdog_scm::engine::Scm::new(b.process_manager.clone(), b.tokens.maintenance_io, b.data_dir.join("scm-scratch"));
     let review_bases = Arc::new(mixdog_scm::worktree::review_bases::CapturedBases::new());
     let turn_review = Arc::new(mixdog_core_review::turn_review::TurnReview::over_scm(scm.clone(), b.tokens.clone(), &b.data_dir, |name| (b.env)(name), review_bases.clone()));
+    mixdog_core_review::turn_review::seams::follow_read_state(turn_review.clone(), &read_state);
     // `getConfigSnapshot({ secrets: false })` (the route hop's `HopDeps.config`, the summary, explorer, maintainer and title hosts): the live agent config. The hosts read its
     // `providers`, `agents`, `default` and the agent roster (`agent_disabled`), all of which are keys of the `agent` section, not of the file's root.
     let config_snapshot: mixdog_core_run::run_host::hop_host::ConfigSnapshot = {

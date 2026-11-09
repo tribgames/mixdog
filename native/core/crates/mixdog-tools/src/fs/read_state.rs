@@ -262,6 +262,8 @@ struct Shared {
     debounce: std::time::Duration,
     /// Signalled when the outbox has been emptied.
     idle: tokio::sync::Notify,
+    /// `registerCacheInvalidationListener`: told the paths of every invalidation.
+    watchers: Mutex<Vec<Arc<dyn Fn(&[String]) + Send + Sync>>>,
 }
 
 pub struct ReadState {
@@ -449,7 +451,13 @@ impl ReadState {
     }
 
     fn build(persist: Option<Persistence>, clock: Clock, debounce: std::time::Duration) -> Self {
-        Self { shared: Arc::new(Shared { inner: Mutex::new(Inner::default()), clock, persist, debounce, idle: tokio::sync::Notify::new() }) }
+        Self { shared: Arc::new(Shared { inner: Mutex::new(Inner::default()), clock, persist, debounce, idle: tokio::sync::Notify::new(), watchers: Mutex::new(Vec::new()) }) }
+    }
+
+    /// `registerCacheInvalidationListener(fn)`: `fn` runs with the paths of every `invalidate` (an edit, a patch, a
+    /// tidy write, a rejected cached read), after the cached answers are dropped.
+    pub fn on_invalidated(&self, listener: Arc<dyn Fn(&[String]) + Send + Sync>) {
+        self.shared.watchers.lock().unwrap_or_else(|e| e.into_inner()).push(listener);
     }
 
     /// Brings a session's persisted snapshots into memory on its first use (`readFilesForScope`'s
@@ -611,6 +619,11 @@ impl ReadState {
     /// in memory and in every persisted file.
     pub fn forget_path(&self, path: &str) {
         self.invalidate(&[path]);
+        self.sweep_path(path);
+    }
+
+    /// `forget_path` for a caller that already invalidated the path (and so signalled it).
+    pub(super) fn sweep_path(&self, path: &str) {
         let touched: Vec<String> = {
             let mut inner = self.shared.lock();
             let mut touched = Vec::new();
@@ -632,6 +645,19 @@ impl ReadState {
     /// `invalidateBuiltinResultCache(paths)`: cached answers about these paths (or inside, or
     /// holding them) are dropped.
     pub fn invalidate(&self, paths: &[&str]) {
+        self.drop_cached(paths);
+        let watchers: Vec<_> = self.shared.watchers.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if watchers.is_empty() {
+            return;
+        }
+        let paths: Vec<String> = paths.iter().map(|p| (*p).to_owned()).collect();
+        for watcher in watchers {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| watcher(&paths)));
+        }
+    }
+
+    /// The dropping half of [`invalidate`](Self::invalidate), for a caller whose invalidation was already announced.
+    pub(super) fn drop_cached(&self, paths: &[&str]) {
         let mut inner = self.shared.lock();
         let before = inner.cache.len();
         inner.cache.retain(|e| !e.paths.iter().any(|p| paths.iter().any(|a| paths_overlap(p, a))));

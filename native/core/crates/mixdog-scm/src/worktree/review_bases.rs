@@ -45,14 +45,6 @@ impl CapturedBases {
         );
     }
 
-    /// The threads that have a review start recorded, in id order.
-    pub fn threads(&self) -> Vec<String> {
-        let mut ids: Vec<String> = self.bases.lock().expect("bases").keys().map(|(id, ..)| id.clone()).collect();
-        ids.sort();
-        ids.dedup();
-        ids
-    }
-
     /// Forgets everything of a thread (it was deleted).
     pub fn forget(&self, thread: &ThreadId) {
         self.bases.lock().expect("bases").retain(|(id, ..), _| id != thread.as_str());

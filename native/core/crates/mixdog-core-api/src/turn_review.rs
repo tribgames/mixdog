@@ -108,10 +108,8 @@ pub struct ChangesRead {
 }
 
 /// Told when open reviews must read again (`noteTurnReviewChanged`, which `onTurnReviewChanged`
-/// listeners receive once per task): the sessions that have a review. Node's signal names none; its
-/// one consumer (the desktop's `turn-review-changed` event) rereads whichever session is open, so
-/// every session with a review is told.
-pub type ReviewChanged = std::sync::Arc<dyn Fn(&[String]) + Send + Sync>;
+/// listeners receive once per task). Node's signal names no session.
+pub type ReviewChanged = std::sync::Arc<dyn Fn() + Send + Sync>;
 
 /// The turn review as the rest of the core sees it.
 #[async_trait]
