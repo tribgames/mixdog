@@ -10,6 +10,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use mixdog_core_api::domain::login::LoginFlow;
+use mixdog_core_api::domain::login::LoginInput;
 use mixdog_core_api::domain::login::LoginState;
 use mixdog_mcp::McpHub;
 use mixdog_mcp::McpIo;
@@ -19,6 +20,8 @@ use mixdog_mcp::config::StaticClient;
 use mixdog_mcp::oauth::AccountMode;
 use mixdog_mcp::oauth::MemoryStore;
 use mixdog_mcp::oauth::OAuthEnv;
+use mixdog_mcp::oauth::callback::HELD_PAGE_DELAYING;
+use mixdog_mcp::oauth::callback::HELD_PAGE_DELAY_MS;
 use mixdog_mcp::result::OutputPolicy;
 use serde_json::Value;
 use serde_json::json;
@@ -207,6 +210,16 @@ async fn the_mcp_callback_answers_as_nodes() {
 
         let steps = case["steps"].as_array().unwrap();
         let phase = |name: &'static str| steps.iter().filter(move |step| step["phase"] == name);
+        // A pasted callback: Node stops listening before it answers the callback.
+        if case["paste"].as_bool().unwrap() {
+            let pasted = format!("http://{}:{}{}?code=fixture-code&state={}", callback.host, callback.port, callback.path, callback.state);
+            session.provide(LoginInput::AuthorizationCode(pasted)).await.unwrap();
+        }
+        // A slow flush of the held page, to land requests between the outcome and the close of the listener.
+        let flushing = case["slowFlush"].as_u64().unwrap();
+        if flushing > 0 {
+            HELD_PAGE_DELAY_MS.store(flushing, Ordering::SeqCst);
+        }
         let mut held = Vec::new();
         for step in phase("pre") {
             let (request, port) = (callback.request(step), callback.port);
@@ -214,6 +227,12 @@ async fn the_mcp_callback_answers_as_nodes() {
                 held.push((step, tokio::spawn(async move { exchange(port, &request).await })));
             } else {
                 assert_answer(exchange(port, &request).await, &step["answer"], &format!("{title}: pre {} {}", step["method"], step["target"]));
+            }
+        }
+        if flushing > 0 {
+            HELD_PAGE_DELAYING.notified().await;
+            for step in phase("flush") {
+                assert_answer(exchange(callback.port, &callback.request(step)).await, &step["answer"], &format!("{title}: flush {} {}", step["method"], step["target"]));
             }
         }
         if phase("during").next().is_some() {

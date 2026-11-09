@@ -18,6 +18,7 @@ import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FIXTURES_ROOT, commitCheckoutIdentity, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import http from 'node:http';
 import { rawExchange } from './lib/raw-http.mjs';
 
 const args = parseArgs();
@@ -106,6 +107,25 @@ async function fixture(token) {
   };
 }
 
+// A slow flush of the held page, to land requests in the window between the login's outcome and the close of the
+// listener (Node awaits the page's flush, then closes). With `slowFlush` set the next page written after the
+// token request arrived is ended `slowFlush` ms late; `flushing` resolves when that wait starts.
+let slowFlush = 0;
+let tokenArrived = false;
+let callbackPort = 0;
+let flushing = () => {};
+const realEnd = http.ServerResponse.prototype.end;
+http.ServerResponse.prototype.end = function (...args) {
+  if (slowFlush && tokenArrived && this.req.socket.localPort === callbackPort) {
+    const wait = slowFlush;
+    slowFlush = 0;
+    flushing();
+    setTimeout(() => realEnd.apply(this, args), wait);
+    return this;
+  }
+  return realEnd.apply(this, args);
+};
+
 const GOOD = '{path}?code=fixture-code&state={state}';
 const get = (target, extra = {}) => ({ method: 'GET', target, ...extra });
 const CASES = [
@@ -148,6 +168,19 @@ const CASES = [
     during: [get(GOOD), get('{path}?code=fixture-code&state=attacker'), get('{path}?error=access_denied&state={state}'), get('/wrong'), { method: 'POST', target: GOOD }],
     post: [get(GOOD)],
   },
+  // A pasted callback stops the listener before the exchange: a browser request meanwhile is refused.
+  {
+    title: 'a pasted callback while the code exchange is held',
+    token: 'gated',
+    paste: true,
+    pre: [],
+    during: [get(GOOD), get('/wrong'), { method: 'POST', target: GOOD }],
+    post: [get(GOOD)],
+  },
+  // The page is flushed late: requests in that window still reach the open listener (the login's callback is taken,
+  // so they get the invalid-link page), and the listener closes only after the flush.
+  { title: 'requests while the success page is flushed', token: 'ok', slowFlush: 600, pre: [get(GOOD, { hold: true })], flush: [get(GOOD), get('/wrong'), get('{path}?code=fixture-code&state=attacker'), { method: 'POST', target: GOOD }], post: [get(GOOD)] },
+  { title: 'requests while the failure page is flushed', token: 'refused', slowFlush: 600, pre: [get(GOOD, { hold: true })], flush: [get(GOOD), get('/wrong')], post: [get(GOOD)] },
 ];
 
 const cases = [];
@@ -166,6 +199,7 @@ for (const spec of CASES) {
     else record.answer = await rawExchange(host, port, request);
   };
   let during = Promise.resolve();
+  let flushPhase = Promise.resolve();
   const oauth = createMcpOAuth({
     url: server.url,
     credentialStore: memoryStore(),
@@ -173,12 +207,34 @@ for (const spec of CASES) {
     serverName: spec.serverName ?? 'Fixture',
     oauthClient: spec.client ?? null,
     openBrowser: async (href) => {
+      slowFlush = spec.slowFlush ?? 0;
+      tokenArrived = false;
+      server.arrived.then(() => { tokenArrived = true; });
       const authorization = new URL(href);
       const redirect = new URL(authorization.searchParams.get('redirect_uri'));
+      callbackPort = Number(redirect.port);
       Object.assign(callbackFor, { host: redirect.hostname, port: Number(redirect.port), path: redirect.pathname, state: authorization.searchParams.get('state') });
       for (const step of spec.pre) await send('pre', step);
+      if (spec.flush) {
+        flushPhase = (async () => {
+          await new Promise((resolve) => { flushing = resolve; });
+          for (const step of spec.flush) await send('flush', step);
+        })();
+      }
       if (spec.during) {
         during = (async () => {
+          if (spec.paste) {
+            const pasted = `${redirect.origin}${redirect.pathname}?code=fixture-code&state=${authorization.searchParams.get('state')}`;
+            for (let attempt = 0; ; attempt += 1) {
+              try {
+                oauth.completeCallback(pasted);
+                break;
+              } catch (error) {
+                if (attempt > 400) throw error;
+                await new Promise((resolve) => setTimeout(resolve, 5));
+              }
+            }
+          }
           await server.arrived;
           for (const step of spec.during) await send('during', step);
           server.release();
@@ -188,11 +244,14 @@ for (const spec of CASES) {
   });
   const outcome = await oauth.fetch(server.url).then((response) => `status ${response.status}`, (error) => `error: ${error.message}`);
   await during;
+  await flushPhase;
   await Promise.all(held);
   for (const step of spec.post) await send('post', step);
   cases.push({
     title: spec.title,
     token: spec.token,
+    paste: spec.paste ?? false,
+    slowFlush: spec.slowFlush ?? 0,
     serverName: spec.serverName ?? 'Fixture',
     client: spec.client ?? null,
     steps,

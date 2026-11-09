@@ -25,7 +25,6 @@ use serde_json::json;
 use sha2::Digest;
 use sha2::Sha256;
 use tokio::sync::mpsc;
-use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
@@ -55,6 +54,8 @@ use crate::config::OAuthBinding;
 use crate::transport::Authorizer;
 use crate::transport::TransportError;
 
+/// The longest the login waits for the held page to be written (Node bounds the flush at a second).
+const PAGE_FLUSH_WAIT: Duration = Duration::from_secs(1);
 /// A sign-in nobody finishes ends here, ahead of the five minutes the callback page is held.
 const LOGIN_DEADLINE: Duration = Duration::from_secs(5 * 60 - 10);
 
@@ -438,8 +439,8 @@ struct Pending {
     redirect_url: String,
     state: String,
     callbacks: mpsc::UnboundedSender<Callback>,
-    /// The listener's flag that this login's callback was taken.
-    answered: Arc<std::sync::atomic::AtomicBool>,
+    /// Closes the listener, as a pasted callback does before the exchange runs.
+    stopper: super::callback::Stopper,
 }
 
 struct Control {
@@ -566,7 +567,7 @@ impl McpOAuth {
         let url = with_account_params(&url, mode);
 
         *ctl.pending.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(Pending { redirect_url: redirect_url.clone(), state, callbacks, answered: listener.answered() });
+            Some(Pending { redirect_url: redirect_url.clone(), state, callbacks, stopper: listener.stopper() });
         ctl.emit(LoginState::Authorize { url: url.to_string(), manual_url: None });
 
         let waited = tokio::select! {
@@ -587,7 +588,9 @@ impl McpOAuth {
                     Err(Stop::Failed(OAuthError::ScopeNotGranted(_))) => PageOutcome::Failed { scope_not_granted: true },
                     Err(_) => PageOutcome::Failed { scope_not_granted: false },
                 };
+                // Node persists, then flushes the page, then closes the listener (also when the login failed).
                 let _ = callback.respond.send(outcome);
+                let _ = tokio::time::timeout(PAGE_FLUSH_WAIT, callback.flushed).await;
                 listener.close().await;
                 finished
             }
@@ -735,20 +738,22 @@ impl LoginSession for Session {
         if self.state().is_terminal() {
             return Err(LoginError::Finished);
         }
-        let mut pending = self.control.pending.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(waiting) = pending.as_ref() else { return Err(LoginError::InputNotExpected) };
-        let parsed = parse_pasted(&pasted, &waiting.redirect_url, &waiting.state).map_err(|message| {
-            LoginError::Failed(LoginFailure::Failed { code: "invalidCallback".to_owned(), message: message.to_owned() })
-        })?;
-        // The same answer the loopback would give; an invalid paste above leaves the login pending.
-        let waiting = pending.take().ok_or(LoginError::InputNotExpected)?;
-        waiting.answered.store(true, std::sync::atomic::Ordering::SeqCst);
-        let (respond, _) = oneshot::channel();
+        let (waiting, parsed) = {
+            let mut pending = self.control.pending.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(waiting) = pending.as_ref() else { return Err(LoginError::InputNotExpected) };
+            let parsed = parse_pasted(&pasted, &waiting.redirect_url, &waiting.state).map_err(|message| {
+                LoginError::Failed(LoginFailure::Failed { code: "invalidCallback".to_owned(), message: message.to_owned() })
+            })?;
+            // The same answer the loopback would give; an invalid paste above leaves the login pending.
+            (pending.take().ok_or(LoginError::InputNotExpected)?, parsed)
+        };
+        // Node stops listening before it answers the callback: while the exchange runs, the browser is refused.
+        waiting.stopper.stop().await;
         let code = match parsed {
             Pasted::Code(code) => Some(code),
             Pasted::Denied => None,
         };
-        let _ = waiting.callbacks.send(Callback { code, respond });
+        let _ = waiting.callbacks.send(Callback::unheld(code));
         Ok(())
     }
 
