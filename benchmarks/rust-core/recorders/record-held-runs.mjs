@@ -105,6 +105,24 @@ const SCENARIOS = [
   { name: 'a schedule run never asks: a hook ask is allowed without a card', script: [{ op: 'mark', session: 'schedule', kind: 'schedule', agentId: 'ann', name: 'nightly' }, ask('a', 'schedule', SHELL, { hook: HOOK_ASK }), { op: 'facts' }] },
   { name: 'a webhook run never asks, even with an approval UI attached', script: [{ op: 'mark', session: 'webhook', kind: 'webhook', agentId: 'ann', name: 'issues' }, ask('a', 'webhook', COMMENT, { ui: APPROVE }), { op: 'facts' }] },
   { name: 'two room members hold at once; the heartbeat counts both, then one, then none', script: [ask('a', 'room', COMMENT), ask('b', 'room', SHELL, { hook: HOOK_ASK }), { op: 'facts' }, { op: 'answer', ask: 'b', decision: DENY }, { op: 'facts' }, { op: 'answer', ask: 'a', decision: APPROVE }, { op: 'facts' }] },
+  // Where the hold decision is made (loop/tool-helpers.mjs resolvePreToolAskApproval): `held = run && typeof toolApprovalHook !== 'function'`,
+  // read at each ask. A recognized run with no hook is held; a session that is no run is not, hook or not.
+  { name: 'an ordinary session with no approval UI is denied, not held, on a hook ask', script: [ask('a', 'plain', SHELL, { hook: HOOK_ASK }), { op: 'facts' }] },
+  { name: 'an ordinary session with no approval UI asks nobody on an outbound comment', script: [ask('a', 'plain', COMMENT), { op: 'facts' }] },
+  { name: 'a webhook run with no approval UI never asks and holds nothing', script: [{ op: 'mark', session: 'webhook', kind: 'webhook', agentId: 'ann', name: 'issues' }, ask('a', 'webhook', COMMENT), { op: 'facts' }] },
+  {
+    name: 'the approval UI is read at each ask: attached, detached, attached; a held request stays held when a UI attaches after it',
+    script: [
+      ask('a', 'room', COMMENT, { ui: APPROVE }),
+      ask('b', 'room', SHELL, { hook: HOOK_ASK }),
+      { op: 'facts' },
+      ask('c', 'room', SHELL, { hook: HOOK_ASK, ui: DENY }),
+      { op: 'facts' },
+      { op: 'answer', ask: 'b', decision: APPROVE },
+      { op: 'facts' },
+    ],
+  },
+  { name: 'a delivery that never completes holds back neither the push, nor the answer, nor the audit', stallDelivery: true, script: [ask('a', 'room', COMMENT), { op: 'facts' }, { op: 'answer', ask: 'a', decision: APPROVE_AGENT }, { op: 'facts' }] },
   { name: 'a held request never expires: it still waits after a virtual day', script: [ask('a', 'room', COMMENT), { op: 'advance', ms: 86_400_000 }, { op: 'facts' }, { op: 'answer', ask: 'a', decision: APPROVE }, { op: 'facts' }] },
 ];
 
@@ -118,6 +136,7 @@ async function runScenario(index, scenario) {
   setHumanGateStore(store);
   globalThis.__heldDeliveries = [];
   globalThis.__heldRecords = [];
+  globalThis.__stallDelivery = scenario.stallDelivery === true;
   const pushes = [];
   let waiter = null;
   const unregister = registerHeldRequestNotifier((event) => {
@@ -223,6 +242,7 @@ async function runScenario(index, scenario) {
   return {
     name: scenario.name,
     now: NOW_BASE + index * 1_000_000,
+    ...(scenario.stallDelivery ? { stallDelivery: true } : {}),
     script: scenario.script,
     trace,
     audit: readLines('audit.jsonl'),

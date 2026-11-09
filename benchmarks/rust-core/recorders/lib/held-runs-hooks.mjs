@@ -10,6 +10,8 @@ export async function load(url, context, nextLoad) {
     const source = `export async function deliverHeldRequest(agentId, held) {
   (globalThis.__heldDeliveries ??= []).push({ agentId, held: structuredClone(held) });
   globalThis.__onHeldDelivery?.();
+  // A scenario can make the home thread's queue never persist a row: the delivery is recorded and its promise never settles.
+  if (globalThis.__stallDelivery) return new Promise(() => {});
   return true;
 }
 `;

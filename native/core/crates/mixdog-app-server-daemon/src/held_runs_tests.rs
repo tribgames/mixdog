@@ -206,8 +206,12 @@ struct Card {
 #[async_trait]
 impl ApprovalGate for Card {
     async fn request(&self, ask: ApprovalAsk) -> ApprovalResolution {
-        self.asked.lock().unwrap().push(ask);
-        self.answer.lock().unwrap().clone().unwrap_or(ApprovalResolution::Unavailable { at: 0 })
+        // A surface without a card is no hook in Node: nothing is asked, the call is denied.
+        let answer = self.answer.lock().unwrap().clone();
+        if answer.is_some() {
+            self.asked.lock().unwrap().push(ask);
+        }
+        answer.unwrap_or(ApprovalResolution::Unavailable { at: 0 })
     }
 }
 
@@ -225,6 +229,10 @@ struct RecordingHome {
     inner: Arc<ProcessHeldHome>,
     rows: Mutex<Vec<Value>>,
     ids: AtomicU64,
+    /// The scenario's home thread never persists a row: the delivery is recorded and never completes.
+    stall: AtomicBool,
+    /// One permit per delivery recorded: the replay waits on the delivery as the recorder does.
+    delivered: tokio::sync::Semaphore,
 }
 
 #[async_trait]
@@ -237,6 +245,10 @@ impl HeldHome for RecordingHome {
     }
     async fn deliver(&self, agent_id: &str, held: &HeldRequest) -> Result<(), String> {
         self.rows.lock().unwrap().push(json!({ "agentId": agent_id, "held": serde_json::to_value(held).map_err(|e| e.to_string())? }));
+        self.delivered.add_permits(1);
+        if self.stall.load(Ordering::SeqCst) {
+            std::future::pending::<()>().await;
+        }
         Ok(())
     }
     fn push(&self, event: &HeldPush) {
@@ -342,7 +354,7 @@ impl Scene {
             })
         };
         let inner = ProcessHeldHome::new(runs.clone(), Arc::new(Surfaces(ui_attached.clone())), tokens.interactive_io, dir.path().to_owned(), notifier, grants.clone());
-        let home = Arc::new(RecordingHome { inner, rows: Mutex::new(Vec::new()), ids: AtomicU64::new(0) });
+        let home = Arc::new(RecordingHome { inner, rows: Mutex::new(Vec::new()), ids: AtomicU64::new(0), stall: AtomicBool::new(false), delivered: tokio::sync::Semaphore::new(0) });
         let held = HeldRequests::new(home.clone(), clock);
         let hook = Arc::new(Mutex::new(None));
         let policy = Arc::new(ToolPolicy::new(grants.clone(), Arc::new(Connectors)).with_hook(Arc::new(Hook(hook.clone()))));
@@ -425,6 +437,7 @@ fn merged(mut step: Value, seen: Value) -> Value {
 
 async fn replay(scenario: &Value) -> Value {
     let mut scene = Scene::new(scenario["now"].as_i64().expect("now"));
+    scene.home.stall.store(scenario["stallDelivery"] == true, Ordering::SeqCst);
     let sessions = serde_json::from_str::<Value>(GOLDEN).unwrap()["sessions"].clone();
     let session_of = |name: &Value| sessions[name.as_str().unwrap()].as_str().expect("a recorded session").to_owned();
     let mut seen = Seen { rows: 0, pushes: 0, asks: 0 };
@@ -454,7 +467,7 @@ async fn replay(scenario: &Value) -> Value {
                 *scene.card.answer.lock().unwrap() = (!ui.is_null()).then(|| ApprovalResolution::Decided {
                     decision: ToolApprovalDecision {
                         approved: ui["approved"].as_bool().unwrap(),
-                        reason: None,
+                        reason: ui["reason"].as_str().map(str::to_owned),
                         answers: None,
                         reply: None,
                         response: parse(ui.get("response")),
@@ -489,6 +502,7 @@ async fn replay(scenario: &Value) -> Value {
                     }
                     Ok(request_id) => {
                         step["state"] = "held".into();
+                        scene.home.delivered.acquire().await.unwrap().forget();
                         asks.insert(id, (task, request_id));
                     }
                 }
@@ -525,6 +539,7 @@ async fn replay(scenario: &Value) -> Value {
                 };
                 let accepted = scene.held.resolve(&request_id, answer).await;
                 let outcome = task.await.expect("the call settles");
+                scene.home.delivered.acquire().await.unwrap().forget();
                 let step = json!({ "op": "answer", "ask": id, "requestId": request_id, "accepted": accepted, "outcome": outcome });
                 let seen_now = seen.take(&scene);
                 trace.push(merged(step, seen_now));
@@ -532,10 +547,12 @@ async fn replay(scenario: &Value) -> Value {
             "advance" => {
                 let ms = op["ms"].as_u64().unwrap();
                 scene.now.fetch_add(ms as i64, Ordering::SeqCst);
-                // Paused time: a timer that expires a held request would fire here.
+                // Paused time: a timer of the held layer due within `ms` would fire inside `advance`. Node's `fired` counts timer callbacks; here the
+                // timer's own callback is a held call it answers, and a probe timer due at the same instant is awaited so that every timer
+                // due by then, and what each woke, has run (all are woken together by the one `advance`, before any task polls).
+                let probe = tokio::spawn(tokio::time::sleep(Duration::from_millis(ms)));
                 tokio::time::advance(Duration::from_millis(ms)).await;
-                tokio::task::yield_now().await;
-                // What the elapsed time settled: a held call that an expiry timer had answered.
+                probe.await.expect("the probe timer fires");
                 let fired = asks.values().filter(|(task, _)| task.is_finished()).count();
                 trace.push(json!({ "op": "advance", "ms": ms, "now": scene.now.load(Ordering::SeqCst), "fired": fired }));
             }
@@ -569,7 +586,7 @@ async fn replay(scenario: &Value) -> Value {
 async fn every_run_node_holds_is_held_and_every_run_it_does_not_hold_is_not() {
     let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
     let scenarios = golden["scenarios"].as_array().expect("scenarios");
-    assert_eq!(scenarios.len(), 10, "the recorded scenario list");
+    assert_eq!(scenarios.len(), 15, "the recorded scenario list");
     for scenario in scenarios {
         assert_eq!(scenario["timers"]["registered"], 0, "Node's gate registered no timer: {}", scenario["name"]);
         let got = replay(scenario).await;

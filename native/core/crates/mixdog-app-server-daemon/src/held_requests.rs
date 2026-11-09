@@ -207,7 +207,7 @@ impl HeldRequests {
         // The run being cancelled drops this future: that denies the request. An answered
         // request is already out of the table, so the guard finds nothing then.
         let _guard = CancelGuard { held: self, id: id.clone() };
-        self.post(&run.agent_id, &held).await;
+        self.post(&run.agent_id, &held);
         let home_agent = agent_home_session_id(&run.agent_id).or_else(|| agent_home_session_id(MIXY_AGENT_ID)).unwrap_or_default();
         // A lane job dropped at shutdown cannot name the agent: no push, logged, like the other shutdown-time failures (the row is already posted).
         match self.home.agent_name(&run.agent_id).await {
@@ -224,10 +224,10 @@ impl HeldRequests {
         resolution
     }
 
-    async fn post(&self, agent_id: &str, held: &HeldRequest) {
-        if let Err(error) = self.home.deliver(agent_id, held).await {
-            tracing::warn!(id = held.id, "held request could not be delivered: {error}");
-        }
+    /// `post(agentId, held)`: starts the delivery and does not wait for it (`void post(...)`). Delivery waits for the home thread's
+    /// queue to persist the row; the push, the answer and the audit never wait on that.
+    fn post(&self, agent_id: &str, held: &HeldRequest) {
+        post_row(Arc::clone(&self.home), agent_id.to_owned(), held.clone());
     }
 
     /// `resolve(id, decision)`: false when `id` is not pending (already settled). Answers the
@@ -275,7 +275,7 @@ impl HeldRequests {
         let at = (self.now_ms)();
         let kind = answer.connection_kind.unwrap_or(ConnectionKind::Desktop);
         let _ = entry.reply.send(ApprovalResolution::Decided { decision, device: answer.device, connection_kind: kind, at });
-        self.post(&settled.agent_id, &settled).await;
+        self.post(&settled.agent_id, &settled);
         true
     }
 
@@ -378,14 +378,21 @@ impl Drop for CancelGuard<'_> {
         let mut settled = entry.held;
         settled.status = HeldRequestStatus::Denied;
         let home = Arc::clone(&self.held.home);
+        post_row(Arc::clone(&home), settled.agent_id.clone(), settled.clone());
+        // The abort's own answer (`reason: 'run cancelled'`, no device) is audited as any other, whether or not the row was delivered.
         drop(mixdog_rt::spawn("held-request-cancel", mixdog_rt::TaskClass::Work, async move {
-            if let Err(error) = home.deliver(&settled.agent_id, &settled).await {
-                tracing::warn!(id = settled.id, "held request could not be delivered: {error}");
-            }
-            // The abort's own answer (`reason: 'run cancelled'`, no device) is audited as any other.
             record_decision(home.grants().as_ref(), &settled, &entry.remember, false, "deny", None, "").await;
         }));
     }
+}
+
+/// Delivers one row on a task of its own; a failure is logged.
+fn post_row(home: Arc<dyn HeldHome>, agent_id: String, held: HeldRequest) {
+    drop(mixdog_rt::spawn("held-request-deliver", mixdog_rt::TaskClass::Work, async move {
+        if let Err(error) = home.deliver(&agent_id, &held).await {
+            tracing::warn!(id = held.id, "held request could not be delivered: {error}");
+        }
+    }));
 }
 
 struct HeldApprovals {
@@ -417,6 +424,22 @@ mod tests {
 
     use super::*;
 
+    /// A counter the tests wait on (a semaphore that starts empty).
+    struct Permits(tokio::sync::Semaphore);
+
+    impl Default for Permits {
+        fn default() -> Self {
+            Self(tokio::sync::Semaphore::new(0))
+        }
+    }
+
+    impl std::ops::Deref for Permits {
+        type Target = tokio::sync::Semaphore;
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
     #[derive(Default)]
     struct Home {
         attached: AtomicBool,
@@ -426,6 +449,30 @@ mod tests {
         /// Delivery of a settled row never completes (a slow or wedged home thread).
         stall_settled: AtomicBool,
         store: Arc<mixdog_tools::policy::MemoryGrantStore>,
+        /// One permit per row delivered: the tests wait on the delivery itself.
+        delivered: Permits,
+        /// Every delivery never completes.
+        stall_all: AtomicBool,
+        pushed: Permits,
+        audited: Arc<Permits>,
+    }
+
+    /// The store, signalling each audit line it takes.
+    struct Audits(Arc<mixdog_tools::policy::MemoryGrantStore>, Arc<Permits>);
+
+    #[async_trait]
+    impl GrantStore for Audits {
+        async fn mode_for(&self, agent_id: &str, action: &GrantKey, shared_only: bool) -> Result<mixdog_tools::policy::PermissionMode, mixdog_tools::policy::StoreError> {
+            self.0.mode_for(agent_id, action, shared_only).await
+        }
+        async fn grant(&self, agent_id: &str, action: &GrantKey, scope: ApprovalRemember, device: &str) -> Result<bool, mixdog_tools::policy::StoreError> {
+            self.0.grant(agent_id, action, scope, device).await
+        }
+        async fn record_audit(&self, entry: AuditEntry) -> Result<(), mixdog_tools::policy::StoreError> {
+            let out = self.0.record_audit(entry).await;
+            self.1.add_permits(1);
+            out
+        }
     }
 
     #[async_trait]
@@ -437,14 +484,16 @@ mod tests {
             self.attached.load(Ordering::SeqCst)
         }
         async fn deliver(&self, agent_id: &str, held: &HeldRequest) -> Result<(), String> {
-            if held.status != HeldRequestStatus::Pending && self.stall_settled.load(Ordering::SeqCst) {
+            if self.stall_all.load(Ordering::SeqCst) || (held.status != HeldRequestStatus::Pending && self.stall_settled.load(Ordering::SeqCst)) {
                 std::future::pending::<()>().await;
             }
             self.rows.lock().unwrap().push((agent_id.to_owned(), held.clone()));
+            self.delivered.add_permits(1);
             Ok(())
         }
         fn push(&self, event: &HeldPush) {
             self.pushes.lock().unwrap().push(event.clone());
+            self.pushed.add_permits(1);
         }
         async fn agent_name(&self, agent_id: &str) -> Result<String, String> {
             Ok(agent_id.to_owned())
@@ -453,7 +502,7 @@ mod tests {
             self.ids.fetch_add(1, Ordering::SeqCst).to_string()
         }
         fn grants(&self) -> Arc<dyn GrantStore> {
-            self.store.clone()
+            Arc::new(Audits(self.store.clone(), self.audited.clone()))
         }
     }
 
@@ -491,13 +540,14 @@ mod tests {
         (home, held, gate)
     }
 
+    /// Waits for the next row to be delivered.
+    async fn next_delivery(home: &Home) {
+        home.delivered.acquire().await.unwrap().forget();
+    }
+
     async fn first_row(home: &Home) -> HeldRequest {
-        loop {
-            if let Some((_, row)) = home.rows.lock().unwrap().first() {
-                return row.clone();
-            }
-            tokio::task::yield_now().await;
-        }
+        next_delivery(home).await;
+        home.rows.lock().unwrap().first().expect("a delivered row").1.clone()
     }
 
     #[tokio::test]
@@ -520,6 +570,7 @@ mod tests {
         assert!(!held.resolve(&row.id, answer).await, "a settled request answers nothing");
         let ApprovalResolution::Decided { decision, device, .. } = waiting.await.unwrap() else { panic!("decided") };
         assert_eq!((decision.approved, decision.remember, device.as_str()), (true, Some(ApprovalRemember::Agent), "Pixel"));
+        next_delivery(&home).await;
         let settled = home.rows.lock().unwrap().last().unwrap().1.clone();
         assert_eq!((settled.status, settled.device.as_deref()), (HeldRequestStatus::Approved, Some("Pixel")));
         assert!(held.pending().is_empty());
@@ -540,7 +591,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_answer_reaches_the_waiting_run_even_when_the_resolving_call_is_cancelled_in_delivery() {
+    async fn an_answer_reaches_the_waiting_run_and_the_resolving_call_returns_while_the_settled_row_is_still_being_delivered() {
         let (home, held, gate) = setup();
         let waiting = tokio::spawn({
             let gate = gate.clone();
@@ -555,9 +606,36 @@ mod tests {
         // The run is answered while the settled row is still being delivered.
         let ApprovalResolution::Decided { decision, .. } = waiting.await.unwrap() else { panic!("decided, not cancelled") };
         assert!(decision.approved);
-        resolving.abort();
-        assert!(resolving.await.unwrap_err().is_cancelled());
+        assert!(resolving.await.unwrap(), "the answer was accepted without waiting for the delivery");
         assert!(held.pending().is_empty());
+    }
+
+    /// Node starts the delivery on its own (`void post`): with a delivery that never completes the push goes out at once, an answer
+    /// reaches the run and is audited, and a cancelled run is denied and audited.
+    #[tokio::test]
+    async fn a_delivery_that_never_completes_holds_back_neither_the_push_nor_the_answer_nor_the_audit() {
+        let (home, held, gate) = setup();
+        home.stall_all.store(true, Ordering::SeqCst);
+        let answered = tokio::spawn({
+            let gate = gate.clone();
+            async move { gate.request(ask()).await }
+        });
+        home.pushed.acquire().await.unwrap().forget();
+        assert_eq!(held.pending().len(), 1);
+        let id = held.pending()[0].id.clone();
+        assert!(held.resolve(&id, HeldAnswer { approved: true, ..HeldAnswer::default() }).await);
+        let ApprovalResolution::Decided { decision, .. } = answered.await.unwrap() else { panic!("decided") };
+        assert!(decision.approved);
+        home.audited.acquire().await.unwrap().forget();
+        assert!(held.pending().is_empty());
+
+        let cancelled = tokio::spawn(async move { gate.request(ask()).await });
+        home.pushed.acquire().await.unwrap().forget();
+        cancelled.abort();
+        let _ = cancelled.await;
+        home.audited.acquire().await.unwrap().forget();
+        assert!(held.pending().is_empty());
+        assert!(home.rows.lock().unwrap().is_empty(), "no row was ever delivered");
     }
 
     #[tokio::test]
@@ -570,6 +648,7 @@ mod tests {
         first_row(&home).await;
         waiting.abort();
         let _ = waiting.await;
+        next_delivery(&home).await;
         assert!(held.pending().is_empty());
         assert_eq!(home.rows.lock().unwrap().len(), 2, "pending row, then the denied one");
     }
