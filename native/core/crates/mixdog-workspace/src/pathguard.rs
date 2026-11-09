@@ -133,6 +133,12 @@ pub fn project_entry_path(root: &Path, rel: &str) -> WsResult<PathBuf> {
     Ok(target)
 }
 
+/// [`project_entry_path`] for the file-transfer, server-trash and recovery paths: these are not Node's editor calls (which throw a plain
+/// `Error`), so a path beyond the project stays the permission refusal it always was.
+pub fn guarded_entry_path(root: &Path, rel: &str) -> WsResult<PathBuf> {
+    project_entry_path(root, rel).map_err(|error| if matches!(error.reason, crate::error::Reason::Plain) { WsError::denied(error.message) } else { error })
+}
+
 /// Absolute path of a client-supplied absolute string (trusted local lanes).
 pub fn absolute_local_path(value: &str) -> WsResult<PathBuf> {
     let text = value.trim();

@@ -3,10 +3,10 @@
 // window (a second connection that claims the host role) answers the OS trash, the snapshot and the local page as the script scripts it.
 //
 // The main scenario runs here, on the loopback connection every client of this core has. The relay scenario (what only a paired phone
-// meets: the registered-projects rule and one-file permissions) needs a relay-origin connection, which only the relay leg opens: the
-// workspace crate replays it (mixdog-workspace/tests/it/phone_files.rs).
+// meets: the registered-projects rule and one-file permissions) needs a relay-origin connection, which only the relay leg opens: it runs
+// behind a scripted relay and a paired phone (lib/phone-relay-core.mjs).
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, watch, writeFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -51,17 +51,31 @@ async function startCore(exe, coreRoot, relay) {
   let stderr = '';
   child.stderr.on('data', (chunk) => (stderr += chunk));
   const { parseDiscovery } = await here('apps/desktop/src/main/protocol/discovery.ts');
-  const file = join(coreRoot, 'runtime', 'daemon.json');
-  for (let waited = 0; waited < 400_000; waited += 100) {
-    if (child.exitCode !== null) throw new Error(`mixdogd exited ${child.exitCode}:\n${stderr}`);
-    try {
-      return { child, endpoint: parseDiscovery(readFileSync(file, 'utf8')), dataDir: join(coreRoot, 'data') };
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 100));
+  // The core is up when it has written its discovery file. The watch is registered before the first look, so a write between the look and
+  // the wait still wakes it; the wait ends on the directory's change or on the child's exit, never on a timer.
+  const dir = join(coreRoot, 'runtime');
+  const file = join(dir, 'daemon.json');
+  let stirred = false;
+  let wake = null;
+  const stir = () => {
+    stirred = true;
+    wake?.();
+  };
+  const watcher = watch(dir, stir);
+  child.once('exit', stir);
+  try {
+    for (;;) {
+      stirred = false;
+      if (child.exitCode !== null) throw new Error(`mixdogd exited ${child.exitCode}:\n${stderr}`);
+      try {
+        return { child, endpoint: parseDiscovery(readFileSync(file, 'utf8')), dataDir: join(coreRoot, 'data') };
+      } catch {
+        if (!stirred) await new Promise((resolve) => (wake = resolve));
+      }
     }
+  } finally {
+    watcher.close();
   }
-  child.kill();
-  throw new Error(`mixdogd did not serve in 400 s:\n${stderr}`);
 }
 
 /** The PC's window: a second connection that claims the host role and answers what the core asks of it. */
@@ -115,7 +129,9 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
     clientInfo: { name: 'mixdog-phone', title: 'Mixdog Phone', version: '1.4.5', kind: 'phone' },
     capabilities: { optOutNotificationMethods: [], experimentalApi: false },
     threadReducer: sessionReducer,
-    clock: { sleep: (ms) => new Promise((done) => setTimeout(done, ms)) },
+    // The client sleeps only on its reconnect ladder (packages/protocol-client/src/client.ts:346), after a dropped transport. The replay
+    // never drops one, so no call's timing depends on this clock; a drop fails the replay instead of waiting.
+    clock: { sleep: () => Promise.reject(new Error('the replay dropped its connection')) },
     random: Math.random,
   };
   let phoneConnector = base.connector;

@@ -36,7 +36,7 @@ use crate::inplace::rewrite_or_restore;
 use crate::pathguard::canonical;
 use crate::pathguard::comparable;
 use crate::pathguard::lexical;
-use crate::pathguard::project_entry_path;
+use crate::pathguard::guarded_entry_path;
 
 pub const RECOVERY_MAX_BYTES: u64 = 16 * 1024 * 1024;
 pub const RECOVERY_MAX_RECORDS: usize = 20;
@@ -806,7 +806,7 @@ fn validate_target(root: &Path, manifest: &Manifest, entry: &RecoveryFile) -> Ws
     if comparable(&canonical(root)?) != comparable(&manifest.root) || identity_of(root)? != manifest.root_identity {
         return Err(WsError::new(Reason::Changed, "Project root changed."));
     }
-    let file = project_entry_path(root, &entry.rel_path)?;
+    let file = guarded_entry_path(root, &entry.rel_path)?;
     let parent = canonical(file.parent().unwrap_or(&file))?;
     let destination = parent.join(file.file_name().unwrap_or_default());
     if comparable(&destination) != comparable(&entry.destination) || identity_of(&parent)? != entry.parent {

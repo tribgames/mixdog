@@ -30,7 +30,7 @@ use crate::ident::file_version;
 use crate::inplace::open_authorized_ro;
 use crate::pathguard::absolute_local_path;
 use crate::pathguard::canonical;
-use crate::pathguard::project_entry_path;
+use crate::pathguard::guarded_entry_path;
 
 pub const RANGE_MAX_BYTES: u64 = 4 * 1024 * 1024;
 /// Raw bytes of one upload chunk at most (`SERVER_UPLOAD_CHUNK_BYTES`).
@@ -319,7 +319,7 @@ impl Transfers {
 
     /// A project file. The real path is verified from the open handle.
     pub fn begin_project_read(&self, owner: &str, root: &Path, rel: &str) -> WsResult<Opened> {
-        let path = project_entry_path(root, rel)?;
+        let path = guarded_entry_path(root, rel)?;
         let opened = open_authorized_ro(&path, root)?;
         let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
         self.register(owner, opened.file, name, mime_type(&path), None)
@@ -352,7 +352,7 @@ impl Transfers {
         root: &Path,
         rel: &str,
     ) -> WsResult<Opened> {
-        let probe = project_entry_path(root, rel)?;
+        let probe = guarded_entry_path(root, rel)?;
         let folder = crate::lanes::run_fallible(lanes.maintenance, cancel, move || {
             let folder = canonical(&probe)?;
             if folder.is_dir() { Ok(folder) } else { Err(WsError::new(Reason::NotAFile, "Not a folder.")) }
@@ -421,7 +421,7 @@ impl Transfers {
 
     pub fn begin_write(&self, owner: &str, root: &Path, rel: &str, size: u64) -> WsResult<String> {
         self.sweep_idle();
-        let target = project_entry_path(root, rel)?;
+        let target = guarded_entry_path(root, rel)?;
         if target.exists() {
             return Err(WsError::new(Reason::AlreadyExists, "An entry with that name already exists in the target folder."));
         }
@@ -591,7 +591,7 @@ fn decode_chunk(encoded: &str) -> WsResult<Vec<u8>> {
 /// `serverFileReadRange(root, rel, offset, length)`: one stateless read of up to
 /// [`RANGE_MAX_BYTES`] at `offset`, as `{data, offset, size, mtimeMs}` (`data` base64).
 pub fn read_path_range(root: &Path, rel: &str, offset: u64, length: u64) -> WsResult<serde_json::Value> {
-    let file = File::open(project_entry_path(root, rel)?)?;
+    let file = File::open(guarded_entry_path(root, rel)?)?;
     let meta = file.metadata()?;
     if !meta.is_file() {
         return Err(WsError::invalid("Not a file."));

@@ -95,18 +95,18 @@ async fn call(env: &Env, method: &'static str, params: Value) -> Result<Value, C
     }
 }
 
-/// A path the connection may not reach is refused as Node refused it: the coded "Project is not available." for a folder that is no
-/// registered project, the plain "Path is outside the project." for an entry beyond its folder.
-fn refused<T>(result: &Result<T, CoreError>) -> bool {
-    match result {
-        Err(CoreError::PermissionDenied { .. }) => true,
-        Err(CoreError::DomainError { code, message, .. }) => {
-            let text = message.as_deref();
-            (code.as_deref() == Some("PROJECT_UNAVAILABLE") && text == Some("Project is not available."))
-                || (code.is_none() && matches!(text, Some("Path is outside the project." | "Path resolves outside the project.")))
-        }
-        _ => false,
-    }
+/// Node's `Error` for a folder that is no registered project: code `PROJECT_UNAVAILABLE`, text "Project is not available." (`projectScope`
+/// -> `knownPath`, session-host.ts:556; recorded for the phone in apps/mobile/fixtures/phone-files/golden.json, relay scenario
+/// listProjectDir/readProjectFile on an unregistered folder).
+fn unavailable<T>(result: &Result<T, CoreError>) -> bool {
+    matches!(result, Err(CoreError::DomainError { code, message, .. })
+        if code.as_deref() == Some("PROJECT_UNAVAILABLE") && message.as_deref() == Some("Project is not available."))
+}
+
+/// Node's plain `Error` for an entry beyond its project: no code, text "Path is outside the project." (recorded in golden.json, main
+/// scenario readProjectFile `../outside/granted.txt`).
+fn outside_the_project<T>(result: &Result<T, CoreError>) -> bool {
+    matches!(result, Err(CoreError::DomainError { code: None, message, .. }) if message.as_deref() == Some("Path is outside the project."))
 }
 
 struct NoneGone;
@@ -261,7 +261,7 @@ async fn a_local_connection_reads_any_absolute_folder_while_a_relay_is_held_to_t
     std::fs::write(outside.join("note.txt"), "hello\n").unwrap();
     let params = json!({ "root": outside.to_string_lossy(), "rel": "note.txt" });
     // The `…In` operations of Node take any root the window resolved; the relay is the strict origin.
-    assert!(refused(&call(&env, "projectFs/readText", params.clone()).await));
+    assert!(unavailable(&call(&env, "projectFs/readText", params.clone()).await));
     let mut local = request("projectFs/readText", params.clone());
     local.ctx = CallContext::connection(ConnectionId(1), Origin::Local, CancellationToken::new());
     let Reply::Value(read) = env.service.call(local).await.unwrap() else { panic!("readText answers with a value") };
@@ -428,10 +428,9 @@ async fn paths_outside_the_registry_or_project_are_refused_with_permission_denie
     let env = env();
     let outside = env.root.parent().unwrap().join("other");
     std::fs::create_dir_all(&outside).unwrap();
-    let denied = |r: Result<Value, CoreError>| refused(&r);
-    assert!(denied(call(&env, "projectFs/listDir", json!({ "root": outside.to_string_lossy(), "rel": "." })).await));
+    assert!(unavailable(&call(&env, "projectFs/listDir", json!({ "root": outside.to_string_lossy(), "rel": "." })).await));
     let root = env.root.to_string_lossy().into_owned();
-    assert!(denied(call(&env, "projectFs/readText", json!({ "root": root, "rel": "../other/x" })).await));
+    assert!(outside_the_project(&call(&env, "projectFs/readText", json!({ "root": root, "rel": "../other/x" })).await));
     let ok = call(&env, "projectFs/listDir", json!({ "root": root, "rel": "." })).await.unwrap();
     assert_eq!(ok[0]["name"], "src");
 }
@@ -812,7 +811,8 @@ async fn code_graph_queries_pass_the_tools_arguments_and_return_its_text() {
     let too_long = call(&env, "project/codeGraph", json!({ "path": root, "mode": "references", "query": long })).await;
     assert!(matches!(&too_long, Err(CoreError::InvalidParams { expected, .. }) if &**expected == "Symbol is invalid."), "{too_long:?}");
     let denied = call(&env, "project/codeGraph", json!({ "path": env.root.parent().unwrap().to_string_lossy(), "mode": "symbols", "query": "a" })).await;
-    assert!(refused(&denied), "{denied:?}");
+    // `host.codeGraphQuery` resolves the folder through `projectDirectory` (session-host.ts:776-781).
+    assert!(unavailable(&denied), "{denied:?}");
 }
 
 fn futures_block<F: std::future::Future>(f: F) -> F::Output {
@@ -844,16 +844,16 @@ fn strip_mtime(mut value: Value) -> Value {
 }
 
 /// The recorded Node error text, as the reason the Rust core must answer with.
-fn expect_error(message: &str, got: &CoreError, ctx: &str) {
+fn expect_error(message: &str, got: &CoreError, ctx: &str, root: &str) {
     let ok = match got {
-        CoreError::PermissionDenied { .. } => message == "Path is outside the project." || message == "Path resolves outside the project.",
         CoreError::PreconditionFailed { .. } => message.starts_with("File changed on disk"),
         CoreError::InvalidParams { expected, .. } => {
             // Search-pattern text is shown to the user: byte-equal. Others map by reason.
             if message.starts_with("Invalid search pattern") { &**expected == message } else { message == "Entry name is invalid." }
         }
         CoreError::DomainError { code, message: got, .. } => match code.as_deref() {
-            Some("ENOENT") => message.starts_with("ENOENT"),
+            // A system error: Node's whole text, the recorded `<ROOT>` standing for this world's folder.
+            Some("ENOENT") => got.as_deref().map(|text| text.replace(root, "<ROOT>")).as_deref() == Some(message),
             // Node's plain `Error`: the text, no code.
             None => got.as_deref() == Some(message),
             _ => false,
@@ -905,7 +905,7 @@ async fn replay(env: &Env, cases: &Value, root: &str, ctx: &str) {
         let got = call(env, method, params).await;
         let label = format!("{ctx} {op} {args}");
         match (case.get("error"), got) {
-            (Some(error), Err(e)) => expect_error(error.as_str().unwrap(), &e, &label),
+            (Some(error), Err(e)) => expect_error(error.as_str().unwrap(), &e, &label, root),
             (None, Ok(value)) => {
                 if let Some(expected) = case.get("result") {
                     assert_eq!(&strip_mtime(value), expected, "{label}");
@@ -972,7 +972,8 @@ async fn recorded_transfer_reads_replay_through_the_transfer_methods() {
     assert_eq!(began["mimeType"], entry("authorize")["result"]["mime"]);
     // authorize(outside): a path out of the project is refused.
     let outside = call(&env, "transfer/beginRead", json!({ "source": { "kind": "file", "root": root, "rel": "../x" } })).await;
-    assert!(refused(&outside), "{outside:?}");
+    // The transfer paths are not Node's editor calls: a path beyond the project stays the permission refusal.
+    assert!(matches!(outside, Err(CoreError::PermissionDenied { .. })), "{outside:?}");
     let id = began["transferId"].as_str().unwrap().to_owned();
     // readRange: the recorded bytes.
     let range = call(&env, "transfer/readRange", json!({ "transferId": id, "offset": 0, "length": 64 })).await.unwrap();
@@ -1068,7 +1069,8 @@ async fn recorded_editor_files_replay_identically() {
                 if !std::path::Path::new(root).exists() {
                     // A folder that is not there cannot be a registered project: the boundary refuses it.
                     let denied = call(&env, "projectFs/readEditorSettings", json!({ "root": root, "rel": input["rel"] })).await;
-                    assert!(refused(&denied), "{label}: {denied:?}");
+                    // `readEditorSettings` resolves the folder through `host.projectDirectory` (remote-methods.ts:740).
+                    assert!(unavailable(&denied), "{label}: {denied:?}");
                     continue;
                 }
                 env.service.catalog().add(root, &CancellationToken::new(), None).await.unwrap();
@@ -1292,7 +1294,6 @@ async fn recorded_start_calls_resolve_the_folder_node_did() {
         let node = &case["node"];
         match (&outcome, node.get("error")) {
             (Ok(folder), None) => assert_eq!(*folder, at(node["result"]["cwd"].as_str().unwrap()), "{name}: the folder of the blank snapshot"),
-            (Err(CoreError::PermissionDenied { .. }), Some(error)) => assert_eq!(error["message"], "Project is not available.", "{name}"),
             (Err(error), Some(node_error)) => {
                 let (code, message) = domain(error);
                 let node_message = node_error["message"].as_str().unwrap();
@@ -1304,6 +1305,7 @@ async fn recorded_start_calls_resolve_the_folder_node_did() {
                         assert!(node_message.contains(&format!("realpath '{named}'")), "{name}: {node_message}");
                     }
                     Some("notADirectory") => assert_eq!(message.as_deref(), Some(node_message), "{name}"),
+                    // The fixture (fixtures/phone-chat/host.json) records the name and message only.
                     Some("PROJECT_UNAVAILABLE") => assert_eq!(message.as_deref(), Some(node_message), "{name}"),
                     other => panic!("{name}: unexpected code {other:?}"),
                 }
