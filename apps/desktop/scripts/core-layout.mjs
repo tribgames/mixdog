@@ -56,9 +56,10 @@ export const WINDOWS_ONNX_VC_RUNTIME_DLLS = Object.freeze([
   'vcruntime140.dll',
   'vcruntime140_1.dll',
 ]);
-/** Files that must sit beside the library: the binding and, on Windows, DirectML and the shader compiler. */
+/** Files that must sit beside the library: the binding and, on Windows, DirectML. (onnxruntime-node ships no
+ *  dxil/dxcompiler; the Node baseline's prune-embedding-runtime treats them as optional.) */
 const ORT_SIBLINGS = Object.freeze({
-  win32: ['onnxruntime_binding.node', 'DirectML.dll', 'dxil.dll', 'dxcompiler.dll', ...WINDOWS_ONNX_VC_RUNTIME_DLLS],
+  win32: ['onnxruntime_binding.node', 'DirectML.dll', ...WINDOWS_ONNX_VC_RUNTIME_DLLS],
   linux: ['onnxruntime_binding.node'],
   darwin: ['onnxruntime_binding.node'],
 });

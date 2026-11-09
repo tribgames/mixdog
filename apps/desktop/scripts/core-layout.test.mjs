@@ -23,7 +23,7 @@ const put = (file, text = 'x') => {
 
 const LIBRARY = { win32: 'onnxruntime.dll', linux: 'libonnxruntime.so.1', darwin: 'libonnxruntime.1.dylib' };
 const SIBLINGS = {
-  win32: ['onnxruntime_binding.node', 'DirectML.dll', 'dxil.dll', 'dxcompiler.dll', 'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_atomic_wait.dll', 'vcruntime140.dll', 'vcruntime140_1.dll'],
+  win32: ['onnxruntime_binding.node', 'DirectML.dll','msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_atomic_wait.dll', 'vcruntime140.dll', 'vcruntime140_1.dll'],
   linux: ['onnxruntime_binding.node'],
   darwin: ['onnxruntime_binding.node'],
 };

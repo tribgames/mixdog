@@ -4,7 +4,7 @@
 //
 //   node apps/desktop/scripts/verify-staged-package.mjs --resources=<dir> [--platform=win32] [--arch=x64] [--deletion-manifest=<file>]
 //
-//   no file of the K1 deletion list (k1-deleted-files.txt, or the K1 manifest given) is packed: not in the
+//   no file of the K1 deletion list (k1-deletion-manifest.txt, or the manifest given) is packed: not in the
 //   unpacked package, runtime.asar or a server bundle
 //
 //   core/mixdogd[.exe] and js-runtime.json     the manifest is core-layout's, the app interpreter exists
@@ -22,10 +22,12 @@ import { listPackage } from '@electron/asar';
 
 import { CORE_READS, desktopMixdogRoot, PACKAGE_DIR,remoteJsRuntimeManifest, UNPACKED_NODE_MODULES, verifyCoreInstall } from './core-layout.mjs';
 
-export const DEFAULT_DELETION_LIST = join(dirname(fileURLToPath(import.meta.url)), 'k1-deleted-files.txt');
+/** The k1-release-tests deletion manifest, committed byte-for-byte (the original lives outside the repo, where CI
+ *  cannot read it). There is no filtered copy: `parseDeletionList` is the only place that decides which sections
+ *  delete, so the committed file cannot drift from the manifest except by being replaced by a newer manifest. */
+export const DEFAULT_DELETION_LIST = join(dirname(fileURLToPath(import.meta.url)), 'k1-deletion-manifest.txt');
 
-/** Paths of a deletion list: this directory's `k1-deleted-files.txt` (bare path lines) or the K1 manifest
- *  itself (`## ` sections; only the ones that delete, not KEEP or MOVE, count). */
+/** Paths of a deletion manifest (`## ` sections; only the ones that delete, not KEEP or MOVE, count). */
 export function parseDeletionList(text) {
   const deleted = new Set();
   let counts = true;
