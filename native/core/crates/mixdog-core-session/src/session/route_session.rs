@@ -56,6 +56,13 @@ pub trait RouteChange: Send + Sync {
         Box::new(())
     }
 
+    /// Whether `lookups` were collected for what `header` states now (its folder, the route it ran on). Node reads
+    /// them from the live session inside the call; here a header that moved since the lookup makes the change
+    /// refuse to commit over them, and the lookups are collected again for the header that stands.
+    fn lookups_hold(&self, _header: &Header, _route: &Route, _lookups: &RouteLookups) -> bool {
+        true
+    }
+
     fn route_change(&self, header: &Header, route: &Route, previous: &Route, cross_provider: bool, lookups: &RouteLookups) -> HeaderChange;
 
     /// A cleared conversation's environment reset (Node's resetSessionBp3Environment), as the header
@@ -314,12 +321,12 @@ impl SessionRouteAdapter {
     pub(crate) async fn write_hop(&self, thread: &ThreadId, route: Route, hop: &mixdog_core_run::run_host::route_fallback::HopWrite) -> Result<Option<Header>, PortError> {
         let hop = hop.clone();
         let hop_fields = move |header: &Header, change: &mut HeaderChange| {
-            set(change, "routeFallbacks", Value::Array(hop.chain));
-            if let Some(primary) = hop.primary {
+            set(change, "routeFallbacks", Value::Array(hop.chain.clone()));
+            if let Some(primary) = hop.primary.clone() {
                 set(change, "routeFallbackPrimary", primary);
             }
             set(change, "routeFallbackIndex", json!(hop.index));
-            set(change, "routeFallbackFailures", Value::Array(hop.failures));
+            set(change, "routeFallbackFailures", Value::Array(hop.failures.clone()));
             if hop.checkpoint_route_changed
                 && let Some(Value::Object(checkpoint)) = header.get("activeTurnCheckpoint")
             {
@@ -344,33 +351,69 @@ impl SessionRouteAdapter {
         thread: &ThreadId,
         route: &Route,
         cross_provider: bool,
-        extra: impl FnOnce(&Header, &mut HeaderChange) + Send + 'static,
+        extra: impl Fn(&Header, &mut HeaderChange) + Send + Sync + 'static,
     ) -> Result<bool, PortError> {
-        let acked = match self.threads.header(thread).await {
-            Ok(header) => header,
-            Err(PortError::NotFound { .. }) => return Ok(false),
-            Err(error) => return Err(error),
-        };
-        let lookups = self.change.lookups(&acked, route).await;
-        let (change, clock, route) = (self.change.clone(), self.clock.clone(), route.clone());
-        let written = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let seen = written.clone();
-        let update: mixdog_core_ports::ports::threads::HeaderUpdate = Box::new(move |header| {
-            if header.get("closed") == Some(&Value::Bool(true)) {
-                return HeaderChange { set: Map::new(), unset: Vec::new() };
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let extra = Arc::new(extra);
+        // What the change reads from outside the header is collected before the actor runs it. A header that moved
+        // meanwhile (a worktree move changes the folder the skills are listed from) makes the change commit nothing
+        // and the lookups are collected again for the header that stands; the redo ends once a lookup meets an
+        // unmoved header, and a header that keeps moving is an error, never a change over stale lookups.
+        for _ in 0..REDO_LIMIT {
+            let acked = match self.threads.header(thread).await {
+                Ok(header) => header,
+                Err(PortError::NotFound { .. }) => return Ok(false),
+                Err(error) => return Err(error),
+            };
+            let lookups = self.change.lookups(&acked, route).await;
+            let (change, clock, route, extra) = (self.change.clone(), self.clock.clone(), route.clone(), extra.clone());
+            let written = Arc::new(AtomicBool::new(false));
+            let stale = Arc::new(AtomicBool::new(false));
+            let (seen, moved) = (written.clone(), stale.clone());
+            let update: mixdog_core_ports::ports::threads::HeaderUpdate = Box::new(move |header| {
+                if header.get("closed") == Some(&Value::Bool(true)) {
+                    return HeaderChange { set: Map::new(), unset: Vec::new() };
+                }
+                if !change.lookups_hold(header, &route, &lookups) {
+                    moved.store(true, Ordering::SeqCst);
+                    return HeaderChange { set: Map::new(), unset: Vec::new() };
+                }
+                Self::route_write(&*change, &*clock, header, &route, cross_provider, &lookups, &*extra, &seen)
+            });
+            match self.directory.update_header(thread, update).await {
+                Ok(()) if stale.load(Ordering::SeqCst) => continue,
+                Ok(()) => return Ok(written.load(Ordering::SeqCst)),
+                Err(mixdog_core_api::CoreError::ThreadNotFound { .. }) => return Ok(false),
+                Err(error) => return Err(mixdog_core_ports::ports::threads::port_error(error)),
             }
+        }
+        Err(PortError::Failed { capability: "route".into(), message: "the session's folder kept changing while its route was updated".into() })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn route_write(
+        change: &dyn RouteChange,
+        clock: &dyn Clock,
+        header: &Header,
+        route: &Route,
+        cross_provider: bool,
+        lookups: &RouteLookups,
+        extra: &(dyn Fn(&Header, &mut HeaderChange) + Send + Sync),
+        seen: &std::sync::atomic::AtomicBool,
+    ) -> HeaderChange {
+        {
             let mut previous = Route::new();
             for key in ["provider", "model"] {
                 if let Some(value) = header.get(key) {
                     previous.insert(key.to_owned(), value.clone());
                 }
             }
-            let mut next = route_fields(header, &route);
+            let mut next = route_fields(header, route);
             let routed = applied(header, &next);
-            let derived = change.route_change(&routed, &route, &previous, cross_provider, &lookups);
+            let derived = change.route_change(&routed, route, &previous, cross_provider, lookups);
             // The prompt half: a staged workspace change applies on a new route, and the
             // `# Session` block is rebuilt for the session's cwd.
-            let changed = route_changed(&route, &previous);
+            let changed = route_changed(route, &previous);
             let prompt = super::worktree::route_prompt_refresh(&super::worktree::PromptView { header: &routed, tier3: None, env: None }, changed);
             for part in [derived, prompt.change] {
                 for key in part.unset {
@@ -384,14 +427,12 @@ impl SessionRouteAdapter {
             extra(header, &mut next);
             seen.store(true, std::sync::atomic::Ordering::SeqCst);
             next
-        });
-        match self.directory.update_header(thread, update).await {
-            Ok(()) => Ok(written.load(std::sync::atomic::Ordering::SeqCst)),
-            Err(mixdog_core_api::CoreError::ThreadNotFound { .. }) => Ok(false),
-            Err(error) => Err(mixdog_core_ports::ports::threads::port_error(error)),
         }
     }
 }
+
+/// How often the lookups of a route change are collected again for a header that moved under them.
+const REDO_LIMIT: usize = 8;
 
 /// The sessions a route hop can write (`run_host::hop_host::HopSessions`): the threads this
 /// process hosts.
@@ -590,6 +631,56 @@ mod tests {
         assert_eq!((stored["provider"].clone(), stored["model"].clone()), (json!("openai"), json!("gpt-a")));
         assert!(!stored.contains_key("contextWindow"));
     }
+    /// Lookups keyed by the folder they were collected for. The first lookup is interrupted by a worktree move; the
+    /// change must never commit over the old folder's lookup (Node lists the skills of the live session's folder
+    /// inside the call), so the lookup is collected again for the folder that stands.
+    struct FolderLookups {
+        threads: Arc<dyn ThreadState>,
+        thread: ThreadId,
+        collected: Mutex<Vec<String>>,
+        used: Mutex<Vec<String>>,
+    }
+    #[async_trait::async_trait]
+    impl RouteChange for FolderLookups {
+        async fn lookups(&self, header: &Header, _: &Route) -> RouteLookups {
+            let folder = header["cwd"].as_str().expect("cwd").to_owned();
+            let first = self.collected.lock().unwrap().is_empty();
+            self.collected.lock().unwrap().push(folder.clone());
+            if first {
+                self.threads.patch_header(&self.thread, obj(json!({ "cwd": "/moved" })), Vec::new()).await.expect("move");
+            }
+            Box::new(folder)
+        }
+        fn lookups_hold(&self, header: &Header, _: &Route, lookups: &RouteLookups) -> bool {
+            lookups.downcast_ref::<String>().map(String::as_str) == header["cwd"].as_str()
+        }
+        fn route_change(&self, _: &Header, _: &Route, _: &Route, _: bool, lookups: &RouteLookups) -> HeaderChange {
+            let folder = lookups.downcast_ref::<String>().expect("folder").clone();
+            self.used.lock().unwrap().push(folder.clone());
+            HeaderChange { set: obj(json!({ "toolsFolder": folder })), unset: Vec::new() }
+        }
+        fn environment_reset(&self, _: &Header) -> HeaderChange {
+            HeaderChange { set: Map::new(), unset: Vec::new() }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_folder_that_moves_during_the_lookup_has_its_lookup_collected_again() {
+        use crate::session::thread_state::SessionThreads;
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let thread = ThreadId::from("sess_moving");
+        directory.create_with_id(thread.clone(), obj(json!({ "provider": "openai", "model": "gpt-a", "cwd": "/before" })), json!({})).await.expect("create");
+        let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
+        let change = Arc::new(FolderLookups { threads: threads.clone(), thread: thread.clone(), collected: Mutex::default(), used: Mutex::default() });
+        let adapter = SessionRouteAdapter::new(directory.clone(), threads.clone(), change.clone(), Arc::new(Quiet), Arc::new(Quiet), Arc::new(Quiet), rig.clock.clone());
+        assert!(adapter.update_route(&thread, obj(json!({ "provider": "anthropic", "model": "claude-x" })), true).await.expect("update"));
+        assert_eq!(*change.collected.lock().unwrap(), vec!["/before".to_owned(), "/moved".to_owned()]);
+        assert_eq!(*change.used.lock().unwrap(), vec!["/moved".to_owned()], "the change ran once, over the folder that stands");
+        let stored = threads.header(&thread).await.expect("header");
+        assert_eq!((stored["toolsFolder"].clone(), stored["model"].clone()), (json!("/moved"), json!("claude-x")));
+    }
+
     struct NullWire;
     #[async_trait::async_trait]
     impl RouteChange for NullWire {

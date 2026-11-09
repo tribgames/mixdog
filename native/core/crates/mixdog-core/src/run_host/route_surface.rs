@@ -280,13 +280,19 @@ impl RouteFacts for AiRouteFacts {
         Some((cwd, listed))
     }
 
+    /// The listing was collected for the working folder of the header the change commits against
+    /// (`surface_current` holds, so the change is never computed over another folder's listing); one that
+    /// could not be collected keeps the stored tools.
+    fn surface_current(&self, header: &Header, previous: &Route, lookup: &SurfaceLookup) -> bool {
+        match lookup {
+            Some((cwd, _)) => !is_first_route(previous) && *cwd == super::resume_tools::header_cwd(header),
+            None => is_first_route(previous),
+        }
+    }
+
     fn surface_change(&self, header: &Header, previous: &Route, lookup: &SurfaceLookup) -> HeaderChange {
-        // The listing was collected for the working folder the session had then; one that moved since
-        // (a worktree move) keeps the stored tools, as a listing that could not be collected does.
         let prepared = match lookup {
-            Some((cwd, Ok(listed))) if *cwd == super::resume_tools::header_cwd(header) && !is_first_route(previous) => {
-                self.prepare_tools.prepare_with(header, *listed)
-            }
+            Some((_, Ok(listed))) if !is_first_route(previous) => self.prepare_tools.prepare_with(header, *listed),
             _ => None,
         };
         let surface = ToolSurface { host: self.surface_host.as_ref(), clock: self.clock.as_ref() };
