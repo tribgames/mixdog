@@ -242,12 +242,13 @@ const calls: Record<string, NodeCall> = {
 /** Node's per-connection barrier (remote-call-queue.ts, the module itself): a read waits for the writes queued before it, a
  *  write waits for everything before it, and the slow reads (gitReview*, ghPr*, githubCli*) ride their own lane. Calls of
  *  other groups on the same connection are not in this queue (each adapter orders its own). */
-const queues = new WeakMap<PhoneProtocolHost, ReturnType<typeof createRemoteCallQueue>>();
+const queues = new WeakMap<object, ReturnType<typeof createRemoteCallQueue>>();
+// The router hands each call its own host object (a scoped client per call); the connection's context is the one thing they share.
 const queueOf = (host: PhoneProtocolHost): ReturnType<typeof createRemoteCallQueue> => {
-  let queue = queues.get(host);
+  let queue = queues.get(host.ctx);
   if (!queue) {
     queue = createRemoteCallQueue();
-    queues.set(host, queue);
+    queues.set(host.ctx, queue);
   }
   return queue;
 };

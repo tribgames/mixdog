@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { adapter } from './remote-protocol-scm.ts';
 import { SCM_OPERATION_ROUTES } from '../shared/scm-operation-route.ts';
+import { scopeClient } from '../../../mobile/src/phone-send-scope.ts';
 
 const fixture = (name) => new URL(`./fixtures/phone-scm/${name}`, import.meta.url);
 const golden = JSON.parse(readFileSync(fixture('golden.json'), 'utf8'));
@@ -72,7 +73,7 @@ const failureOf = (error) => ({
 
 async function answerOf(entry, params, coreCodes = false) {
   const core = scriptedCore(entry.ops, { coreCodes });
-  const host = { client: () => core };
+  const host = { ctx: {}, client: () => core };
   let answer;
   try {
     const value = await adapter.calls[entry.call](params, host);
@@ -120,8 +121,9 @@ test('phone-scm keeps Node\'s barrier: a read submitted behind a slow write star
       return op.result === undefined ? null : clone(op.result);
     },
   };
-  const host = { client: () => core };
-  const answers = ordering.calls.map(({ call, params }) => adapter.calls[call](clone(params), host).then((value) => ({ ok: true, value: value === undefined ? null : clone(value) })));
+  // The router gives every call a host object of its own (a client scoped to the call); only the connection's context is shared.
+  const ctx = {};
+  const answers = ordering.calls.map(({ call, params }) => adapter.calls[call](clone(params), { ctx, client: () => core }).then((value) => ({ ok: true, value: value === undefined ? null : clone(value) })));
   for (let turn = 0; turn < 20; turn++) await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(log.map((entry) => entry.started), ordering.heldStarts);
   release();
@@ -130,7 +132,7 @@ test('phone-scm keeps Node\'s barrier: a read submitted behind a slow write star
 });
 test('phone-scm checks an absolute path by the platform of the PC\'s initialize answer', async () => {
   const asked = [];
-  const on = (platformFamily) => ({ client: () => ({ server: { platformFamily }, call: async (method) => (asked.push(method), null) }) });
+  const on = (platformFamily) => ({ ctx: {}, client: () => ({ server: { platformFamily }, call: async (method) => (asked.push(method), null) }) });
   const status = (cwd, platformFamily) => adapter.calls.gitStatus([cwd], on(platformFamily));
   await assert.rejects(status('C:\\repo', 'unix'), { message: 'A project directory is required.' });
   await assert.rejects(status('\\repo', 'unix'), { message: 'A project directory is required.' });
@@ -141,4 +143,13 @@ test('phone-scm checks an absolute path by the platform of the PC\'s initialize 
   assert.deepEqual(asked, ['git/status', 'git/status', 'git/status']);
   await assert.rejects(adapter.calls.gitDiff(['/repo', 'C:\\x'], on('windows')), { message: 'git path is invalid.' });
   await adapter.calls.gitDiff(['/repo', 'C:\\x'], on('unix'));
+});
+test('phone-scm forwards the call\'s `sent` claim on every request it writes (the router scopes the client per call)', async () => {
+  const claim = () => {};
+  const options = [];
+  const client = { call: async (_method, _params, option) => (options.push(option?.sent), null) };
+  const scoped = scopeClient(client, claim);
+  await adapter.calls.gitStage([process.cwd(), ['a.txt']], { ctx: {}, client: () => scoped });
+  assert.ok(options.length > 0);
+  assert.ok(options.every((sent) => sent === claim));
 });
