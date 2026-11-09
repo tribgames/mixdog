@@ -66,7 +66,10 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
   const declaredLanes = new Map<string, readonly string[]>();
   // The page told the PC it is in the background (Node's `reportedBackground`).
   let background = false;
-  let everSynced = false;
+  // Node's resyncOnWake / resyncAfterWakeProbe: a page that was away, or whose connection ended, resyncs on its next wake, and only once the relay
+  // has answered that wake's probe (a leg that does not answer is replaced by a connection that syncs on its own).
+  let resyncOnWake = false;
+  let resyncAfterProbe = false;
   const hidden = (): boolean => document.visibilityState === 'hidden';
   const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
 
@@ -79,6 +82,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
       case 'connected':
         // A new leg is unknown to the PC until the screen reporter tells it; each connection states its visibility once.
         background = hidden();
+        resyncOnWake = false;
         ctx.connectionReady = true;
         setRemoteConnectionPhase('sync');
         setRemoteConnectionState('syncing');
@@ -113,8 +117,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     setRemoteConnectionState('connected');
     window.dispatchEvent(new Event(REMOTE_CONNECTION_READY_EVENT));
     // Terminal panes can hold PTY ids from the connection that died: told only after the replacement settled.
-    if (reconnected || everSynced) window.dispatchEvent(new Event('mixdog:remote-reconnected'));
-    everSynced = true;
+    if (reconnected) window.dispatchEvent(new Event('mixdog:remote-reconnected'));
   };
 
   const register = async (): Promise<void> => {
@@ -151,9 +154,20 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
       random,
       onConnection,
       onClose: (code, _reason, info) => {
+        resyncOnWake = true;
+        resyncAfterProbe = false;
         ctx.limits.resetLearnedCaps();
-        if (info.remote && !info.quiet && !phone?.link.suspended) reportRemoteConnectionIssue('websocket-closed', undefined, code);
+        if (info.remote && !phone?.link.suspended) reportRemoteConnectionIssue('websocket-closed', undefined, code);
       },
+      dialing: () => setRemoteConnectionPhase('websocket'),
+      encrypting: () => setRemoteConnectionPhase('encryption'),
+      unresponsive: () => reportRemoteConnectionIssue('heartbeat-timeout'),
+      probeAnswered: () => {
+        if (!resyncAfterProbe) return;
+        resyncAfterProbe = false;
+        void view?.resync();
+      },
+      resyncHint: () => void view?.resync(),
       ready: (hello) => {
         ctx.limits.learnRoutingCaps(hello);
         setRemoteHostOpenAccess(hello.remoteOpenAccess === 1);
@@ -175,7 +189,11 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     connected.client.on((event) => {
       if (event.type === 'status' && event.status.state === 'ready') applyFlags();
     });
-    view = createViewManager(connected.client, { restored: ctx.restoredVisibleSessionIds, onSynced });
+    view = createViewManager(connected.client, {
+      restored: ctx.restoredVisibleSessionIds,
+      onSynced,
+      syncing: () => setRemoteConnectionState('syncing'),
+    });
     lanes = createLaneFeeds(connected.client);
     for (const [lane, feeds] of declaredLanes) lanes.declare(lane, feeds);
     lanes.use(pendingLanes);
@@ -209,6 +227,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
       background = true;
       phone?.screen?.refresh();
     }
+    resyncOnWake = true;
     if (graceTimer !== undefined) return;
     graceTimer = setTimeout(() => {
       graceTimer = undefined;
@@ -219,6 +238,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     if (!env.suspendApplies()) return;
     setRemoteConnectionPhase('background');
     ctx.backgroundSuspended = true;
+    resyncOnWake = true;
     setRemoteConnectionState('connecting');
     phone?.link.suspend();
   };
@@ -237,8 +257,16 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     }
     if (ctx.backgroundSuspended) beginRemoteConnectionTimeline('wake');
     ctx.backgroundSuspended = false;
-    if (phone) phone.link.wake();
-    else void start().catch(() => undefined);
+    if (!phone) {
+      void start().catch(() => undefined);
+      return;
+    }
+    const probing = phone.link.wake();
+    if (!probing) resyncOnWake = true;
+    else if (resyncOnWake || event?.type === 'online') {
+      resyncOnWake = false;
+      resyncAfterProbe = true;
+    }
   };
   document.addEventListener('freeze', () => {
     frozen = true;
