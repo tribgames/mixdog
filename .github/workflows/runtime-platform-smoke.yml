@@ -37,3 +37,26 @@ jobs:
 
       - name: Verify embedding and core memory runtime
         run: node scripts/verify-embedding-runtime.mjs --core
+
+  # K1 replacement of memory-runtime: the Rust core's own ONNX runtime loads the effort-judge model on each
+  # platform (mixdog-services effort_judge::model), with no Node step.
+  rust-onnx-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: darwin, arch: arm64, runner: macos-15 }
+          - { platform: darwin, arch: x64, runner: macos-15-intel }
+          - { platform: linux, arch: x64, runner: ubuntu-22.04 }
+          - { platform: linux, arch: arm64, runner: ubuntu-22.04-arm }
+    name: rust-onnx-${{ matrix.platform }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: "1.99.1"
+      - name: Effort-judge model tests
+        working-directory: native/core
+        run: cargo test --locked -p mixdog-services effort_judge
