@@ -72,14 +72,35 @@ fn the_log_node_wrote_migrates_to_the_session_node_reads() {
     migrated_equals_node("log", recorded["log"].as_str().expect("log").as_bytes(), &recorded["replay"]);
 }
 
+/// A log Node reads no session from (no `session` + `compacted` base): nothing is published, and the migration
+/// quarantines it.
+fn migrated_is_refused(name: &str, bytes: &[u8]) {
+    let dir = tempfile::tempdir().expect("scratch dir");
+    let roots = roots_in(dir.path());
+    std::fs::write(log_file(&roots), bytes).expect("write");
+    let complete = run(&roots);
+    eprintln!("case: {name}");
+    assert_eq!(complete.kinds.data.quarantined_unexpected, 1, "{name}: quarantined");
+    assert!(read_sessions(&roots, &complete.manifest_sha256).expect("fold").is_empty(), "{name}: no session");
+}
+
 #[test]
-fn lines_node_skips_a_partial_tail_crlf_and_invalid_utf8_migrate_as_node_reads_them() {
+fn every_recorded_log_migrates_as_node_reads_it() {
     let recorded = recorded("log.json");
     let cases = recorded["cases"].as_array().expect("cases");
-    assert_eq!(cases.len(), 7);
+    assert_eq!(cases.len(), 17);
+    // Node's reader distinguishes these ways to stop; every one is recorded.
+    let reasons: std::collections::BTreeSet<&str> =
+        cases.iter().filter_map(|c| c["replay"]["damage"]["reason"].as_str()).collect();
+    assert_eq!(reasons, ["length", "no-history", "sequence"].into());
     for case in cases {
         let bytes = base64::engine::general_purpose::STANDARD.decode(case["bytes"].as_str().expect("bytes")).expect("base64");
-        migrated_equals_node(case["name"].as_str().expect("name"), &bytes, &case["replay"]);
+        let name = case["name"].as_str().expect("name");
+        if case["replay"]["valid"] == true {
+            migrated_equals_node(name, &bytes, &case["replay"]);
+        } else {
+            migrated_is_refused(name, &bytes);
+        }
     }
 }
 

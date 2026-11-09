@@ -98,7 +98,32 @@ const crlf = lines.join('\r\n') + '\r\n';
 const invalidUtf8 = Buffer.from(log.replace('answer 7', 'answer \u0001'), 'utf8');
 invalidUtf8[invalidUtf8.indexOf(0x01)] = 0xff;
 const mixed = [lines[0], '', '{"t":"future","s":1}', lines[1], 'not json', ...lines.slice(2)].join('\r\n') + '\r\n{"t":"append","s":' + last + ',"len":';
+// Where Node's replay stops (`damage`): a record that does not follow the history before it. Every record after
+// it is left in the file; the replay is the records before it.
+const broken = (index, change) => {
+  const copy = lines.slice();
+  const record = JSON.parse(copy[index]);
+  change(record);
+  copy[index] = JSON.stringify(record);
+  return Buffer.from(copy.join('\n') + '\n');
+};
+const kindIndex = (kind) => kinds.indexOf(kind);
+const damage = {
+  'sequence gap': broken(10, (r) => { r.s = 11; }),
+  'sequence repeated': broken(10, (r) => { r.s = 9; }),
+  'append length mismatch': broken(kindIndex('append'), (r) => { r.len += 1; }),
+  'edit past the history': broken(kindIndex('edit'), (r) => { r.at = 999; }),
+  'edit length mismatch': broken(kindIndex('edit'), (r) => { r.len += 1; }),
+  'rollback past the history': broken(kindIndex('rollback'), (r) => { r.len = 999; }),
+  'damage with skipped lines and a partial tail': Buffer.from(
+    [...broken(10, (r) => { r.s = 11; }).toString().split('\n').slice(0, -1), '', 'not json'].join('\n') + `\n{"t":"append","s":10,"len":`,
+  ),
+  'second record is not the history': Buffer.from([lines[0], JSON.stringify({ ...JSON.parse(lines[2]), s: 1 }), ...lines.slice(3)].join('\n') + '\n'),
+  'history before the session': Buffer.from([JSON.stringify({ ...JSON.parse(lines[1]), s: 0 }), ...lines.slice(2)].join('\n') + '\n'),
+  'a session record alone': Buffer.from(`${lines[0]}\n`),
+};
 const caseBytes = {
+  ...damage,
   'blank lines': Buffer.from(blank),
   'malformed lines': Buffer.from(malformed),
   'unknown records': Buffer.from(unknown),
