@@ -85,6 +85,9 @@ use mixdog_core_base::approvals::Devices;
 /// was called in.
 #[derive(Default)]
 pub struct TestCompaction {
+    /// The thread has books (the meters of a text-only transcript, no native tools), so a settled ask estimates its transcript;
+    /// without them, as the rigs are, the estimate is 0.
+    pub text_books: std::sync::atomic::AtomicBool,
     pub result: Mutex<Option<Value>>,
     pub calls: Mutex<Vec<String>>,
     /// A compaction waits on it before answering, when set.
@@ -136,7 +139,12 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
         lock(&self.calls).push("invalidate".into());
     }
     fn books(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header) -> Option<super::turn_ops::Books> {
-        None
+        self.text_books.load(std::sync::atomic::Ordering::SeqCst).then(|| super::turn_ops::Books {
+            media: Arc::new(TextOnly),
+            images: Arc::new(TextOnly),
+            native: Vec::new(),
+            agent_mode: false,
+        })
     }
     async fn prepare_books(&self, _: &ThreadId, provider: &str, messages: &[mixdog_agent::message::AgentMessage]) {
         lock(&self.prepared).push((provider.to_owned(), messages.len()));
@@ -1636,6 +1644,21 @@ pub fn quota_error(reset_at: u64) -> mixdog_protocol::TurnError {
     error.message = "Usage limit reached".into();
     error.reset_at = Some(std::time::UNIX_EPOCH + std::time::Duration::from_millis(reset_at));
     super::failure_record::provider_turn_error(&error, "anthropic-oauth", Value::Null)
+}
+
+/// The meters of a transcript with no media: a part reaching them is a test that recorded one.
+struct TextOnly;
+
+impl mixdog_agent::compact::estimate::MediaMeter for TextOnly {
+    fn part(&self, part: &mixdog_core_api::domain::provider::ContentPart) -> mixdog_agent::compact::estimate::PartMeter {
+        panic!("media part in a text-only transcript: {part:?}")
+    }
+}
+
+impl mixdog_agent::compact::pressure::ImageIdentities for TextOnly {
+    fn images(&self, _: &mixdog_agent::message::AgentMessage) -> Vec<mixdog_agent::compact::pressure::ImageDescriptor> {
+        Vec::new()
+    }
 }
 
 /// The pricing of a rig: no catalog, so every request is unpriced.

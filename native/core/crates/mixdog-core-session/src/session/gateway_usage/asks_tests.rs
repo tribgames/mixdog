@@ -8,6 +8,11 @@
 
 use std::sync::Arc;
 
+use mixdog_agent::message::AgentMessage;
+use mixdog_core_api::domain::provider::Content;
+use mixdog_core_api::domain::provider::Message;
+use mixdog_core_api::domain::provider::Role;
+use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::domain::provider::Usage;
 use serde_json::Value;
 
@@ -30,6 +35,37 @@ enum End {
     Completed,
     Failed,
     Interrupted,
+}
+
+/// A recorded session's transcript (text messages) and tool schemas, as the neutral messages and definitions.
+fn held_of(ask: &Value) -> (Vec<AgentMessage>, Vec<ToolDefinition>) {
+    let messages = ask["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|message| {
+            let role = match message["role"].as_str().unwrap() {
+                "system" => Role::System,
+                "user" => Role::User,
+                "assistant" => Role::Assistant,
+                other => panic!("unrecorded role {other}"),
+            };
+            AgentMessage::new(Message::new(role, Content::Text(message["content"].as_str().unwrap().to_owned())))
+        })
+        .collect();
+    let tools = ask["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| ToolDefinition {
+            name: tool["name"].as_str().unwrap().to_owned(),
+            description: tool["description"].as_str().unwrap().to_owned(),
+            input_schema: tool["inputSchema"].clone(),
+            defer_loading: tool["deferLoading"] == Value::Bool(true),
+            freeform: None,
+        })
+        .collect();
+    (messages, tools)
 }
 
 /// The ends of the turns of each recorded scenario, in order (the scenario bodies of the recorder).
@@ -63,19 +99,26 @@ async fn the_asks_that_fail_or_abort_record_no_event_as_in_node() {
         rig.clock.0.store(start as u64, std::sync::atomic::Ordering::SeqCst);
         let deps = rig.deps();
         let writer = deps.gateway_usage.clone();
-        let mut completed = events.iter().map(|event| event["messageCount"].as_u64().unwrap() as usize);
-        let plan: Arc<std::sync::Mutex<std::collections::VecDeque<(End, usize)>>> =
-            Arc::new(std::sync::Mutex::new(ends.iter().map(|end| (*end, if matches!(end, End::Completed) { completed.next().unwrap() } else { 0 })).collect()));
+        // The transcript and the tool schemas the session held when Node wrote each event: the inputs of its estimate.
+        let held = case["asks"].as_array().unwrap();
+        assert_eq!(held.len(), events.len(), "{name}");
+        let mut completed = held.iter();
+        let plan: Arc<std::sync::Mutex<std::collections::VecDeque<(End, Option<(Vec<AgentMessage>, Vec<ToolDefinition>)>)>>> = Arc::new(std::sync::Mutex::new(
+            ends.iter().map(|end| (*end, matches!(end, End::Completed).then(|| held_of(completed.next().unwrap())))).collect(),
+        ));
+        // Rust estimates what Node estimated, from the same inputs and a thread with books.
+        rig.compaction.text_books.store(true, std::sync::atomic::Ordering::SeqCst);
+        let context_window = held.first().map(|ask| ask["contextWindow"].clone());
         let spent = usage.clone();
         rig.set_script(Arc::new(move |run| {
-            let (end, messages) = plan.lock().unwrap().pop_front().expect("a planned turn");
+            let (end, held) = plan.lock().unwrap().pop_front().expect("a planned turn");
             let usage = spent.clone();
             Box::pin(async move {
                 run.port.input_durable().await.expect("input durable");
                 match end {
                     End::Completed => {
-                        let transcript = (0..messages).map(|n| mixdog_agent::message::AgentMessage::user(&format!("m{n}"))).collect();
-                        let settled = Settled { transcript, usage: usage.clone(), last_turn_usage: usage, tool_calls_total: 0, send_tools: Vec::new(), response_model: "fake-model".into(), asked_at_ms: start };
+                        let (transcript, send_tools) = held.expect("a completed turn holds its transcript");
+                        let settled = Settled { transcript, usage: usage.clone(), last_turn_usage: usage, tool_calls_total: 0, send_tools, response_model: "fake-model".into(), asked_at_ms: start };
                         run.port.settled(settled).await.expect("settled");
                         RunOutcome::Completed(Default::default())
                     }
@@ -86,7 +129,12 @@ async fn the_asks_that_fail_or_abort_record_no_event_as_in_node() {
         }));
         let directory = SessionDirectory::new(deps);
         let handle = start_thread(&directory).await;
-        let params = serde_json::json!({ "threadId": handle.id, "set": { "provider": "ask-session-turn-test", "model": "fake-model" }, "unset": [] });
+        // The route as Node's session held it, with the context window its provider declared.
+        let mut set = serde_json::json!({ "provider": "ask-session-turn-test", "model": "fake-model" });
+        if let Some(window) = context_window.filter(|window| !window.is_null()) {
+            set["contextWindow"] = window;
+        }
+        let params = serde_json::json!({ "threadId": handle.id, "set": set, "unset": [] });
         handle
             .request(mixdog_core_api::call::CoreRequest { method: mixdog_core_api::ids::Method("thread/header/patch"), params, op: None, ctx: mixdog_core_api::call::CallContext::internal("test") })
             .await
@@ -101,20 +149,7 @@ async fn the_asks_that_fail_or_abort_record_no_event_as_in_node() {
             None => assert!(!path.exists(), "{name}: Node wrote no store"),
             Some(want) => {
                 let got = std::fs::read_to_string(&path).unwrap().replace(handle.id.as_str(), "<session>");
-                // The transcript estimate (`contextUsedPct`, `compact.afterTokens`) prices Node's real system prompt and
-                // tool schemas, which this rig has no meters for (it estimates 0); the estimate is replayed against Node
-                // in the writer's own recordings. Every other byte of the file must be Node's.
-                let unmetered = |text: &str| {
-                    text.lines()
-                        .map(|line| {
-                            let Ok(mut event) = serde_json::from_str::<Value>(line) else { return line.to_owned() };
-                            event["contextUsedPct"] = Value::Null;
-                            event["compact"]["afterTokens"] = Value::Null;
-                            event.to_string()
-                        })
-                        .collect::<Vec<_>>()
-                };
-                assert_eq!(unmetered(&got), unmetered(want), "{name}");
+                assert_eq!(got, want, "{name}");
             }
         }
     }

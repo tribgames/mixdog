@@ -4,8 +4,12 @@
 // the product's ask-session tests do, in its own process per scenario with a fresh data dir, and the golden keeps what the
 // ask settled with, how many requests the provider saw, and the store file `<data>/gateway-usage.local.jsonl` after the
 // writer's pending batch is flushed (`settleGatewayUsageWrites`), byte for byte.
-// `Date.now` is fixed once the session exists, so `ts` and `durationMs` are the recorded clock; the only masked field is
-// `sessionId` (a random id minted by createSession), written as "<session>" in the store and in the error texts.
+// Once the session exists, time is a virtual clock and the writer's timers (`setTimeout` called from route-meta.mjs) a virtual
+// queue: a timer runs in order of due time, then registration order, one callback at a time, microtasks drained after each;
+// the clock only moves to the due time of the timer that runs. So `ts` and `durationMs` are the recorded clock; the only
+// masked field is `sessionId` (a random id minted by createSession), written as "<session>" in the store and in the error texts.
+// For each ask that completed, the golden keeps the transcript and tool schemas the session held when the event was written
+// (the inputs of Node's `estimateTranscriptContextUsage`), checked here to give back the event's own `compact.afterTokens`.
 //
 //   node benchmarks/rust-core/recorders/record-gateway-usage-failures.mjs --tree <git archive of b6f10295a, with node_modules>
 // Output: native/core/fixtures/gateway-usage-failures/golden.json
@@ -35,11 +39,30 @@ if (args.has('child')) {
   const { _withRegisteredProviderForTestAsync } = await importFrom(tree, 'src/runtime/agent/orchestrator/providers/registry.mjs');
   const { modelToolSchemaAllowlist } = await importFrom(tree, 'src/runtime/agent/orchestrator/runtime-core/tool-profile.mjs');
   const { settleGatewayUsageWrites } = await importFrom(tree, 'src/vendor/statusline/src/gateway/route-meta.mjs');
+  const { _liveSessions } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/store/live-state.mjs');
+  const { estimateTranscriptContextUsage } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/context-utils.mjs');
   // The telemetry reaches route-meta through a lazy wrapper that throws on its first call while the module loads: that first
   // event of a process is lost in Node unless the footer loaded the module first. Loaded here as a TUI process has.
   const wrapper = await importFrom(tree, 'src/runtime/agent/orchestrator/providers/statusline-route-meta.mjs');
   try { wrapper.summarizeGatewayUsage({}, {}); } catch { /* starts the load */ }
   await importFrom(tree, 'src/vendor/statusline/src/gateway/route-meta.mjs');
+
+  let clock = T0;
+  let timerSeq = 0;
+  const queue = new Map();
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  // Time passes until no timer is left: the earliest due timer (then the earliest registered) runs alone, and the microtasks
+  // and I/O callbacks it started are drained before the next one is chosen.
+  const runTimers = async () => {
+    while (queue.size > 0) {
+      const next = [...queue.values()].sort((a, b) => a.due - b.due || a.id - b.id)[0];
+      queue.delete(next.id);
+      clock = Math.max(clock, next.due);
+      next.fn();
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  };
 
   const sends = [];
   let reply = async () => ({ content: 'answer', usage: USAGE });
@@ -52,10 +75,13 @@ if (args.has('child')) {
     },
   };
   const outcomes = [];
+  const asks = [];
   const ask = async (sessionId, prompt, opts = {}) => {
     try {
       const result = await askSession(sessionId, prompt, null, null, null, null, opts);
       outcomes.push({ prompt, resolved: result.content });
+      const live = _liveSessions.get(sessionId);
+      asks.push(JSON.parse(JSON.stringify({ provider: live.provider, contextWindow: live.contextWindow ?? null, messages: live.messages, tools: live.tools || [] })));
     } catch (error) {
       outcomes.push({ prompt, rejected: error?.constructor?.name, message: String(error?.message || error) });
     }
@@ -72,7 +98,15 @@ if (args.has('child')) {
       schemaAllowedTools: modelToolSchemaAllowlist('headless'), workflow: { id: 'headless', delegatesAgents: false },
     });
     sessionId = session.id;
-    Date.now = () => T0;
+    Date.now = () => clock;
+    globalThis.setTimeout = (fn, ms, ...rest) => {
+      // Other subsystems' timers run for real; the writer's are the queue's.
+      if (!new Error().stack.includes('route-meta.mjs')) return realSetTimeout(fn, ms, ...rest);
+      const timer = { id: ++timerSeq, due: clock + Math.max(0, Number(ms) || 0), fn: () => fn(...rest), unref() { return timer; }, ref() { return timer; } };
+      queue.set(timer.id, timer);
+      return timer;
+    };
+    globalThis.clearTimeout = (timer) => (timer && queue.has(timer.id) ? void queue.delete(timer.id) : realClearTimeout(timer));
     const set = (fn) => { reply = fn; };
     const scenarios = {
       async completed() { await ask(sessionId, 'hello'); },
@@ -115,11 +149,26 @@ if (args.has('child')) {
     };
     await scenarios[spec.name]();
   });
+  await runTimers();
   await settleGatewayUsageWrites();
+  await runTimers();
+  if (queue.size !== 0) throw new Error('a writer timer is left');
   const store = join(spec.dataDir, STORE);
-  const text = existsSync(store) ? readFileSync(store, 'utf8').split(sessionId).join('<session>') : null;
+  const raw = existsSync(store) ? readFileSync(store, 'utf8') : null;
+  const events = raw === null ? [] : raw.split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  if (events.length !== asks.length) throw new Error(`${spec.name}: ${events.length} events for ${asks.length} completed asks`);
+  events.forEach((event, index) => {
+    const held = asks[index];
+    const estimate = estimateTranscriptContextUsage(held.messages, held.tools, { provider: held.provider });
+    if (held.messages.length !== event.messageCount || estimate !== event.compact.afterTokens) {
+      throw new Error(`${spec.name}: ask ${index} held ${held.messages.length} messages estimating ${estimate}; the event has ${event.messageCount} and ${event.compact.afterTokens}`);
+    }
+  });
+  // The held transcripts are kept unmasked: a session id inside one would change its estimate.
+  if (JSON.stringify(asks).includes(sessionId)) throw new Error(`${spec.name}: the session id is inside a held transcript`);
+  const text = raw === null ? null : raw.split(sessionId).join('<session>');
   const masked = outcomes.map((o) => ({ ...o, ...(o.message ? { message: o.message.split(sessionId).join('<session>') } : {}) }));
-  process.stdout.write(`${JSON.stringify({ outcomes: masked, sends, store: text })}\n`);
+  process.stdout.write(`${JSON.stringify({ outcomes: masked, sends, asks, store: text })}\n`);
   process.exit(0);
 } else {
   const tree = resolveTree(args);
