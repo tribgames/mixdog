@@ -365,6 +365,65 @@ export const SCENARIOS = {
     { op: 'advance', ms: 0 },
     { op: 'mark', name: 'refused' },
   ],
+  // A resync the desktop has not answered yet holds back the app's gated reads (Node: ready() waits until completed === requested,
+  // remote-view-sync.ts:67-70; the request path awaits it, remote-shim-calls.ts:298-303), however long the answer takes. The boot window has
+  // expired first, so the read is not served from the prefetch.
+  'resync-gates-reads': [
+    { op: 'boot', reads: true },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'advance', ms: 10000 },
+    { op: 'mark', name: 'boot-window-expired' },
+    { op: 'hold', name: 'synchronizeViews' },
+    { op: 'relay-hint' },
+    { op: 'read', name: 'readSettings', as: 'gated' },
+    { op: 'advance', ms: 3000 },
+    { op: 'mark', name: 'resync-held' },
+    { op: 'release', name: 'synchronizeViews' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'resync-landed' },
+  ],
+  // The same through a refusal: the read stays behind the resync across the 250 ms retry, and leaves only when the retry lands.
+  'resync-retry-gates-reads': [
+    { op: 'boot', reads: true },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'advance', ms: 10000 },
+    { op: 'mark', name: 'boot-window-expired' },
+    { op: 'fail-sync', times: 1 },
+    { op: 'relay-hint' },
+    { op: 'read', name: 'readSettings', as: 'gated' },
+    { op: 'advance', ms: 249 },
+    { op: 'mark', name: 'refused-and-waiting' },
+    { op: 'hold', name: 'synchronizeViews' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'retry-held' },
+    { op: 'advance', ms: 3000 },
+    { op: 'mark', name: 'retry-still-held' },
+    { op: 'release', name: 'synchronizeViews' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'retry-landed' },
+  ],
+  // A gated read asked while the connection is down: Node's ready() rejects at once (the connection is not active); the read settles with that,
+  // and the next one, asked on the redialed connection, is served.
+  'gated-read-while-down': [
+    { op: 'boot', reads: true },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'advance', ms: 10000 },
+    { op: 'mark', name: 'boot-window-expired' },
+    { op: 'random', value: 0 },
+    { op: 'drop', code: 1006 },
+    { op: 'advance', ms: 0 },
+    { op: 'read', name: 'readSettings', as: 'while-down' },
+    { op: 'advance', ms: 3000 },
+    { op: 'mark', name: 'down' },
+    { op: 'accept' },
+    { op: 'check', name: 'back', expect: { foreground: true } },
+    { op: 'read', name: 'readSettings', as: 'after' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'served' },
+  ],
   // The reads the app makes as it mounts (Node: prefetchBootReads, remote-shim-calls.ts): started beside the first view sync, so a consumer
   // mounted while the sync is blocked is answered; the two reads of state the sync owns (snapshot, projects) wait for it.
   'boot-reads-sync-held': [
@@ -588,6 +647,9 @@ export async function play(world, driver, ops) {
           (value) => world.log({ ev: 'settled', as: op.as, ok: true, value }),
           () => world.log({ ev: 'settled', as: op.as, ok: false })
         );
+        break;
+      case 'hold':
+        world.holds.add(op.name);
         break;
       case 'release':
         await world.release(op.name);

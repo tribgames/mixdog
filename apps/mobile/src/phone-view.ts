@@ -195,7 +195,16 @@ export function createViewManager(
       refresh = true;
       return request();
     },
-    synced: () => syncedNow,
+    // The connection's first (or re-attach) sync, then whatever the page asked since: a resync or a changed view in flight holds the caller
+    // until it completes, retries included (Node: ready() waits for completed === requested, remote-view-sync.ts:67-70). A connection that
+    // ends meanwhile hands the caller to the next one's sync.
+    async synced() {
+      for (;;) {
+        await syncedNow;
+        if (completed === requested || !live()) return;
+        if (await new Promise<boolean>((resolve) => waiting.add(resolve))) return;
+      }
+    },
     stop: offStatus,
   };
 }
