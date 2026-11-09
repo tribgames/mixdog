@@ -122,13 +122,23 @@ test('status lists a bounded set of untracked files and counts the rest (in-thre
 
 test('a status listing past its byte bound fails instead of reading as "not a repository"', async (t) => {
   const root = repo(t);
-  setGitProcessRunner((command, args, options) =>
-    args.includes('status')
-      ? Promise.reject(Object.assign(new Error('git status exceeded output bytes'), { code: 'EMAXBUFFER' }))
-      : runProcessOffThread(command, args, options)
-  );
+  // gitStatus starts its numstat, remote and root reads beside the scan and rejects as soon as the scan does, so those git
+  // children are still running in `root` then: the directory is removed only after every one of them has exited.
+  const siblings = [];
+  setGitProcessRunner((command, args, options) => {
+    if (args.includes('status')) {
+      return Promise.reject(Object.assign(new Error('git status exceeded output bytes'), { code: 'EMAXBUFFER' }));
+    }
+    const child = runProcessOffThread(command, args, options);
+    siblings.push(child);
+    return child;
+  });
   t.after(() => setGitProcessRunner(null));
   await assert.rejects(gitStatus(root), { code: 'EMAXBUFFER' });
+  for (let settled = 0; settled < siblings.length; ) {
+    settled = siblings.length;
+    await Promise.allSettled(siblings);
+  }
 });
 
 // In-thread, git's stdout is read as raw bytes: the bound counts bytes (not
