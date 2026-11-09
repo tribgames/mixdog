@@ -97,11 +97,14 @@ async fn a_steer_prioritizes_as_nodes_prioritize_queued_does() {
             let release: Arc<tokio::sync::Notify> = Arc::default();
             let started: Arc<Mutex<Vec<Value>>> = Arc::default();
             let entered: Arc<tokio::sync::Notify> = Arc::default();
-            let (gate, seen, entry) = (release.clone(), started.clone(), entered.clone());
+            // `started` is changed by the script, not by an actor step, so it has a signal of its own.
+            let started_changed: Arc<tokio::sync::Notify> = Arc::default();
+            let (gate, seen, entry, changed) = (release.clone(), started.clone(), entered.clone(), started_changed.clone());
             rig.set_script(Arc::new(move |run| {
-                let (gate, seen, entry) = (gate.clone(), seen.clone(), entry.clone());
+                let (gate, seen, entry, changed) = (gate.clone(), seen.clone(), entry.clone(), changed.clone());
                 Box::pin(async move {
                     lock(&seen).push(serde_json::to_value(&run.input.prompt).expect("prompt"));
+                    changed.notify_waiters();
                     run.port.input_durable().await.expect("input durable");
                     entry.notify_one();
                     gate.notified().await;
@@ -129,7 +132,8 @@ async fn a_steer_prioritizes_as_nodes_prioritize_queued_does() {
             let selected = case["selectedId"].as_str().expect("selectedId");
             let got = handle.steer(expected.as_ref(), json!({ "queuedId": selected }), OpId::from("op-steer"));
             let want_after = &case["pendingAfter"];
-            let label = format!("{name}: busy={busy} turn={named:?}");            match case["reply"]["count"].as_u64() {
+            let label = format!("{name}: busy={busy} turn={named:?}");
+            match case["reply"]["count"].as_u64() {
                 Some(0) => {
                     match got {
                         Err(CoreError::QueuedEntryNotFound { queued_id, .. }) => assert_eq!(queued_id.as_str(), selected, "{label}"),
@@ -157,7 +161,7 @@ async fn a_steer_prioritizes_as_nodes_prioritize_queued_does() {
                     let taken = drained.as_array().expect("drained").iter().map(|qid| entry_of(case, qid.as_str().expect("id"))["message"].clone());
                     let mut runs = if busy { vec![json!("work")] } else { Vec::new() };
                     runs.extend(taken);
-                    eventually_on(&[&handle.cell.stepped], || (*lock(&started) == runs).then_some(())).await;
+                    eventually_on(&[&handle.cell.stepped, &started_changed], || (*lock(&started) == runs).then_some(())).await;
                     release.notify_one();
                     // What the drain leaves queued: the recorded `pendingAfterDrain` (the slash commands it passes over).
                     eventually_on(&[&handle.cell.stepped], || (idle(&handle).then(|| live(&handle)) == Some(case["pendingAfterDrain"].clone())).then_some(())).await;
