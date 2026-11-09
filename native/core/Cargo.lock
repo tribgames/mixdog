@@ -4737,7 +4737,6 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "tracing",
- "tracing-subscriber",
  "unicode-normalization",
  "uuid",
  "walkdir",
