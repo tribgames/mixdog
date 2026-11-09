@@ -276,6 +276,8 @@ impl Real {
         let (channels, log) = (self.channels.clone(), self.log.clone());
         let channel_step: StopStep = ("channels", Box::pin(async move {
             let reason = reason.get().expect("the release states the stop reason before its first step (ComposedCore::set_stop_reason)");
+            // A deferred automation start (save or boot) ends and is joined first, so it cannot start services after the teardown.
+            channels.shutdown_scheduled_start().await;
             if let Err(error) = mixdog_services::channels::tools::ChannelLifecycle::stop_owned_runtime(&*channels, reason).await {
                 log.log(&format!("channels.stop failed: {error}"));
             }
@@ -1139,6 +1141,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         clock: channel_clock.clone(),
         local_tz,
         channel_start_disabled: mixdog_services::memory::cycles::config::env_flag((b.env)("MIXDOG_DISABLE_CHANNEL_START").as_deref(), false),
+        close_requested: close_requested.clone(),
     });
     // The effects' channel cell: the stack exists now (it was the cycle with `definitions`).
     agent_channels.bind(Arc::new(crate::domain_seams::agent_effects::ServiceChannels { admin: channel_admin.clone(), runtime: channel_runtime.clone() })).map_err(|_| ComposeError::AlreadyBound("agent channels"))?;
@@ -2156,10 +2159,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .map_err(|_| ComposeError::AlreadyBound("setup ui"))?;
     model_warmup.start(); // the boot's scheduleProviderModelWarmup() (session.mjs:121): after the model list, the gates and the wakes exist
     // The boot's scheduleAutomationAutostart() (session.mjs:126) without its 1.5 s timer: the compose has finished, so probe once and start enabled automation now.
-    tokio::spawn({
-        let (admin, closing) = (channel_admin.clone(), close_requested.clone());
-        async move { admin.start_active_automation(&closing).await }
-    });
+    channel_admin.schedule_automation_start();
     setup_warmup.schedule_default(); // the boot's scheduleProviderSetupWarmup() (session.mjs:122), default 300 ms
     // The pool's directory-side cells (true cycles, bound once, in `verify_bound`): the dispatcher is built from the very values the turn's own gate takes (`policy`, `connectors`, the resolver, `HostGateEnv`, the bus dispatch).
     late_dispatcher

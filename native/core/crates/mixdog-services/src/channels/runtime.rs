@@ -3,6 +3,7 @@
 //! so there is no worker to attach to; the scheduler and the receiver live exactly as long as
 //! an automation or the bridge is started.
 
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -24,6 +25,9 @@ struct State {
     /// Ends every start and reload that began before the last stop: a stop never waits behind
     /// a start or reload that is stuck, it cancels it (the gates drop the stuck section).
     epoch: CancellationToken,
+    /// The deferred automation start (`state.channelStartTimer` / `channelStartPromise`): one at a
+    /// time, owned here so a shutdown can end and join it.
+    scheduled_start: Option<tokio::task::JoinHandle<()>>,
 }
 
 /// Clears `bridge_starting` however the start ends; a start cut short also drops the
@@ -54,6 +58,9 @@ pub struct ChannelRuntime {
     /// Reloads apply in the order they were asked, each reading the stores afresh, so the last
     /// one applied is the newest.
     reload_gate: Gate,
+    /// Node's `closeRequested` for the channel start: once cancelled (by `shutdown_scheduled_start`)
+    /// no deferred start runs or is scheduled.
+    shutdown: CancellationToken,
 }
 
 /// What the app shows as the worker's state.
@@ -84,6 +91,7 @@ impl ChannelRuntime {
             state: Mutex::new(State::default()),
             start_gate: Gate::new(),
             reload_gate: Gate::new(),
+            shutdown: CancellationToken::new(),
         })
     }
 
@@ -119,19 +127,60 @@ impl ChannelRuntime {
         }
     }
 
-    /// The start's first step (ahead of the provider init): the receiver's local identity write,
-    /// under the epoch a stop ends. A failure is logged; the start goes on, as Node's does.
-    pub async fn prepare_automation(&self) {
-        if let Err(error) = self.services.prepare(&self.epoch()).await {
-            tracing::warn!("mixdog channels: automation prepare failed: {error}");
-        }
-    }
-
     /// Scheduler + webhook receiver, without activating the channel bridge. Loads the
     /// schedules first, as the worker's config load does.
     pub async fn start_automation(&self) -> Result<(), String> {
+        self.start_automation_under(&self.epoch()).await
+    }
+
+    async fn start_automation_under(&self, epoch: &CancellationToken) -> Result<(), String> {
         // A start a stop cut short has nothing left to do: the stop tears everything down.
-        self.start_gate.run(&self.epoch(), self.start_automation_turn()).await.unwrap_or(Ok(()))
+        self.start_gate.run(epoch, self.start_automation_turn()).await.unwrap_or(Ok(()))
+    }
+
+    /// `scheduleChannelStart` / `onChannelStartTimer`: returns at once and starts the automation
+    /// afterwards, when `active` (Node's `hasActiveAutomation`, asked when the deferred callback
+    /// runs, not now) says something is enabled. A start already scheduled or running, or a
+    /// shutdown, schedules nothing. The task is bound to the epoch current now, so a stop
+    /// ends it wherever it is, and to the shutdown, which cancels and joins it.
+    pub fn schedule_automation_start(self: &Arc<Self>, closing: &CancellationToken, active: impl Future<Output = bool> + Send + 'static) {
+        let mut st = self.state.lock().unwrap();
+        if closing.is_cancelled() || self.shutdown.is_cancelled() || st.scheduled_start.as_ref().is_some_and(|task| !task.is_finished()) {
+            return;
+        }
+        let (runtime, epoch, closing) = (Arc::clone(self), st.epoch.clone(), closing.clone());
+        st.scheduled_start = Some(tokio::spawn(async move {
+            let start = async {
+                // `isCloseRequested()` is checked again once the probe has answered.
+                if !active.await || closing.is_cancelled() || runtime.shutdown.is_cancelled() {
+                    return;
+                }
+                if let Err(error) = runtime.start_automation_under(&epoch).await {
+                    tracing::warn!("mixdog channels: automation start failed: {error}");
+                }
+            };
+            tokio::select! {
+                () = epoch.cancelled() => {}
+                () = closing.cancelled() => {}
+                () = runtime.shutdown.cancelled() => {}
+                () = start => {}
+            }
+        }));
+    }
+
+    /// The scheduled start, finished or ended: lets a caller wait for it.
+    pub async fn scheduled_start_settled(&self) {
+        let task = self.state.lock().unwrap().scheduled_start.take();
+        if let Some(task) = task {
+            let _ = task.await;
+        }
+    }
+
+    /// The close of the app: ends the scheduled start wherever it is (probe, provider init,
+    /// sync) and waits for it, so nothing starts after the teardown that follows.
+    pub async fn shutdown_scheduled_start(&self) {
+        self.shutdown.cancel();
+        self.scheduled_start_settled().await;
     }
 
     async fn start_automation_turn(&self) -> Result<(), String> {
@@ -145,7 +194,6 @@ impl ChannelRuntime {
                 st.stop_requested = false;
             }
         }
-        self.prepare_automation().await;
         self.init_providers().await;
         if self.state.lock().unwrap().stop_requested {
             return Ok(());

@@ -62,30 +62,12 @@ impl ChannelSettings for FakeSettings {
 #[derive(Default)]
 struct FakeServices {
     log: Mutex<Vec<String>>,
-    /// While set, `sync` announces itself on `entered` and waits for `release`.
-    held: Mutex<bool>,
-    entered: tokio::sync::Notify,
-    release: tokio::sync::Notify,
-    /// One permit per finished `sync`.
-    synced: tokio::sync::Notify,
-    prepares: AtomicUsize,
 }
 
 #[async_trait]
 impl AutomationServices for FakeServices {
-    async fn prepare(&self, _: &CancellationToken) -> Result<(), String> {
-        self.prepares.fetch_add(1, Ordering::SeqCst);
-        self.log.lock().unwrap().push("prepare".into());
-        Ok(())
-    }
     async fn sync(&self, reload: bool) -> Result<(), String> {
-        let held = *self.held.lock().unwrap();
-        if held {
-            self.entered.notify_one();
-            self.release.notified().await;
-        }
         self.log.lock().unwrap().push(format!("sync:{reload}"));
-        self.synced.notify_one();
         Ok(())
     }
     async fn stop(&self) {
@@ -96,12 +78,18 @@ impl AutomationServices for FakeServices {
 #[derive(Default)]
 struct FakeAgent {
     inits: AtomicUsize,
+    /// The provider init waits for a permit of this semaphore (a start stuck in it).
+    init_gate: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
 }
 
 #[async_trait]
 impl AgentRuntime for FakeAgent {
     async fn init_providers(&self) -> Result<(), String> {
         self.inits.fetch_add(1, Ordering::SeqCst);
+        let gate = self.init_gate.lock().unwrap().clone();
+        if let Some(gate) = gate {
+            gate.acquire().await.expect("the gate stays open").forget();
+        }
         Ok(())
     }
 }
@@ -145,6 +133,8 @@ struct Env {
     probe: Arc<FakeProbe>,
     base: Arc<FakeBase>,
     work: RunningWork,
+    /// `isCloseRequested()` of the admin.
+    closing: CancellationToken,
     _dir: tempfile::TempDir,
 }
 
@@ -177,6 +167,7 @@ async fn env_with(channel_start_disabled: bool) -> Env {
         Arc::new(FakeProbe::default()),
     );
     let runtime = ChannelRuntime::new(scheduler, schedules.clone(), services.clone(), agent.clone());
+    let closing = CancellationToken::new();
     let admin = ChannelAdmin::new(AdminDeps {
         schedules: schedules.clone(),
         webhooks: webhooks.clone(),
@@ -188,8 +179,9 @@ async fn env_with(channel_start_disabled: bool) -> Env {
         clock: Arc::new(SystemClock),
         local_tz: Tz::UTC,
         channel_start_disabled,
+        close_requested: closing.clone(),
     });
-    Env { host, admin, runtime, routines, schedules, webhooks, settings, services, agent, probe, base, work, _dir: dir }
+    Env { host, admin, runtime, routines, schedules, webhooks, settings, services, agent, probe, base, work, closing, _dir: dir }
 }
 
 fn recurring(name: &str) -> Value {
@@ -671,85 +663,143 @@ async fn a_bridge_call_runs_once_per_op_and_a_reused_op_with_another_payload_con
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_boot_check_starts_the_runtime_for_enabled_automation_without_an_admin_call() {
     let e = env().await;
-    let open = CancellationToken::new();
-    e.admin.start_active_automation(&open).await;
+    e.admin.schedule_automation_start();
+    e.runtime.scheduled_start_settled().await;
     assert!(!e.runtime.automation_running(), "nothing is enabled");
 
     e.schedules.upsert(&Schedule { enabled: false, ..sched("off") }).await.unwrap();
-    e.admin.start_active_automation(&open).await;
+    e.admin.schedule_automation_start();
+    e.runtime.scheduled_start_settled().await;
     assert!(!e.runtime.automation_running(), "a disabled schedule is not automation");
 
     e.schedules.upsert(&sched("on")).await.unwrap();
-    let closing = CancellationToken::new();
-    closing.cancel();
-    e.admin.start_active_automation(&closing).await;
-    assert!(!e.runtime.automation_running(), "a close in progress starts nothing");
-
-    e.admin.start_active_automation(&open).await;
+    e.admin.schedule_automation_start();
+    e.runtime.scheduled_start_settled().await;
     assert!(e.runtime.automation_running());
-    assert_eq!(e.services.log.lock().unwrap().clone(), vec!["prepare".to_string(), "sync:false".to_string()]);
+    assert_eq!(e.services.log.lock().unwrap().clone(), vec!["sync:false".to_string()]);
     assert_eq!(e.runtime.scheduler().status().iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["on"]);
     e.runtime.stop_owned_runtime("test").await.unwrap();
 
+    let closed = env().await;
+    closed.schedules.upsert(&sched("on")).await.unwrap();
+    closed.closing.cancel();
+    closed.admin.schedule_automation_start();
+    closed.runtime.scheduled_start_settled().await;
+    assert!(!closed.runtime.automation_running(), "a close in progress starts nothing");
+
     let hook = env().await;
     hook.webhooks.upsert(&EndpointRecord { name: "hook".into(), owner_agent_id: "lead".into(), enabled: true, ..Default::default() }).await.unwrap();
-    hook.admin.start_active_automation(&open).await;
+    hook.admin.schedule_automation_start();
+    hook.runtime.scheduled_start_settled().await;
     assert!(hook.runtime.automation_running(), "an enabled webhook starts it too");
     hook.runtime.stop_owned_runtime("test").await.unwrap();
 
     let disabled = env_with(true).await;
     disabled.schedules.upsert(&sched("on")).await.unwrap();
-    disabled.admin.start_active_automation(&open).await;
+    disabled.admin.schedule_automation_start();
+    disabled.runtime.scheduled_start_settled().await;
     assert!(!disabled.runtime.automation_running(), "MIXDOG_DISABLE_CHANNEL_START");
     disabled.admin.save_schedule(&recurring("saved")).await.unwrap();
-    assert_eq!(disabled.services.prepares.load(Ordering::SeqCst), 0, "a save does not start it either");
+    disabled.runtime.scheduled_start_settled().await;
+    assert!(!disabled.runtime.automation_running(), "a save does not start it either");
 }
 
-/// A close that arrives while the start is pending ends the boot check without a panic or a
-/// stuck gate: the same runtime starts normally afterwards.
+/// `ensureAutomationRuntime` → `scheduleChannelStart(0)`: the enabling call returns before the
+/// start, which then runs on its own.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_close_during_the_pending_boot_start_ends_it_cleanly() {
-    let e = env().await;
-    e.schedules.upsert(&sched("on")).await.unwrap();
-    *e.services.held.lock().unwrap() = true;
-    let closing = CancellationToken::new();
-    let boot = tokio::spawn({
-        let (admin, closing) = (e.admin.clone(), closing.clone());
-        async move { admin.start_active_automation(&closing).await }
-    });
-    e.services.entered.notified().await;
-    closing.cancel();
-    boot.await.unwrap();
-    assert!(!e.runtime.automation_running(), "the cut start did not finish");
-
-    *e.services.held.lock().unwrap() = false;
-    e.admin.start_active_automation(&CancellationToken::new()).await;
-    assert!(e.runtime.automation_running(), "the start gate was released");
-    e.runtime.stop_owned_runtime("test").await.unwrap();
-}
-
-/// Node's `ensureAutomationRuntime` schedules the start and the save returns; the start runs only
-/// when something is enabled, and the one thing the save waits for is the identity step.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_save_returns_before_the_pending_start_and_only_enabled_automation_starts_it() {
+async fn enabling_a_webhook_returns_before_the_start_and_the_start_follows() {
     let e = env().await;
     e.admin.save_webhook(&json!({"name": "gh", "instructions": "x", "enabled": false})).await.unwrap();
-    e.admin.save_schedule(&json!({"name": "off", "time": "0 9 * * *", "instructions": "x", "enabled": false})).await.unwrap();
-    assert_eq!(e.services.prepares.load(Ordering::SeqCst), 0, "saving disabled rows starts nothing, not even the identity");
-    assert!(!e.runtime.automation_running());
-
-    *e.services.held.lock().unwrap() = true;
+    e.runtime.scheduled_start_settled().await;
+    assert!(!e.runtime.automation_running(), "a disabled webhook starts nothing");
+    let init = Arc::new(tokio::sync::Semaphore::new(0));
+    *e.agent.init_gate.lock().unwrap() = Some(init.clone());
     e.admin.set_webhook_enabled("gh", true).await.unwrap();
-    assert!(e.services.prepares.load(Ordering::SeqCst) >= 1, "the identity step is done when the call returns");
-    assert!(!e.runtime.automation_running(), "the webhook sync is still pending");
-    e.services.entered.notified().await;
-    e.services.release.notify_one();
-    e.services.synced.notified().await;
-    assert_eq!(e.services.prepares.load(Ordering::SeqCst), 2, "the scheduled start prepares first too");
-    assert_eq!(e.services.log.lock().unwrap().iter().filter(|l| *l == "sync:false").count(), 1);
+    assert!(!e.runtime.automation_running(), "the call returned while the start waits in the provider init");
+    init.add_permits(1);
+    e.runtime.scheduled_start_settled().await;
+    assert!(e.runtime.automation_running());
     e.runtime.stop_owned_runtime("test").await.unwrap();
 }
 
+/// `onChannelStartTimer` asks `hasActiveAutomation` when the deferred callback runs, not when
+/// the save scheduled it: a row disabled in between starts nothing. Reverting to an answer
+/// taken at save time (or no question) starts the service here.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_active_automation_check_runs_when_the_deferred_start_runs() {
+    let e = env().await;
+    // The probe lists schedules first and waits on the owner check of this disabled row; the
+    // webhooks it lists afterwards are read once it is released.
+    e.schedules.upsert(&Schedule { enabled: false, ..sched("off") }).await.unwrap();
+    let listing = Arc::new(tokio::sync::Semaphore::new(0));
+    *e.host.listing_gate.lock().unwrap() = Some(listing.clone());
+    e.admin.save_webhook(&json!({"name": "gh", "instructions": "x"})).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    e.admin.set_webhook_enabled("gh", false).await.unwrap();
+    listing.add_permits(8);
+    e.runtime.scheduled_start_settled().await;
+    assert!(!e.runtime.automation_running(), "nothing was enabled when the deferred start asked");
+    assert!(!e.services.log.lock().unwrap().contains(&"sync:false".to_string()));
+    assert_eq!(e.agent.inits.load(Ordering::SeqCst), 0, "no provider init for a start that is not made");
+}
+
+/// A shutdown while the deferred start waits on `hasActiveAutomation` (a stuck read) ends it and
+/// waits for it: the start is neither left running nor made after the teardown.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shutdown_ends_a_deferred_start_waiting_on_the_active_automation_check() {
+    let e = env().await;
+    e.schedules.upsert(&sched("on")).await.unwrap();
+    *e.host.listing_gate.lock().unwrap() = Some(Arc::new(tokio::sync::Semaphore::new(0)));
+    e.admin.schedule_automation_start();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::timeout(Duration::from_secs(10), e.runtime.shutdown_scheduled_start()).await.expect("the shutdown joins the stuck start");
+    assert!(!e.runtime.automation_running());
+    assert!(e.services.log.lock().unwrap().is_empty());
+    assert_eq!(e.agent.inits.load(Ordering::SeqCst), 0);
+    e.admin.schedule_automation_start();
+    e.runtime.scheduled_start_settled().await;
+    assert_eq!(e.agent.inits.load(Ordering::SeqCst), 0, "nothing is scheduled after the shutdown");
+}
+
+/// Node's `saveSchedule` readback (`channel-admin.mjs:324`, `scheduler.mjs:310-312`): `nextFireAt`
+/// is the row's own (`whenAt` for a one-shot, none for a cron) until the deferred start arms the
+/// scheduler, which stamps the cron's next fire only afterwards. A save that returned while the
+/// start still waits in the provider init reads back without it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_schedule_read_back_before_the_deferred_start_has_no_scheduler_stamped_next_fire() {
+    let e = env().await;
+    let init = Arc::new(tokio::sync::Semaphore::new(0));
+    *e.agent.init_gate.lock().unwrap() = Some(init.clone());
+    let cron = e.admin.save_schedule(&recurring("cron")).await.unwrap();
+    let once = e.admin.save_schedule(&json!({"name": "once", "at": "2031-05-06T07:08:09Z", "instructions": "x"})).await.unwrap();
+    assert!(cron.get("nextFireAt").is_none(), "{cron}");
+    assert_eq!(once["nextFireAt"], "2031-05-06T07:08:09.000Z");
+    let listed = e.admin.list_schedules().await.unwrap();
+    assert!(listed.iter().find(|r| r["name"] == "cron").unwrap().get("nextFireAt").is_none(), "the start has not armed the scheduler");
+    init.add_permits(1);
+    e.runtime.scheduled_start_settled().await;
+    e.runtime.stop_owned_runtime("test").await.unwrap();
+}
+/// The same for a start stuck in the provider init, which `stop_owned_runtime` alone would leave
+/// (nothing is running yet, so it returns early): the shutdown cancels and joins it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shutdown_ends_a_deferred_start_stuck_in_the_provider_init() {
+    let e = env().await;
+    e.schedules.upsert(&sched("on")).await.unwrap();
+    *e.agent.init_gate.lock().unwrap() = Some(Arc::new(tokio::sync::Semaphore::new(0)));
+    e.admin.schedule_automation_start();
+    for _ in 0..100 {
+        if e.agent.inits.load(Ordering::SeqCst) == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(e.agent.inits.load(Ordering::SeqCst), 1, "the start is inside the provider init");
+    e.runtime.stop_owned_runtime("test").await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), e.runtime.shutdown_scheduled_start()).await.expect("the shutdown joins the stuck start");
+    assert!(!e.runtime.automation_running());
+    assert!(e.services.log.lock().unwrap().is_empty(), "no sync after the shutdown");
+}
 /// What the daemon wires around the webhook server: a loopback listener (ephemeral port) that
 /// starts the relay tunnel once it is bound.
 struct LoopbackServer {
@@ -760,12 +810,9 @@ struct LoopbackServer {
 
 #[async_trait]
 impl WebhookListener for LoopbackServer {
-    async fn prepare(&self, cancel: &CancellationToken) -> Result<(), String> {
-        self.tunnels.prepare(cancel).await
-    }
-    async fn start(&self, _: &WebhookSettings, cancel: &CancellationToken) -> Result<(), String> {
+    async fn start(&self, _: &WebhookSettings) -> Result<(), String> {
         let mut server = WebhookServer::new(self.service.clone(), self.tunnels.clone(), 0);
-        server.start(cancel).await?;
+        server.start().await?;
         let replaced = self.server.lock().await.replace(server);
         if let Some(mut old) = replaced {
             old.stop().await;
@@ -796,10 +843,11 @@ impl PublicBase for IdentityFileBase {
     }
 }
 
-/// The saved webhook's first readback: the tunnel's identity file must exist when the save returns
-/// (the desktop shows `publicUrl` as the webhook endpoint URL), with the real receiver, relay
-/// tunnel and a real data directory. The relay is a loopback port nobody listens on, so the leg
-/// only logs and retries.
+/// The saved webhook's public URL: the relay identity is created lazily by the tunnel start
+/// (`startHookTunnel` → `loadOrCreateHookIdentity`), which runs after the save has returned, so
+/// the URL shows once that start has finished (the desktop shows `publicUrl` as the endpoint
+/// URL). Real receiver, relay tunnel and data directory; the relay is a loopback port nobody
+/// listens on, so the leg only logs and retries.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn saving_a_webhook_leaves_the_hook_identity_and_the_setup_shows_the_public_url() {
     let e = env().await;
@@ -828,10 +876,16 @@ async fn saving_a_webhook_leaves_the_hook_identity_and_the_setup_shows_the_publi
         clock: Arc::new(SystemClock),
         local_tz: Tz::UTC,
         channel_start_disabled: false,
+        close_requested: CancellationToken::new(),
     });
 
     assert_eq!(admin.get_channel_setup().await.unwrap()["webhook"]["publicUrl"], Value::Null, "a read creates no identity");
+    let init = Arc::new(tokio::sync::Semaphore::new(0));
+    *e.agent.init_gate.lock().unwrap() = Some(init.clone());
     admin.save_webhook(&json!({"name": "gh", "instructions": "x"})).await.unwrap();
+    assert!(!data.path().join("relay-hook-device.json").exists(), "the save created no identity before it replied");
+    init.add_permits(1);
+    runtime.scheduled_start_settled().await;
     let stored: Value = serde_json::from_slice(&tokio::fs::read(data.path().join("relay-hook-device.json")).await.unwrap()).unwrap();
     let id = stored["deviceId"].as_str().unwrap();
     assert_eq!(admin.get_channel_setup().await.unwrap()["webhook"]["publicUrl"], format!("http://127.0.0.1:9/hook/{id}"));

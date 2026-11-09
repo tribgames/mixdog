@@ -495,8 +495,6 @@ async fn a_body_past_the_cap_gets_413_at_the_crossing_chunk_and_never_dispatches
 mod lifecycle_tests {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-    use tokio_util::sync::CancellationToken;
-
     use super::*;
     use crate::webhooks::lifecycle::{HookTunnel, LocalPort, TunnelStarter, WebhookServer};
 
@@ -521,7 +519,7 @@ mod lifecycle_tests {
     }
     #[async_trait]
     impl TunnelStarter for Starter {
-        async fn start(&self, port: LocalPort, _cancel: &CancellationToken) -> Result<Option<Box<dyn HookTunnel>>, String> {
+        async fn start(&self, port: LocalPort) -> Result<Option<Box<dyn HookTunnel>>, String> {
             self.starts.fetch_add(1, Ordering::SeqCst);
             *self.port_seen.lock().unwrap() = Some(port);
             match self.mode {
@@ -542,8 +540,8 @@ mod lifecycle_tests {
     async fn the_tunnel_starts_once_the_listener_is_bound_and_closes_before_it_stops() {
         let starter = Arc::new(Starter::default());
         let mut server = server(&starter).await;
-        server.start(&CancellationToken::new()).await.unwrap();
-        server.start(&CancellationToken::new()).await.unwrap();
+        server.start().await.unwrap();
+        server.start().await.unwrap();
         assert_eq!(starter.starts.load(Ordering::SeqCst), 1);
         let port = server.port().unwrap();
         assert_eq!(starter.port_seen.lock().unwrap().as_ref().unwrap().get(), Some(port), "the tunnel reads the bound port");
@@ -558,7 +556,7 @@ mod lifecycle_tests {
         for mode in [1, 2] {
             let starter = Arc::new(Starter { mode, ..Default::default() });
             let mut server = server(&starter).await;
-            server.start(&CancellationToken::new()).await.unwrap();
+            server.start().await.unwrap();
             assert_eq!(server.url("gh"), format!("http://localhost:{}/webhook/gh", server.port().unwrap()));
             server.stop().await;
         }

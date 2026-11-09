@@ -56,16 +56,19 @@ impl RelayTunnelStarter {
     /// The install's stable hook identity; a damaged file is kept aside and replaced. A file that
     /// can be neither read nor written is logged and the tunnel runs on a fresh in-memory
     /// identity, as Node's `startHookTunnel` does.
-    /// A cancelled `cancel` (the lane refusing the job) is an `Err`, not a reason to mint.
-    async fn identity(&self, cancel: &CancellationToken) -> Result<DeviceIdentity, String> {
+    async fn identity(&self) -> DeviceIdentity {
         let files = DeviceFiles::at(self.data_dir.clone(), IDENTITY_FILE);
-        let job = self.lane.submit_wait(cancel, move |lane| files.load_or_create(lane)).await.map_err(|e| e.to_string())?;
-        Ok(match job.await.map_err(|e| e.to_string()).and_then(|r| r.map_err(|e| e.to_string())) {
-            Ok(identity) => identity,
-            Err(error) => {
-                tracing::warn!("hook relay identity unavailable, using an in-memory one: {error}");
-                DeviceIdentity::mint()
-            }
+        let loaded = async {
+            let job = self
+                .lane
+                .submit_wait(&CancellationToken::new(), move |lane| files.load_or_create(lane))
+                .await
+                .map_err(|e| e.to_string())?;
+            job.await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())
+        };
+        loaded.await.unwrap_or_else(|error| {
+            tracing::warn!("hook relay identity unavailable, using an in-memory one: {error}");
+            DeviceIdentity::mint()
         })
     }
 }
@@ -87,17 +90,9 @@ impl HookTunnel for RelayTunnel {
 
 #[async_trait]
 impl TunnelStarter for RelayTunnelStarter {
-    /// `startHookTunnel`'s first step, ahead of the dial: with the relay switched off nothing is made.
-    async fn prepare(&self, cancel: &CancellationToken) -> Result<(), String> {
-        if resolve_relay_url(self.relay_url_env.as_deref())?.is_none() {
-            return Ok(());
-        }
-        self.identity(cancel).await.map(drop)
-    }
-
-    async fn start(&self, local_port: LocalPort, cancel: &CancellationToken) -> Result<Option<Box<dyn HookTunnel>>, String> {
+    async fn start(&self, local_port: LocalPort) -> Result<Option<Box<dyn HookTunnel>>, String> {
         let Some(relay_url) = resolve_relay_url(self.relay_url_env.as_deref())? else { return Ok(None) };
-        let identity = self.identity(cancel).await?;
+        let identity = self.identity().await;
         let public_base = hook_public_base(&relay_url, &identity.device_id)?;
         let cancel = CancellationToken::new();
         let (events_tx, events) = mpsc::channel(64);
@@ -248,9 +243,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_relay_url_that_fails_the_dial_check_is_an_error_not_a_crash() {
         let dir = tempfile::tempdir().unwrap();
-        let result = starter(dir.path(), "http://relay.invalid").start(LocalPort::with(0), &CancellationToken::new()).await;
+        let result = starter(dir.path(), "http://relay.invalid").start(LocalPort::with(0)).await;
         assert!(result.err().unwrap().contains("must use wss"));
-        let off = starter(dir.path(), "off").start(LocalPort::with(0), &CancellationToken::new()).await;
+        let off = starter(dir.path(), "off").start(LocalPort::with(0)).await;
         assert!(off.unwrap().is_none());
     }
 
@@ -261,13 +256,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(IDENTITY_FILE), vec![0u8; 80]).unwrap();
         let relay = Relay::start().await;
-        let mut first = starter(dir.path(), &relay.url).start(LocalPort::with(0), &CancellationToken::new()).await.unwrap().unwrap();
+        let mut first = starter(dir.path(), &relay.url).start(LocalPort::with(0)).await.unwrap().unwrap();
         first.close();
         let id = stored_identity(dir.path())["deviceId"].as_str().unwrap().to_owned();
         assert!(first.public_base().ends_with(&format!("/hook/{id}")));
         let kept = std::fs::read_dir(dir.path()).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().starts_with("relay-hook-device.json.corrupt-"));
         assert!(kept, "the damaged file is kept aside");
-        let mut again = starter(dir.path(), &relay.url).start(LocalPort::with(0), &CancellationToken::new()).await.unwrap().unwrap();
+        let mut again = starter(dir.path(), &relay.url).start(LocalPort::with(0)).await.unwrap().unwrap();
         again.close();
         assert_eq!(again.public_base(), first.public_base(), "the repaired identity is stable");
     }
@@ -278,7 +273,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join(IDENTITY_FILE)).unwrap();
         let relay = Relay::start().await;
-        let mut tunnel = starter(dir.path(), &relay.url).start(LocalPort::with(0), &CancellationToken::new()).await.unwrap().unwrap();
+        let mut tunnel = starter(dir.path(), &relay.url).start(LocalPort::with(0)).await.unwrap().unwrap();
         assert!(tunnel.public_base().contains("/hook/"));
         assert!(dir.path().join(IDENTITY_FILE).is_dir(), "nothing was written over the unreadable path");
         tunnel.close();
@@ -303,7 +298,7 @@ mod tests {
             socket.write_all(b"HTTP/1.1 201 Created\r\nContent-Type: text/plain\r\nContent-Length: 6\r\nConnection: close\r\n\r\nstored").await.unwrap();
             String::from_utf8(got).unwrap()
         });
-        let mut tunnel = starter(dir.path(), &relay.url).start(LocalPort::with(local_port), &CancellationToken::new()).await.unwrap().unwrap();
+        let mut tunnel = starter(dir.path(), &relay.url).start(LocalPort::with(local_port)).await.unwrap().unwrap();
         let identity = stored_identity(dir.path());
         let id = identity["deviceId"].as_str().unwrap();
         assert_eq!(tunnel.public_base(), format!("{}/hook/{id}", relay.url.replace("ws://", "http://")));
@@ -326,7 +321,7 @@ mod tests {
     async fn without_a_local_listener_the_tunnel_answers_503_and_redials_after_the_relay_drops_the_leg() {
         let dir = tempfile::tempdir().unwrap();
         let mut relay = Relay::start().await;
-        let mut tunnel = starter(dir.path(), &relay.url).start(LocalPort::with(0), &CancellationToken::new()).await.unwrap().unwrap();
+        let mut tunnel = starter(dir.path(), &relay.url).start(LocalPort::with(0)).await.unwrap().unwrap();
         let mut first = relay.next_leg().await;
         let reply = first.round_trip(http_frame("req-503", "")).await;
         assert_eq!(reply["status"], 503);
@@ -342,7 +337,7 @@ mod tests {
     async fn close_ends_the_leg_and_stops_redialing() {
         let dir = tempfile::tempdir().unwrap();
         let mut relay = Relay::start().await;
-        let mut tunnel = starter(dir.path(), &relay.url).start(LocalPort::with(0), &CancellationToken::new()).await.unwrap().unwrap();
+        let mut tunnel = starter(dir.path(), &relay.url).start(LocalPort::with(0)).await.unwrap().unwrap();
         let mut leg = relay.next_leg().await;
         tunnel.close();
         let ended = tokio::time::timeout(Duration::from_secs(10), async {

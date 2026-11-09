@@ -79,10 +79,14 @@ pub struct AdminDeps {
     pub local_tz: Tz,
     /// `envFlag('MIXDOG_DISABLE_CHANNEL_START')`: the runtime is never started on its own.
     pub channel_start_disabled: bool,
+    /// `isCloseRequested()`: cancelled when the app starts closing.
+    pub close_requested: CancellationToken,
 }
 
 pub struct ChannelAdmin {
     d: AdminDeps,
+    /// Itself, for the deferred start that outlives a save call.
+    this: std::sync::Weak<ChannelAdmin>,
 }
 
 /// `String(value)` for the values a save may carry.
@@ -320,7 +324,7 @@ fn same_timing(existing: &Schedule, when_cron: &Option<String>, when_at: Option<
 
 impl ChannelAdmin {
     pub fn new(deps: AdminDeps) -> Arc<Self> {
-        Arc::new(Self { d: deps })
+        Arc::new_cyclic(|this| Self { d: deps, this: this.clone() })
     }
 
     // ---- reads -------------------------------------------------------------------------
@@ -400,48 +404,19 @@ impl ChannelAdmin {
         });
     }
 
-    /// `onChannelStartTimer` / `scheduleAutomationAutostart` once their delay has run: only enabled
+    /// `scheduleChannelStart(0)` / `scheduleAutomationAutostart`: returns at once; the start
+    /// happens afterwards, owned by the runtime (a shutdown ends and joins it). When the
+    /// deferred callback runs it asks `hasActiveAutomation` (`onChannelStartTimer`): only enabled
     /// schedules or webhooks start the runtime (a no-op when it is up), and
-    /// `MIXDOG_DISABLE_CHANNEL_START` or a close in progress starts nothing. The daemon calls it
-    /// once it is serving, which is the boot-time start check.
-    pub async fn start_active_automation(&self, closing: &CancellationToken) {
-        if self.d.channel_start_disabled || closing.is_cancelled() {
+    /// `MIXDOG_DISABLE_CHANNEL_START` or a close in progress starts nothing. A save calls it after
+    /// its reload request (`ensureAutomationRuntime`); the daemon calls it once it is serving,
+    /// which is the boot-time start check.
+    pub fn schedule_automation_start(&self) {
+        if self.d.channel_start_disabled {
             return;
         }
-        // A close ends the probe and the start wherever they are; the stop that follows the close
-        // tears down whatever the start had already armed.
-        let start = async {
-            if !self.has_active_automation().await || closing.is_cancelled() {
-                return;
-            }
-            if let Err(error) = self.d.runtime.start_automation().await {
-                tracing::warn!("mixdog channels: automation start failed: {error}");
-            }
-        };
-        tokio::select! {
-            () = closing.cancelled() => {}
-            () = start => {}
-        }
-    }
-
-    /// `ensureAutomationRuntime` → `scheduleChannelStart(0)`: automation saved while the app is
-    /// already running schedules the start and the save returns; the start only happens when
-    /// something is enabled (`onChannelStartTimer`'s `hasActiveAutomation`). The one thing the
-    /// save waits for is the start's own first step, the bounded local write of the relay's hook
-    /// identity, so the next read of the channel setup finds its public URL (Node's start order
-    /// lands the identity ahead of anything slow too). Provider init and the webhook sync run on
-    /// the scheduled start.
-    async fn ensure_automation(&self) {
-        if self.d.channel_start_disabled || !self.has_active_automation().await {
-            return;
-        }
-        self.d.runtime.prepare_automation().await;
-        let runtime = Arc::clone(&self.d.runtime);
-        tokio::spawn(async move {
-            if let Err(error) = runtime.start_automation().await {
-                tracing::warn!("mixdog channels: automation start failed: {error}");
-            }
-        });
+        let Some(admin) = self.this.upgrade() else { return };
+        self.d.runtime.schedule_automation_start(&self.d.close_requested, async move { admin.has_active_automation().await });
     }
 
     pub async fn set_webhook_config(&self, patch: &Value) -> Done {
@@ -540,7 +515,7 @@ impl ChannelAdmin {
     pub async fn save_schedule(&self, entry: &Value) -> Done {
         let saved = self.save_schedule_row(entry).await?;
         self.reload_soon();
-        self.ensure_automation().await;
+        self.schedule_automation_start();
         Ok(saved)
     }
 
@@ -622,7 +597,7 @@ impl ChannelAdmin {
         self.d.schedules.set_enabled(&id, enabled).await?.ok_or_else(|| format!("schedule \"{id}\" does not exist"))?;
         self.reload_soon();
         if enabled {
-            self.ensure_automation().await;
+            self.schedule_automation_start();
         }
         Ok(json!({"name": id, "enabled": enabled}))
     }
@@ -632,7 +607,7 @@ impl ChannelAdmin {
     pub async fn save_webhook(&self, entry: &Value) -> Done {
         let saved = self.save_webhook_row(entry).await?;
         self.reload_soon();
-        self.ensure_automation().await;
+        self.schedule_automation_start();
         Ok(saved)
     }
 
@@ -715,7 +690,7 @@ impl ChannelAdmin {
         self.d.webhooks.set_enabled(&id, enabled).await?.ok_or_else(|| format!("webhook \"{id}\" does not exist"))?;
         self.reload_soon();
         if enabled {
-            self.ensure_automation().await;
+            self.schedule_automation_start();
         }
         Ok(json!({"name": id, "enabled": enabled}))
     }
