@@ -198,7 +198,8 @@ fn decode_record(v: &Value) -> Option<&Map<String, Value>> {
 
 /// The dev reader's fold (`dev:session-log-reader.mjs` `parseSessionLog`): a line that holds
 /// no record of ours (blank, not JSON, not a record, of an unknown kind) is skipped as Node
-/// skips it, and a sequence or length break is `schema_violation`. A line is decoded as UTF-8
+/// skips it, and a sequence or length break ends the replay there, keeping what came before as Node
+/// does; a log with no `session` + `compacted` base is `schema_violation`. A line is decoded as UTF-8
 /// with U+FFFD for invalid bytes, as Node's `toString('utf8')` does; a CR before the LF is JSON
 /// white space. A final line without LF is a torn tail and is excluded.
 ///
@@ -209,7 +210,6 @@ fn decode_record(v: &Value) -> Option<&Map<String, Value>> {
 /// caller `verify`s the handle before it uses it.
 pub fn fold_log(id: &str, log: &mut durable::OpenFile, replaced: &mut u64) -> R<LogFold> {
     let mut line = Vec::new();
-    let mut lineno = 0usize;
     // Lines accepted so far, which is also the sequence number the next one must carry.
     let mut accepted = 0usize;
     let mut length: u64 = 0;
@@ -224,7 +224,6 @@ pub fn fold_log(id: &str, log: &mut durable::OpenFile, replaced: &mut u64) -> R<
         if line.pop() != Some(b'\n') {
             break;
         }
-        lineno += 1;
         let text = String::from_utf8_lossy(&line);
         let Ok(parsed) = json::parse_source(text.as_bytes()) else { continue };
         let value = parsed.value;
@@ -252,12 +251,9 @@ pub fn fold_log(id: &str, log: &mut durable::OpenFile, replaced: &mut u64) -> R<
                 _ => Some(length),
             }
         };
-        let Some(next) = next else {
-            return q(
-                QuarantineCode::SchemaViolation,
-                format!("log line {lineno}: {} at sequence {expected}", if misplaced { "sequence break" } else { "length mismatch" }),
-            );
-        };
+        // A record that does not follow the history before it is where Node's replay stops (`damage`):
+        // the records before it are the log, the rest is not read.
+        let Some(next) = next else { break };
         length = next;
         *replaced += parsed.replaced_surrogates;
         let t = t.to_owned();

@@ -67,9 +67,13 @@ pub fn migrator(roots: &MigrationRoots, options: MigrateOptions) -> (tokio::runt
     (runtime, Migrator::new(roots.clone(), product_drivers(Arc::new(StoreProjector), office), options))
 }
 
-pub fn migrate(roots: &MigrationRoots) -> Complete {
+pub fn run(roots: &MigrationRoots) -> Complete {
     let (_runtime, migrator) = migrator(roots, MigrateOptions::default());
-    let complete = migrator.run().expect("the migration completes");
+    migrator.run().expect("the migration completes")
+}
+
+pub fn migrate(roots: &MigrationRoots) -> Complete {
+    let complete = run(roots);
     assert_eq!(complete.kinds.data.quarantined_unexpected, 0);
     complete
 }

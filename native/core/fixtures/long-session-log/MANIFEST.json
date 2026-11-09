@@ -8,9 +8,9 @@
       "sha256": "98d71a387bfdde8d7ca8a54c9a97942b46911e72c7c503b9578566c32535ef23"
     },
     {
-      "bytes": 71073,
+      "bytes": 140872,
       "path": "log.json",
-      "sha256": "03461d9193bbab29821cd38b48f6dc87153a99c4f7e6d6843718a09c38f8698f"
+      "sha256": "cf61a27ace381bdf50b1f67fe710a4f1012ce8911c93d4417474295ece79b626"
     }
   ],
   "product": {
@@ -29,5 +29,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-long-session-log.mjs",
   "set": "long-session-log",
-  "totalBytes": 265203
+  "totalBytes": 335002
 }
