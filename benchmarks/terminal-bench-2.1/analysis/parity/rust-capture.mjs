@@ -38,7 +38,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const out = [];
     for (const route of ROUTES) {
       try {
-        out.push({ ...route, snapshot: await snapshotRoute(core, route, 'headless') });
+        out.push({ ...route, snapshot: await snapshotRoute(core, route, 'headless', 'parity probe') });
       } catch (error) {
         out.push({ ...route, error: String(error?.message || error).slice(0, 400) });
       }
@@ -49,3 +49,4 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     rmSync(root, { recursive: true, force: true });
   }
 }
+

@@ -38,9 +38,9 @@ impl ToolSurfaceStatus for LateToolSurface {
 
     /// `tools/toolsStatus` with `snapshot` reaches the surface through this cell, so it forwards the request
     /// build; the trait's default would answer every snapshot with `invalidParams`.
-    async fn request_snapshot(&self, thread: &ThreadId) -> Result<serde_json::Value, CoreError> {
+    async fn request_snapshot(&self, thread: &ThreadId, user_message: Option<&str>) -> Result<serde_json::Value, CoreError> {
         match self.0.get() {
-            Some(surface) => surface.request_snapshot(thread).await,
+            Some(surface) => surface.request_snapshot(thread, user_message).await,
             None => Err(CoreError::CapabilityUnavailable { capability: "tool surface".into(), detail: "the session layer is not up yet".into() }),
         }
     }
@@ -69,7 +69,7 @@ mod tests {
             Ok(StatusSurface { listed: vec!["read".to_owned()], ..StatusSurface::default() })
         }
 
-        async fn request_snapshot(&self, thread: &ThreadId) -> Result<serde_json::Value, CoreError> {
+        async fn request_snapshot(&self, thread: &ThreadId, _user_message: Option<&str>) -> Result<serde_json::Value, CoreError> {
             Ok(serde_json::json!({ "thread": thread.to_string() }))
         }
     }
@@ -78,9 +78,9 @@ mod tests {
     async fn a_request_snapshot_reaches_the_bound_surface() {
         let late = LateToolSurface::default();
         let thread = ThreadId::from("t1");
-        assert!(matches!(late.request_snapshot(&thread).await, Err(CoreError::CapabilityUnavailable { .. })));
+        assert!(matches!(late.request_snapshot(&thread, None).await, Err(CoreError::CapabilityUnavailable { .. })));
         late.bind(Arc::new(Listing)).ok().unwrap();
-        assert_eq!(late.request_snapshot(&thread).await.unwrap(), serde_json::json!({ "thread": "t1" }));
+        assert_eq!(late.request_snapshot(&thread, None).await.unwrap(), serde_json::json!({ "thread": "t1" }));
     }
 
     #[tokio::test]

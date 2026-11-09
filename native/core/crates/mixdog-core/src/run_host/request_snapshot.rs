@@ -8,9 +8,6 @@ use mixdog_core_api::domain::provider::{Content, ContentPart, Message, ModelRequ
 use mixdog_store::schema::record::Header;
 use serde_json::{json, Map, Value};
 
-/// The user turn standing in for the one a thread has not had yet.
-pub const NO_USER_TURN: &str = "(no user turn yet)";
-
 fn tool_json(tool: &ToolDefinition) -> Value {
     let mut out = Map::new();
     out.insert("name".into(), Value::String(tool.name.clone()));
@@ -41,18 +38,19 @@ fn docs(header: &Header, key: &str) -> Value {
 }
 
 /// The snapshot of `request` as `provider`'s codec encodes it, with the session documents of `header`.
-/// The wire headers are left out: the adapter adds the credentials to them.
-/// A thread that has had no user turn yet is encoded with a placeholder one: a codec such as Gemini's refuses a
-/// request with nothing to send, and the surface (system texts, tools) does not depend on the message.
-pub fn snapshot(header: &Header, provider: &dyn ProviderAdapter, request: &ModelRequest) -> Result<Value, String> {
-    let placeholder;
-    let request = if request.messages.iter().any(|message| message.role == Role::User) {
-        request
-    } else {
-        let mut messages = request.messages.clone();
-        messages.push(Message::new(Role::User, Content::Text(NO_USER_TURN.into())));
-        placeholder = ModelRequest { messages, ..request.clone() };
-        &placeholder
+/// The headers are the codec's own; the adapter adds the credential header at send time, so none is here.
+/// `user_message` is the turn the next send would add (a thread has no user turn before its first send, and a
+/// codec such as Gemini's refuses a request with nothing to send; Node's builder throws "No messages to send" there too).
+pub fn snapshot(header: &Header, provider: &dyn ProviderAdapter, request: &ModelRequest, user_message: Option<&str>) -> Result<Value, String> {
+    let with_message;
+    let request = match user_message {
+        Some(text) => {
+            let mut messages = request.messages.clone();
+            messages.push(Message::new(Role::User, Content::Text(text.into())));
+            with_message = ModelRequest { messages, ..request.clone() };
+            &with_message
+        }
+        None => request,
     };
     let wire = provider.codec().encode(request).map_err(|error| format!("the {} request could not be encoded: {}", provider.id().as_str(), error.message))?;
     let body = serde_json::from_slice::<Value>(&wire.body).unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&wire.body).into_owned()));
@@ -63,6 +61,7 @@ pub fn snapshot(header: &Header, provider: &dyn ProviderAdapter, request: &Model
         "transport": format!("{:?}", wire.transport),
         "method": wire.method,
         "url": wire.url,
+        "headers": wire.headers.iter().map(|(name, value)| json!([name, value])).collect::<Vec<_>>(),
         "system": request.messages.iter().filter(|message| message.role == Role::System).map(|message| text_of(&message.content)).collect::<Vec<_>>(),
         "tools": request.tools.iter().map(tool_json).collect::<Vec<_>>(),
         "catalog": docs(header, "deferredToolCatalog"),
@@ -152,7 +151,7 @@ mod tests {
             tools: vec![read],
             options: RequestOptions::default(),
         };
-        let got = snapshot(&header, &adapter(), &request).unwrap();
+        let got = snapshot(&header, &adapter(), &request, None).unwrap();
         assert_eq!(got["provider"], "openai-oauth");
         assert_eq!(got["model"], "gpt-5.6-sol");
         assert_eq!(got["providerMode"], "native");
@@ -164,21 +163,20 @@ mod tests {
         assert_eq!(got["disallowedTools"], json!(["memory", "recall"]));
         assert_eq!(got["body"]["instructions"], json!(["rules", "env"]));
         assert_eq!(got["body"]["tools"][0]["parameters"], schema);
-        assert!(!got.to_string().contains("never shown"), "the wire headers carry credentials and stay out");
+        assert_eq!(got["headers"], json!([["authorization", "never shown"]]), "the codec's headers are listed as encoded");
     }
 
     #[test]
-    fn a_thread_with_no_user_turn_is_encoded_with_a_placeholder_and_one_with_a_turn_is_not() {
+    fn a_user_message_is_the_last_turn_of_the_snapshot_and_none_adds_nothing() {
         let bare = ModelRequest { model: "m".into(), messages: vec![Message::new(Role::System, Content::Text("rules".into()))], tools: Vec::new(), options: RequestOptions::default() };
-        assert_eq!(snapshot(&Header::new(), &adapter(), &bare).unwrap()["body"]["input"], json!([NO_USER_TURN]));
-        let asked = ModelRequest { messages: vec![Message::new(Role::User, Content::Text("hi".into()))], ..bare };
-        assert_eq!(snapshot(&Header::new(), &adapter(), &asked).unwrap()["body"]["input"], json!(["hi"]));
+        assert_eq!(snapshot(&Header::new(), &adapter(), &bare, None).unwrap()["body"]["input"], json!([]));
+        assert_eq!(snapshot(&Header::new(), &adapter(), &bare, Some("hi")).unwrap()["body"]["input"], json!(["hi"]));
     }
 
     #[test]
     fn a_session_without_deferred_documents_snapshots_empty_lists() {
         let request = ModelRequest { model: "m".into(), messages: Vec::new(), tools: Vec::new(), options: RequestOptions::default() };
-        let got = snapshot(&Header::new(), &adapter(), &request).unwrap();
+        let got = snapshot(&Header::new(), &adapter(), &request, None).unwrap();
         assert_eq!(got["catalog"], json!([]));
         assert_eq!(got["active"], json!([]));
         assert_eq!(got["disallowedTools"], json!([]));

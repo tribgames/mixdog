@@ -17,12 +17,16 @@ export const ROUTES = [
 ];
 
 export async function captureRoute(repoRoot, route) {
-  Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
   const load = (path) => import(pathToFileURL(join(repoRoot, path)).href);
-  const { BUILTIN_TOOLS } = await load('src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs');
+  const BUILTIN = await load('src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs');
+  const { BUILTIN_TOOLS } = BUILTIN;
   const { PATCH_TOOL_DEFS } = await load('src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs');
   const { CODE_GRAPH_TOOL_DEFS } = await load('src/runtime/agent/orchestrator/tools/code-graph-tool-defs.mjs');
   const { TOOL_SEARCH_TOOL, CWD_TOOL } = await load('src/session-runtime/tool-defs.mjs');
+  const { bindShellKind } = BUILTIN;
+  const { collectStandaloneToolDefs } = await load('src/runtime/agent/orchestrator/runtime-core/tool-defs.mjs');
+  const webSearchToolDefs = await load('src/runtime/web-search/tool-defs.mjs');
+  const { ASK_USER_TOOL_DEFS, HANDOFF_USER_TOOL_DEFS } = await load('src/runtime/agent/orchestrator/runtime-core/ask-user-tool-defs.mjs');
   const { filterModelEditTools } = await load('src/runtime/shared/edit-tool-dialect.mjs');
   const { applyDeferredToolSurface } = await load('src/session-runtime/tool-catalog.mjs');
   const { featureDisallowedToolsFor } = await load('src/session-runtime/builtin-features.mjs');
@@ -37,9 +41,11 @@ export async function captureRoute(repoRoot, route) {
     ...disallowedModelToolNamesForProfile(allTools, 'headless'),
   ])];
   const allowed = (tools) => filterModelToolsForProfile(tools, 'headless').filter((tool) => !disabled.includes(tool.name));
-  const core = filterModelEditTools(allowed([...BUILTIN_TOOLS, ...PATCH_TOOL_DEFS, ...CODE_GRAPH_TOOL_DEFS]), route.model);
+  // The session binds the shell tool's text to the shell the runtime resolves (resolveSessionTools): PowerShell, as on the Rust core's Windows host.
+  const core = filterModelEditTools(allowed([...BUILTIN_TOOLS, ...PATCH_TOOL_DEFS, ...CODE_GRAPH_TOOL_DEFS]).map((tool) => bindShellKind(tool, 'powershell')), route.model);
+  const { standaloneTools } = collectStandaloneToolDefs({ webSearchToolDefs, memoryToolDefs: { TOOL_DEFS: [] }, codeGraphToolDefs: { CODE_GRAPH_TOOL_DEFS }, askUserToolDefs: ASK_USER_TOOL_DEFS, handoffUserToolDefs: HANDOFF_USER_TOOL_DEFS, skillToolEnabled: true });
   const session = { provider: route.provider, model: route.model, tools: core, messages: [] };
-  applyDeferredToolSurface(session, 'lead', allowed([TOOL_SEARCH_TOOL, CWD_TOOL]), { provider: route.provider, model: route.model });
+  applyDeferredToolSurface(session, 'lead', allowed([...standaloneTools, CWD_TOOL]), { provider: route.provider, model: route.model });
   const active = session.tools || [];
   return {
     ...route,
@@ -77,3 +83,4 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   for (const route of ROUTES) out.push(await captureRoute(root, route));
   writeFileSync(resolve(arg('--out')), `${JSON.stringify(out, null, 2)}\n`);
 }
+
