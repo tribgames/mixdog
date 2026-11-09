@@ -115,6 +115,7 @@ pub mod directory_sessions;
 pub mod room_list;
 pub mod room_approvals;
 pub mod next_request_source;
+pub mod request_snapshot;
 pub mod warm_ports;
 pub mod desktop_notices;
 pub mod inheritance_fit;

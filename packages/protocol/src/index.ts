@@ -4267,7 +4267,12 @@ live?: boolean, };
 /**
  * Params of `tools/toolsStatus`.
  */
-export type ToolsToolsStatusParams = { threadId?: ThreadId, query?: string, };
+export type ToolsToolsStatusParams = { threadId?: ThreadId, query?: string,
+/**
+ * `true`: the reply also carries `requestSnapshot`, the provider request the thread's next send
+ * would carry (needs `threadId`).
+ */
+snapshot?: boolean, };
 
 /**
  * Params of `transfer/abort`.

@@ -1868,6 +1868,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             data_dir: b.data_dir.clone(),
             blobs: store_blobs.clone(),
         }));
+    let snapshot_source = side_wiring.next();
     let inheritance_fit: Arc<dyn mixdog_core_session::session::inheritance::InheritanceFit> = Arc::new(mixdog_core::run_host::inheritance_fit::HostInheritanceFit::process(b.catalog.clone(), config_seams.clone(), side_wiring.next(), compaction_world.clone()));
     let turn_starts = Arc::new(mixdog_core_session::session::LateTurnStarts::default()); // bound to the `AgentRegistry` once wp-agent's constructor exists    // `writeStatuslineRoute` / `clearGatewaySessionRoute`: ONE value, cloned (a clone shares the write queue): the route hop and the session deletion.
     let gateway_routes = mixdog_core_session::session::gateway_routes::GatewaySessionRoutes::new(&b.data_dir, b.tokens.maintenance_io);
@@ -2207,7 +2208,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .map_err(|_| ComposeError::AlreadyBound("turn settings"))?;
     // The tool status the `tools/*` service and the MCP surface read (flip-ce-2): `preview` is async/fallible and `mode` takes the thread's header, no wiring change.
     tool_surface
-        .bind(Arc::new(mixdog_core_ports::ports::tools_status::SessionToolStatus::new(Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone())), surface_host.clone())))
+        .bind(Arc::new(
+            mixdog_core_ports::ports::tools_status::SessionToolStatus::new(Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone())), surface_host.clone())
+                // `tools/toolsStatus` with `snapshot`: the provider request the thread's next send would carry.
+                .with_snapshots(snapshot_source),
+        ))
         .map_err(|_| ComposeError::AlreadyBound("tool surface"))?;
     // flip-gaps-agent, after the directory: the session-close seams, the `cycle1-agent` dispatch (and with it the memory cycles' late LLM), the route positions.
     let runtime_release = Arc::new(mixdog_core_session::session::runtime_release::ThreadRuntimeRelease::new(read_state.clone(), liveness.clone(), worktrees.clone(), worktree_stop.clone()));
