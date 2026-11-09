@@ -35,6 +35,8 @@ impl Client {
 
 struct Client {
     credential_id: String,
+    /// Refused the screen for its lifetime (live at an unpair, or admitted while one was in force); it keeps its credential.
+    screen_revoked: bool,
     challenge: Challenge,
     link: Link,
     /// Its media key, once authenticated.
@@ -110,7 +112,7 @@ impl ClientTable {
         let text = challenge.to_json_string();
         self.clients.insert(
             client_id.to_owned(),
-            Client { credential_id: credential_id.to_owned(), challenge, link: Link::Pending, media_key: None },
+            Client { credential_id: credential_id.to_owned(), screen_revoked: false, challenge, link: Link::Pending, media_key: None },
         );
         Some(text)
     }
@@ -139,19 +141,29 @@ impl ClientTable {
         self.clients.get(client_id).map(|c| c.credential_id.as_str())
     }
 
-    /// Withdraws `credential_id` from every client attached with it (a revoked pairing); they stay attached, as Node leaves them
-    /// (it closes none itself: the relay does, once it removed the pairing). Returns their ids.
+    /// Marks every client attached with `credential_id` (a revoked pairing) screen-revoked for its lifetime. They stay attached under
+    /// the credential, as Node leaves them (it closes none itself: the relay does, once it removed the pairing). Returns their ids.
     pub fn revoke(&mut self, credential_id: &str) -> Vec<String> {
         let mut ids = Vec::new();
         for (id, client) in &mut self.clients {
             if !credential_id.is_empty() && client.credential_id == credential_id {
-                client.credential_id.clear();
+                client.screen_revoked = true;
                 ids.push(id.clone());
             }
         }
         ids
     }
 
+    /// A client admitted while its credential's unpair is in force is revoked from the start.
+    pub fn revoke_client(&mut self, client_id: &str) {
+        if let Some(client) = self.clients.get_mut(client_id) {
+            client.screen_revoked = true;
+        }
+    }
+
+    pub fn screen_revoked(&self, client_id: &str) -> bool {
+        self.clients.get(client_id).is_some_and(|c| c.screen_revoked)
+    }
     /// The media key of the attached session whose challenge is `sid`.
     pub fn media_key(&self, sid: &str) -> Option<[u8; 32]> {
         self.clients

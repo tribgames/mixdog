@@ -89,6 +89,9 @@ struct Inner {
     connections: HashMap<u64, Link>,
     /// Relay peer id → the paired device it is attached as.
     peers: HashMap<String, Described>,
+    /// Relay peers revoked for their lifetime: live at an unpair, or admitted while one was in force. Only the screen reads it
+    /// (Node's `revoked` set in `screen-access-publisher.ts`); the peer keeps its credential and everything else it holds.
+    screen_revoked: HashSet<String>,
     /// Phones whose leg is a transport session: the last authenticated liveness (ms on `clock`)
     /// and whether the phone said it went to the background. Such a leg shows a session only
     /// while live (`foreground.ts` `legShowsSession`).
@@ -178,11 +181,36 @@ impl DeviceRegistry {
         self.changed();
     }
 
+    /// The peer's screen access ends for its lifetime; it stays attached under its credential.
+    pub fn revoke_screen(&self, peer_id: &str) {
+        self.inner().screen_revoked.insert(peer_id.to_owned());
+    }
+
+    /// Whether the relay peer behind `connection` is revoked for the screen.
+    pub fn screen_revoked(&self, connection: u64) -> bool {
+        let inner = self.inner();
+        matches!(inner.connections.get(&connection), Some(Link::Relay { peer_id, .. }) if inner.screen_revoked.contains(peer_id))
+    }
+
+    /// Every connection of the paired credential still attached.
+    pub fn connections_of(&self, credential: &str) -> Vec<u64> {
+        let inner = self.inner();
+        inner
+            .connections
+            .iter()
+            .filter_map(|(id, link)| match link {
+                Link::Relay { peer_id, .. } if !credential.is_empty() && inner.peers.get(peer_id).is_some_and(|d| d.credential == credential) => Some(*id),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// `client-close`, a revoke or the loss of the leg.
     pub fn detach_peer(&self, peer_id: &str) {
         {
             let mut inner = self.inner();
             inner.peers.remove(peer_id);
+            inner.screen_revoked.remove(peer_id);
             inner.transport.remove(peer_id);
         }
         self.changed();
@@ -192,6 +220,7 @@ impl DeviceRegistry {
         {
             let mut inner = self.inner();
             inner.peers.clear();
+            inner.screen_revoked.clear();
             inner.transport.clear();
         }
         self.changed();

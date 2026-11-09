@@ -1,0 +1,169 @@
+{
+  "domain": "unpair-access",
+  "recorder": "benchmarks/rust-core/recorders/record-unpair-access.mjs",
+  "credential": "aaaaaaa1",
+  "token": "fcm-token-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "scenarios": [
+    {
+      "name": "the relay did not remove the pairing",
+      "relayConfirms": false,
+      "revokeOutcome": "rejected: Relay device request failed.",
+      "envelopesAtUnpair": [
+        "revoke-client"
+      ],
+      "desktopClosedPhone": null,
+      "phoneStillAttached": true,
+      "after": {
+        "chat": {
+          "before": true,
+          "after": "same"
+        },
+        "terminal": {
+          "before": true,
+          "after": "same"
+        },
+        "settings": {
+          "before": true,
+          "after": "same"
+        },
+        "notifications": {
+          "before": {
+            "ok": true,
+            "devices": [
+              "pc",
+              "aaaaaaa1"
+            ],
+            "preferences": [
+              "pc",
+              "aaaaaaa1"
+            ]
+          },
+          "after": {
+            "ok": true,
+            "devices": [
+              "pc"
+            ],
+            "preferences": [
+              "pc"
+            ]
+          }
+        },
+        "webPush": {
+          "before": true,
+          "after": "same"
+        },
+        "files": {
+          "range": {
+            "ok": false,
+            "error": "This download is no longer available."
+          },
+          "begin": {
+            "ok": false,
+            "error": "This download is no longer available."
+          }
+        },
+        "screen": {
+          "id": 119,
+          "ok": false,
+          "error": "Remote screen is not allowed for this device."
+        },
+        "secondConnection": {
+          "screen": {
+            "id": 121,
+            "ok": false,
+            "error": "Remote screen is not allowed for this device."
+          }
+        },
+        "notificationsAfterForget": {
+          "ok": true,
+          "scope": null
+        },
+        "removeNativePush": {
+          "id": 124,
+          "ok": true,
+          "value": true
+        },
+        "removePushSubscription": {
+          "id": 125,
+          "ok": true,
+          "value": true
+        }
+      },
+      "feedEvent": [
+        "e,s,w"
+      ]
+    },
+    {
+      "name": "the relay removed the pairing",
+      "relayConfirms": true,
+      "revokeOutcome": "resolved",
+      "envelopesAtUnpair": [
+        "revoke-client",
+        "list-clients"
+      ],
+      "desktopClosedPhone": null,
+      "phoneStillAttached": false,
+      "after": {
+        "chat": {
+          "before": true,
+          "after": "same"
+        },
+        "terminal": {
+          "before": true,
+          "after": "same"
+        },
+        "settings": {
+          "before": true,
+          "after": "same"
+        },
+        "notifications": {
+          "before": {
+            "ok": true,
+            "devices": [
+              "pc",
+              "aaaaaaa1"
+            ],
+            "preferences": [
+              "pc",
+              "aaaaaaa1"
+            ]
+          },
+          "after": "same"
+        },
+        "webPush": {
+          "before": true,
+          "after": "same"
+        },
+        "files": {
+          "range": {
+            "ok": false,
+            "error": "This download is no longer available."
+          },
+          "begin": {
+            "ok": false,
+            "error": "This download is no longer available."
+          }
+        },
+        "screen": null,
+        "secondConnection": {
+          "screen": null
+        },
+        "notificationsAfterForget": {
+          "ok": true,
+          "scope": "all"
+        },
+        "removeNativePush": {
+          "id": 124,
+          "ok": true,
+          "value": false
+        },
+        "removePushSubscription": {
+          "id": 125,
+          "ok": true,
+          "value": false
+        }
+      },
+      "feedEvent": null
+    }
+  ]
+}
