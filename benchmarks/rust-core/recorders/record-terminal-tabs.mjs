@@ -1,18 +1,19 @@
-// Records what the Node terminal manager reports for the agent `terminal` bridge
-// (`termSessionTabs` / `termSnapshot`, apps/desktop/src/main/terminal-manager.ts) into
-// session-tabs.json, which TabsTerminalPort's test replays. The PTY is a scripted stand-in
-// injected where the manager loads node-pty; everything else is the real manager. Run from the
-// repository root:
-//   <tsx> native/core/fixtures/desktop/terminal/record-session-tabs.mjs
-import { writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+// Records what the Node terminal manager reports for the agent `terminal` bridge (`termSessionTabs` /
+// `termSnapshot`, apps/desktop/src/main/terminal-manager.ts) into fixtures/terminal-tabs/session-tabs.json,
+// which TabsTerminalPort's test replays. The PTY is a scripted stand-in injected where the manager loads
+// node-pty; everything else is the real manager of the exact tree.
+//   node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-terminal-tabs.mjs --tree <git archive of b6f10295a with node_modules> --commit b6f10295a2f698afc85332467192de28500bd146
+import { join } from 'node:path';
 
-import { TerminalManager } from '../../../../../apps/desktop/src/main/terminal-manager.ts';
+import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
+const args = parseArgs();
+const tree = resolveTree(args);
+const identity = exactProductIdentity(tree, args.get('commit') ?? (() => { throw new Error('--commit is required'); })());
+const recorder = 'benchmarks/rust-core/recorders/record-terminal-tabs.mjs';
+const finalDir = join(FIXTURES_ROOT, 'terminal-tabs');
+const { TerminalManager } = await importFrom(tree, 'apps/desktop/src/main/terminal-manager.ts');
 const CWD = '{cwd}';
-
 const ptys = new Map();
 function fakePty() {
   const pty = {
@@ -90,8 +91,13 @@ manager.dispose('session-terminal:S:3');
 manager.dispose('session-terminal:T');
 manager.dispose('term_other');
 
-writeFileSync(
-  join(here, 'session-tabs.json'),
-  `${JSON.stringify({ cwd: CWD, listing, snapshots, firstWrite: 'hello\r\nworld\r\n', secondWrite: 'more\r\n', exited, exitedSnapshot, afterDispose }, null, 2)}\n`
-);
+const stage = stageSet(finalDir, []);
+writeJson(join(stage, 'session-tabs.json'), { cwd: CWD, listing, snapshots, firstWrite: 'hello\r\nworld\r\n', secondWrite: 'more\r\n', exited, exitedSnapshot, afterDispose });
+writeSetManifest(stage, {
+  set: 'terminal-tabs',
+  recorder,
+  command: `node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs ${recorder} --tree <tree> --commit ${identity.commit}`,
+  identity,
+});
+commitStage(stage, finalDir);
 process.exit(0);

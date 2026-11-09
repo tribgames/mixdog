@@ -83,7 +83,7 @@
     "unknown": null,
     "other": {
       "text": "",
-      "cursor": 1000,
+      "cursor": 0,
       "reset": false
     }
   },
