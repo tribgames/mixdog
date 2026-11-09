@@ -174,7 +174,7 @@ pub fn resumed_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: 
     let missing: Vec<&String> = old.iter().filter(|name| !available.contains(name)).collect();
     if !missing.is_empty() {
         let names: Vec<&str> = missing.iter().map(|name| name.as_str()).collect();
-        tracing::warn!("[session] Warning: {} tools no longer available: {}", missing.len(), names.join(", "));
+        mixdog_rt::node_stderr!("[session] Warning: {} tools no longer available: {}", missing.len(), names.join(", "));
     }
     change
 }

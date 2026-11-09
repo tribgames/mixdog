@@ -149,6 +149,11 @@ maintenance_work_mem = 64MB
 ";
 
 /// The port line (fourth) of `postmaster.pid`, when a postmaster recorded one.
+async fn read_postmaster_pid(lane: DurabilityIo, data_dir: &Path) -> Option<u32> {
+    let text = fsio::read_to_string(lane, &data_dir.join("postmaster.pid")).await.ok()?;
+    text.lines().next()?.trim().parse().ok()
+}
+
 async fn read_postmaster_port(lane: DurabilityIo, data_dir: &Path) -> Option<u16> {
     let text = fsio::read_to_string(lane, &data_dir.join("postmaster.pid")).await.ok()?;
     text.lines().nth(3)?.trim().parse().ok().filter(|port| *port > 0)
@@ -220,12 +225,12 @@ impl ShareDir {
             // Both removals are non-recursive: the runtime share is never touched. A failure of
             // either is logged and never replaces initdb's own result (`process.mjs:313-321`).
             if let Err(error) = fsio::remove_dir(lane, &link).await {
-                tracing::warn!("[pg-process] initdb share junction cleanup failed: {error}");
+                mixdog_rt::memory_stderr!("[pg-process] initdb share junction cleanup failed: {error}");
             }
             if let Some(root) = link.parent()
                 && let Err(error) = fsio::remove_dir(lane, root).await
             {
-                tracing::warn!("[pg-process] initdb share junction cleanup failed: {error}");
+                mixdog_rt::memory_stderr!("[pg-process] initdb share junction cleanup failed: {error}");
             }
         }
     }
@@ -340,6 +345,7 @@ impl PgCluster {
     /// `attachRaceWinner`: probes `pg_ctl status` (3 s), then waits up to 15 s for the winner's
     /// postmaster to accept connections; its port when it does.
     async fn await_race_winner(runtime: &PgRuntime, processes: &Processes, lane: DurabilityIo, data_dir: &Path) -> Option<u16> {
+        mixdog_rt::memory_stderr!("[pg-process] pg_ctl start: \"another server might be running\" — probing status");
         match runtime.status(processes, data_dir).await {
             Ok(running) => tracing::info!(running, "[pg-process] pg_ctl status after a lost start race"),
             Err(error) => tracing::info!(error = %error.message(), "[pg-process] pg_ctl status after a lost start race"),
@@ -349,7 +355,8 @@ impl PgCluster {
             if let Some(port) = read_postmaster_port(lane, data_dir).await
                 && healthcheck(port).await
             {
-                tracing::info!(port, "[pg-process] attaching to race winner");
+                let pid = read_postmaster_pid(lane, data_dir).await.unwrap_or_default();
+                mixdog_rt::memory_stderr!("[pg-process] attaching to race winner pid={pid} port={port}");
                 return Some(port);
             }
             if tokio::time::Instant::now() >= deadline {

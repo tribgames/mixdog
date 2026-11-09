@@ -208,7 +208,7 @@ impl Maintainer {
             Some(Decision::Unmanaged) => "unmanaged".to_owned(),
             None => reply_note(&reply),
         };
-        tracing::info!("[heartbeat] model={} ms={ms} decision={outcome}", route.model);
+        mixdog_rt::node_stderr!("[heartbeat] model={} ms={ms} decision={outcome}", route.model);
         Ok(decision)
     }
 
@@ -225,7 +225,7 @@ impl Maintainer {
             Some(Review::Unmanaged) => "unmanaged".to_owned(),
             None => reply_note(&reply),
         };
-        tracing::info!("[heartbeat] review model={} ms={ms} result={result}", route.model);
+        mixdog_rt::node_stderr!("[heartbeat] review model={} ms={ms} result={result}", route.model);
         Ok(review)
     }
 }

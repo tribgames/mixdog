@@ -375,7 +375,7 @@ impl SendFlowImpl {
         // writes the failure to stderr (`send-flow.mjs:340-344`).
         drop(mixdog_rt::spawn("agent-completion-wake", mixdog_rt::TaskClass::Work, async move {
             if let Err(error) = flow.dispatch_to_existing_session(&prepared, &notify, DispatchOptions::default()).await {
-                eprintln!("[agent] completion wake failed session={}: {error}", prepared.session_id);
+                mixdog_rt::node_stderr!("[agent] completion wake failed session={}: {error}", prepared.session_id);
             }
         }));
         true

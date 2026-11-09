@@ -627,7 +627,7 @@ impl SendAccounting {
         let account = match read {
             Ok(account) => account,
             Err(error) => {
-                tracing::error!("[usage-ledger] RECORD NOT SAVED: {error}");
+                mixdog_rt::node_stderr!("[usage-ledger] RECORD NOT SAVED: {error}");
                 recorded.error = Some(error);
                 return;
             }
@@ -673,7 +673,7 @@ impl SendAccounting {
             Err(error) => Err(error),
         };
         if let Err(error) = outcome {
-            tracing::error!("[usage-ledger] RECORD NOT SAVED: {error}");
+            mixdog_rt::node_stderr!("[usage-ledger] RECORD NOT SAVED: {error}");
             recorded.error = Some(error);
         }
     }

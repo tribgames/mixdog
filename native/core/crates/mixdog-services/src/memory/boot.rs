@@ -154,10 +154,10 @@ pub(crate) async fn resolve_dims(data_dir: &Path, lane: DurabilityIo, identity: 
     match written {
         Ok(job) => {
             if let Ok(Err(error)) = job.await {
-                tracing::warn!(%error, "[memory-service] could not persist embedding-meta");
+                mixdog_rt::memory_stderr!("[memory-service] could not persist embedding-meta: {error}");
             }
         }
-        Err(error) => tracing::warn!(?error, "[memory-service] could not persist embedding-meta"),
+        Err(error) => mixdog_rt::memory_stderr!("[memory-service] could not persist embedding-meta: {error:?}"),
     }
     Ok(dims)
 }

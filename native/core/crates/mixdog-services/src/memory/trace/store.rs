@@ -127,7 +127,7 @@ async fn drift(client: &Object) {
     };
     if let Err(error) = run.await {
         let _ = client.batch_execute("ROLLBACK").await;
-        tracing::warn!(target: "trace-store", "schema-drift migrate skipped: {error}");
+        mixdog_rt::memory_stderr!("[trace-store] schema-drift migrate skipped: {error}");
     }
 }
 
@@ -232,7 +232,7 @@ async fn prune_aged_rows(client: &Object, days: i64, now_ms: i64) {
             Ok::<(), tokio_postgres::Error>(())
         };
         if let Err(error) = run.await {
-            tracing::warn!(target: "trace-store", "aged-row delete skipped for {table}: {error}");
+            mixdog_rt::memory_stderr!("[trace-store] aged-row delete skipped for {table}: {error}");
         }
     }
 }
@@ -248,7 +248,7 @@ async fn run_retention(db: &Db, days: i64, now_ms: i64) {
     })
     .await;
     if let Err(error) = outcome {
-        tracing::warn!(target: "trace-store", "retention failed: {error}");
+        mixdog_rt::memory_stderr!("[trace-store] retention failed: {error}");
     }
 }
 
@@ -414,7 +414,7 @@ fn deliver(inner: &Arc<Inner>, events: Vec<Event>, now_ms: i64) {
     let db = inner.db.clone();
     inner.handle.spawn(async move {
         if let Err(error) = insert_agent_calls(&db, &events, now_ms).await {
-            tracing::warn!(target: "trace-store", "insertAgentCalls error: {error}");
+            mixdog_rt::memory_stderr!("[trace] insertAgentCalls error: {error}");
         }
     });
 }
@@ -509,7 +509,7 @@ impl TraceStore {
     ) -> Result<Option<Self>> {
         if !enabled {
             if drop_when_disabled(&db).await? {
-                tracing::info!(target: "trace-store", "disabled; removed existing trace diagnostics");
+                mixdog_rt::memory_stderr!("[trace-store] disabled; removed existing trace diagnostics");
             }
             return Ok(None);
         }
@@ -545,7 +545,7 @@ impl TraceStore {
         };
         for chunk in events.chunks(TRACE_INSERT_MAX_ROWS) {
             if let Err(error) = insert_trace_events(&self.inner.db, chunk, now_ms).await {
-                tracing::warn!(target: "trace-store", "drain failed: {error}");
+                mixdog_rt::memory_stderr!("[trace-queue] drain failed: {error}");
                 return;
             }
         }
@@ -603,14 +603,14 @@ async fn flush(inner: &Arc<Inner>, now_ms: i64) {
         let (keep, dropped): (Vec<Wrapper>, Vec<Wrapper>) = wrappers.into_iter().partition(|w| w.attempts < MAX_RETRIES);
         if !dropped.is_empty() {
             let lost: usize = dropped.iter().map(|w| w.events.len()).sum();
-            tracing::warn!(target: "trace-store", "dropped {lost} events after {MAX_RETRIES} retries: {error}");
+            mixdog_rt::memory_stderr!("[trace-queue] dropped {lost} events after {MAX_RETRIES} retries: {error}");
         }
         let mut queue = inner.queue.lock().unwrap_or_else(PoisonError::into_inner);
         let mut restored = keep;
         restored.append(&mut queue.pending);
         queue.pending = restored;
         trim_pending(&mut queue);
-        tracing::warn!(target: "trace-store", "flush error: {error}");
+        mixdog_rt::memory_stderr!("[trace-queue] flush error: {error}");
     }
     drop(guard);
     let rearm = {

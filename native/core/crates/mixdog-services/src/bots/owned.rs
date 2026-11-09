@@ -90,7 +90,7 @@ impl RoutineRuntime {
         }
         let skip = move |reason: Skip| async move {
             if let Err(error) = self.records.record_skip(kind, name, self.clock.now()).await {
-                tracing::warn!("{} \"{name}\": skip record failed: {error}", kind.word());
+                mixdog_rt::node_stderr!("mixdog routines: {} \"{name}\": skip record failed: {error}", kind.word());
             }
             Ok::<_, String>(OwnedOutcome::Skipped(reason))
         };
@@ -108,7 +108,7 @@ impl RoutineRuntime {
         // never pauses anything.
         let problem = self.host.owner_problem(owner_agent_id, true).await.ok().flatten();
         if let Some(problem) = problem {
-            tracing::warn!("{} \"{name}\": paused, {}", kind.word(), problem.message());
+            mixdog_rt::node_stderr!("mixdog routines: {} \"{name}\": paused, {}", kind.word(), problem.message());
             return skip(Skip::Owner(problem)).await;
         }
         if overlap {
@@ -120,14 +120,14 @@ impl RoutineRuntime {
             // webhook handler already refuse it, but a one-shot timer or a dispatch that raced
             // the pause must not run it either.
             if state.as_ref().is_some_and(|s| !s.enabled) {
-                tracing::info!("{} \"{name}\": skipped, switched off", kind.word());
+                mixdog_rt::node_stderr!("mixdog routines: {} \"{name}\": skipped, switched off", kind.word());
                 return skip(Skip::Paused).await;
             }
             if let Some(state) = &state {
                 let wait = backoff_remaining_ms(state.consecutive_failures, state.last_failed_at, self.clock.now());
                 if wait > 0 {
-                    tracing::info!(
-                        "{} \"{name}\": skipped, backing off {}s after failures in a row",
+                    mixdog_rt::node_stderr!(
+                        "mixdog routines: {} \"{name}\": skipped, backing off {}s after failures in a row",
                         kind.word(),
                         (wait + 999) / 1000
                     );

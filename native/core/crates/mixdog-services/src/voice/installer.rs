@@ -195,6 +195,11 @@ fn text<'a>(value: &'a Value, key: &str) -> &'a str {
     value.get(key).and_then(Value::as_str).unwrap_or_default()
 }
 
+/// `(bytes / 1024 / 1024).toFixed(0)`: halves round up, as JavaScript rounds them.
+fn megabytes(bytes: u64) -> String {
+    format!("{}", (bytes as f64 / 1024.0 / 1024.0 + 0.5).floor())
+}
+
 fn size(value: &Value) -> u64 {
     value.get("size").and_then(Value::as_u64).unwrap_or(0)
 }
@@ -275,7 +280,7 @@ fn gc_unknown_model_files(manifest: &Value, dir: &Path) {
     for entry in read.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         if name.ends_with(".bin") && !keep.contains(name.as_str()) && std::fs::remove_file(entry.path()).is_ok() {
-            tracing::info!("[voice-runtime] removed stale model file {name}");
+            mixdog_rt::node_stderr!("[voice-runtime] removed stale model file {name}");
         }
     }
 }
@@ -537,7 +542,7 @@ trait Steps {
     async fn unzip(&self, archive: &Path, dest: &Path) -> Result<(), String>;
     async fn publish(&self, staging: PathBuf, active_dir: PathBuf, root: PathBuf, active_name: String) -> Result<(), String>;
     async fn ensure_whisper(&self, progress: Option<ProgressSink>) -> Result<(), String>;
-    async fn stage_whisper(&self, progress: Option<ProgressSink>, variant: &Value, key: &str, root: &Path, active_name: &str, command: &Path) -> Result<(), String>;
+    async fn stage_whisper(&self, progress: Option<ProgressSink>, variant: &Value, env: &VariantEnv, key: &str, root: &Path, active_name: &str, command: &Path) -> Result<(), String>;
     async fn begin_staging(&self, root: &Path) -> Result<PathBuf, String>;
     async fn fill_whisper(&self, progress: Option<ProgressSink>, variant: &Value, key: &str, root: &Path, active_name: &str, staging: &Path) -> Result<(), String>;
     async fn extras(&self, progress: Option<ProgressSink>, extras: Option<&Value>, staging: &Path) -> Result<(), String>;
@@ -650,16 +655,24 @@ impl Steps for ManagedVoiceInstaller {
             return Ok(());
         }
         let lock = self.acquire(&root, "install").await?;
-        let outcome = self.stage_whisper(progress.clone(), variant, &key, &root, &active_name, &command).await;
+        let outcome = self.stage_whisper(progress.clone(), variant, env, &key, &root, &active_name, &command).await;
         self.release(lock).await;
         outcome
     }
 
-    async fn stage_whisper(&self, progress: Option<ProgressSink>, variant: &Value, key: &str, root: &Path, active_name: &str, command: &Path) -> Result<(), String> {
+    async fn stage_whisper(&self, progress: Option<ProgressSink>, variant: &Value, env: &VariantEnv, key: &str, root: &Path, active_name: &str, command: &Path) -> Result<(), String> {
         if ready(self.parts.durability, command.to_owned(), root.to_owned(), active_name.to_owned(), "whisper-".to_owned()).await? {
             return Ok(());
         }
         let staging = self.begin_staging(root).await?;
+        mixdog_rt::node_stderr!(
+            "[voice-runtime] fetching whisper-{} variant={} for {key} ({} MB; cuda={} nvidiaDriver={}) ...",
+            text(&self.parts.manifest, "version"),
+            text(variant, "id"),
+            megabytes(size(variant)),
+            if env.cuda_majors.is_empty() { "none".to_owned() } else { env.cuda_majors.iter().map(u64::to_string).collect::<Vec<_>>().join(",") },
+            env.nvidia_driver
+        );
         let outcome = self.fill_whisper(progress.clone(), variant, key, root, active_name, &staging).await;
         if outcome.is_err() {
             let staging = staging.clone();
@@ -686,7 +699,6 @@ impl Steps for ManagedVoiceInstaller {
         let (url, executable) = (text(variant, "url"), text(variant, "executable"));
         let archive = staging.join(format!("whisper.{}", text(variant, "format")));
         let id = text(variant, "id");
-        tracing::info!("[voice-runtime] fetching whisper-{} variant={id} for {key}", text(&self.parts.manifest, "version"));
         self.download(progress.clone(), url, &archive, size(variant), DOWNLOAD_TIMEOUT, "runtime").await?;
         let sha = text(variant, "sha256");
         if sha.is_empty() {
@@ -707,7 +719,7 @@ impl Steps for ManagedVoiceInstaller {
         self.extras(progress.clone(), variant.get("extras"), staging).await?;
         let (active_dir, root_owned) = (root.join(active_name), root.to_owned());
         self.publish(staging.to_owned(), active_dir, root_owned, active_name.to_owned()).await?;
-        tracing::info!("[voice-runtime] whisper variant={id} ready at {}", root.join(active_name).display());
+        mixdog_rt::node_stderr!("[voice-runtime] whisper-{} variant={id} ready at {}", text(&self.parts.manifest, "version"), root.join(active_name).display());
         let (root, active) = (root.to_owned(), active_name.to_owned());
         fs(self.parts.durability, move || gc_stale_versions(&root, &active, "whisper-")).await
     }
@@ -787,7 +799,7 @@ impl Steps for ManagedVoiceInstaller {
         if actual == expected {
             return Ok(true);
         }
-        tracing::info!("[voice-runtime] model {} sha256 mismatch (expected {expected}, got {actual}) — re-fetching", path.display());
+        mixdog_rt::node_stderr!("[voice-runtime] model {} sha256 mismatch (expected {expected}, got {actual}) — re-fetching", path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default());
         let path = path.to_owned();
         fs(self.parts.durability, move || remove_any(&path)).await?;
         Ok(false)
@@ -810,7 +822,7 @@ impl Steps for ManagedVoiceInstaller {
     }
 
     async fn fill_model(&self, progress: Option<ProgressSink>, model: &Value, dir: &Path, path: &Path, staging: &Path) -> Result<(), String> {
-        tracing::info!("[voice-runtime] fetching model {}", text(model, "id"));
+        mixdog_rt::node_stderr!("[voice-runtime] fetching model {} ({} MB) from {} ...", text(model, "id"), megabytes(size(model)), text(model, "url"));
         self.download(progress.clone(), text(model, "url"), staging, size(model), MODEL_TIMEOUT, "model").await?;
         self.verify(staging, text(model, "sha256")).await?;
         let (from, to) = (staging.to_owned(), path.to_owned());
@@ -854,7 +866,7 @@ impl Steps for ManagedVoiceInstaller {
     async fn fill_ffmpeg(&self, progress: Option<ProgressSink>, entry: &Value, key: &str, root: &Path, active_name: &str, staging: &Path) -> Result<(), String> {
         let (format, executable) = (text(entry, "format"), text(entry, "executable"));
         let archive = staging.join(format!("ffmpeg.{format}"));
-        tracing::info!("[voice-runtime] fetching {active_name} for {key}");
+        mixdog_rt::node_stderr!("[voice-runtime] fetching {active_name} for {key} ({} MB) ...", megabytes(size(entry)));
         self.download(progress.clone(), text(entry, "url"), &archive, size(entry), DOWNLOAD_TIMEOUT, "ffmpeg").await?;
         let sha = text(entry, "sha256");
         if sha.is_empty() {
@@ -884,7 +896,7 @@ impl Steps for ManagedVoiceInstaller {
             return Err(format!("[voice-runtime] expected ffmpeg executable {executable} not present after extract"));
         }
         self.publish(staging.to_owned(), root.join(active_name), root.to_owned(), active_name.to_owned()).await?;
-        tracing::info!("[voice-runtime] {active_name} ready at {}", root.join(active_name).display());
+        mixdog_rt::node_stderr!("[voice-runtime] {active_name} ready at {}", root.join(active_name).display());
         let (root, active) = (root.to_owned(), active_name.to_owned());
         fs(self.parts.durability, move || gc_stale_versions(&root, &active, "ffmpeg-")).await
     }

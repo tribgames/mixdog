@@ -196,7 +196,7 @@ impl AgentHomeDelivery {
     }
 
     pub(super) fn log(&self, line: &str) {
-        tracing::warn!("mixdog routines: {line}");
+        mixdog_rt::node_stderr!("mixdog routines: {line}");
     }
 
     /// Whether home thread `session_id` is busy: a turn in flight in this process, or the live

@@ -308,7 +308,7 @@ impl MediaJobs {
                     s.insert("errorCode".into(), json!(failure.code));
                     if !canceled {
                         // The snapshot is the only record of a failure and it is swept: keep the reason.
-                        tracing::error!("[media] job failed lane={} model={} kind={} code={}: {}", described.0, described.1, described.2, failure.code.as_deref().unwrap_or("none"), mixdog_js::slice_utf16(&failure.message, 500));
+                        mixdog_rt::node_console_error!("[media] job failed lane={} model={} kind={} code={}: {}", described.0, described.1, described.2, failure.code.as_deref().unwrap_or("none"), mixdog_js::slice_utf16(&failure.message, 500));
                     }
                 }
             }

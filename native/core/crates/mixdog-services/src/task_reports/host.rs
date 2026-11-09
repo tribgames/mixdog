@@ -265,7 +265,7 @@ impl RearmHost for TaskReportHost {
                 }
             }
             Ok(_) => {}
-            Err(error) => tracing::info!("mixdog task sessions: collecting the files of {session_id} failed: {error}"),
+            Err(error) => mixdog_rt::node_stderr!("mixdog task sessions: collecting the files of {session_id} failed: {error}"),
         }
         fields
     }

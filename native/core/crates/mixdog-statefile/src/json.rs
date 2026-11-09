@@ -121,7 +121,8 @@ fn parse(content: Option<Vec<u8>>, validate: Option<Validate>) -> Parsed {
     let Some(content) = content else { return Parsed::Absent };
     let value = match parse_json_text(&content) {
         Ok(value) => value,
-        Err(error) => return Parsed::Damaged(error.to_string()),
+        // The reason is the `SyntaxError` message V8 gives, which `reportDamaged` prints.
+        Err(error) => return Parsed::Damaged(json_text_problem(&content).unwrap_or_else(|| error.to_string())),
     };
     match validate.map_or(Ok(()), |validate| validate(&value)) {
         Ok(()) => Parsed::Ok { value, content },
@@ -180,7 +181,7 @@ fn quarantine_path(path: &Path) -> PathBuf {
 }
 
 fn report_damaged(path: &Path, reason: &str, outcome: &str) {
-    tracing::warn!("[state] {} is damaged ({reason}); {outcome}", path.display());
+    mixdog_rt::node_stderr!("[state] {} is damaged ({reason}); {outcome}", path.display());
 }
 
 /// Caller holds the file's lock. The file is read again, so one another process has repaired

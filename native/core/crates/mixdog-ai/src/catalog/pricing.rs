@@ -120,7 +120,7 @@ impl CatalogService {
         });
         *audited = Some(revision);
         if let Some(report) = &report {
-            tracing::warn!("{report}");
+            mixdog_rt::node_stderr!("{report}");
         }
         report
     }

@@ -289,7 +289,7 @@ impl Inner {
     }
 
     fn notify_failure(&self, name: &str, reason: &str) {
-        tracing::warn!(schedule = name, "{reason}");
+        mixdog_rt::node_stderr!("mixdog scheduler: schedule \"{name}\": {reason}");
     }
 
     fn abort_tasks(&self) {
@@ -364,7 +364,7 @@ impl Inner {
 
     fn arm_cron(self: &Arc<Self>, schedule: &Schedule, expression: &str) {
         let Ok(expr) = CronExpr::parse(expression) else {
-            tracing::warn!(schedule = %schedule.name, "invalid cron — skipped");
+            mixdog_rt::node_stderr!("mixdog scheduler: invalid cron \"{}\" ({expression}) — skipped", schedule.name);
             return;
         };
         let tz = tz_of(schedule, self.local_tz);
@@ -379,7 +379,7 @@ impl Inner {
                 tokio::spawn(async move {
                     // `scheduler.mjs:311`: a failed write is logged, the schedule still runs.
                     if let Err(err) = store.set_next_fire(&n, Some(next)).await {
-                        tracing::warn!(schedule = %n, "setNextFire failed: {err}");
+                        mixdog_rt::node_stderr!("mixdog scheduler: {n} setNextFire failed: {err}");
                     }
                 });
             }
@@ -442,7 +442,7 @@ impl Inner {
         self.update(name, |s| s.next_fire_at = next);
         if self.skip_until(name).is_some() {
             if let Err(err) = self.store.advance_cursor(name, scheduled_at, next).await {
-                tracing::warn!(schedule = name, "cursor advance failed: {err}");
+                mixdog_rt::node_stderr!("mixdog scheduler: {name} cursor advance failed: {err}");
             }
             return;
         }
@@ -456,7 +456,7 @@ impl Inner {
             let now = self.clock.now();
             self.update(name, |s| s.last_failed_at = Some(now));
             let _ = self.store.mark_failure(name, now).await;
-            tracing::warn!(schedule = name, "failed: {err}");
+            mixdog_rt::node_stderr!("mixdog scheduler: {name} failed: {err}");
             self.notify_failure(name, &format!("run failed: {err}"));
         }
     }
@@ -470,7 +470,7 @@ impl Inner {
         refusal: Option<Refusal>,
     ) -> Result<(), ScheduleError> {
         if !self.store.claim_run(name, scheduled_at, started_at, next).await? {
-            tracing::info!(schedule = name, "duplicate/stale cron slot skipped");
+            mixdog_rt::node_stderr!("mixdog scheduler: {name}: duplicate/stale cron slot skipped");
             return Ok(());
         }
         self.update(name, |s| {
@@ -506,7 +506,7 @@ impl Inner {
         match reason {
             Refusal::Running => {
                 if let Err(err) = self.store.mark_skipped(name, now).await {
-                    tracing::warn!(schedule = name, "skip record failed: {err}");
+                    mixdog_rt::node_stderr!("mixdog scheduler: {name} skip record failed: {err}");
                 }
             }
             // A skip, not a failure: a one-shot stays pending and rename_locked re-arms it.
@@ -521,7 +521,7 @@ impl Inner {
             match self.store.mark_done(name).await {
                 Ok(()) => return true,
                 Err(err) => {
-                    tracing::warn!(schedule = name, attempt, "markDone failed: {err}");
+                    mixdog_rt::node_stderr!("mixdog scheduler: {name} markDone failed (attempt {attempt}/3): {err}");
                     if attempt < 3 {
                         tokio::time::sleep(StdDuration::from_millis(250)).await;
                     }
@@ -578,7 +578,7 @@ impl Inner {
             s.last_success_at = Some(now);
         });
         if let Err(err) = self.store.mark_fired(name, started).await {
-            tracing::warn!(schedule = name, "markFired failed: {err}");
+            mixdog_rt::node_stderr!("mixdog scheduler: {name} markFired failed: {err}");
         }
         // `scheduler.mjs:371`: a failed success mark is the run's failure (the caller marks it failed, logs and notifies).
         self.store.mark_success(name, now).await?;
@@ -616,7 +616,7 @@ impl Inner {
             r.enabled && r.status != ScheduleStatus::Done && r.when_at == armed.when_at && r.when_cron == armed.when_cron
         });
         if !current {
-            tracing::info!(schedule = name, "not fired — deleted or changed since it was armed");
+            mixdog_rt::node_stderr!("mixdog scheduler: {name}: not fired — deleted or changed since it was armed");
             let now = self.clock.now();
             // A skip, not a failed run: the callers record no failure on its row.
             self.update(name, |s| s.last_skipped_at = Some(now));
@@ -667,7 +667,7 @@ impl Inner {
             Ok(RunOutcome::Skipped(reason)) => {
                 let now = self.clock.now();
                 self.update(&schedule.name, |s| s.last_skipped_at = Some(now));
-                tracing::info!(schedule = %schedule.name, "skipped — {}", reason.text());
+                mixdog_rt::node_stderr!("mixdog scheduler: {}: skipped — {}", schedule.name, reason.text());
                 Ok(false)
             }
             Ok(RunOutcome::Done) => Ok(true),

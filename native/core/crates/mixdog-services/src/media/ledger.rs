@@ -81,7 +81,7 @@ pub async fn record_media_usage(sink: &dyn UsageSink, pricing: &dyn UsagePricing
         Err(error) => Err(error),
     };
     if let Err(error) = saved {
-        tracing::error!("[usage-ledger] RECORD NOT SAVED: {error}");
+        mixdog_rt::node_stderr!("[usage-ledger] RECORD NOT SAVED: {error}");
     }
 }
 

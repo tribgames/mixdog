@@ -115,7 +115,7 @@ impl ChannelRuntime {
         // The provider registry must be populated before the scheduler's first fire;
         // a failure is non-fatal: the runtime keeps going without it.
         if let Err(error) = self.agent.init_providers().await {
-            tracing::warn!("mixdog: initProviders failed (non-fatal): {error}");
+            mixdog_rt::node_stderr!("mixdog: initProviders failed (non-fatal): {error}");
         }
     }
 
@@ -146,7 +146,7 @@ impl ChannelRuntime {
         self.scheduler.start();
         let synced = self.services.sync(false).await;
         self.state.lock().unwrap().automation_running = true;
-        tracing::info!("mixdog: automation runtime up");
+        mixdog_rt::node_stderr!("mixdog: automation runtime up");
         synced
     }
 
@@ -191,7 +191,7 @@ impl ChannelRuntime {
         // A start error is non-fatal: it rolls back the connected state and degrades to
         // automation-only mode.
         if let Err(error) = self.activate_bridge().await {
-            tracing::warn!("mixdog: bridge start failed (non-fatal): {error}");
+            mixdog_rt::node_stderr!("mixdog: bridge start failed (non-fatal): {error}");
             self.state.lock().unwrap().bridge_connected = false;
         }
         flag.finished = true;
@@ -275,7 +275,7 @@ impl ChannelLifecycle for ChannelRuntime {
         Ok(match self.agent.reload().await {
             Ok(()) => ", agent providers/presets/maintenance".to_string(),
             Err(error) => {
-                tracing::warn!("[reload_config] agent reload failed: {error}");
+                mixdog_rt::node_stderr!("[reload_config] agent reload failed: {error}");
                 String::new()
             }
         })

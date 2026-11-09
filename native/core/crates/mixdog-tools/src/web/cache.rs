@@ -1,7 +1,6 @@
 //! Node's result cache (`cache.mjs`): payloads keyed by `namespace:sha256`, expiry plus
 //! entry-count and byte caps, persisted as `cache.local.json`. Locks are held only for map edits.
 
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -304,7 +303,7 @@ impl NodeCache {
             let now = Instant::now();
             if writer.last_warn.is_none_or(|at| now.duration_since(at) > WARN_INTERVAL) {
                 writer.last_warn = Some(now);
-                let _ = writeln!(std::io::stderr(), "[web-search-cache] flush delayed: {failure}");
+                mixdog_rt::node_stderr!("[web-search-cache] flush delayed: {failure}");
             }
             !std::mem::replace(&mut writer.timer_armed, true)
         };

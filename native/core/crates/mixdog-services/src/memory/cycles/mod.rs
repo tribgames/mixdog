@@ -69,5 +69,5 @@ pub struct DirtyFlush {
 }
 
 pub(crate) fn log(message: &str) {
-    tracing::info!("{}", message.trim_end_matches('\n'));
+    mixdog_rt::memory_stderr!("{}", message.trim_end_matches('\n'));
 }

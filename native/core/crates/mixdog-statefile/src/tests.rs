@@ -514,3 +514,31 @@ fn symlink_metadata_reports_the_entry_and_not_what_a_link_leads_to() {
     #[cfg(not(unix))]
     assert_eq!(followed, (false, false));
 }
+
+/// A damaged state file writes the line `reportDamaged` writes to stderr, byte for byte as a real Node run wrote it
+/// (`node-stderr/lines.json`, `stateDamaged`).
+#[test]
+fn a_damaged_file_writes_the_line_node_wrote() {
+    let recorded: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/node-stderr/lines.json")).unwrap();
+    let _clock = fix_recovery_clock(recorded["stamp"].as_u64().unwrap().into());
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("state.json");
+    fs::write(&file, "{\"a\":").unwrap();
+    let lines = on_lane({
+        let file = file.clone();
+        move |lane| {
+            let (lines, _guard) = mixdog_rt::node_log::capture();
+            read_json(lane, &file, None, &Opts { fsync: false, ..Opts::default() }).unwrap();
+            let got: Vec<String> = lines.lock().unwrap().iter().map(|(_, _, line)| line.clone()).collect();
+            got
+        }
+    });
+    let stamp = recorded["stamp"].to_string();
+    let want: Vec<String> = recorded["sites"]["stateDamaged"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|line| line.as_str().unwrap().strip_suffix('\n').unwrap().replace("<DIR>", &dir.path().display().to_string()).replace("<STAMP>", &stamp))
+        .collect();
+    assert_eq!(lines, want);
+}

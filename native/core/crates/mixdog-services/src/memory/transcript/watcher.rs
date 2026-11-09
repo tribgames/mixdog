@@ -29,7 +29,7 @@ const DEBOUNCE: Duration = Duration::from_millis(500);
 pub const WATCH_ID: &str = "memory-transcripts";
 
 fn log(message: &str) {
-    tracing::info!("{}", message.trim_end_matches('\n'));
+    mixdog_rt::memory_stderr!("{}", message.trim_end_matches('\n'));
 }
 
 struct Sink(UnboundedSender<Vec<String>>);

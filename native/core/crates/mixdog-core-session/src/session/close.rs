@@ -280,7 +280,7 @@ impl SessionClose {
             Ok(true) => {}
             Ok(false) => return true,
             Err(error) => {
-                tracing::warn!("[agent-close] session={session_id} reason={reason} tombstone=true FAILED durable lifecycle barrier: {error:?}");
+                mixdog_rt::node_stderr!("[agent-close] session={session_id} reason={reason} tombstone=true FAILED durable lifecycle barrier: {error:?}");
                 return false;
             }
         }
@@ -300,7 +300,7 @@ impl SessionClose {
             Ok(true) => {}
             Ok(false) => return true,
             Err(error) => {
-                tracing::warn!("[agent-close] session={session_id} reason={reason} tombstone=false FAILED durable lifecycle barrier: {error:?}");
+                mixdog_rt::node_stderr!("[agent-close] session={session_id} reason={reason} tombstone=false FAILED durable lifecycle barrier: {error:?}");
                 return false;
             }
         }

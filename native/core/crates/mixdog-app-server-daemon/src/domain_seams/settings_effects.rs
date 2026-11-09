@@ -131,7 +131,7 @@ impl SettingsEffects for DaemonSettingsEffects {
         let readiness = self.readiness.clone();
         mixdog_rt::spawn("developer-option-providers", TaskClass::Work, async move {
             if let Err(error) = readiness.ensure_providers_ready(Some(providers)).await {
-                tracing::warn!("[providers] {provider} init after enabling failed: {}", error.message);
+                mixdog_rt::node_console_warn!("[providers] {provider} init after enabling failed: {}", error.message);
             }
         });
     }

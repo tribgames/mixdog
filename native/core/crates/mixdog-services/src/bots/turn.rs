@@ -167,8 +167,8 @@ impl RoutineRuntime {
             match early {
                 Some(settle) => (settle, false),
                 None => {
-                    tracing::warn!(
-                        "{} \"{name}\" in {home_id} passed {}s: ended without a reply",
+                    mixdog_rt::node_stderr!(
+                        "mixdog routines: {} \"{name}\" in {home_id} passed {}s: ended without a reply",
                         kind.word(),
                         HEARTBEAT_WALL_CLOCK_MS / 1000
                     );
