@@ -1,65 +1,31 @@
-// The TUI app's `/mcp login` flow composed with the shared oauth-code prompt: only the session's MCP sign-in actions
-// are stubbed (they are remote calls to the core). The TUI app owns the completion notice, so exactly one is posted.
+// The TUI app's `/mcp login` flow against what Node's own modules (b6f10295a) did for the same sign-in runtimes:
+// the prompt the flow opens and the notices it posts (node-oracle/record.mjs). Node also ran the flows composed with
+// its in-process session extensions API; that API posted one extra "mcp sign-in started" notice of its own, which in
+// this tree is the core's to post, so the TUI's flow is compared with the plain-store run.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
+import { MCP_FLOWS, runMcpFlow } from '../node-oracle/cases.mjs';
 import { submitProviderPrompt } from '../prompt-submit/provider-prompts.mjs';
 import { createMcpLogin } from './mcp-login.mjs';
 
-const CALLBACK = 'http://127.0.0.1:1/oauth/callback?code=c&state=s';
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const golden = JSON.parse(readFileSync(new URL('../node-oracle/node-oracle.golden.json', import.meta.url), 'utf8'));
 
-function compose(runtime) {
-  const notices = [];
-  const store = { ...runtime, pushNotice: (text, level) => notices.push([text, level]) };
-  let prompt = null;
-  const setProviderPrompt = (next) => {
-    prompt = typeof next === 'function' ? next(prompt) : next;
-  };
-  const login = createMcpLogin({ store, setProviderPrompt, pollMs: 5 });
-  const ctx = {
-    state: { commandBusy: false, stats: {} },
-    store,
-    oauthSubmitRef: { current: false },
-    setProviderPrompt,
-    clearModelCaches: () => {},
-    openPanel: () => assert.fail('no provider picker follows an MCP sign-in'),
-  };
-  const completions = () => notices.filter(([text]) => /complete/i.test(text));
-  return { login, ctx, notices, completions, prompt: () => prompt };
+for (const flow of MCP_FLOWS) {
+  test(`the /mcp login flow equals Node's: ${flow.name}`, async () => {
+    const recorded = golden.flows.find((f) => f.name === flow.name);
+    const observed = await runMcpFlow(flow, {
+      createMcpLogin,
+      submitProviderPrompt,
+      makeStore: (runtime, pushNotice) => ({ ...runtime, pushNotice }),
+    });
+    assert.deepEqual(observed, recorded.plain);
+    // Composed with Node's session API, the only difference was its own start notice.
+    const withoutStart = recorded.composed.notices.filter(([text]) => !text.startsWith('mcp sign-in started:'));
+    assert.deepEqual({ ...recorded.composed, notices: withoutStart }, recorded.plain);
+    // Exactly one completion notice, and no notice carries the pasted code.
+    assert.ok(observed.notices.filter(([text]) => /complete/i.test(text)).length <= 1);
+    assert.ok(observed.notices.every(([text]) => !text.includes('code=')));
+  });
 }
-
-test('a pasted callback posts exactly one sign-in completion notice', async () => {
-  let flowState = 'pending';
-  const c = compose({
-    beginMcpOAuthLogin: async () => ({ flowId: 'mcp_oauth_1', state: 'pending', url: 'https://auth.example/a' }),
-    getMcpOAuthLoginStatus: (flowId) => ({ flowId, state: flowState }),
-    cancelMcpOAuthLogin: async (flowId) => ({ flowId, state: 'cancelled' }),
-    completeMcpOAuthLogin: async (flowId) => {
-      flowState = 'complete';
-      return { flowId, state: 'complete' };
-    },
-  });
-  await c.login.loginMcpServer('srv');
-  const prompt = c.prompt();
-  assert.equal(prompt.kind, 'oauth-code');
-  assert.equal(submitProviderPrompt(c.ctx, prompt, CALLBACK), true);
-  // Let the paste settle and any further status poll run.
-  await sleep(40);
-  assert.equal(c.prompt(), null);
-  assert.equal(c.completions().length, 1, JSON.stringify(c.notices));
-  assert.ok(c.notices.every(([text]) => !text.includes('code=')));
-});
-
-test('a sign-in completed by stored tokens posts exactly one completion notice', async () => {
-  const c = compose({
-    beginMcpOAuthLogin: async () => ({ flowId: 'mcp_oauth_2', state: 'complete' }),
-    getMcpOAuthLoginStatus: () => assert.fail('no flow to poll'),
-    cancelMcpOAuthLogin: async () => assert.fail('nothing to cancel'),
-    completeMcpOAuthLogin: async () => assert.fail('nothing to paste'),
-  });
-  await c.login.loginMcpServer('srv');
-  await sleep(20);
-  assert.equal(c.prompt(), null);
-  assert.deepEqual(c.completions(), [['MCP sign-in complete for srv', 'info']]);
-});
