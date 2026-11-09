@@ -114,26 +114,27 @@ pub struct Flush {
 }
 
 /// The deadline of a flush's bound: a second after it was fixed. Under `test-support` it counts on the test's
-/// controlled clock ([`seam::CLOCK`]) instead of the wall clock.
+/// controlled clock ([`seam::CLOCK`]) instead of the wall clock, except in this crate's own unit tests, which run the
+/// production mechanism on tokio's (pausable) time.
 struct Bound(
-    #[cfg(not(feature = "test-support"))] tokio::time::Instant,
-    #[cfg(feature = "test-support")] u64,
+    #[cfg(not(all(feature = "test-support", not(test))))] tokio::time::Instant,
+    #[cfg(all(feature = "test-support", not(test)))] u64,
 );
 
 impl Bound {
     const MS: u64 = 1000;
 
     fn from_now() -> Self {
-        #[cfg(not(feature = "test-support"))]
+        #[cfg(not(all(feature = "test-support", not(test))))]
         return Self(tokio::time::Instant::now() + Duration::from_millis(Self::MS));
-        #[cfg(feature = "test-support")]
+        #[cfg(all(feature = "test-support", not(test)))]
         return Self(seam::CLOCK.now() + Self::MS);
     }
 
     async fn passed(&self) {
-        #[cfg(not(feature = "test-support"))]
+        #[cfg(not(all(feature = "test-support", not(test))))]
         tokio::time::sleep_until(self.0).await;
-        #[cfg(feature = "test-support")]
+        #[cfg(all(feature = "test-support", not(test)))]
         seam::CLOCK.reached(self.0).await;
     }
 }
@@ -632,8 +633,9 @@ mod tests {
     }
 
     /// Node waits for a page's flush on one promise bounded at a second: the login's `settle` and the listener's
-    /// `stopListening` share it. A flush that never completes lets the connections live a second, not two.
-    #[tokio::test(flavor = "multi_thread")]
+    /// `stopListening` share it. With a flush that never completes, the connections are destroyed a second after the
+    /// flush was registered, not two. This runs the production deadline (tokio time, paused), not the test clock.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn the_login_and_the_shutdown_share_one_flush_bound() {
         let _runtime = mixdog_rt::testing::tokens();
         let (tx, _rx) = mpsc::unbounded_channel();
@@ -642,20 +644,17 @@ mod tests {
         let mut idle = TcpStream::connect(("127.0.0.1", listener.port)).await.unwrap();
         seam::CONNECTIONS.after(accepted).await;
 
+        let registered = tokio::time::Instant::now();
         let flush = Flush::pending();
         flush.start();
-        let login = tokio::spawn({
-            let flush = flush.clone();
-            async move { flush.wait().await }
-        });
-        // The bound passes once, and the login's wait ends with it.
-        seam::CLOCK.advance(Bound::MS);
-        login.await.unwrap();
+        // The login waits out the bound.
+        flush.wait().await;
+        assert_eq!(registered.elapsed(), Duration::from_secs(1), "the login's wait ends at the bound");
 
-        // Shutting down now must not start a second bound: the connection is destroyed without the clock moving again.
         listener.stopper().shutdown(Some(flush)).await;
         let mut byte = [0u8; 1];
-        let read = tokio::time::timeout(Duration::from_secs(10), idle.read(&mut byte)).await;
-        assert!(matches!(read, Ok(Ok(0))), "the connection was not destroyed at the shared bound: {read:?}");
+        let read = idle.read(&mut byte).await;
+        assert!(matches!(read, Ok(0)), "the connection was destroyed: {read:?}");
+        assert_eq!(registered.elapsed(), Duration::from_secs(1), "shutdown destroyed the connections at 1 s, not 2 s");
     }
 }
