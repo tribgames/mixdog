@@ -144,7 +144,7 @@ pub fn resolve_layout(path_value: &str) -> Option<Layout> {
     })
 }
 
-type Env = Vec<(String, String)>;
+pub type Env = Vec<(String, String)>;
 
 /// Windows names are case-insensitive. Of several spellings in one environment Node passes the
 /// first in sorted order to the child, so that one is read and written.

@@ -107,7 +107,8 @@ impl Runner<'_> {
         }
         spec.time_limit = Some(DEFAULT_TIMEOUT);
         spec.max_output = MAX_CAPTURE_BYTES;
-        match self.exec.run(spec, self.cancel).await {
+        // `runGit`: `startGit(env, ...)`, the git PATH resolves to with its launcher's environment.
+        match mixdog_scm::git::start_git(self.exec, self.lane, spec, self.cancel).await {
             Ok(out) => GitRun {
                 code: out.code,
                 stdout: out.stdout,

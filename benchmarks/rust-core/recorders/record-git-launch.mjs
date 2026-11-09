@@ -115,8 +115,41 @@ const envCases = envScenarios.map((scenario, index) => {
 });
 if (!envCases.some((c) => c.env.HOME === '<ROOT>\\home')) throw new Error('no scenario took HOME from HOMEPATH');
 
+// ── the environment a git child gets: the caller's variables first, the launcher's on top ───
+// `gitChildEnv(env)` takes the whole environment the child would have (the process's with the
+// caller's changes applied), so a PATH, MSYSTEM or MSYS the caller set is transformed like any
+// inherited one. `process` is the inherited environment, `set` and `remove` the caller's changes;
+// PATH is the one the layout is resolved from, so `pathFrom` names where it comes from.
+const { gitCommand, gitChildEnv } = await importFrom(tree, 'src/runtime/shared/git-launch.mjs');
+const mergeScenarios = [
+  { id: 'nothing from the caller', process: { PATH: '<ROOT>\\cmd;C:\\p', HOME: 'C:\\h' }, set: {}, remove: [] },
+  { id: 'caller PATH names the install', process: { PATH: 'C:\\p', HOME: 'C:\\h' }, set: { PATH: '<ROOT>\\cmd;C:\\caller' }, remove: [] },
+  { id: 'caller PATH replaces an inherited one', process: { PATH: '<ROOT>\\cmd;C:\\inherited', HOME: 'C:\\h' }, set: { PATH: '<ROOT>\\cmd;C:\\caller' }, remove: [] },
+  { id: 'caller MSYSTEM', process: { PATH: '<ROOT>\\cmd', HOME: 'C:\\h' }, set: { MSYSTEM: 'UCRT64' }, remove: [] },
+  { id: 'caller MSYS with a config', layout: 'msys config', process: { PATH: '<ROOT>\\cmd', HOME: 'C:\\h' }, set: { MSYS: 'mine' }, remove: [] },
+  { id: 'caller PLINK_PROTOCOL and HOME', process: { PATH: '<ROOT>\\cmd', USERPROFILE: 'C:\\Users\\u' }, set: { PLINK_PROTOCOL: 'telnet', HOME: 'C:\\callerhome' }, remove: [] },
+  { id: 'caller removes HOME', process: { PATH: '<ROOT>\\cmd', HOME: 'C:\\h' }, set: {}, remove: ['HOME'] },
+  { id: 'caller removes USERPROFILE', process: { PATH: '<ROOT>\\cmd', USERPROFILE: 'C:\\Users\\u' }, set: {}, remove: ['USERPROFILE'] },
+  { id: 'caller sets everything at once', layout: 'msys config', process: { PATH: 'C:\\p', MSYS: 'inherited', HOME: 'C:\\h' }, set: { PATH: '<ROOT>\\cmd', MSYSTEM: 'X', MSYS: 'mine', GIT_TERMINAL_PROMPT: '0' }, remove: [] },
+  { id: 'no install on the caller PATH', process: { PATH: '<ROOT>\\cmd', HOME: 'C:\\h' }, set: { PATH: 'C:\\nothing', MSYSTEM: 'X' }, remove: [] },
+];
+const mergeCases = mergeScenarios.map((scenario, index) => {
+  const layoutId = scenario.layout ?? 'installer';
+  const definition = layouts.find((l) => l.id === layoutId);
+  const root = build(`merge-${index}`, definition);
+  const unc = `\\\\localhost\\${drive}$${root.slice(2)}`;
+  const insert = (value) => withRoot(value, root, unc);
+  const env = Object.fromEntries(Object.entries(scenario.process).map(([k, v]) => [k, insert(v)]));
+  for (const name of scenario.remove) delete env[name];
+  for (const [name, value] of Object.entries(scenario.set)) env[name] = insert(value);
+  const command = gitCommand(env);
+  const child = gitChildEnv(env);
+  return { id: scenario.id, layout: layoutId, process: scenario.process, set: scenario.set, remove: scenario.remove, command: masked(command, root, unc), env: masked(child, root, unc) };
+});
+if (!mergeCases.some((c) => c.command !== 'git') || !mergeCases.some((c) => c.command === 'git')) throw new Error('the merge scenarios must both resolve and not resolve a launch');
+
 const stage = stageSet(join(FIXTURES_ROOT, 'git-launch'));
-writeText(join(stage, 'launch.json'), `${JSON.stringify({ systemRoot, layouts: layoutCases, environments: envCases }, null, 1)}\n`);
+writeText(join(stage, 'launch.json'), `${JSON.stringify({ systemRoot, layouts: layoutCases, environments: envCases, merges: mergeCases }, null, 1)}\n`);
 writeSetManifest(stage, {
   set: 'git-launch',
   recorder: 'benchmarks/rust-core/recorders/record-git-launch.mjs',
