@@ -23,7 +23,7 @@
             "id": "sub1",
             "text": "draft",
             "at": 1700000000000,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           }
         ],
@@ -82,7 +82,7 @@
             "id": "sub1",
             "text": "draft",
             "at": 1700000000150,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           }
         ],
@@ -113,7 +113,7 @@
             "id": "sub1",
             "text": "draft",
             "at": 1700000000150,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           },
           {
@@ -164,7 +164,7 @@
             "id": "sub1",
             "text": "draft",
             "at": 1700000000300,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           }
         ],
@@ -222,7 +222,7 @@
             "id": "sub1",
             "text": "draft",
             "at": 1700000000450,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           }
         ],
@@ -292,7 +292,7 @@
             "id": "sub1",
             "text": "see [Image #1]",
             "at": 1700000000600,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           }
         ],
@@ -323,7 +323,7 @@
             "id": "sub1",
             "text": "see [Image #1]",
             "at": 1700000000600,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           },
           {
@@ -380,7 +380,7 @@
             "id": "sub1",
             "text": "see [Image #1]",
             "at": 1700000000750,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           }
         ],
@@ -446,7 +446,7 @@
             "id": "sub1",
             "text": "see [Text #1]",
             "at": 1700000000900,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           }
         ],
@@ -511,7 +511,7 @@
             "id": "sub1",
             "text": "draft",
             "at": 1700000001050,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           }
         ],
@@ -604,7 +604,7 @@
             "id": "sub1",
             "text": "draft",
             "at": 1700000001050,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           },
           {
@@ -627,7 +627,7 @@
             "id": "sub2",
             "text": "redirect",
             "at": 1700000001050,
-            "messageId": "msg_<random>"
+            "messageId": "msg_<2>"
           }
         ],
         "queued": [],
@@ -670,7 +670,7 @@
             "id": "sub1",
             "text": "see [Image #1]",
             "at": 1700000001200,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           }
         ],
@@ -768,7 +768,7 @@
             "id": "sub1",
             "text": "see [Image #1]",
             "at": 1700000001200,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           },
           {
@@ -791,7 +791,7 @@
             "id": "sub2",
             "text": "redirect",
             "at": 1700000001200,
-            "messageId": "msg_<random>"
+            "messageId": "msg_<2>"
           }
         ],
         "queued": [],
@@ -830,7 +830,7 @@
             "id": "sub1",
             "text": "draft",
             "at": 1700000001350,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           }
         ],
@@ -861,13 +861,13 @@
             "id": "sub1",
             "text": "draft",
             "at": 1700000001350,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           },
           {
             "text": "partial answer",
             "at": 1700000001350,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<2>",
             "device": "PC",
             "completionVerb": "Mapped",
             "attemptId": "<uuid>",
@@ -926,7 +926,7 @@
             "id": "sub1",
             "text": "draft",
             "at": 1700000001500,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           }
         ],
@@ -1031,7 +1031,7 @@
             "id": "sub1",
             "text": "draft",
             "at": 1700000001800,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           }
         ],
@@ -1062,7 +1062,7 @@
             "id": "sub1",
             "text": "draft",
             "at": 1700000001800,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           },
           {
@@ -1111,7 +1111,7 @@
             "id": "sub1",
             "text": "draft",
             "at": 1700000001950,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "PC"
           }
         ],
@@ -1167,7 +1167,7 @@
             "id": "sub1",
             "text": "draft",
             "at": 1700000002100,
-            "messageId": "msg_<random>"
+            "messageId": "msg_<1>"
           }
         ],
         "queued": [],
@@ -2013,7 +2013,7 @@
             "id": "sub1",
             "text": "shown",
             "at": 1700000003100,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "desktop-1"
           }
         ],
@@ -2037,7 +2037,7 @@
                   "id": "sub1",
                   "text": "shown",
                   "at": 1700000003100,
-                  "messageId": "msg_<random>",
+                  "messageId": "msg_<1>",
                   "device": "desktop-1"
                 }
               ],
@@ -2087,7 +2087,7 @@
               "retryAttemptId": null,
               "transcriptMeta": {
                 "at": 1700000003100,
-                "messageId": "msg_<random>",
+                "messageId": "msg_<1>",
                 "device": "desktop-1",
                 "completionVerb": "Mapped",
                 "attemptId": "<uuid>"
@@ -2672,52 +2672,55 @@
       "name": "a submitted row is rewound by the id it shows",
       "kind": "rewind",
       "prompt": "hello",
+      "turns": 1,
       "itemId": "sub1",
       "busy": false,
-      "asked": {
-        "content": "hello",
-        "options": {
-          "id": "sub1",
-          "submissionIds": [
-            "sub1"
-          ],
-          "submittedAt": 1700000003400,
-          "retryFailedTurn": false,
-          "retryTurnId": null,
-          "retryAttemptId": null,
-          "transcriptMeta": {
-            "at": 1700000003400,
-            "messageId": "msg_<random>",
-            "device": "desktop-1",
-            "completionVerb": "Mapped",
-            "attemptId": "<uuid>",
-            "assistantAt": 1700000003400,
-            "assistantMessageId": "msg_<random>"
-          },
-          "context": null,
-          "onSkillsApplied": "[function]",
-          "drainSteering": "[function]",
-          "onSteerMessage": "[function]",
-          "onContextPressure": "[function]",
-          "onCompactEvent": "[function]",
-          "onUsageDelta": "[function]",
-          "onAssistantToolCallObserved": "[function]",
-          "onToolCall": "[function]",
-          "onToolResult": "[function]",
-          "onToolPhaseCompleted": "[function]",
-          "onToolApproval": "[function]",
-          "onProviderSendStarted": "[function]",
-          "onStageChange": "[function]",
-          "onTextDelta": "[function]",
-          "onTextReset": "[function]",
-          "onAssistantText": "[function]",
-          "onReasoningDelta": "[function]",
-          "onStreamItemStart": "[function]",
-          "onRouteApplied": "[function]",
-          "onModelSwitch": "[function]",
-          "onSessionSwitches": "[function]"
+      "asked": [
+        {
+          "content": "hello",
+          "options": {
+            "id": "sub1",
+            "submissionIds": [
+              "sub1"
+            ],
+            "submittedAt": 1700000003400,
+            "retryFailedTurn": false,
+            "retryTurnId": null,
+            "retryAttemptId": null,
+            "transcriptMeta": {
+              "at": 1700000003400,
+              "messageId": "msg_<1>",
+              "device": "desktop-1",
+              "completionVerb": "Mapped",
+              "attemptId": "<uuid>",
+              "assistantAt": 1700000003400,
+              "assistantMessageId": "msg_<2>"
+            },
+            "context": null,
+            "onSkillsApplied": "[function]",
+            "drainSteering": "[function]",
+            "onSteerMessage": "[function]",
+            "onContextPressure": "[function]",
+            "onCompactEvent": "[function]",
+            "onUsageDelta": "[function]",
+            "onAssistantToolCallObserved": "[function]",
+            "onToolCall": "[function]",
+            "onToolResult": "[function]",
+            "onToolPhaseCompleted": "[function]",
+            "onToolApproval": "[function]",
+            "onProviderSendStarted": "[function]",
+            "onStageChange": "[function]",
+            "onTextDelta": "[function]",
+            "onTextReset": "[function]",
+            "onAssistantText": "[function]",
+            "onReasoningDelta": "[function]",
+            "onStreamItemStart": "[function]",
+            "onRouteApplied": "[function]",
+            "onModelSwitch": "[function]",
+            "onSessionSwitches": "[function]"
+          }
         }
-      },
+      ],
       "before": {
         "items": [
           {
@@ -2725,13 +2728,13 @@
             "id": "sub1",
             "text": "hello",
             "at": 1700000003400,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "desktop-1"
           },
           {
             "text": "hi",
             "at": 1700000003400,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<2>",
             "device": "desktop-1",
             "completionVerb": "Mapped",
             "attemptId": "<uuid>",
@@ -2773,7 +2776,7 @@
         {
           "options": {
             "text": "hello",
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "dryRun": true
           },
           "result": {
@@ -2785,12 +2788,12 @@
               "meta": {
                 "transcript": {
                   "at": 1700000003400,
-                  "messageId": "msg_<random>",
+                  "messageId": "msg_<1>",
                   "device": "desktop-1",
                   "completionVerb": "Mapped",
                   "attemptId": "<uuid>",
                   "assistantAt": 1700000003400,
-                  "assistantMessageId": "msg_<random>"
+                  "assistantMessageId": "msg_<2>"
                 }
               }
             },
@@ -2800,7 +2803,7 @@
         {
           "options": {
             "text": "hello",
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "expectedHistoryMarker": "<history-marker>"
           },
           "result": {
@@ -2812,12 +2815,12 @@
               "meta": {
                 "transcript": {
                   "at": 1700000003400,
-                  "messageId": "msg_<random>",
+                  "messageId": "msg_<1>",
                   "device": "desktop-1",
                   "completionVerb": "Mapped",
                   "attemptId": "<uuid>",
                   "assistantAt": 1700000003400,
-                  "assistantMessageId": "msg_<random>"
+                  "assistantMessageId": "msg_<2>"
                 }
               }
             }
@@ -2837,52 +2840,55 @@
       "name": "an id that names no row answers nothing",
       "kind": "rewind",
       "prompt": "hello",
+      "turns": 1,
       "itemId": "zz",
       "busy": false,
-      "asked": {
-        "content": "hello",
-        "options": {
-          "id": "sub1",
-          "submissionIds": [
-            "sub1"
-          ],
-          "submittedAt": 1700000003500,
-          "retryFailedTurn": false,
-          "retryTurnId": null,
-          "retryAttemptId": null,
-          "transcriptMeta": {
-            "at": 1700000003500,
-            "messageId": "msg_<random>",
-            "device": "desktop-1",
-            "completionVerb": "Mapped",
-            "attemptId": "<uuid>",
-            "assistantAt": 1700000003500,
-            "assistantMessageId": "msg_<random>"
-          },
-          "context": null,
-          "onSkillsApplied": "[function]",
-          "drainSteering": "[function]",
-          "onSteerMessage": "[function]",
-          "onContextPressure": "[function]",
-          "onCompactEvent": "[function]",
-          "onUsageDelta": "[function]",
-          "onAssistantToolCallObserved": "[function]",
-          "onToolCall": "[function]",
-          "onToolResult": "[function]",
-          "onToolPhaseCompleted": "[function]",
-          "onToolApproval": "[function]",
-          "onProviderSendStarted": "[function]",
-          "onStageChange": "[function]",
-          "onTextDelta": "[function]",
-          "onTextReset": "[function]",
-          "onAssistantText": "[function]",
-          "onReasoningDelta": "[function]",
-          "onStreamItemStart": "[function]",
-          "onRouteApplied": "[function]",
-          "onModelSwitch": "[function]",
-          "onSessionSwitches": "[function]"
+      "asked": [
+        {
+          "content": "hello",
+          "options": {
+            "id": "sub1",
+            "submissionIds": [
+              "sub1"
+            ],
+            "submittedAt": 1700000003500,
+            "retryFailedTurn": false,
+            "retryTurnId": null,
+            "retryAttemptId": null,
+            "transcriptMeta": {
+              "at": 1700000003500,
+              "messageId": "msg_<1>",
+              "device": "desktop-1",
+              "completionVerb": "Mapped",
+              "attemptId": "<uuid>",
+              "assistantAt": 1700000003500,
+              "assistantMessageId": "msg_<2>"
+            },
+            "context": null,
+            "onSkillsApplied": "[function]",
+            "drainSteering": "[function]",
+            "onSteerMessage": "[function]",
+            "onContextPressure": "[function]",
+            "onCompactEvent": "[function]",
+            "onUsageDelta": "[function]",
+            "onAssistantToolCallObserved": "[function]",
+            "onToolCall": "[function]",
+            "onToolResult": "[function]",
+            "onToolPhaseCompleted": "[function]",
+            "onToolApproval": "[function]",
+            "onProviderSendStarted": "[function]",
+            "onStageChange": "[function]",
+            "onTextDelta": "[function]",
+            "onTextReset": "[function]",
+            "onAssistantText": "[function]",
+            "onReasoningDelta": "[function]",
+            "onStreamItemStart": "[function]",
+            "onRouteApplied": "[function]",
+            "onModelSwitch": "[function]",
+            "onSessionSwitches": "[function]"
+          }
         }
-      },
+      ],
       "before": {
         "items": [
           {
@@ -2890,13 +2896,13 @@
             "id": "sub1",
             "text": "hello",
             "at": 1700000003500,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "desktop-1"
           },
           {
             "text": "hi",
             "at": 1700000003500,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<2>",
             "device": "desktop-1",
             "completionVerb": "Mapped",
             "attemptId": "<uuid>",
@@ -2938,13 +2944,13 @@
             "id": "sub1",
             "text": "hello",
             "at": 1700000003500,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "desktop-1"
           },
           {
             "text": "hi",
             "at": 1700000003500,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<2>",
             "device": "desktop-1",
             "completionVerb": "Mapped",
             "attemptId": "<uuid>",
@@ -2982,52 +2988,55 @@
       "name": "a busy session answers nothing",
       "kind": "rewind",
       "prompt": "hello",
+      "turns": 1,
       "itemId": "sub1",
       "busy": true,
-      "asked": {
-        "content": "hello",
-        "options": {
-          "id": "sub1",
-          "submissionIds": [
-            "sub1"
-          ],
-          "submittedAt": 1700000003600,
-          "retryFailedTurn": false,
-          "retryTurnId": null,
-          "retryAttemptId": null,
-          "transcriptMeta": {
-            "at": 1700000003600,
-            "messageId": "msg_<random>",
-            "device": "desktop-1",
-            "completionVerb": "Mapped",
-            "attemptId": "<uuid>",
-            "assistantAt": 1700000003600,
-            "assistantMessageId": "msg_<random>"
-          },
-          "context": null,
-          "onSkillsApplied": "[function]",
-          "drainSteering": "[function]",
-          "onSteerMessage": "[function]",
-          "onContextPressure": "[function]",
-          "onCompactEvent": "[function]",
-          "onUsageDelta": "[function]",
-          "onAssistantToolCallObserved": "[function]",
-          "onToolCall": "[function]",
-          "onToolResult": "[function]",
-          "onToolPhaseCompleted": "[function]",
-          "onToolApproval": "[function]",
-          "onProviderSendStarted": "[function]",
-          "onStageChange": "[function]",
-          "onTextDelta": "[function]",
-          "onTextReset": "[function]",
-          "onAssistantText": "[function]",
-          "onReasoningDelta": "[function]",
-          "onStreamItemStart": "[function]",
-          "onRouteApplied": "[function]",
-          "onModelSwitch": "[function]",
-          "onSessionSwitches": "[function]"
+      "asked": [
+        {
+          "content": "hello",
+          "options": {
+            "id": "sub1",
+            "submissionIds": [
+              "sub1"
+            ],
+            "submittedAt": 1700000003600,
+            "retryFailedTurn": false,
+            "retryTurnId": null,
+            "retryAttemptId": null,
+            "transcriptMeta": {
+              "at": 1700000003600,
+              "messageId": "msg_<1>",
+              "device": "desktop-1",
+              "completionVerb": "Mapped",
+              "attemptId": "<uuid>",
+              "assistantAt": 1700000003600,
+              "assistantMessageId": "msg_<2>"
+            },
+            "context": null,
+            "onSkillsApplied": "[function]",
+            "drainSteering": "[function]",
+            "onSteerMessage": "[function]",
+            "onContextPressure": "[function]",
+            "onCompactEvent": "[function]",
+            "onUsageDelta": "[function]",
+            "onAssistantToolCallObserved": "[function]",
+            "onToolCall": "[function]",
+            "onToolResult": "[function]",
+            "onToolPhaseCompleted": "[function]",
+            "onToolApproval": "[function]",
+            "onProviderSendStarted": "[function]",
+            "onStageChange": "[function]",
+            "onTextDelta": "[function]",
+            "onTextReset": "[function]",
+            "onAssistantText": "[function]",
+            "onReasoningDelta": "[function]",
+            "onStreamItemStart": "[function]",
+            "onRouteApplied": "[function]",
+            "onModelSwitch": "[function]",
+            "onSessionSwitches": "[function]"
+          }
         }
-      },
+      ],
       "before": {
         "items": [
           {
@@ -3035,13 +3044,13 @@
             "id": "sub1",
             "text": "hello",
             "at": 1700000003600,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "desktop-1"
           },
           {
             "text": "hi",
             "at": 1700000003600,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<2>",
             "device": "desktop-1",
             "completionVerb": "Mapped",
             "attemptId": "<uuid>",
@@ -3083,13 +3092,13 @@
             "id": "sub1",
             "text": "hello",
             "at": 1700000003600,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<1>",
             "device": "desktop-1"
           },
           {
             "text": "hi",
             "at": 1700000003600,
-            "messageId": "msg_<random>",
+            "messageId": "msg_<2>",
             "device": "desktop-1",
             "completionVerb": "Mapped",
             "attemptId": "<uuid>",
@@ -3120,6 +3129,289 @@
         "promptHistory": [
           "hello"
         ],
+        "busy": false
+      }
+    },
+    {
+      "name": "the second of two prompts with the same text is rewound",
+      "kind": "rewind",
+      "prompt": "hello",
+      "turns": 2,
+      "itemId": "sub2",
+      "busy": false,
+      "asked": [
+        {
+          "content": "hello",
+          "options": {
+            "id": "sub1",
+            "submissionIds": [
+              "sub1"
+            ],
+            "submittedAt": 1700000003700,
+            "retryFailedTurn": false,
+            "retryTurnId": null,
+            "retryAttemptId": null,
+            "transcriptMeta": {
+              "at": 1700000003700,
+              "messageId": "msg_<1>",
+              "device": "desktop-1",
+              "completionVerb": "Mapped",
+              "attemptId": "<uuid>",
+              "assistantAt": 1700000003700,
+              "assistantMessageId": "msg_<2>"
+            },
+            "context": null,
+            "onSkillsApplied": "[function]",
+            "drainSteering": "[function]",
+            "onSteerMessage": "[function]",
+            "onContextPressure": "[function]",
+            "onCompactEvent": "[function]",
+            "onUsageDelta": "[function]",
+            "onAssistantToolCallObserved": "[function]",
+            "onToolCall": "[function]",
+            "onToolResult": "[function]",
+            "onToolPhaseCompleted": "[function]",
+            "onToolApproval": "[function]",
+            "onProviderSendStarted": "[function]",
+            "onStageChange": "[function]",
+            "onTextDelta": "[function]",
+            "onTextReset": "[function]",
+            "onAssistantText": "[function]",
+            "onReasoningDelta": "[function]",
+            "onStreamItemStart": "[function]",
+            "onRouteApplied": "[function]",
+            "onModelSwitch": "[function]",
+            "onSessionSwitches": "[function]"
+          }
+        },
+        {
+          "content": "hello",
+          "options": {
+            "id": "sub2",
+            "submissionIds": [
+              "sub2"
+            ],
+            "submittedAt": 1700000003750,
+            "retryFailedTurn": false,
+            "retryTurnId": null,
+            "retryAttemptId": null,
+            "transcriptMeta": {
+              "at": 1700000003750,
+              "messageId": "msg_<3>",
+              "device": "desktop-1",
+              "completionVerb": "Wrapped",
+              "attemptId": "<uuid>",
+              "assistantAt": 1700000003750,
+              "assistantMessageId": "msg_<4>"
+            },
+            "context": null,
+            "onSkillsApplied": "[function]",
+            "drainSteering": "[function]",
+            "onSteerMessage": "[function]",
+            "onContextPressure": "[function]",
+            "onCompactEvent": "[function]",
+            "onUsageDelta": "[function]",
+            "onAssistantToolCallObserved": "[function]",
+            "onToolCall": "[function]",
+            "onToolResult": "[function]",
+            "onToolPhaseCompleted": "[function]",
+            "onToolApproval": "[function]",
+            "onProviderSendStarted": "[function]",
+            "onStageChange": "[function]",
+            "onTextDelta": "[function]",
+            "onTextReset": "[function]",
+            "onAssistantText": "[function]",
+            "onReasoningDelta": "[function]",
+            "onStreamItemStart": "[function]",
+            "onRouteApplied": "[function]",
+            "onModelSwitch": "[function]",
+            "onSessionSwitches": "[function]"
+          }
+        }
+      ],
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "hello",
+            "at": 1700000003700,
+            "messageId": "msg_<1>",
+            "device": "desktop-1"
+          },
+          {
+            "text": "hi",
+            "at": 1700000003700,
+            "messageId": "msg_<2>",
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "<uuid>",
+            "kind": "assistant",
+            "id": "rewind-31-item-1",
+            "streaming": false
+          },
+          {
+            "kind": "turndone",
+            "id": "rewind-31-item-2",
+            "checkpointId": "sub1",
+            "elapsedMs": 0,
+            "status": "done",
+            "finalAssistantId": "rewind-31-item-1",
+            "outputTokens": 1,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1700000003700,
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "<uuid>"
+          },
+          {
+            "kind": "user",
+            "id": "sub2",
+            "text": "hello",
+            "at": 1700000003750,
+            "messageId": "msg_<3>",
+            "device": "desktop-1"
+          },
+          {
+            "text": "hi",
+            "at": 1700000003750,
+            "messageId": "msg_<4>",
+            "device": "desktop-1",
+            "completionVerb": "Wrapped",
+            "attemptId": "<uuid>",
+            "kind": "assistant",
+            "id": "rewind-31-item-3",
+            "streaming": false
+          },
+          {
+            "kind": "turndone",
+            "id": "rewind-31-item-4",
+            "checkpointId": "sub2",
+            "elapsedMs": 0,
+            "status": "done",
+            "finalAssistantId": "rewind-31-item-3",
+            "outputTokens": 1,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Wrapped",
+            "at": 1700000003750,
+            "device": "desktop-1",
+            "completionVerb": "Wrapped",
+            "attemptId": "<uuid>"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [
+          "hello"
+        ],
+        "busy": false
+      },
+      "reply": {
+        "text": "hello",
+        "removed": 3,
+        "messages": 2
+      },
+      "runtimeCalls": [
+        {
+          "options": {
+            "text": "hello",
+            "messageId": "msg_<3>",
+            "dryRun": true
+          },
+          "result": {
+            "removed": 2,
+            "remaining": 2,
+            "message": {
+              "role": "user",
+              "content": "hello",
+              "meta": {
+                "transcript": {
+                  "at": 1700000003750,
+                  "messageId": "msg_<3>",
+                  "device": "desktop-1",
+                  "completionVerb": "Wrapped",
+                  "attemptId": "<uuid>",
+                  "assistantAt": 1700000003750,
+                  "assistantMessageId": "msg_<4>"
+                }
+              }
+            },
+            "historyMarker": "<history-marker>"
+          }
+        },
+        {
+          "options": {
+            "text": "hello",
+            "messageId": "msg_<3>",
+            "expectedHistoryMarker": "<history-marker>"
+          },
+          "result": {
+            "removed": 2,
+            "remaining": 2,
+            "message": {
+              "role": "user",
+              "content": "hello",
+              "meta": {
+                "transcript": {
+                  "at": 1700000003750,
+                  "messageId": "msg_<3>",
+                  "device": "desktop-1",
+                  "completionVerb": "Wrapped",
+                  "attemptId": "<uuid>",
+                  "assistantAt": 1700000003750,
+                  "assistantMessageId": "msg_<4>"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "after": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "hello",
+            "at": 1700000003700,
+            "messageId": "msg_<1>",
+            "device": "desktop-1"
+          },
+          {
+            "text": "hi",
+            "at": 1700000003700,
+            "messageId": "msg_<2>",
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "<uuid>",
+            "kind": "assistant",
+            "id": "rewind-31-item-1",
+            "streaming": false
+          },
+          {
+            "kind": "turndone",
+            "id": "rewind-31-item-2",
+            "checkpointId": "sub1",
+            "elapsedMs": 0,
+            "status": "done",
+            "finalAssistantId": "rewind-31-item-1",
+            "outputTokens": 1,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1700000003700,
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "<uuid>"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
         "busy": false
       }
     }

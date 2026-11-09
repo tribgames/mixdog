@@ -4224,6 +4224,10 @@ impl SessionActor {
             }
             entry["options"] = serde_json::to_value(&options).expect("protocol types serialize");
         }
+        // `defaultQueuePriority` (`queue-helpers.mjs:28`): a user prompt that names none queues at `next`.
+        if entry.get("priority").is_none() {
+            entry["priority"] = json!("next");
+        }
         // The entry's `transcriptMeta` (`pending-messages`; read by `mergeSteeringMetadata`,
         // `steering.mjs:62`): the hop and bot chain a host submitter gave this submission. Only a
         // host submission has them (`SubmitOptions` refuses `hop`), registered under its id.

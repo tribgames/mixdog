@@ -302,9 +302,15 @@ impl SessionState {
             }
             Record::Rewind(rewind) => {
                 self.history_rev += 1;
-                // Rows still unacked follow every acked row, so they are behind `to_ordinal`.
-                self.window
-                    .retain(|row| row.ordinal.is_some_and(|o| o < rewind.to_ordinal));
+                // The rows from the first one at or after `to_ordinal` go. A live row (a turn's end, shown without an ordinal) before
+                // it stays, as in Node, where the end of an earlier turn is not part of the rewound one. With no such row in view, the
+                // rows still unacked follow every acked row, so they are behind `to_ordinal` too.
+                let cut = self
+                    .window
+                    .iter()
+                    .position(|row| row.ordinal.is_some_and(|o| o >= rewind.to_ordinal))
+                    .unwrap_or_else(|| self.window.iter().rposition(|row| row.ordinal.is_some()).map_or(0, |last| last + 1));
+                self.window.truncate(cut);
             }
             Record::Run(run) => match run.phase {
                 RunPhase::Started => {
