@@ -226,7 +226,12 @@ impl ProviderCatalog {
                 }
             }
         };
-        let outcome = tokio::time::timeout(LIST_DEADLINE, work).await;
+        // Node's deadline timer is set before the listing's own 4 s fetch timer, so on a tie it wins; poll it first.
+        let outcome = tokio::select! {
+            biased;
+            () = tokio::time::sleep(LIST_DEADLINE) => Err(()),
+            listing = work => Ok(listing),
+        };
         let mut flights = self.flights.lock().unwrap_or_else(PoisonError::into_inner);
         if flights.get(&provider).is_some_and(|f| f.serial == serial) {
             flights.remove(&provider);
@@ -491,6 +496,18 @@ mod tests {
         futures::future::join(catalog.refresh(&sources), catalog.refresh(&sources)).await;
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert!(catalog.snapshot().complete());
+    }
+
+    /// Node's deadline timer is armed before the listing's own 4 s fetch timer, so a listing that ends exactly at the
+    /// deadline (a cold Claude OAuth warm against an unreachable registry) has missed it.
+    #[tokio::test(start_paused = true)]
+    async fn a_listing_ending_exactly_at_the_deadline_has_missed_it() {
+        let clock = Arc::new(AtomicU64::new(0));
+        let catalog = clocked(&clock);
+        let (tie, _) = slow("tie", Some(LIST_DEADLINE));
+        catalog.refresh(&[tie]).await;
+        assert!(catalog.snapshot().models_of(&"tie".into()).is_empty());
+        assert!(matches!(catalog.snapshot().status.get(&ProviderId::from("tie")), Some(ProviderStatus::Missing { .. })));
     }
 
     #[tokio::test(start_paused = true)]
