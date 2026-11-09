@@ -330,11 +330,18 @@ fn response_of(response: reqwest::Response) -> HttpResponse {
 
 /// The deadline passed: a transient transport fact (Node: undici
 /// `UND_ERR_HEADERS_TIMEOUT` / `UND_ERR_BODY_TIMEOUT`, both retried as transient).
-pub(crate) fn deadline_error(expired: Expired, delivery: DeliveryState, surface: Surface) -> ProviderError {
+pub fn deadline_error(expired: Expired, delivery: DeliveryState, surface: Surface) -> ProviderError {
     let mut error = ProviderError::transport(TransportFault::Io { os_code: None }, delivery);
     error.message = surface
         .timeout_text(expired.after)
         .unwrap_or_else(|| format!("request timed out after {}ms", expired.after.as_millis()));
+    // A timer the call armed itself: Node's `TimeoutError` (`AbortSignal.timeout`), `AbortError` (a bare
+    // `controller.abort()`) or `ProviderTimeoutError` (`createTimeoutSignal`, which also carries
+    // `code: 'EPROVIDERTIMEOUT'`, `stall-policy.mjs:380`).
+    error.timed_out = matches!(surface, Surface::FetchSignal | Surface::FetchAborted | Surface::FetchLabeled(_));
+    if matches!(surface, Surface::FetchLabeled(_)) {
+        error.code = Some("EPROVIDERTIMEOUT".to_owned());
+    }
     error
 }
 

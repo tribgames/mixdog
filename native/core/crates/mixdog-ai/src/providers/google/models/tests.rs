@@ -110,6 +110,27 @@ impl RequestAuth for Bearer {
     }
 }
 
+/// The Gemini list that outlives its timer reads as the real Node function did (`sites.geminiModelList`):
+/// `AbortSignal.timeout`'s own error, not `fetch failed`.
+#[tokio::test(start_paused = true)]
+async fn a_gemini_list_that_outlives_its_timer_reads_as_nodes() {
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_thrown;
+    use crate::transport::site_probe::assert_transport;
+
+    let transport = TimingOut::new();
+    let adapter = GoogleAdapter::new(
+        GoogleCodec::gemini(GEMINI_ORIGIN, traits()),
+        policy::gemini(),
+        transport.clone(),
+        Arc::new(ApiKeyAuth::new("k")),
+        String::new(),
+    );
+    let error = adapter.list_models().await.expect_err("the list never answers");
+    assert_transport("geminiModelList", &transport);
+    assert_thrown("geminiModelList", &error.message);
+}
+
 fn raws(records: &[ModelRecord]) -> Vec<Value> {
     records.iter().map(|r| r.raw.clone().expect("a raw row")).collect()
 }

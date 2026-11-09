@@ -5,6 +5,7 @@
 //! [`PkceProvider`]); this module supplies only Anthropic's URLs, client id and
 //! token bodies.
 
+use crate::transport::deadlines::TOKEN_ANTHROPIC_REFRESH;
 use crate::transport::deadlines::TOKEN_EXCHANGE;
 use crate::transport::link::Surface;
 use crate::transport::link::deadline_error;
@@ -372,10 +373,19 @@ async fn token_call(
     now: u64,
     flow: TokenFlow,
 ) -> Result<StoredOAuth, TokenFailure> {
-    let response = http
-        .send(request, TOKEN_EXCHANGE)
-        .await
-        .map_err(TokenFailure::Failed)?;
+    // The refresh is a bare `setTimeout` abort (`anthropic-oauth-credentials.mjs:313`), the code exchange an
+    // `AbortSignal.timeout` (`:609`).
+    let exchange = match flow {
+        TokenFlow::Refresh => TOKEN_ANTHROPIC_REFRESH,
+        TokenFlow::Login => TOKEN_EXCHANGE,
+    };
+    let response = http.send(request, exchange).await.map_err(|mut error| {
+        // Node words the refresh's `AbortError` itself (`anthropic-oauth-credentials.mjs:404-409`).
+        if flow == TokenFlow::Refresh && error.timed_out {
+            error.message = "Anthropic OAuth token refresh timed out after 30000ms".to_owned();
+        }
+        TokenFailure::Failed(error)
+    })?;
     let reply = response.read_all().await.map_err(TokenFailure::Failed)?;
     let status = reply.status.unwrap_or(0);
     if !(200..300).contains(&status) {
@@ -601,6 +611,27 @@ impl PkceProvider for AnthropicLogin {
                 message: e.kind().to_string(),
             })?;
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod site_tests {
+    use super::*;
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_thrown;
+    use crate::transport::site_probe::assert_transport;
+
+    /// The refresh that outlives its timer reads as the real Node function did (`sites.anthropicRefresh`): under a bare
+    /// `setTimeout` abort, worded by Node's own catch.
+    #[tokio::test(start_paused = true)]
+    async fn a_refresh_that_outlives_its_timer_reads_as_nodes() {
+        let transport = TimingOut::new();
+        let request = refresh_request("https://x.test/token", "r", "1.0.0");
+        let Err(TokenFailure::Failed(error)) = token_call(transport.as_ref(), request, &blank_credential(), 0, TokenFlow::Refresh).await else {
+            panic!("the token endpoint never answers");
+        };
+        assert_transport("anthropicRefresh", &transport);
+        assert_thrown("anthropicRefresh", &error.message);
     }
 }
 

@@ -68,7 +68,7 @@ struct Endpoint {
 #[async_trait]
 impl CustomEndpoint for Endpoint {
     async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
-        self.listing.list_models().await
+        self.listing.list_models_within(DISCOVERY_TIMEOUT).await
     }
     fn discovery_error(&self) -> Option<ProviderError> {
         self.listing.discovery_error()
@@ -266,6 +266,34 @@ async fn a_refused_send_throws_the_sdks_text_after_the_retry_ladder() {
     assert!(sends.len() > 1, "the ladder retried: {}", sends.len());
     assert!(sends.iter().all(|surface| *surface == mixdog_ai::transport::Surface::Sdk), "{sends:?}");
     assert!(started.elapsed() < TEST_TIMEOUT, "the ladder ends inside the 20 s limit: {:?}", started.elapsed());
+}
+
+/// A transport whose every request outlives the timer of its exchange, through the link's own `deadline_error`.
+struct TimingOut;
+
+#[async_trait]
+impl HttpSend for TimingOut {
+    async fn send(&self, _request: WireRequest, exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+        let expired = exchange.liveness.bound_head(std::future::pending::<()>()).await.expect_err("the request is never answered");
+        Err(mixdog_ai::transport::link::deadline_error(expired, DeliveryState::Ambiguous, exchange.surface))
+    }
+}
+
+/// The settings page's discovery of an endpoint that never answers, on each protocol, through the real admin stack:
+/// the probe waits its own 60 s (the discovery's timer is the same 60 s and armed after it, so the probe's ends the
+/// wait), and shows what the real Node probe showed (`connect_errors.json` `sites.customOpenaiChatProbe`,
+/// `customAnthropicProbe`).
+#[tokio::test(start_paused = true)]
+async fn a_discovery_that_never_answers_ends_at_the_probes_sixty_seconds_as_node_shows() {
+    use super::collaborators::CustomProviders as _;
+    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
+    for (site, protocol, base) in [("customOpenaiChatProbe", "openai-chat", "https://x.test/v1"), ("customAnthropicProbe", "anthropic", "https://x.test")] {
+        let w = super::custom_admin_tests::world_over(std::collections::HashMap::new(), Some(Arc::new(TimingOut))).await;
+        let input = json!({ "name": "Probe", "protocol": protocol, "baseURL": base, "apiKey": "sk-DUMMY-probe-secret-0123456789" });
+        let started = tokio::time::Instant::now();
+        assert_eq!(w.admin.discover_models(input).await.unwrap(), golden["sites"][site]["value"], "{site}");
+        assert_eq!(started.elapsed(), Duration::from_secs(60), "{site}");
+    }
 }
 
 #[test]

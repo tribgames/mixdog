@@ -29,7 +29,8 @@ use crate::oauth::Poll;
 use crate::oauth::Schedule;
 use crate::oauth::device;
 use crate::oauth::Pkce;
-use crate::oauth::http::call;
+use crate::oauth::http::call_under;
+use crate::transport::deadlines::NODE_DISPATCHER;
 use crate::oauth::http::failed;
 use crate::oauth::start_session;
 use crate::providers::connect::random_uuid;
@@ -76,7 +77,8 @@ pub async fn poll_tokens(
 ) -> Result<StoredTokens, LoginFailure> {
     let url = poll_url(uuid, verifier);
     let poll = || async {
-        match call(http, "GET", &url, Vec::new(), Vec::new()).await {
+        // Node's poll is a bare `fetch` with no timer of its own (`cursor-auth.mjs:276`).
+        match call_under(http, NODE_DISPATCHER, "GET", &url, Vec::new(), Vec::new()).await {
             Ok(reply) if reply.status == 404 => Poll::Pending,
             Ok(reply) if reply.ok() => {
                 let tokens = reply.json();

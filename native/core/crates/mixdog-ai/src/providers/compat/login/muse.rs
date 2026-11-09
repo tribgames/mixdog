@@ -24,6 +24,8 @@ use crate::oauth::Pace;
 use crate::oauth::http::Reply;
 use crate::oauth::FlowGuard;
 use crate::oauth::http::call;
+use crate::oauth::http::call_under;
+use crate::transport::deadlines::MUSE_KEY;
 use crate::oauth::device;
 use crate::oauth::device::Poll;
 use crate::oauth::device::Schedule;
@@ -225,8 +227,9 @@ pub fn credentials_from_key_response(doc: &JsonValue, access_token: &str) -> Res
 
 /// Mints the Model API key for a fresh account token.
 async fn mint_key(http: &Http, access_token: &str) -> Result<MuseCodeCredentials, LoginFailure> {
-    let reply = call(
+    let reply = call_under(
         http.as_ref(),
+        MUSE_KEY,
         "POST",
         KEY_URL,
         headers(vec![
@@ -347,6 +350,21 @@ use crate::oauth::http::testing::finish;
             dir.path().join("muse-code-oauth.json"),
             CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
         )
+    }
+
+    /// The key mint that outlives its timer reads as the real Node function did (`sites.museKey`).
+    #[tokio::test(start_paused = true)]
+    async fn a_key_mint_that_outlives_its_timer_reads_as_nodes() {
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+        use crate::transport::site_probe::login_message;
+
+        let transport = TimingOut::new();
+        let http: Http = transport.clone();
+        let failure = mint_key(&http, "t").await.expect_err("never answers");
+        assert_transport("museKey", &transport);
+        assert_thrown("museKey", login_message(&failure));
     }
 
     const DEVICE: &str = r#"{"device_code":"DC","user_code":"ABCD","verification_uri":"https://meta/v","verification_uri_complete":"https://meta/v?c=ABCD","interval":2,"expires_in":600}"#;

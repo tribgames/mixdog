@@ -16,6 +16,9 @@ pub mod link;
 pub mod tcp;
 pub mod ws;
 
+#[cfg(test)]
+pub(crate) mod site_probe;
+
 pub use link::BidiOpen;
 pub use link::ABORTED;
 pub use link::CONNECTION_ERROR;

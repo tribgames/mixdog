@@ -7,10 +7,13 @@
 //! is an error only when nothing is usable. The error carries the status, with
 //! the key redacted from its text.
 
-use crate::transport::deadlines::compat_model_list;
+use crate::transport::deadlines::MODEL_LIST_WAIT;
+use crate::transport::deadlines::compat_model_list_within;
+use crate::transport::deadlines::custom_anthropic_models;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 use std::sync::Mutex;
 use std::sync::PoisonError;
 
@@ -327,7 +330,7 @@ impl CustomListing {
         Ok((Some(header), key))
     }
 
-    async fn fetch(&self, key: &mut String) -> Result<Value, ProviderError> {
+    async fn fetch(&self, key: &mut String, wait: Duration) -> Result<Value, ProviderError> {
         let (auth, request_key) = self.auth().await?;
         *key = request_key;
         let mut headers: Vec<(String, String)> = Vec::new();
@@ -346,7 +349,12 @@ impl CustomListing {
                     headers,
                     body: Vec::new(),
                 },
-                compat_model_list(&self.id),
+                // Node: the Anthropic protocol fetches under `AbortSignal.timeout` (`custom-provider.mjs:116`), every
+                // other under the labelled compat list timer (`openai-compat-models.mjs:104`).
+                match self.protocol {
+                    Protocol::Anthropic => custom_anthropic_models(wait),
+                    _ => compat_model_list_within(&self.id, wait),
+                },
             )
             .await?;
         let status = response.status;
@@ -370,8 +378,8 @@ impl CustomListing {
     }
 
     /// The protocol's own discovery, rows enriched.
-    async fn discover(&self, key: &mut String) -> Result<Vec<ModelRecord>, ProviderError> {
-        let body = self.fetch(key).await?;
+    async fn discover(&self, key: &mut String, wait: Duration) -> Result<Vec<ModelRecord>, ProviderError> {
+        let body = self.fetch(key, wait).await?;
         if self.protocol != Protocol::Anthropic {
             // The compat steps: enrichment, native limits restored, sanitizer.
             let mut rows = compat_rows_of(&self.lookup, &self.id, &parse_models(&body), false);
@@ -398,10 +406,14 @@ impl CustomListing {
     }
 }
 
-/// The error safe to surface: the key redacted, the status kept.
+/// The error safe to surface: the key redacted, the status kept, and a timer's expiry coded `EPROVIDERTIMEOUT`
+/// (`sanitizeDiscoveryError`: a `TimeoutError` becomes one too).
 fn sanitized(mut error: ProviderError, key: &str) -> ProviderError {
     if !key.is_empty() {
         error.message = error.message.split(key).collect::<Vec<_>>().join("[redacted]");
+    }
+    if error.timed_out {
+        error.code = Some("EPROVIDERTIMEOUT".to_owned());
     }
     error
 }
@@ -416,11 +428,12 @@ impl crate::catalog::CachedModelInfo for CustomListing {
     }
 }
 
-#[async_trait]
-impl ModelListing for CustomListing {
-    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+impl CustomListing {
+    /// `listModels({ timeoutMs })`: the discovery under the window the caller waits (the runtime's refresh waits
+    /// [`MODEL_LIST_WAIT`], the settings page's probe longer).
+    pub async fn list_models_within(&self, wait: Duration) -> Result<Vec<ModelRecord>, ProviderError> {
         let mut key = String::new();
-        let failure = match self.discover(&mut key).await {
+        let failure = match self.discover(&mut key, wait).await {
             Ok(rows) => {
                 *self.discovered.lock().unwrap_or_else(PoisonError::into_inner) = rows;
                 *self.discovery_error.lock().unwrap_or_else(PoisonError::into_inner) = None;
@@ -440,6 +453,13 @@ impl ModelListing for CustomListing {
     }
 }
 
+#[async_trait]
+impl ModelListing for CustomListing {
+    async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
+        self.list_models_within(MODEL_LIST_WAIT).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -455,6 +475,39 @@ mod tests {
             "catalog-replay" | "catalog-replay-overridden" => (200, json!({ "data": golden["catalogRoster"] })),
             "keyless" => (200, json!({ "data": golden["roster"].as_array().unwrap()[..3] })),
             _ => (200, json!({ "data": golden["roster"] })),
+        }
+    }
+
+    /// A discovery whose request outlives the timer its protocol arms throws what the real Node provider's discovery
+    /// threw (`sites.customOpenaiChatListing`, `customAnthropicListing`): the labelled compat timer on the OpenAI
+    /// protocols, `AbortSignal.timeout` on the Anthropic one, each coded `EPROVIDERTIMEOUT` by the sanitizer.
+    #[tokio::test(start_paused = true)]
+    async fn a_discovery_that_outlives_its_timer_throws_what_nodes_provider_throws() {
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+        use crate::transport::site_probe::recorded;
+
+        for (site, protocol, base) in [
+            ("customOpenaiChatListing", Protocol::OpenaiChat, "http://x.test/v1"),
+            ("customAnthropicListing", Protocol::Anthropic, "http://x.test"),
+        ] {
+            let transport = TimingOut::new();
+            let listing = CustomListing::new(
+                "custom-listing",
+                protocol,
+                base,
+                Vec::new(),
+                transport.clone(),
+                Arc::new(StaticCredential(Some(("authorization".to_owned(), "Bearer k".to_owned())))),
+                false,
+                &json!({}),
+                ListingLookup::new(),
+            );
+            let error = listing.list_models().await.expect_err("nothing is listed");
+            assert_transport(site, &transport);
+            assert_thrown(site, &error.message);
+            assert_eq!(error.code.as_deref(), recorded(site)["thrown"]["code"].as_str(), "{site}: code");
         }
     }
 

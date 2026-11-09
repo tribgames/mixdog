@@ -4,6 +4,7 @@
 //! URLs, the client id and the token-endpoint bodies.
 
 use crate::transport::deadlines::GROK_DISCOVERY;
+use crate::transport::deadlines::TOKEN_EXCHANGE;
 use crate::transport::deadlines::TOKEN_GROK;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -419,7 +420,7 @@ impl PkceProvider for GrokLogin {
                     )],
                     body: body.into_bytes(),
                 },
-                TOKEN_GROK,
+                TOKEN_EXCHANGE,
             )
             .await
             .map_err(|e| failed("transport", e.message))?;
@@ -498,6 +499,49 @@ mod tests {
         let throttled = refresh_error(429, &[], b"slow down");
         assert!(!throttled.reauth_required);
         assert_eq!(throttled.kind, ErrorKind::RateLimited);
+    }
+
+    /// Each Grok request that outlives its timer reads as the real Node function of the same site did
+    /// (`sites.grokDiscovery`, `grokRefresh`, `grokCodeExchange`): the refresh and the discovery under their labelled
+    /// timers, the authorization-code exchange under `AbortSignal.timeout` (not the refresh's label).
+    #[tokio::test(start_paused = true)]
+    async fn a_grok_request_that_outlives_its_timer_reads_as_nodes_site() {
+        use crate::oauth::CredentialIo;
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_node_wraps;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+
+        let tokens = StoredTokens {
+            access_token: "a".into(),
+            refresh_token: "r".into(),
+            token_endpoint: "https://auth.x.ai/oauth2/token".into(),
+            ..StoredTokens::default()
+        };
+        let transport = TimingOut::new();
+        let error = refresh(transport.as_ref(), &tokens).await.expect_err("the token endpoint never answers");
+        assert_transport("grokRefresh", &transport);
+        assert_thrown("grokRefresh", &error.message);
+
+        let transport = TimingOut::new();
+        let error = refresh(transport.as_ref(), &StoredTokens { token_endpoint: String::new(), ..tokens.clone() })
+            .await
+            .expect_err("the discovery never answers");
+        assert_transport("grokDiscovery", &transport);
+        assert_thrown("grokDiscovery", &error.message);
+
+        let transport = TimingOut::new();
+        let dir = tempfile::tempdir().unwrap();
+        let rt = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(
+            dir.path().join("grok-oauth.json"),
+            CredentialIo { read: rt.interactive_io, write: rt.durability_io },
+        );
+        let login = GrokLogin::new(transport.clone(), file, "https://auth.x.ai/authorize", "https://auth.x.ai/oauth2/token").unwrap();
+        login.exchange("abc", "v", "http://127.0.0.1:56121/callback").await.expect_err("the exchange never answers");
+        assert_transport("grokCodeExchange", &transport);
+        // Node words the exchange's failure itself (`oauthRequestError`); the Rust login passes the transport's text.
+        assert_node_wraps("grokCodeExchange");
     }
 
     #[test]

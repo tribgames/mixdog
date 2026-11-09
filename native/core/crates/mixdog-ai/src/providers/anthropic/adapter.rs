@@ -10,7 +10,7 @@
 //! The HTTP exchange is the shared [`HttpSend`] seam of `transport::http`.
 
 use crate::transport::deadlines::MODEL_STREAM;
-use crate::transport::deadlines::NODE_DISPATCHER;
+use crate::transport::deadlines::ANTHROPIC_MODELS;
 use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::Arc;
@@ -293,7 +293,7 @@ impl AnthropicAdapter {
         };
         let response = self
             .http
-            .send(self.request_with(&wire, &secret), NODE_DISPATCHER)
+            .send(self.request_with(&wire, &secret), ANTHROPIC_MODELS)
             .await?;
         if !(200..300).contains(&response.status) {
             return Err(self.failure(response).await);

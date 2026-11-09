@@ -57,8 +57,22 @@ pub const TOKEN_EXCHANGE: Exchange = Exchange::new(Liveness::unary(secs(30)), Re
 /// (`openai-oauth-tokens.mjs:225`), so a miss reads as the `AbortError`.
 pub const TOKEN_OPENAI: Exchange = Exchange::new(Liveness::unary(secs(30)), Redirect::Error, Surface::FetchAborted);
 
-/// Grok's token calls: `createTimeoutSignal(null, TOKEN_TIMEOUT_MS, 'grok-oauth refresh')`
-/// (`grok-oauth-tokens.mjs:304`), whose reason the fetch rejects with.
+/// Anthropic's token refresh: the same 30_000 on a bare `setTimeout(() => controller.abort())`
+/// (`anthropic-oauth-credentials.mjs:313`), so a miss reads as the `AbortError`; its authorization-code exchange
+/// (`:609`) is [`TOKEN_EXCHANGE`].
+pub const TOKEN_ANTHROPIC_REFRESH: Exchange = Exchange::new(Liveness::unary(secs(30)), Redirect::Error, Surface::FetchAborted);
+
+/// The 15_000 `AbortSignal.timeout` calls: the Mimo Token Plan probe (`mimo-oauth-tokens.mjs:138`, `:25`) and Command
+/// Code's identity and credits reads (`command-code-oauth-tokens.mjs:81`, `:23`).
+pub const TOKEN_PROBE: Exchange = Exchange::new(Liveness::unary(secs(15)), Redirect::Error, Surface::FetchSignal);
+
+/// The Muse Code key mint: `muse-code-oauth-tokens.mjs:137` `AbortSignal.timeout(REQUEST_TIMEOUT_MS)`, `:23` 20_000,
+/// `redirect: 'error'` (`:142`).
+pub const MUSE_KEY: Exchange = Exchange::new(Liveness::unary(secs(20)), Redirect::Error, Surface::FetchSignal);
+
+/// Grok's refresh: `createTimeoutSignal(null, TOKEN_TIMEOUT_MS, 'grok-oauth refresh')`
+/// (`grok-oauth-tokens.mjs:304`), whose reason the fetch rejects with. Its authorization-code exchange is
+/// [`TOKEN_EXCHANGE`] (`grok-oauth-login.mjs:76` `AbortSignal.timeout`).
 pub const TOKEN_GROK: Exchange =
     Exchange::new(Liveness::unary(secs(30)), Redirect::Error, Surface::FetchLabeled("grok-oauth refresh"));
 
@@ -74,18 +88,36 @@ pub const DEVIN_EXCHANGE: Exchange = Exchange::new(Liveness::unary(secs(30)), Re
 /// Grok discovery `grok-oauth-tokens.mjs:90` 15_000; Cursor `cursor-wire-models.mjs:30` 15_000;
 /// Devin `devin-wire-models.mjs:482` 5_000; Gemini `lib/gemini-model-catalog.mjs:37` 60_000.
 ///
-/// Text, each by its call: OpenAI `openai-oauth-catalog.mjs:117` raw `fetch`; compat and custom discovery
-/// `openai-compat-models.mjs:107` (`fetchCompatModelItems`) / `custom-provider.mjs:117` (`discoverAnthropicModels`) raw `fetch`, which is
-/// what `discoverCustomProviderModels` shows (`fetch failed`); Antigravity `antigravity-oauth-catalog.mjs:48`;
-/// Grok `grok-oauth-tokens.mjs:117`; Devin `devin-wire-models.mjs:494`; Gemini `gemini-model-catalog.mjs:35`, all
-/// raw `fetch`. Cursor's list is `callCursorUnary` over `http2` (`cursor-wire-transport.mjs:265`).
+/// Text, each by its call: OpenAI `openai-oauth-catalog.mjs:117` raw `fetch`; compat discovery
+/// `openai-compat-models.mjs:107` (`fetchCompatModelItems`), and custom discovery on the Anthropic protocol
+/// `custom-provider.mjs:117` (`discoverAnthropicModels`), raw `fetch`, which is what `discoverCustomProviderModels`
+/// shows (`fetch failed`); Anthropic's own list `anthropic.mjs:464`; Grok `grok-oauth-tokens.mjs:117`; Gemini
+/// `gemini-model-catalog.mjs:35`, all raw `fetch`. Cursor's list is `callCursorUnary` over `http2`
+/// (`cursor-wire-transport.mjs:265`). Devin's and Antigravity's lists are not fetched by the Rust core.
 ///
-/// Timer, each by its call: OpenAI `AbortSignal.timeout` (`:118`); Antigravity `withTimeoutSignal` (`:58`) and Devin
-/// `AbortSignal.timeout` (`devin-wire-models.mjs:499`) read as the `TimeoutError`; Grok `createTimeoutSignal`
+/// Timer, each by its call: OpenAI `AbortSignal.timeout` (`:118`); Anthropic's list (`anthropic.mjs:465`), custom
+/// Anthropic discovery (`custom-provider.mjs:116`, `DISCOVERY_TIMEOUT_MS` `:35`) and Gemini (`gemini-model-catalog.mjs:37`)
+/// `AbortSignal.timeout` too: a miss reads as the `TimeoutError`; Grok `createTimeoutSignal`
 /// (`grok-oauth-tokens.mjs:115`) as its labelled `ProviderTimeoutError`; compat is `createTimeoutSignal` too
-/// (`openai-compat-models.mjs:104`), labelled `"<provider> model list"` (see [`COMPAT_MODEL_LIST`]).
+/// (`openai-compat-models.mjs:104`), labelled `"<provider> model list"` (see [`compat_model_list`]).
 pub const OPENAI_CATALOG: Exchange = Exchange::new(Liveness::unary(secs(10)), Redirect::Follow, Surface::FetchSignal);
+pub const ANTHROPIC_MODELS: Exchange = Exchange::new(Liveness::unary(secs(10)), Redirect::Follow, Surface::FetchSignal);
+
+/// A model list's default window: `MODEL_LIST_TIMEOUT_MS` (`openai-compat-models.mjs:7`) and `DISCOVERY_TIMEOUT_MS`
+/// (`custom-provider.mjs:35`). An interactive caller passes its own (`listModels({ timeoutMs })`).
+pub const MODEL_LIST_WAIT: Duration = secs(10);
+
+/// Custom discovery on the Anthropic protocol (`custom-provider.mjs:116` `AbortSignal.timeout(timeoutMs)`).
+pub const fn custom_anthropic_models(wait: Duration) -> Exchange {
+    Exchange::new(Liveness::unary(wait), Redirect::Follow, Surface::FetchSignal)
+}
+
 pub fn compat_model_list(provider: &str) -> Exchange {
+    compat_model_list_within(provider, MODEL_LIST_WAIT)
+}
+
+/// [`compat_model_list`] under the window the caller passed (`fetchCompatModelItems({ timeoutMs })`).
+pub fn compat_model_list_within(provider: &str, wait: Duration) -> Exchange {
     // The label is `"<provider> model list"`; provider ids are a small closed set, so each is leaked once.
     static LABELS: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
     let label = format!("{provider} model list");
@@ -98,14 +130,12 @@ pub fn compat_model_list(provider: &str) -> Exchange {
             leaked
         }
     };
-    Exchange::new(Liveness::unary(secs(10)), Redirect::Follow, Surface::FetchLabeled(label))
+    Exchange::new(Liveness::unary(wait), Redirect::Follow, Surface::FetchLabeled(label))
 }
-pub const ANTIGRAVITY_MODELS: Exchange = Exchange::new(Liveness::unary(secs(15)), Redirect::Error, Surface::FetchSignal);
 pub const GROK_DISCOVERY: Exchange =
     Exchange::new(Liveness::unary(secs(15)), Redirect::Error, Surface::FetchLabeled("grok-oauth discovery"));
 pub const CURSOR_MODELS: Exchange = Exchange::new(Liveness::unary(secs(15)), Redirect::Manual, Surface::Socket);
-pub const DEVIN_DISCOVERY: Exchange = Exchange::new(Liveness::unary(secs(5)), Redirect::Error, Surface::FetchSignal);
-pub const GEMINI_MODELS: Exchange = Exchange::new(Liveness::unary(secs(60)), Redirect::Follow, Surface::Fetch);
+pub const GEMINI_MODELS: Exchange = Exchange::new(Liveness::unary(secs(60)), Redirect::Follow, Surface::FetchSignal);
 
 /// Devin run: `devin-wire-transport.mjs:453` POSTs with `redirect: 'error'`; the same raw `fetch` call.
 pub const DEVIN_STREAM: Exchange = Exchange::new(Liveness::stream(secs(600)), Redirect::Error, Surface::Fetch);

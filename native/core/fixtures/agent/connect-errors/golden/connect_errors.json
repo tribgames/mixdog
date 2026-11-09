@@ -1569,5 +1569,375 @@
         }
       }
     }
+  },
+  "sites": {
+    "grokDiscovery": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 15000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "ProviderTimeoutError",
+          "message": "grok-oauth discovery timed out after 15000ms"
+        }
+      ],
+      "thrown": {
+        "name": "ProviderTimeoutError",
+        "code": "EPROVIDERTIMEOUT",
+        "message": "grok-oauth discovery timed out after 15000ms"
+      }
+    },
+    "grokRefresh": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 30000
+        },
+        {
+          "via": "setTimeout",
+          "ms": 30000
+        },
+        {
+          "via": "setTimeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "ProviderTimeoutError",
+          "message": "grok-oauth refresh timed out after 30000ms"
+        },
+        {
+          "name": "ProviderTimeoutError",
+          "message": "grok-oauth refresh timed out after 30000ms"
+        },
+        {
+          "name": "ProviderTimeoutError",
+          "message": "grok-oauth refresh timed out after 30000ms"
+        }
+      ],
+      "thrown": {
+        "name": "ProviderTimeoutError",
+        "code": "EPROVIDERTIMEOUT",
+        "message": "grok-oauth refresh timed out after 30000ms"
+      }
+    },
+    "grokCodeExchange": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": null,
+        "message": "[grok-oauth] token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."
+      }
+    },
+    "anthropicRefresh": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 30000
+        },
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 4000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "AbortError",
+          "message": "This operation was aborted"
+        },
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": null,
+        "message": "Anthropic OAuth token refresh timed out after 30000ms"
+      }
+    },
+    "antigravityRefresh": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "geminiModelList": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 60000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "mimoProbe": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 15000
+        },
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 15000
+        },
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 15000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        },
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        },
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "commandCodeIdentity": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 15000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "museKey": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 20000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "devinExchange": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": null,
+        "message": "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED: Devin token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."
+      }
+    },
+    "compatModelList": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 10000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "ProviderTimeoutError",
+          "message": "groq model list timed out after 10000ms"
+        }
+      ],
+      "thrown": {
+        "name": "ProviderTimeoutError",
+        "code": "EPROVIDERTIMEOUT",
+        "message": "groq model list timed out after 10000ms"
+      }
+    },
+    "anthropicModelList": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 10000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      }
+    },
+    "customOpenaiChatListing": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 10000
+        },
+        {
+          "via": "setTimeout",
+          "ms": 10000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "ProviderTimeoutError",
+          "message": "custom-listing model list timed out after 10000ms"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": "EPROVIDERTIMEOUT",
+        "message": "custom-listing model list timed out after 10000ms"
+      }
+    },
+    "customAnthropicListing": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 10000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": "EPROVIDERTIMEOUT",
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "customOpenaiChatProbe": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 10000
+        },
+        {
+          "via": "setTimeout",
+          "ms": 60000
+        },
+        {
+          "via": "setTimeout",
+          "ms": 60000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "AbortError",
+          "message": "This operation was aborted"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      },
+      "value": {
+        "models": [],
+        "error": {
+          "kind": "timeout",
+          "message": "model discovery timed out after 60s"
+        }
+      }
+    },
+    "customAnthropicProbe": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 60000
+        },
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 60000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "AbortError",
+          "message": "This operation was aborted"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      },
+      "value": {
+        "models": [],
+        "error": {
+          "kind": "timeout",
+          "message": "model discovery timed out after 60s"
+        }
+      }
+    }
   }
 }
