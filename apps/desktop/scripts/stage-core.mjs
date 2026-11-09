@@ -16,7 +16,6 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { checkReleaseVersion, workspaceVersion } from '../../../scripts/check-release-version.mjs';
-import { onnxRuntimeSupported } from '../../../src/runtime/shared/onnx-runtime-support.mjs';
 import {
   CORE_PLATFORM_TARGETS,
   manifestBuild,
@@ -24,6 +23,7 @@ import {
   SERVER_PLATFORM_TARGETS,
 } from '../src/main/ssh/server-manifest.mjs';
 
+import { desktopJsRuntimeManifest, desktopOrtLibraryPath, JS_RUNTIME_MANIFEST, verifyCoreInstall } from './core-layout.mjs';
 import { buildJsPayload, createBundleArchive } from './stage-js-bundle.mjs';
 
 const BUNDLE_FILE = 'bundle.tgz';
@@ -35,34 +35,17 @@ export const HOST_TARGETS = CORE_PLATFORM_TARGETS;
 
 const binaryName = (platform) => (platform === 'win32' ? 'mixdogd.exe' : 'mixdogd');
 
-/** Read by `mixdogd` (mixdog-app-server-daemon `js_runtime`) to find the interpreter and package root of the
- *  JS skill launchers and extension host. Paths are relative to `resources/core/`: the interpreter is the app
- *  itself in node mode (ELECTRON_RUN_AS_NODE), the package root lives inside runtime.asar, which only Electron
- *  reads. */
-export const JS_RUNTIME_MANIFEST = 'js-runtime.json';
-const APP_EXECUTABLE = {
-  win32: '../../Mixdog.exe',
-  darwin: '../../MacOS/Mixdog',
-  linux: '../../mixdog-desktop',
-};
-/** The ONNX Runtime shared library inside the `onnxruntime-node` package, per platform: the file its binding loads.
- *  prepare-runtime mirrors it into `runtime.asar.unpacked` (native binaries cannot load from the archive). */
-const ORT_LIBRARY_FILE = { win32: 'onnxruntime.dll', linux: 'libonnxruntime.so.1', darwin: 'libonnxruntime.1.dylib' };
-export function ortLibraryPath(platform, arch) {
-  const file = ORT_LIBRARY_FILE[platform];
-  if (!file) throw new Error(`no ONNX Runtime library for ${platform}`);
-  return `../runtime.asar.unpacked/node_modules/onnxruntime-node/bin/napi-v6/${platform}/${arch}/${file}`;
-}
-export function jsRuntimeManifest(platform, arch) {
-  const program = APP_EXECUTABLE[platform];
-  if (!program) throw new Error(`no app executable for ${platform}`);
-  return {
-    program,
-    packageRoot: '../runtime.asar/node_modules/mixdog',
-    electron: true,
-    // A target with no onnxruntime-node binding (macOS x64) names none: the daemon builds no models there.
-    ...(onnxRuntimeSupported(platform, arch) ? { ortLibrary: ortLibraryPath(platform, arch) } : {}),
-  };
+/** `js-runtime.json`, read by `mixdogd` (mixdog-app-server-daemon `js_runtime`) beside the binary. The layout it
+ *  names (the app in node mode as interpreter, the real-file package root in `runtime.asar.unpacked`, the ONNX
+ *  Runtime library) is core-layout.mjs; prepare-runtime fills `runtime.asar.unpacked/node_modules`. */
+export { JS_RUNTIME_MANIFEST };
+export const jsRuntimeManifest = desktopJsRuntimeManifest;
+export const ortLibraryPath = desktopOrtLibraryPath;
+
+/** A server payload is complete before it is archived: layout, extension-host closure, ONNX Runtime library. */
+export async function verifyRemotePayload({ key, payloadDir }) {
+  const [platform, arch] = key.split('-');
+  verifyCoreInstall({ manifestDir: payloadDir, kind: 'remote', platform, arch });
 }
 
 async function builtBinary(targetDir, target, platform) {
@@ -92,6 +75,7 @@ export { workspaceVersion };
  * @param {boolean} [options.hostRunnable]  this machine can run the host binary (default: it is this machine's platform)
  * @param {(file: string) => string} [options.reportedVersion]  `mixdogd --version` of the host binary
  * @param {typeof buildJsPayload} [options.buildPayload]  builds one server platform's JS runtime payload
+ * @param {typeof verifyRemotePayload} [options.verifyPayload]  integrity check of that payload before it is archived
  */
 export async function stageCore({
   targetDir,
@@ -101,6 +85,7 @@ export async function stageCore({
   hostRunnable = host.platform === process.platform && host.arch === process.arch,
   reportedVersion = hostReportedVersion,
   buildPayload = buildJsPayload,
+  verifyPayload = verifyRemotePayload,
 }) {
   const hostKey = `${host.platform}-${host.arch}`;
   const hostTarget = HOST_TARGETS[hostKey];
@@ -127,6 +112,7 @@ export async function stageCore({
     const source = await builtBinary(targetDir, target, key.split('-')[0]);
     const payloadDir = join(runtimeDir, 'server-js', key);
     await buildPayload({ key, payloadDir, cacheDir: join(runtimeDir, 'node-cache') });
+    await verifyPayload({ key, payloadDir });
     await mkdir(join(serversDir, key), { recursive: true });
     // One upload per platform: the core and its JS runtime, installed together under one version directory.
     const bundle = await createBundleArchive({ binary: source, payloadDir, out: join(serversDir, key, BUNDLE_FILE) });

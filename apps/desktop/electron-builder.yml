@@ -48,6 +48,11 @@ extraResources:
   # electron-builder filters a source path containing node_modules. The
   # preparation step mirrors native binaries and external-process scripts under
   # this neutral root; restore Electron's exact ASAR-unpacked layout at the destination.
+  # This is also the Rust core's unpacked resource root (scripts/core-layout.mjs):
+  # the mixdog package (src/rules, output-styles, agents, defaults, ...) the core
+  # reads with plain fs, the dependency closure of the extension host and the skill
+  # launchers, and the ONNX Runtime library with its siblings, as real files.
+  # scripts/verify-staged-package.mjs checks the built resources for all of it.
   - from: .runtime/native-modules
     to: runtime.asar.unpacked/node_modules
   # The desktop daemon imports node-pty from app.asar.unpacked. Stage the

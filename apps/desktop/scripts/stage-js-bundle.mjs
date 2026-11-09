@@ -5,7 +5,9 @@
 //   payload/js/LICENSE-node                       Node's license, which travels with its binary
 //   payload/js/pkg/node_modules/mixdog/           the package root: src/ and package.json (as the desktop's runtime.asar)
 //   payload/js/pkg/node_modules/<dependencies>    the root lockfile's production tree for that platform
-// The desktop ships the same package root and lockfile pins inside runtime.asar; only the interpreter
+//   payload/js/pkg/node_modules/onnxruntime-node  only that platform's binary directory (the ONNX Runtime
+//                                                 library js-runtime.json's `ortLibrary` names, with its siblings)
+// The layout itself is core-layout.mjs. The desktop ships the same package root and lockfile pins inside runtime.asar; only the interpreter
 // differs (there: the app in node mode, here: this Node), which js-runtime.json says.
 // Network and npm steps are injected so the layout is testable offline; the defaults are the release ones.
 import { execFile } from 'node:child_process';
@@ -16,6 +18,14 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
+import {
+  JS_RUNTIME_MANIFEST,
+  ORT_PACKAGE,
+  onnxRuntimeSupported,
+  recordCoreClosure,
+  remoteJsRuntimeManifest,
+  trimOrtBinaries,
+} from './core-layout.mjs';
 import { deriveRemoteRoots, pruneInapplicable, trimManifest, verifyInstalledTree } from './remote-js-roots.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -23,11 +33,6 @@ const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const rootDir = resolve(desktopDir, '../..');
 
 export const NODE_PIN_FILE = join(desktopDir, 'scripts', 'node-pin.json');
-export const REMOTE_JS_MANIFEST = Object.freeze({
-  program: 'js/node',
-  packageRoot: 'js/pkg/node_modules/mixdog',
-  electron: false,
-});
 
 /** `<os>-<arch>` of a server key. */
 const splitKey = (key) => {
@@ -87,11 +92,14 @@ const npm = (args, cwd) =>
 export async function installProductionModules(pkgDir, key, { packageRootDir = rootDir } = {}) {
   const { platform, arch } = splitKey(key);
   const { roots } = deriveRemoteRoots({ packageRootDir });
+  // The ONNX Runtime library the core loads is the one inside onnxruntime-node; no JS entry imports the
+  // package (the core loads the library itself), so it is a root of its own, where the platform has one.
+  const withOrt = onnxRuntimeSupported(platform, arch);
   const target = { os: platform, cpu: arch, libc: platform === 'linux' ? 'glibc' : undefined };
   const trimmed = trimManifest({
     manifest: JSON.parse(await readFile(join(packageRootDir, 'package.json'), 'utf8')),
     lock: JSON.parse(await readFile(join(packageRootDir, 'package-lock.json'), 'utf8')),
-    roots: roots.keys(),
+    roots: [...roots.keys(), ...(withOrt ? [ORT_PACKAGE] : [])],
     target,
   });
   await mkdir(pkgDir, { recursive: true });
@@ -117,6 +125,12 @@ export async function installProductionModules(pkgDir, key, { packageRootDir = r
     if (!existsSync(join(pkgDir, 'node_modules', name, 'package.json'))) throw new Error(`${name} is reached from the remote entry points but was not installed`);
   }
   verifyInstalledTree(pkgDir, inapplicable);
+  // The package carries every platform's binaries; this payload keeps the target's directory (the library,
+  // its binding and siblings), which js-runtime.json names.
+  // A target with no ONNX Runtime still gets the package when something in the closure depends on it: without
+  // its binaries.
+  if (withOrt) trimOrtBinaries(join(pkgDir, 'node_modules', ORT_PACKAGE), platform, arch);
+  else await rm(join(pkgDir, 'node_modules', ORT_PACKAGE, 'bin'), { recursive: true, force: true });
   await rm(join(pkgDir, 'node_modules', '.bin'), { recursive: true, force: true });
   await rm(join(pkgDir, 'package-lock.json'), { force: true });
 }
@@ -135,6 +149,7 @@ export async function buildJsPayload({
   fetchNode = fetchPinnedNode,
   installModules = installProductionModules,
   listPackageFiles = packedFiles,
+  recordClosure = recordCoreClosure,
   packageRootDir = rootDir,
 }) {
   await rm(payloadDir, { recursive: true, force: true });
@@ -151,7 +166,11 @@ export async function buildJsPayload({
     await mkdir(dirname(join(packageDir, file)), { recursive: true });
     await cp(join(packageRootDir, file), join(packageDir, file));
   }
-  await writeFile(join(payloadDir, 'js-runtime.json'), `${JSON.stringify(REMOTE_JS_MANIFEST, null, 2)}\n`);
+  // Which optional packages of the extension host's closure the install left out for this platform; the
+  // integrity check of the finished payload (and of the bundle's unpacked copy) accepts exactly those.
+  recordClosure(join(pkgDir, 'node_modules'));
+  const { platform, arch } = splitKey(key);
+  await writeFile(join(payloadDir, JS_RUNTIME_MANIFEST), `${JSON.stringify(remoteJsRuntimeManifest(platform, arch), null, 2)}\n`);
   return { nodeVersion: node.version };
 }
 
