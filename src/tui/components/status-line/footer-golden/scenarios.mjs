@@ -29,6 +29,8 @@ const codexWindows = [
   { label: '5H', usedPct: 42, resetAt: T0 + 2 * HOUR, source: 'openai-codex' },
   { label: '7D', usedPct: 71.4, resetAt: T0 + 3 * DAY, source: 'openai-codex' },
 ];
+// A pricing catalog as the core stores it: `{ fetchedAt, data }`.
+const catalogFile = (data) => JSON.stringify({ fetchedAt: T0, data });
 const events = (rows) => ({
   'gateway-usage.local.jsonl': rows.map((row) => JSON.stringify(row)).join('\n') + '\n',
 });
@@ -225,6 +227,95 @@ export const SCENARIOS = [
     cols: 120,
     args: base('custom-lab', 'lab-model-9', { effort: '' }),
     files: {},
+  },
+  // After a model list has been loaded (the picker, the boot prefetch) the pricing catalogs are resident: the child
+  // warms them from the data dir (`warm`), as the picker's load did, before rendering.
+  {
+    name: 'warm catalogs: a models.dev name for a model the roster files do not name',
+    cols: 120,
+    warm: true,
+    args: base('openai-oauth', 'review-model-123', { effort: '' }),
+    files: {
+      'modelsdev-catalog.json': catalogFile({ openai: { models: { 'review-model-123': { name: 'Review Catalog Name (New)', cost: { input: 1, output: 2 } } } } }),
+    },
+  },
+  {
+    name: 'warm catalogs: the models.dev name wins over a roster row name',
+    cols: 120,
+    warm: true,
+    args: base('openai-oauth', 'review-model-123', { effort: '' }),
+    files: {
+      'openai-oauth-models.json': JSON.stringify({ models: [{ id: 'review-model-123', displayName: 'Roster Name' }] }),
+      'modelsdev-catalog.json': catalogFile({ openai: { models: { 'review-model-123': { name: 'Catalog Name' } } } }),
+    },
+  },
+  {
+    name: 'warm catalogs: a LiteLLM row describes the model, so the roster row name is not used',
+    cols: 120,
+    warm: true,
+    args: base('gemini', 'review-gem-1', { effort: '' }),
+    files: {
+      'gemini-models.json': JSON.stringify({ models: [{ id: 'review-gem-1', display: 'Roster Gem' }] }),
+      'litellm-catalog.json': catalogFile({ 'gemini/review-gem-1': { litellm_provider: 'gemini', input_cost_per_token: 1e-6, output_cost_per_token: 2e-6 } }),
+    },
+  },
+  {
+    name: 'warm catalogs: the same state before any model list was loaded still uses the roster row',
+    cols: 120,
+    args: base('gemini', 'review-gem-1', { effort: '' }),
+    files: {
+      'gemini-models.json': JSON.stringify({ models: [{ id: 'review-gem-1', display: 'Roster Gem' }] }),
+      'litellm-catalog.json': catalogFile({ 'gemini/review-gem-1': { litellm_provider: 'gemini', input_cost_per_token: 1e-6, output_cost_per_token: 2e-6 } }),
+      'modelsdev-catalog.json': catalogFile({ google: { models: { 'review-gem-1': { name: 'Catalog Gem' } } } }),
+    },
+  },
+  {
+    name: 'warm catalogs: a relay takes the name of the vendor row that serves the model',
+    cols: 120,
+    warm: true,
+    args: base('command-code-oauth', 'vendor-served-9', { effort: '' }),
+    files: {
+      'modelsdev-catalog.json': catalogFile({ anthropic: { models: { 'vendor-served-9': { name: 'Vendor Served Nine', cost: { input: 1, output: 2 } } } } }),
+    },
+  },
+  {
+    name: 'warm catalogs: a vendor row without prices names nothing for the relay',
+    cols: 120,
+    warm: true,
+    args: base('command-code-oauth', 'vendor-served-9', { effort: '' }),
+    files: {
+      'modelsdev-catalog.json': catalogFile({ anthropic: { models: { 'vendor-served-9': { name: 'Vendor Served Nine' } } } }),
+    },
+  },
+  {
+    name: 'warm catalogs: the contributor suffix of a models.dev name is dropped',
+    cols: 120,
+    warm: true,
+    args: base('muse-code-oauth', 'muse-spark-1.3-contributor', { effort: '' }),
+    files: {
+      'modelsdev-catalog.json': catalogFile({ meta: { models: { 'muse-spark-1.3-contributor': { name: 'Muse Spark 1.3 Contributor' } } } }),
+    },
+  },
+  {
+    name: 'warm catalogs: a model no catalog lists keeps its roster name',
+    cols: 120,
+    warm: true,
+    args: base('openai-oauth', 'review-model-123', { effort: '' }),
+    files: {
+      'openai-oauth-models.json': JSON.stringify({ models: [{ id: 'review-model-123', displayName: 'Roster Name' }] }),
+      'modelsdev-catalog.json': catalogFile({ openai: { models: { 'another-model': { name: 'Another' } } } }),
+      'litellm-catalog.json': catalogFile({ 'unrelated-model': { litellm_provider: 'openai', input_cost_per_token: 1e-6 } }),
+    },
+  },
+  {
+    name: 'warm catalogs: a catalog file without a payload stays cold',
+    cols: 120,
+    warm: true,
+    args: base('openai-oauth', 'review-model-123', { effort: '' }),
+    files: {
+      'modelsdev-catalog.json': JSON.stringify({ fetchedAt: T0 }),
+      'openai-oauth-models.json': JSON.stringify({ models: [{ id: 'review-model-123', displayName: 'Roster Name' }] }),
+    },
   },
   // The route the footer's primary status belongs to (Node's configuredGatewayStatus).
   {

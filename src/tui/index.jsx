@@ -10,7 +10,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { format } from 'node:util';
-import { App } from './App.jsx';import { cancelPendingMouseTrackingRestores } from './app/use-mouse-input.mjs';
+import { App } from './App.jsx';
+import { markModelCatalogsWarm } from './components/status-line/catalog-warmth.mjs';import { cancelPendingMouseTrackingRestores } from './app/use-mouse-input.mjs';
 import { createSessionRuntime } from './session.mjs';
 import { registerRenderFrameSource, scheduleRenderFrameAck, TUI_RENDER_FPS } from './session/render-timing.mjs';
 import { installProcessSignalCleanup } from './lib/process-shutdown.mjs';
@@ -679,7 +680,18 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     // instead of the list and a switch repainted nothing here. Bind the three
     // theme methods locally (same pattern as the ink selection helpers below)
     // and mirror the switch to the core, which stores it unless persist is false.
-    if (store.isRemoteSession === true) bindLocalThemeMethods(store);    bootProfile('store:ready', { ms: (performance.now() - startedAt).toFixed(1) });
+    if (store.isRemoteSession === true) bindLocalThemeMethods(store);
+    // The footer's model names come from the pricing catalogs once a model list has been loaded (the pickers and
+    // the boot prefetch ask for one), as in Node.
+    for (const method of ['listProviderModels', 'listWebSearchModels']) {
+      const listed = store[method];
+      if (typeof listed !== 'function') continue;
+      store[method] = async (...args) => {
+        const models = await listed.apply(store, args);
+        await markModelCatalogsWarm();
+        return models;
+      };
+    }    bootProfile('store:ready', { ms: (performance.now() - startedAt).toFixed(1) });
   } catch (error) {
     splash.stop();
     stopPerfProbe();
