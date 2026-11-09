@@ -35,7 +35,7 @@ ${child.stderr.slice(-3000)}`);
 // The push lanes: what a phone receives after it connects, until it opens a lane. Node's phone sends an empty `setRemoteLanes` on connect
 // (a fresh relay client has `lanes: null`, which reads every lane; the empty set reads none); the phone sends nothing, because the core's lanes
 // are feeds a connection receives only after it opens them. Recorded: Node by the real push-lane module and setRemoteLanes handler, the core by the
-// in-process server rig (benchmarks/rust-core/recorders/core/lane_pushes.rs). The two are compared phase by phase.
+// in-process server rig (native/core/crates/mixdog-app-server/src/tests/lane_pushes.rs). The two are compared phase by phase.
 test('lane pushes: a phone that has not opened a lane hears the same at the core as at Node after its empty registration', () => {
   const node = Object.fromEntries(lanePushes.node.phases.map((p) => [p.phase, p]));
   const core = (phase, feed) => lanePushes.core.find((s) => s.phase === phase && s.feed === feed).frames;
@@ -56,6 +56,8 @@ test('lane pushes: a phone that has not opened a lane hears the same at the core
 // The difference the empty registration leaves: Node's client is read as "everything" from its join until the phone's registration is handled
 // (every lane push passes), the core's connection hears nothing until it opens a feed. The page has no lane listener in that window (it registers
 // a lane when it first uses it), so nothing it could show is lost; pinned here so the difference stays named.
+// Accepted by the user (decisions.md, rust-core scratch, recorded by the Lead): Node sends the empty `setRemoteLanes` immediately at connect, so the
+// window is a race inside Node, not behavior anyone relies on.
 test('lane pushes: Node passes every lane before the phone registers, the core delivers nothing before a feed is opened', () => {
   const before = lanePushes.node.phases.find((p) => p.phase === 'connected-before-registration');
   assert.deepEqual(before.heard['terminal output'], ['termData']);

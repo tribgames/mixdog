@@ -90,9 +90,9 @@ test('notify uses the remote method path and subscribers hear the change until t
     const unsubscribe = api.subscribeProviderModelsChanged((change) => received.push(change));
     api.notifyProviderModelsChanged('phone-1');
     await settle();
-    // remote-shim-api.ts:458 -- the same Node method name and parameters Node sent in its frame (sent.method / sent.params).
+    // Node remote-shim-api.ts:479 -- `fire('notifyProviderModelsChanged', [origin])`: the same method name and parameters Node put in its frame.
     assert.deepEqual(calls, [{ method: 'notifyProviderModelsChanged', params: ['phone-1'] }]);
-    // remote-shim-api.ts:459 -- the subscription is the context's listener set (Node asserted it through deliver()).
+    // :480 -- subscribeProviderModelsChanged is `listenOn(ctx.providerModelsListeners, …)`; Node's dispatch fans out to that set (remote-shim-dispatch.ts:279).
     ctx.fanOut(ctx.providerModelsListeners, { origin: 'a' });
     assert.deepEqual(received, [{ origin: 'a' }]);
     unsubscribe();
@@ -101,7 +101,7 @@ test('notify uses the remote method path and subscribers hear the change until t
   });
 });
 
-// Node dispatch (remote-shim-dispatch.ts:276-279) read the pushed payload with readProviderModelsChange: a payload without a string origin
+// Node dispatch (remote-shim-dispatch.ts:278-279) read the pushed payload with readProviderModelsChange: a payload without a string origin
 // was never fanned out. That reader is shared, so the rule holds for whichever adapter carries the event. The other Node check there
 // (`if (!authenticated) return`, :277, "clear relay hints are ignored") has no counterpart: the protocol has no unauthenticated hint frames.
 test('a pushed change is read by the shared reader: a string origin only', () => {

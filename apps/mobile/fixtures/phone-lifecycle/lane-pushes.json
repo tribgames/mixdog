@@ -1,5 +1,5 @@
 {
-  "note": "What a phone receives from lane pushes after it connects: Node (real push-lane module and setRemoteLanes handler) per registration phase, and the core (Rust test recorders/core/lane_pushes.rs) per feed phase. apps/desktop/src/renderer/remote-shim-lifecycle.slow.test.mjs compares them.",
+  "note": "What a phone receives from lane pushes after it connects: Node (real push-lane module and setRemoteLanes handler) per registration phase, and the core (Rust test native/core/crates/mixdog-app-server/src/tests/lane_pushes.rs) per feed phase. apps/desktop/src/renderer/remote-shim-lifecycle.slow.test.mjs compares them.",
   "node": {
     "joinFrames": [
       "browserApprovalSessions"

@@ -9,6 +9,7 @@ mod dispatch;
 mod errors;
 mod handshake;
 mod host;
+mod lane_pushes;
 mod queues;
 mod routing;
 mod sample;
