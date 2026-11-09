@@ -411,6 +411,17 @@ struct SizeClaim {
     lease: Option<mixdog_rt::TimerHandle>,
     /// Which arming of the lease is current: a lapse of an older arming is ignored.
     epoch: u64,
+    /// On the manual lease clock (debug builds only), when this claim lapses.
+    #[cfg(debug_assertions)]
+    due: Option<std::time::Duration>,
+}
+
+/// The lease clock a replay steps by hand. It exists in debug builds only, and only when
+/// `MIXDOG_TERMINAL_LEASE_CLOCK=<directory>` is set: the leases then lapse exactly when [`Claims::advance`]
+/// moves time past them, instead of on the ticker. A release build has neither the clock nor the switch.
+#[cfg(debug_assertions)]
+struct ManualLeaseClock {
+    now: Mutex<std::time::Duration>,
 }
 
 /// Per tab id, the connections claiming its size, oldest claim first; the newest claim owns.
@@ -421,9 +432,68 @@ struct Claims {
     tabs: Arc<Mutex<HashMap<String, Slot>>>,
     events: Arc<dyn TerminalEvents>,
     epoch: AtomicU64,
+    #[cfg(debug_assertions)]
+    manual: Option<ManualLeaseClock>,
 }
 
 impl Claims {
+    /// Moves the manual lease clock on by `by` and ends, in the order of their lapse, every claim now due. Returns
+    /// how many lapsed; without the manual clock nothing is done.
+    #[cfg(debug_assertions)]
+    fn advance(&self, by: std::time::Duration) -> usize {
+        let Some(clock) = &self.manual else {
+            return 0;
+        };
+        let now = {
+            let mut now = clock.now.lock().unwrap_or_else(|e| e.into_inner());
+            *now += by;
+            *now
+        };
+        let mut lapsed = 0;
+        loop {
+            let next = self
+                .lock()
+                .iter()
+                .flat_map(|(id, list)| list.iter().filter_map(move |c| c.due.filter(|due| *due <= now).map(|due| (due, id.clone(), c.client.clone(), c.epoch))))
+                .min();
+            let Some((_, id, client, epoch)) = next else {
+                return lapsed;
+            };
+            self.release(&id, &client, Some(epoch));
+            lapsed += 1;
+        }
+    }
+
+    /// The replay's handle on the manual clock, with no wire method (the method table is shared with release builds): the replay
+    /// writes `advance` as `<seq> <ms>` in the clock directory, the clock steps by `ms` and answers by writing `<seq>` to `acked`
+    /// once every claim due has lapsed. The poll interval only delays an answer; the replay waits for it, so no timing is assumed.
+    #[cfg(debug_assertions)]
+    fn watch_manual_clock(claims: &Arc<Self>, dir: std::path::PathBuf) {
+        let claims = Arc::downgrade(claims);
+        std::thread::spawn(move || {
+            let mut done = String::new();
+            while let Some(claims) = claims.upgrade() {
+                if let Ok(text) = std::fs::read_to_string(dir.join("advance")) {
+                    let mut parts = text.split_whitespace();
+                    if let (Some(seq), Some(ms)) = (parts.next(), parts.next().and_then(|ms| ms.parse::<u64>().ok())) {
+                        if seq != done {
+                            claims.advance(std::time::Duration::from_millis(ms));
+                            let _ = std::fs::write(dir.join("acked.tmp"), seq).and_then(|()| std::fs::rename(dir.join("acked.tmp"), dir.join("acked")));
+                            done = seq.to_owned();
+                        }
+                    }
+                }
+                drop(claims);
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+        });
+    }
+
+    #[cfg(debug_assertions)]
+    fn due_at(&self) -> Option<std::time::Duration> {
+        self.manual.as_ref().map(|clock| *clock.now.lock().unwrap_or_else(|e| e.into_inner()) + SIZE_OWNER_LEASE)
+    }
+
     fn lock(&self) -> MutexGuard<'_, HashMap<String, Vec<SizeClaim>>> {
         self.map.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -470,17 +540,21 @@ impl Claims {
         });
     }
 
-    fn arm(self: &Arc<Self>, id: &str, client: &str, epoch: u64) -> mixdog_rt::TimerHandle {
+    fn arm(self: &Arc<Self>, id: &str, client: &str, epoch: u64) -> Option<mixdog_rt::TimerHandle> {
+        #[cfg(debug_assertions)]
+        if self.manual.is_some() {
+            return None;
+        }
         let claims = Arc::downgrade(self);
         let (id, client) = (id.to_owned(), client.to_owned());
         // The ticker's callback only hands the lapse to a task: releasing fits a PTY.
-        mixdog_rt::ticker().register(std::time::Instant::now() + SIZE_OWNER_LEASE, move || {
+        Some(mixdog_rt::ticker().register(std::time::Instant::now() + SIZE_OWNER_LEASE, move || {
             if let Some(claims) = claims.upgrade() {
                 drop(mixdog_rt::spawn("terminal-size-lease", mixdog_rt::TaskClass::Work, async move {
                     claims.release(&id, &client, Some(epoch));
                 }));
             }
-        })
+        }))
     }
 
     /// `client` claims (or renews its claim on) the size; a renewal keeps the claim's place in the order.
@@ -489,7 +563,9 @@ impl Claims {
         let list = map.entry(id.to_owned()).or_default();
         let before = Self::owner_in(list);
         let epoch = self.epoch.fetch_add(1, Ordering::AcqRel) + 1;
-        let lease = Some(self.arm(id, client, epoch));
+        let lease = self.arm(id, client, epoch);
+        #[cfg(debug_assertions)]
+        let due = self.due_at();
         match list.iter_mut().find(|claim| claim.client == client) {
             Some(claim) => {
                 if let Some(old) = claim.lease.take() {
@@ -499,6 +575,10 @@ impl Claims {
                 claim.rows = rows;
                 claim.lease = lease;
                 claim.epoch = epoch;
+                #[cfg(debug_assertions)]
+                {
+                    claim.due = due;
+                }
             }
             None => list.push(SizeClaim {
                 client: client.to_owned(),
@@ -506,6 +586,8 @@ impl Claims {
                 rows,
                 lease,
                 epoch,
+                #[cfg(debug_assertions)]
+                due,
             }),
         }
         let after = Self::owner_in(list);
@@ -590,14 +672,21 @@ enum Claim {
 impl TerminalTabs {
     pub fn new(manager: LocalProcessManager, config: TerminalConfig) -> Self {
         let tabs = Arc::new(Mutex::new(HashMap::new()));
+        let claims = Arc::new(Claims {
+            map: Mutex::new(HashMap::new()),
+            tabs: Arc::clone(&tabs),
+            events: Arc::clone(&config.events),
+            epoch: AtomicU64::new(0),
+            #[cfg(debug_assertions)]
+            manual: std::env::var_os("MIXDOG_TERMINAL_LEASE_CLOCK").map(|_| ManualLeaseClock { now: Mutex::new(std::time::Duration::ZERO) }),
+        });
+        #[cfg(debug_assertions)]
+        if let Some(dir) = std::env::var_os("MIXDOG_TERMINAL_LEASE_CLOCK") {
+            Claims::watch_manual_clock(&claims, std::path::PathBuf::from(dir));
+        }
         Self {
             manager,
-            claims: Arc::new(Claims {
-                map: Mutex::new(HashMap::new()),
-                tabs: Arc::clone(&tabs),
-                events: Arc::clone(&config.events),
-                epoch: AtomicU64::new(0),
-            }),
+            claims,
             config,
             tabs,
             cursor_floors: Mutex::new(HashMap::new()),
@@ -996,6 +1085,12 @@ impl TerminalTabs {
     /// Where the tab `id` stands in creation order, if it is open.
     pub fn creation_order(&self, id: &str) -> Option<u64> {
         self.live(id).map(|tab| tab.seq)
+    }
+
+    /// Steps the manual lease clock (debug builds with `MIXDOG_TERMINAL_LEASE_CLOCK` set); returns the claims that lapsed.
+    #[cfg(debug_assertions)]
+    pub fn advance_lease_clock(&self, by: std::time::Duration) -> usize {
+        self.claims.advance(by)
     }
 
     /// Who owns this PTY's size right now, if anyone.

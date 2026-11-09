@@ -4,7 +4,7 @@
 // core on a loopback WebSocket. The relay end only carries frames both ways: the core answers for itself.
 // Prints the trace on a marker line; remote-protocol-terminal.slow.test.mjs compares it with the recording.
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 import { createPhoneWorld, protocolDialect } from '../../../../benchmarks/rust-core/recorders/lib/phone-world.mjs';
@@ -18,15 +18,16 @@ const wait = (ms) => new Promise((resolve) => realSetTimeout(resolve, ms));
 const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-terminal/golden.json', import.meta.url), 'utf8'));
 const ROOT = golden.root;
 const CORE_ROOT = `${ROOT}-core`;
-const BIN = process.env.MIXDOGD_BIN || 'D:\\mixdog-build\\pool\\w11-target\\debug\\mixdogd.exe';
+const CLOCK_DIR = join(CORE_ROOT, 'clock');
+const BIN =process.env.MIXDOGD_BIN || 'D:\\mixdog-build\\pool\\w11-target\\debug\\mixdogd.exe';
 const DEADLINE_MS = 60_000;
 
 async function startCore() {
   rmSync(CORE_ROOT, { recursive: true, force: true });
-  for (const dir of ['runtime', 'data', 'home']) mkdirSync(join(CORE_ROOT, dir), { recursive: true });
+  for (const dir of ['runtime', 'data', 'home', 'clock']) mkdirSync(join(CORE_ROOT, dir), { recursive: true });
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith('MIXDOG_')) delete env[key];
-  Object.assign(env, { MIXDOG_RUNTIME_ROOT: join(CORE_ROOT, 'runtime'), MIXDOG_DATA_DIR: join(CORE_ROOT, 'data'), MIXDOG_HOME: join(CORE_ROOT, 'home') });
+  Object.assign(env, { MIXDOG_RUNTIME_ROOT: join(CORE_ROOT, 'runtime'), MIXDOG_DATA_DIR: join(CORE_ROOT, 'data'), MIXDOG_HOME: join(CORE_ROOT, 'home'), MIXDOG_TERMINAL_LEASE_CLOCK: CLOCK_DIR });
   const child = spawn(BIN, ['serve'], { env, stdio: 'ignore', windowsHide: true });
   const discovery = join(CORE_ROOT, 'runtime', 'daemon.json');
   // A debug core spends about a minute migrating its stores before it serves.
@@ -134,6 +135,7 @@ async function main() {
 
   // The second connection of the size-claim cases: a client of its own on the same core, started with the phone's own initialize.
   let peer = null;
+  let advanceSeq = 0;
   const peerSend = (frame) => {
     peer ??= (async () => {
       const ws = new WebSocket(core.url, { headers: { Authorization: `Bearer ${core.token}` }, perMessageDeflate: false });
@@ -162,9 +164,17 @@ async function main() {
       peerSend({ method: 'terminal/resize', params: { tabId, cols, rows, claim: true } });
     },
     clock() {},
-    // A real core has no virtual clock: the lease runs on the wall clock, so time moves on by waiting it out. Everything compared is
-    // awaited on its own event; this wait only lets a lease age.
-    advance: (ms) => wait(ms),
+    // The core's manual lease clock (a debug build whose MIXDOG_TERMINAL_LEASE_CLOCK names this directory): time moves by exactly `ms`,
+    // and the core acknowledges once every claim due by then has lapsed. The poll below only waits for that acknowledgement.
+    async advance(ms) {
+      advanceSeq += 1;
+      writeFileSync(join(CLOCK_DIR, 'advance'), `${advanceSeq} ${ms}`);
+      for (let i = 0; i < 5000; i += 1) {
+        if (existsSync(join(CLOCK_DIR, 'acked')) && readFileSync(join(CLOCK_DIR, 'acked'), 'utf8') === String(advanceSeq)) return;
+        await wait(2);
+      }
+      throw new Error('the core did not acknowledge the clock step');
+    },
     close(who) {
       if (who === 'other') void peer?.then((ws) => ws.close());
     },

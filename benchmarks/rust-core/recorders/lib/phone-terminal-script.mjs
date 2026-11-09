@@ -107,8 +107,8 @@ export function terminalScript(root) {
 
 /**
  * The size-claim cases, on one timeline: five tabs, each case on its own tab, claims by the phone and by a second connection
- * (`from: 'other'`). `advance` moves time on: Node's recording moves a virtual clock, a real core has none and waits that long.
- * Every checkpoint sits 3 s or more from a lease edge, and every lapse is awaited on its event, so only the order is compared.
+ * (`from: 'other'`). `advance` moves time on by exactly that much: Node's recording ticks its virtual clock, the replay steps the
+ * core's manual lease clock (a debug build with MIXDOG_TERMINAL_LEASE_CLOCK set). No wall time passes in either.
  *
  *   L1 lapse     the phone claims at 0 s and never renews: the claim lapses at 30 s.
  *   L2 renewal   claims at 1 s, renews at 10 s and 20 s: still held at 37 s, lapses at 50 s (30 s after the last renewal).
@@ -161,17 +161,28 @@ export function sizeClaimScript(root) {
       claim(L2, 101, 31),
       { op: 'call', name: 'termAttach', params: [L2] },
       { op: 'advance', ms: 5000 },
-      // 25 s: every claim still stands except the released one.
+      // 25 s: every claim still stands except the released one. Then time steps to each lease edge: the millisecond before it the
+      // claim holds, the edge itself ends it (L1 at 30 s, L4 at 32 s, L6's phone claim at 34 s, L2 at 50 s, 30 s after its renewal at 20 s).
       ...attachAll(tabs),
-      { op: 'advance', ms: 12000 },
+      { op: 'advance', ms: 4999 },
+      ...attachAll(tabs),
+      { op: 'advance', ms: 1 },
       owner(L1, 0, 0, false),
-      owner(L4, 0, 0, false),
-      owner(L6, 0, 0, false),
-      // 37 s: L1, L4 and L6 lapsed; L2's last renewal was at 20 s.
       ...attachAll(tabs),
-      { op: 'advance', ms: 18000 },
+      { op: 'advance', ms: 1999 },
+      ...attachAll(tabs),
+      { op: 'advance', ms: 1 },
+      owner(L4, 0, 0, false),
+      ...attachAll(tabs),
+      { op: 'advance', ms: 1999 },
+      ...attachAll(tabs),
+      { op: 'advance', ms: 1 },
+      owner(L6, 0, 0, false),
+      ...attachAll(tabs),
+      { op: 'advance', ms: 15999 },
+      ...attachAll(tabs),
+      { op: 'advance', ms: 1 },
       owner(L2, 0, 0, false),
-      // 55 s.
       ...attachAll(tabs),
       ...tabs.map((tab) => ({ op: 'call', name: 'termDispose', params: [tab] })),
       { op: 'lane', lane: 'terminal', on: false },

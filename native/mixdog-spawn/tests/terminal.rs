@@ -662,6 +662,29 @@ async fn a_size_claim_lapses_after_its_lease_unless_renewed() {
     assert_eq!(owners, vec![("A".into(), 50, 20), ("B".into(), 60, 25), ("B".into(), 61, 26), (String::new(), 0, 0)]);
     rig.tabs.dispose(id);
 }
+/// The manual lease clock (debug builds, `MIXDOG_TERMINAL_LEASE_CLOCK` set): a claim lapses at exactly its 30 s edge,
+/// not a millisecond before, and a renewal moves the edge.
+#[cfg(debug_assertions)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_manual_lease_clock_lapses_a_claim_at_exactly_its_edge() {
+    // SAFETY: set before this test's tabs exist; the test binary runs this test in its own process under nextest.
+    unsafe { std::env::set_var("MIXDOG_TERMINAL_LEASE_CLOCK", "manual") };
+    let rig = rig("manual-lease").await;
+    let attached = rig.tabs.ensure(Some("term_manual"), rig.request()).await.unwrap();
+    let id = attached.id.as_str();
+    let ms = std::time::Duration::from_millis;
+    rig.tabs.resize(id, 50, 20, "A");
+    assert_eq!(rig.tabs.advance_lease_clock(ms(10_000)), 0);
+    rig.tabs.resize(id, 50, 20, "A");
+    assert_eq!(rig.tabs.advance_lease_clock(ms(29_999)), 0, "a renewal at 10 s holds until 40 s");
+    assert!(rig.tabs.size_owner(id).is_some());
+    assert_eq!(rig.tabs.advance_lease_clock(ms(1)), 1, "the lease lapses at the 30 s edge, to the instant");
+    assert_eq!(rig.tabs.size_owner(id), None);
+    rig.tabs.resize(id, 50, 20, "A");
+    assert_eq!(rig.tabs.advance_lease_clock(ms(29_999)), 0, "an unrenewed claim holds until its 30 s edge");
+    assert_eq!(rig.tabs.advance_lease_clock(ms(1)), 1, "and lapses at the 30 s edge");
+    rig.tabs.dispose(id);
+}
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn activity_follows_the_shell_markers_and_focus() {
     let rig = rig("activity").await;
