@@ -2667,7 +2667,12 @@ authorized?: boolean,
 /**
  * Answer only `maxChars` code points of the text, from code point `fromChar`; the answer then carries `nextChar` while text remains.
  */
-fromChar?: number, maxChars?: number, };
+fromChar?: number, maxChars?: number,
+/**
+ * The `readId` the first window's answer carried: the windows after it are served from that one read of the file (the file is not
+ * opened again), so a file replaced between two windows does not mix versions.
+ */
+readId?: string, };
 
 /**
  * Params of `projectFs/recovery`.

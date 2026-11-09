@@ -8801,6 +8801,13 @@
             "null"
           ]
         },
+        "readId": {
+          "description": "The `readId` the first window's answer carried: the windows after it are served from that one read of the file (the file is not opened again), so a file replaced between two windows does not mix versions.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "rel": {
           "type": "string"
         },

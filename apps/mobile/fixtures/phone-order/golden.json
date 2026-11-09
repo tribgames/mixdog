@@ -1,0 +1,476 @@
+{
+  "note": "The order in which Node's relay dispatch and call queue started and ended the calls of different groups one phone connection sent: per scenario its script, the events in order and each call's answer.",
+  "calls": {
+    "write": {
+      "method": "writeProjectFile",
+      "params": [
+        "D:\\proj",
+        "a.txt",
+        "new\n",
+        "old\n",
+        null,
+        null
+      ]
+    },
+    "list": {
+      "method": "listProjectDir",
+      "params": [
+        "D:\\proj",
+        ""
+      ]
+    },
+    "stat": {
+      "method": "statProjectFile",
+      "params": [
+        "D:\\proj",
+        "a.txt",
+        null
+      ]
+    },
+    "rename": {
+      "method": "renameSession",
+      "params": [
+        "s1",
+        "A title"
+      ]
+    },
+    "archive": {
+      "method": "setSessionArchived",
+      "params": [
+        "s1",
+        true
+      ]
+    },
+    "snapshot": {
+      "method": "getSnapshot",
+      "params": [
+        "s1"
+      ]
+    },
+    "usage": {
+      "method": "readCapabilities",
+      "params": [
+        [
+          {
+            "capability": "getUsageDashboard",
+            "args": []
+          }
+        ]
+      ]
+    }
+  },
+  "scenarios": {
+    "a file write, then chat mutations and reads": {
+      "steps": [
+        [
+          "send",
+          "write"
+        ],
+        [
+          "send",
+          "rename"
+        ],
+        [
+          "send",
+          "list"
+        ],
+        [
+          "send",
+          "snapshot"
+        ],
+        [
+          "send",
+          "archive"
+        ],
+        [
+          "send",
+          "stat"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "write"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "rename"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "list"
+        ],
+        [
+          "release",
+          "snapshot"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "archive"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "stat"
+        ],
+        [
+          "settle"
+        ]
+      ],
+      "events": [
+        [
+          "start",
+          "write"
+        ],
+        [
+          "end",
+          "write"
+        ],
+        [
+          "start",
+          "rename"
+        ],
+        [
+          "end",
+          "rename"
+        ],
+        [
+          "start",
+          "list"
+        ],
+        [
+          "start",
+          "snapshot"
+        ],
+        [
+          "end",
+          "list"
+        ],
+        [
+          "end",
+          "snapshot"
+        ],
+        [
+          "start",
+          "archive"
+        ],
+        [
+          "end",
+          "archive"
+        ],
+        [
+          "start",
+          "stat"
+        ],
+        [
+          "end",
+          "stat"
+        ]
+      ],
+      "answers": {
+        "write": "ok",
+        "rename": "ok",
+        "list": "ok",
+        "snapshot": "ok",
+        "archive": "ok",
+        "stat": "ok"
+      }
+    },
+    "a chat mutation, then a file write and reads": {
+      "steps": [
+        [
+          "send",
+          "rename"
+        ],
+        [
+          "send",
+          "write"
+        ],
+        [
+          "send",
+          "list"
+        ],
+        [
+          "send",
+          "snapshot"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "rename"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "write"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "list"
+        ],
+        [
+          "release",
+          "snapshot"
+        ],
+        [
+          "settle"
+        ]
+      ],
+      "events": [
+        [
+          "start",
+          "rename"
+        ],
+        [
+          "end",
+          "rename"
+        ],
+        [
+          "start",
+          "write"
+        ],
+        [
+          "end",
+          "write"
+        ],
+        [
+          "start",
+          "list"
+        ],
+        [
+          "start",
+          "snapshot"
+        ],
+        [
+          "end",
+          "list"
+        ],
+        [
+          "end",
+          "snapshot"
+        ]
+      ],
+      "answers": {
+        "rename": "ok",
+        "write": "ok",
+        "list": "ok",
+        "snapshot": "ok"
+      }
+    },
+    "reads of both groups overlap, a mutation waits for them": {
+      "steps": [
+        [
+          "send",
+          "list"
+        ],
+        [
+          "send",
+          "snapshot"
+        ],
+        [
+          "send",
+          "stat"
+        ],
+        [
+          "send",
+          "archive"
+        ],
+        [
+          "send",
+          "write"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "list"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "snapshot"
+        ],
+        [
+          "release",
+          "stat"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "archive"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "write"
+        ],
+        [
+          "settle"
+        ]
+      ],
+      "events": [
+        [
+          "start",
+          "list"
+        ],
+        [
+          "start",
+          "snapshot"
+        ],
+        [
+          "start",
+          "stat"
+        ],
+        [
+          "end",
+          "list"
+        ],
+        [
+          "end",
+          "snapshot"
+        ],
+        [
+          "end",
+          "stat"
+        ],
+        [
+          "start",
+          "archive"
+        ],
+        [
+          "end",
+          "archive"
+        ],
+        [
+          "start",
+          "write"
+        ],
+        [
+          "end",
+          "write"
+        ]
+      ],
+      "answers": {
+        "list": "ok",
+        "snapshot": "ok",
+        "stat": "ok",
+        "archive": "ok",
+        "write": "ok"
+      }
+    },
+    "a slow capability read observes the earlier file write, a later chat mutation waits for the write": {
+      "steps": [
+        [
+          "send",
+          "write"
+        ],
+        [
+          "send",
+          "usage"
+        ],
+        [
+          "send",
+          "archive"
+        ],
+        [
+          "send",
+          "snapshot"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "write"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "usage"
+        ],
+        [
+          "release",
+          "archive"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "snapshot"
+        ],
+        [
+          "settle"
+        ]
+      ],
+      "events": [
+        [
+          "start",
+          "write"
+        ],
+        [
+          "end",
+          "write"
+        ],
+        [
+          "start",
+          "usage"
+        ],
+        [
+          "start",
+          "archive"
+        ],
+        [
+          "end",
+          "usage"
+        ],
+        [
+          "end",
+          "archive"
+        ],
+        [
+          "start",
+          "snapshot"
+        ],
+        [
+          "end",
+          "snapshot"
+        ]
+      ],
+      "answers": {
+        "write": "ok",
+        "usage": "ok",
+        "archive": "ok",
+        "snapshot": "ok"
+      }
+    }
+  }
+}

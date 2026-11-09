@@ -133,8 +133,9 @@ pub fn project_entry_path(root: &Path, rel: &str) -> WsResult<PathBuf> {
     Ok(target)
 }
 
-/// [`project_entry_path`] for the file-transfer, server-trash and recovery paths: these are not Node's editor calls (which throw a plain
-/// `Error`), so a path beyond the project stays the permission refusal it always was.
+/// [`project_entry_path`] for the two transfer calls Node has no counterpart of (`transfer/beginZip` names a project folder by `rel`, where
+/// Node's `authorizeFolderZip` takes a session path; `transfer/beginWrite` writes into a project, where Node's `serverUpload*` stage in
+/// a per-session folder): a path beyond the project stays the permission refusal this core always gave.
 pub fn guarded_entry_path(root: &Path, rel: &str) -> WsResult<PathBuf> {
     project_entry_path(root, rel).map_err(|error| if matches!(error.reason, crate::error::Reason::Plain) { WsError::denied(error.message) } else { error })
 }

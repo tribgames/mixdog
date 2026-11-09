@@ -30,6 +30,7 @@ pub mod lsp;
 pub mod lspcaps;
 pub mod lspwire;
 pub mod rank;
+pub mod readwindow;
 pub mod release;
 pub mod recovery;
 pub mod text;

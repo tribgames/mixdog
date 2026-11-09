@@ -13,7 +13,7 @@ use crate::error::Reason;
 use crate::error::WsError;
 use crate::error::WsResult;
 use crate::pathguard::lexical;
-use crate::pathguard::guarded_entry_path;
+use crate::pathguard::project_entry_path;
 
 fn trash_home() -> PathBuf {
     match std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).filter(|p| p.is_absolute()) {
@@ -65,7 +65,7 @@ fn timestamp() -> String {
 }
 
 pub fn entry(root: &Path, rel: &str, permanent: bool) -> WsResult<Value> {
-    let target = guarded_entry_path(root, rel)?;
+    let target = project_entry_path(root, rel)?;
     if target == lexical(root) {
         return Err(WsError::invalid("The project folder itself cannot be deleted here."));
     }

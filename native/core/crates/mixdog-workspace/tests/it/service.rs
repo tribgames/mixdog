@@ -125,16 +125,56 @@ async fn a_text_file_is_read_in_windows_that_join_to_the_whole() {
     let env = env();
     let text = "aé😀b".repeat(5);
     std::fs::write(env.root.join("w.txt"), &text).unwrap();
-    let (mut joined, mut from) = (String::new(), 0u64);
-    loop {
-        let part = call(&env, "projectFs/readText", json!({ "root": env.root.to_string_lossy(), "rel": "w.txt", "fromChar": from, "maxChars": 7 })).await.unwrap();
+    let root = env.root.to_string_lossy().into_owned();
+    let mut part = call(&env, "projectFs/readText", json!({ "root": root, "rel": "w.txt", "maxChars": 7 })).await.unwrap();
+    let mut joined = part["content"].as_str().unwrap().to_owned();
+    while let Some(next) = part.get("nextChar").and_then(Value::as_u64) {
+        let read_id = part["readId"].clone();
+        part = call(&env, "projectFs/readText", json!({ "root": root, "rel": "w.txt", "readId": read_id, "fromChar": next, "maxChars": 7 })).await.unwrap();
         joined.push_str(part["content"].as_str().unwrap());
-        match part.get("nextChar").and_then(Value::as_u64) {
-            Some(next) => from = next,
-            None => break,
-        }
     }
     assert_eq!(joined, text);
+}
+
+/// Node read a file once, through one authorized handle (`readProjectTextFileAuthorized`), and answered that one version. The windows of one
+/// read come from the one read the first window made: a file replaced between two windows changes nothing the reader joins. Node's answer
+/// is the recording (apps/mobile/fixtures/phone-files/golden.json, main scenario `readProjectFile toolong.txt`: 1 MiB + 1 byte, so the
+/// phone reads it in windows); the file is made from the recorded text and mtime.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_windows_of_one_read_are_one_version_of_a_file_replaced_between_them() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
+    let steps = golden["scenarios"]["main"]["steps"].as_array().unwrap();
+    let recorded = steps.iter().find(|step| step["call"] == "readProjectFile" && step["params"][1] == "toolong.txt").unwrap()["frame"]["value"].clone();
+    let text = recorded["content"].as_str().unwrap().to_owned();
+    let at_ms = recorded["mtimeMs"].as_u64().unwrap();
+    let env = env();
+    let file = env.root.join("toolong.txt");
+    let pin = |ms: u64| {
+        let open = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
+        open.set_modified(std::time::UNIX_EPOCH + Duration::from_millis(ms)).unwrap();
+    };
+    std::fs::write(&file, &text).unwrap();
+    pin(at_ms);
+    let root = env.root.to_string_lossy().into_owned();
+    let window = 60_000u64;
+    let mut part = call(&env, "projectFs/readText", json!({ "root": root, "rel": "toolong.txt", "authorized": true, "maxChars": window })).await.unwrap();
+    let mut joined = part["content"].as_str().unwrap().to_owned();
+    // The file is replaced (other text, other time) after the first window.
+    std::fs::write(&file, "c".repeat(text.len())).unwrap();
+    pin(at_ms + 1_000_000);
+    while let Some(next) = part.get("nextChar").and_then(Value::as_u64) {
+        let read_id = part["readId"].clone();
+        part = call(&env, "projectFs/readText", json!({ "root": root, "rel": "toolong.txt", "authorized": true, "readId": read_id, "fromChar": next, "maxChars": window })).await.unwrap();
+        joined.push_str(part["content"].as_str().unwrap());
+    }
+    assert!(joined == text, "the joined windows are the first version of the file ({} of {} bytes)", joined.len(), text.len());
+    // The recording holds the time as the integer JSON text `1767323045000`, the core writes the same number as a float: one JSON number
+    // to the phone. Every other field is compared as it is.
+    assert_eq!(part["mtimeMs"].as_f64(), recorded["mtimeMs"].as_f64(), "the time of the first read");
+    for field in ["binary", "tooLarge", "readOnly", "encoding"] {
+        assert_eq!(part[field], recorded[field], "{field} of the first read");
+    }
+    assert_eq!(part.as_object().unwrap().len(), recorded.as_object().unwrap().len(), "no field more or less than the recording's");
 }
 
 /// The paired device's side of the spec's `transfer/*` (SPEC.md R44): a path outside every project is described
@@ -972,8 +1012,11 @@ async fn recorded_transfer_reads_replay_through_the_transfer_methods() {
     assert_eq!(began["mimeType"], entry("authorize")["result"]["mime"]);
     // authorize(outside): a path out of the project is refused.
     let outside = call(&env, "transfer/beginRead", json!({ "source": { "kind": "file", "root": root, "rel": "../x" } })).await;
-    // The transfer paths are not Node's editor calls: a path beyond the project stays the permission refusal.
-    assert!(matches!(outside, Err(CoreError::PermissionDenied { .. })), "{outside:?}");
+    // Node's `FileDownloadError('outside-project')` (recorded: name FileDownloadError): a refusal the core types as a permission denial, as
+    // `expired` is typed for the "no longer available" one; the download group's adapter gives it Node's text, which
+    // `transfer::tests::a_project_path_beyond_the_project_is_nodes_outside_project_refusal` holds to the recording.
+    assert_eq!(entry("authorize(outside)")["error"]["name"], "FileDownloadError");
+    assert!(matches!(&outside, Err(CoreError::PermissionDenied { .. })), "{outside:?}");
     let id = began["transferId"].as_str().unwrap().to_owned();
     // readRange: the recorded bytes.
     let range = call(&env, "transfer/readRange", json!({ "transferId": id, "offset": 0, "length": 64 })).await.unwrap();
@@ -1305,8 +1348,17 @@ async fn recorded_start_calls_resolve_the_folder_node_did() {
                         assert!(node_message.contains(&format!("realpath '{named}'")), "{name}: {node_message}");
                     }
                     Some("notADirectory") => assert_eq!(message.as_deref(), Some(node_message), "{name}"),
-                    // The fixture (fixtures/phone-chat/host.json) records the name and message only.
-                    Some("PROJECT_UNAVAILABLE") => assert_eq!(message.as_deref(), Some(node_message), "{name}"),
+                    // Node's registry (`known`, desktop-project-registry.ts) throws a plain `Error` with no code when its store has no
+                    // `listProjectsStrict` (the stand-in store this fixture was recorded with: no `code` in `node_error`), and the coded
+                    // `PROJECT_UNAVAILABLE` when it has one - as the real store (src/runtime/shared/projects.mjs) does, and as the core's
+                    // registry is: it tells a removal from an unreadable table. The real store's whole error is in the files recording.
+                    Some("PROJECT_UNAVAILABLE") => {
+                        assert!(node_error.get("code").is_none(), "{name}: the stand-in store's error carries no code");
+                        let files: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
+                        let strict = files["scenarios"]["relay"]["steps"].as_array().unwrap().iter().map(|step| &step["frame"]).find(|frame| frame["errorCode"] == "PROJECT_UNAVAILABLE").unwrap();
+                        assert_eq!(strict["error"], node_message, "{name}: one text in both recordings");
+                        assert_eq!((code.as_deref(), message.as_deref()), (strict["errorCode"].as_str(), strict["error"].as_str()), "{name}: the whole error");
+                    }
                     other => panic!("{name}: unexpected code {other:?}"),
                 }
             }
