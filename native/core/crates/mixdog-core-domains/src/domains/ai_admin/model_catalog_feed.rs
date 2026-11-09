@@ -24,6 +24,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use mixdog_core_api::state::StatePublisher;
@@ -41,11 +42,17 @@ pub struct ModelCatalogFeed {
     wake: Notify,
     /// The next wake is an invalidation: the rows are loaded again, not read from a loaded catalog only.
     reload: AtomicBool,
+    /// The invalidations the feed was told of, so a test sees at once whether a mutation's invalidation reached it.
+    invalidations: AtomicU64,
 }
 
 impl ModelCatalogFeed {
     pub fn new(models: Arc<ModelListService>, publisher: Arc<dyn StatePublisher>) -> Arc<Self> {
-        Arc::new(Self { models, pushed: SectionPush::new(publisher), wake: Notify::new(), reload: AtomicBool::new(false) })
+        Arc::new(Self { models, pushed: SectionPush::new(publisher), wake: Notify::new(), reload: AtomicBool::new(false), invalidations: AtomicU64::new(0) })
+    }
+
+    pub fn invalidations(&self) -> u64 {
+        self.invalidations.load(Ordering::SeqCst)
     }
 
     /// The feed and its task: it follows the loaded config (`applied` of the provider sync: a stored change is read once the
@@ -66,8 +73,9 @@ impl ModelCatalogFeed {
                     () = filled.notified() => {}
                 }
                 // A change of the stored providers (a key, a provider saved or removed, a model hidden) is a mutation that ends in
-                // an invalidation: the registry follows the config after this tick, and a read before it would publish the rows of
-                // the old registry. Only a change that leaves the providers alone (the model preferences) has none to wait for.
+                // an invalidation (Node: `afterCredentialChange` / `onCustomProviderRemoved`, `provider-auth/login.mjs:83-104`): the
+                // registry follows the config after this tick, so a read now publishes rows Node never showed (a removed provider
+                // still listed). Only a change that leaves the providers alone (the model preferences) has no invalidation to wait for.
                 if stored {
                     let now = task.models.config.agent().get("providers").cloned();
                     if std::mem::replace(&mut providers, now.clone()) != now {
@@ -83,6 +91,7 @@ impl ModelCatalogFeed {
 
     /// `invalidateProviderCaches` ran: the rows may have moved, and the catalog has to be loaded again to say.
     pub fn invalidated(&self) {
+        self.invalidations.fetch_add(1, Ordering::SeqCst);
         self.reload.store(true, Ordering::SeqCst);
         self.wake.notify_one();
     }

@@ -84,7 +84,27 @@ const gateRows = [
   row('sess_home_bob', { title: '', messageCount: 0 }),
   row('g_other_one_message', { title: '', messageCount: 1 }),
 ];
-const gate = gateRows.map((r) => ({ row: r, kept: desktopSessionSummaries([r]).length > 0 }));
+// The roster's other inputs: the names users gave (`names`, written by `renameSession`) and the host's task workspace.
+const TASK_WORKSPACE = 'C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified';
+const gateCases = [
+  ...gateRows.map((r) => ({ row: r })),
+  // a title the generator drops as meaningless: only a user's name keeps the row
+  { row: row('g_meaningless_title', { title: '---' }) },
+  { row: row('g_meaningless_title_renamed', { title: '---' }), names: { g_meaningless_title_renamed: '---' } },
+  { row: row('g_renamed_untitled', { title: '', preview: '' }), names: { g_renamed_untitled: 'Mine' } },
+  { row: row('g_renamed_blank', { title: '' }), names: { g_renamed_blank: '   ' } },
+  // a legacy row (no stored classification) in the task workspace is a task, elsewhere a project: kept either way
+  { row: row('g_legacy_in_task_workspace', { cwd: TASK_WORKSPACE.toLowerCase().replaceAll('\\', '/') + '/' }), taskWorkspace: TASK_WORKSPACE },
+  { row: row('g_legacy_in_task_workspace_untitled', { title: '', cwd: TASK_WORKSPACE }), taskWorkspace: TASK_WORKSPACE },
+  { row: row('g_legacy_outside_task_workspace', { cwd: 'C:/elsewhere' }), taskWorkspace: TASK_WORKSPACE },
+  { row: row('g_legacy_outside_task_workspace_untitled', { title: '', cwd: 'C:/elsewhere' }), taskWorkspace: TASK_WORKSPACE },
+];
+const gate = gateCases.map(({ row: r, names, taskWorkspace }) => ({
+  row: r,
+  ...(names ? { names } : {}),
+  ...(taskWorkspace ? { taskWorkspace } : {}),
+  kept: desktopSessionSummaries([r], {}, names ?? {}, taskWorkspace ?? '').length > 0,
+}));
 
 const finalOut = join(FIXTURES_ROOT, 'thread-edges');
 const out = stageSet(finalOut);

@@ -75,6 +75,10 @@ impl RowOverlay {
 /// The host side of the overlay: the live facts of one session.
 pub trait ListOverlay: Send + Sync {
     fn of(&self, thread: &ThreadId) -> RowOverlay;
+    /// The name the user gave the thread (`titleSource: user`) when this process hosts it.
+    fn user_name(&self, _thread: &ThreadId) -> Option<String> {
+        None
+    }
 }
 
 /// [`ListOverlay`] over the threads this process hosts and the bots' owned work:
@@ -114,6 +118,13 @@ fn clean_text(value: Option<&serde_json::Value>, lower: bool) -> String {
 }
 
 impl ListOverlay for LiveListOverlay {
+    fn user_name(&self, thread: &ThreadId) -> Option<String> {
+        let header = self.directory.handle(thread)?.cell.header.load();
+        (header.get("titleSource").and_then(serde_json::Value::as_str) == Some("user"))
+            .then(|| header.get("title").and_then(serde_json::Value::as_str).map(str::to_owned))
+            .flatten()
+    }
+
     fn of(&self, thread: &ThreadId) -> RowOverlay {
         let mut overlay = RowOverlay::default();
         if let Some(handle) = self.directory.handle(thread) {
@@ -190,6 +201,10 @@ impl ThreadListService {
 
     async fn with_rooms(&self, rows: Vec<ThreadSummary>) -> Result<Vec<ThreadSummary>, CoreError> {
         self.rooms.with_rooms(rows).await.map_err(|error| failed(DOMAIN, error))
+    }
+
+    pub fn user_name(&self, id: &ThreadId) -> Option<String> {
+        self.overlay.user_name(id)
     }
 
     /// The row `thread/list` shows for `id`; `None` when the listing has none.

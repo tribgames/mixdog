@@ -879,6 +879,115 @@
         "messageCount": 1
       },
       "kept": false
+    },
+    {
+      "row": {
+        "id": "g_meaningless_title",
+        "title": "---",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_meaningless_title_renamed",
+        "title": "---",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "names": {
+        "g_meaningless_title_renamed": "---"
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_renamed_untitled",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "names": {
+        "g_renamed_untitled": "Mine"
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_renamed_blank",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "names": {
+        "g_renamed_blank": "   "
+      },
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_legacy_in_task_workspace",
+        "title": "A title",
+        "preview": "",
+        "cwd": "c:/users/u/appdata/roaming/mixdog/workspace/unclassified/",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "taskWorkspace": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_legacy_in_task_workspace_untitled",
+        "title": "",
+        "preview": "",
+        "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "taskWorkspace": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+      "kept": false
+    },
+    {
+      "row": {
+        "id": "g_legacy_outside_task_workspace",
+        "title": "A title",
+        "preview": "",
+        "cwd": "C:/elsewhere",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "taskWorkspace": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_legacy_outside_task_workspace_untitled",
+        "title": "",
+        "preview": "",
+        "cwd": "C:/elsewhere",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "taskWorkspace": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+      "kept": false
     }
   ]
 }

@@ -24,21 +24,6 @@ function untilLogged(text, timeoutMs) {
     if (logged()) finish();
   });
 }
-// Resolves when the config file no longer holds `before` (the daemon saves a change after a debounce), or at the deadline: a call
-// that changes nothing never rewrites it, and the file as it stands is then the stored section.
-function untilConfigSaved(file, before, timeoutMs) {
-  return new Promise((resolve) => {
-    const finish = () => {
-      clearTimeout(timer);
-      watcher.close();
-      resolve();
-    };
-    const changed = () => readFileSync(file, 'utf8') !== before;
-    const watcher = watch(process.env.MIXDOG_DATA_DIR, () => changed() && finish());
-    const timer = setTimeout(finish, timeoutMs);
-    if (changed()) finish();
-  });
-}
 let discovery = null;
 let attached = null;
 let failure = null;
@@ -60,14 +45,12 @@ try {
   for (const call of scenario.calls) {
     let entry;
     try {
-      const configFile = join(process.env.MIXDOG_DATA_DIR, 'mixdog-config.json');
-      const before = call.configure && scenario.recordConfig ? readFileSync(configFile, 'utf8') : null;
       const reply = await attached.call(call.configure ? 'session.configure' : 'session.read', { sessionId, action: call.action, args: call.args, open, baseRevision: null });
       entry = { action: call.action, args: call.args, ok: true, value: reply?.value };
-      // The stored agent section the change left (its save is debounced), so a replay can apply Node's change as it stored it.
+      // The stored agent section the change left. These calls write the config file before they resolve (cfgMod writes inside the call), so it is read
+      // when the call's own promise has resolved, so a replay can apply Node's change as it stored it.
       if (call.configure && scenario.recordConfig) {
-        await untilConfigSaved(configFile, before, 5000);
-        entry.agentAfter = JSON.parse(readFileSync(configFile, 'utf8')).agent;
+        entry.agentAfter = JSON.parse(readFileSync(join(process.env.MIXDOG_DATA_DIR, 'mixdog-config.json'), 'utf8')).agent;
       }
     } catch (error) {
       entry = { action: call.action, args: call.args, ok: false, error: String(error?.message || error) };
