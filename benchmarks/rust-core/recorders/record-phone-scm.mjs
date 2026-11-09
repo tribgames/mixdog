@@ -15,7 +15,7 @@
 // Scratch repositories live under D:\mixdog-build\tmp\phone-ph2-scm-rec and are deleted when the run ends.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import fs, { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -205,6 +205,7 @@ if (REPLAY) {
     shim: shimExe,
     places: {
       gh: join(lad, 'Microsoft', 'WinGet', 'Links', 'gh.exe'),
+      ghOnPath: join(WORK, 'bin', 'gh.exe'),
       winget: join(WORK, 'bin', 'winget.exe'),
       git: join(WORK, 'bin', 'git.exe'),
       soffice: join(pf, 'LibreOffice', 'program', 'soffice.com'),
@@ -275,7 +276,7 @@ if (REPLAY) {
   });
   const host = { client: () => client };
   const byName = new Map(golden.cases.map((entry) => [entry.name, entry]));
-  replay = { core, client, host, adapter, byName, shims, compared: [], differences: [] };
+  replay = { core, client, host, adapter, byName, shims, compared: [], differences: [], ptySeen: 0 };
 }
 
 /** The phone's adapter against the core: the frame the relay would carry. */
@@ -334,6 +335,9 @@ async function rec(name, call, params, note) {
     replay.shims.sync();
     processes.length = 0;
     const core = mapFlowIds(await replayCall(call, coreParams(params)));
+    // The core starts gh on its own time (Node's scripted pty is synchronous): wait for each sign-in the recording started.
+    replay.ptySeen += (recorded.processes ?? []).filter((entry) => entry.tool === 'pty').length;
+    if (replay.ptySeen) await withDeadline(replay.shims.flow(replay.ptySeen - 1), `the core never ran gh auth login for ${name}`);
     replay.shims.sync();
     // The tools the core ran, as Node ran them: the same programs with the same arguments, in the same order.
     // A tool the script says is absent (spawn ENOENT) ran nowhere: there is no executable for the core to start.
@@ -666,14 +670,14 @@ const setupDone = new Promise((resolve) => {
   setupSettled = resolve;
 });
 secondFlow.exit(0);
-if (replay) await settled(second.value.flowId, (state) => state?.state !== 'pending');
+if (replay) await settled(second.value.flowId, (state) => !['pending', 'code'].includes(state?.state));
 else await setupDone;
 await rec('githubCliLoginStatus-success', 'githubCliLoginStatus', [second.value.flowId]);
 const third = await rec('githubCliLoginStart-third', 'githubCliLoginStart', []);
 const thirdFlow = await flowOf(2);
 thirdFlow.print('error connecting to github.com\nplease try again later\n');
 thirdFlow.exit(1);
-await settled(third.value.flowId, (state) => state?.state !== 'pending');
+await settled(third.value.flowId, (state) => !['pending', 'code'].includes(state?.state));
 await rec('githubCliLoginStatus-error', 'githubCliLoginStatus', [third.value.flowId]);
 await rec('githubCliLoginCancel-failed-flow', 'githubCliLoginCancel', [third.value.flowId]);
 
@@ -709,6 +713,11 @@ await rec('ghPrDiff-missing', 'ghPrDiff', [R, 404]);
 // ═══ 8. githubRequest: the feature gate, then the allowlisted action ═══
 await rec('githubRequest-gate-off', 'githubRequest', [R, { action: 'pr.list', repo: 'octo/demo' }]);
 config = { builtins: { git: { installed: true } } };
+if (replay) {
+  // The same document, written through the core's own config call (a file write waits on a file watch the core may not have).
+  await replay.client.call('config/setBuiltinToolEnabled', { name: 'git', enabled: true });
+  assert.ok(!/Enable Git & GitHub/.test((await replayCall('githubRequest', [R, { action: 'pr.list', repo: 'octo/demo' }])).error ?? ''), 'the core kept the Git & GitHub gate shut');
+}
 await rec('githubRequest-pr-list', 'githubRequest', [R, { action: 'pr.list', repo: 'octo/demo', state: 'open', limit: 5 }]);
 await rec('githubRequest-unknown-action', 'githubRequest', [R, { action: 'repo.delete' }]);
 await rec('githubRequest-extra-field', 'githubRequest', [R, { action: 'pr.view', repo: 'octo/demo', number: 1, bogus: 1 }]);

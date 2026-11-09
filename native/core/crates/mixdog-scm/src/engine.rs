@@ -46,6 +46,15 @@ pub struct Scm {
     commit_root: PathBuf,
     processes: Arc<dyn ProcessManager>,
     gh_program: Arc<dyn Fn() -> String + Send + Sync>,
+    /// What the last probe of each CLI found (Node's `cachedGh` / `cachedGit`): the version, or none when absent.
+    /// Only a refresh looks again.
+    pub(crate) cli_probes: std::sync::Mutex<CliProbes>,
+}
+
+#[derive(Default)]
+pub(crate) struct CliProbes {
+    pub gh: Option<Option<String>>,
+    pub git: Option<Option<String>>,
 }
 
 impl Scm {
@@ -80,6 +89,7 @@ impl Scm {
             lane,
             processes,
             gh_program,
+            cli_probes: Default::default(),
         })
     }
 

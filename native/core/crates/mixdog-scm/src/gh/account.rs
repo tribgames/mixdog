@@ -51,16 +51,27 @@ impl Scm {
     pub async fn gh_status(&self, cancel: &CancellationToken, refresh: bool) -> Result<Value, ScmFailure> {
         if refresh {
             self.github.runner.forget_program();
+            self.cli_probes.lock().expect("cli probes").gh = None;
         }
         let home = home_dir();
-        let probe = match self.github.output(&home, cancel, &["--version"]).await {
-            Ok(output) if output.success() => output,
-            Ok(_) | Err(ScmFailure::Unavailable { .. }) => {
-                return Ok(json!({ "installed": false, "authenticated": false }));
+        let known = self.cli_probes.lock().expect("cli probes").gh.clone();
+        let version = match known {
+            Some(None) => return Ok(json!({ "installed": false, "authenticated": false })),
+            Some(Some(version)) => version,
+            None => {
+                let probe = match self.github.output(&home, cancel, &["--version"]).await {
+                    Ok(output) if output.success() => output,
+                    Ok(_) | Err(ScmFailure::Unavailable { .. }) => {
+                        self.cli_probes.lock().expect("cli probes").gh = Some(None);
+                        return Ok(json!({ "installed": false, "authenticated": false }));
+                    }
+                    Err(other) => return Err(other),
+                };
+                let version = first_version(&probe.stdout, "gh version ");
+                self.cli_probes.lock().expect("cli probes").gh = Some(Some(version.clone()));
+                version
             }
-            Err(other) => return Err(other),
         };
-        let version = first_version(&probe.stdout, "gh version ");
         let auth = self
             .github
             .output(&home, cancel, &["auth", "status", "--hostname", HOSTNAME, "--active"])
@@ -161,13 +172,13 @@ impl Scm {
     pub async fn git_cli_install(self: &Arc<Self>, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         // A system Git that is already present answers first: winget treats an installed
         // package as an upgrade request.
-        let existing = self.git_cli_status(cancel).await?;
+        let existing = self.git_cli_status(cancel, true).await?;
         if existing["installed"] == true {
             return Ok(existing);
         }
         self.install_with_package_manager(cancel, "Git", "https://git-scm.com", "Git.Git", &["install", "git"])
             .await?;
-        let status = self.git_cli_status(cancel).await?;
+        let status = self.git_cli_status(cancel, true).await?;
         if status["installed"] != true {
             return Err(ScmFailure::refused(
                 "INSTALL_NOT_VISIBLE",
@@ -206,12 +217,19 @@ impl Scm {
             ));
         };
         let mut spec = ExecSpec::new(program, home_dir());
+        let spec_args = args.clone();
         spec.args = args;
         spec.time_limit = Some(INSTALL_LIMIT);
         match self.git.exec().run(spec, cancel).await {
             Ok(output) if output.success() => Ok(()),
             Ok(output) => {
-                let text = if output.stderr.is_empty() { output.stdout_text() } else { output.stderr_text() };
+                // Node's `run` (`cli-run.ts`) reports stderr, and execFile's own message when stderr is empty
+                // (`Command failed: <program> <args>`); stdout is never the detail.
+                let text = if output.stderr.is_empty() {
+                    format!("Command failed: {program} {}", spec_args.join(" "))
+                } else {
+                    output.stderr_text()
+                };
                 let detail = text.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("").trim().to_owned();
                 Err(ScmFailure::refused(
                     "INSTALL_FAILED",
@@ -229,36 +247,38 @@ impl Scm {
         }
     }
 
-    /// Whether the project is starred: the status line of the response says, not its text.
+    /// Node's `runGh` (`desktop-operations.ts`): the star calls spawn a bare `gh` from `PATH` (no install place is
+    /// probed) with an 8 s limit; a missing program reads as stderr `ENOENT`.
+    async fn run_bare_gh(&self, cancel: &CancellationToken, args: &[&str]) -> Result<(bool, String), ScmFailure> {
+        let mut spec = ExecSpec::new("gh", home_dir());
+        spec.args = args.iter().map(|arg| (*arg).to_owned()).collect();
+        spec.time_limit = Some(Duration::from_secs(8));
+        match self.git.exec().run(spec, cancel).await {
+            Ok(output) => Ok((output.success(), output.stderr_text())),
+            Err(ScmFailure::Unavailable { .. }) => Ok((false, "ENOENT".to_owned())),
+            Err(ScmFailure::TimedOut { .. }) => Ok((false, String::new())),
+            Err(other) => Err(other),
+        }
+    }
+
+    /// Whether the project is starred: gh's exit says (`--silent`), and a 404 in its message means not starred.
     pub async fn gh_star_status(&self, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         let endpoint = format!("user/starred/{STAR_REPOSITORY}");
-        let output = match self.github.output(&home_dir(), cancel, &["api", "--include", &endpoint]).await {
-            Ok(output) => output,
-            Err(ScmFailure::Unavailable { .. }) => return Ok(json!({ "available": false, "starred": false })),
-            Err(other) => return Err(other),
-        };
-        let status = output
-            .stdout
-            .lines()
-            .next()
-            .and_then(|line| line.strip_prefix("HTTP/"))
-            .and_then(|rest| rest.split_whitespace().nth(1))
-            .and_then(|code| code.parse::<u16>().ok());
-        Ok(match status {
-            Some(204) => json!({ "available": true, "starred": true }),
-            Some(404) => json!({ "available": true, "starred": false }),
-            _ => json!({ "available": false, "starred": false }),
+        let (ok, stderr) = self.run_bare_gh(cancel, &["api", &endpoint, "--silent"]).await?;
+        Ok(if ok {
+            json!({ "available": true, "starred": true })
+        } else if stderr.to_ascii_lowercase().contains("http 404") {
+            json!({ "available": true, "starred": false })
+        } else {
+            json!({ "available": false, "starred": false })
         })
     }
 
     pub async fn gh_star(&self, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         let endpoint = format!("user/starred/{STAR_REPOSITORY}");
-        let output = self
-            .github
-            .output(&home_dir(), cancel, &["api", "-X", "PUT", &endpoint, "--silent"])
-            .await?;
-        if !output.success() {
-            let detail = output.stderr.trim();
+        let (ok, stderr) = self.run_bare_gh(cancel, &["api", "-X", "PUT", &endpoint, "--silent"]).await?;
+        if !ok {
+            let detail = stderr.trim();
             return Err(ScmFailure::Command {
                 domain: crate::error::GITHUB_DOMAIN,
                 text: if detail.is_empty() { "gh could not star the repository.".into() } else { detail.to_owned() },
@@ -267,7 +287,6 @@ impl Scm {
         Ok(json!({ "starred": true }))
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

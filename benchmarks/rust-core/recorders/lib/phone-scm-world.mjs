@@ -161,13 +161,15 @@ export async function serveShims({ engine, onSpawn, shim, places }) {
   const waiting = [];
   const present = (file, yes) => {
     if (!yes) return fs.rmSync(file, { force: true });
-    if (fs.existsSync(file)) return;
+    // statSync, not existsSync: the Node side patches existsSync to answer for the gh path on bin.
+    if (fs.statSync(file, { throwIfNoEntry: false })) return;
     fs.mkdirSync(dirname(file), { recursive: true });
     fs.copyFileSync(shim, file);
   };
   function sync() {
     const { world } = engine;
     present(places.gh, world.ghInstalled);
+    present(places.ghOnPath, world.ghInstalled);
     present(places.winget, !world.wingetMissing);
     present(places.git, !world.gitMissing);
     present(places.soffice, world.soffice);

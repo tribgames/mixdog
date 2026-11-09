@@ -718,7 +718,7 @@ impl ScmService {
                 let p: p::GitRequestContextParams = decode(req)?;
                 scm.git_request_context(&cwd(&p.cwd)?, cancel, &p.input.paths, p.input.base.as_deref().unwrap_or("")).await?
             }
-            "git/cliStatus" => scm.git_cli_status(cancel).await?,
+            "git/cliStatus" => scm.git_cli_status(cancel, false).await?,
             "git/globalConfig/read" => scm.git_global_config(cancel).await?,
             "git/watch" => { let p: p::GitWatchParams = decode(req)?; return Ok(self.git_watch(cwd(&p.cwd)?, cancel).await?); }
             "git/unwatch" => json!({}),
