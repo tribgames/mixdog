@@ -4,6 +4,7 @@
 // the order Node kept: the set the page last named wins, the set of the last visit is opened with the first connection, and a
 // connection counts as synced only when the app feed and every open thread are attached again.
 import type { ClientEvent, ProtocolClient, SessionFold, StoreChange } from '../../../packages/protocol-client/src/index.ts';
+import { remoteConnectionInterruptedError } from '../../desktop/src/renderer/remote-connection-state.ts';
 
 /** Threads open per pane: the same window `thread/resume` is asked for everywhere on the phone. */
 export const VIEW_WINDOW = { lastItems: 50 } as const;
@@ -13,11 +14,11 @@ export type ViewClient = Pick<ProtocolClient<SessionFold>, 'resumeThread' | 'uns
 };
 
 export interface ViewManager {
-  /** The page names the threads it shows. Resolves true once they are open; false when the connection ended first (ask again). */
+  /** The page names the threads it shows. Resolves true once they are open; rejects as interrupted when the connection ends first (Node: viewSync.close() rejects its waiters, remote-view-sync.ts:97). */
   set(threadIds: readonly string[]): Promise<boolean>;
-  /** Asks the core again for the app feed and every open thread (they resume from where they were): the page doubts the stream, e.g. after a wake. */
+  /** Asks the core again for the app feed and every open thread (they resume from where they were): the page doubts the stream, e.g. after a wake. Settles like `set`. */
   resync(): Promise<boolean>;
-  /** Resolves when the connection that is up has the app feed and every open thread attached. */
+  /** The gate of the app's calls: resolves when a connection that is up has everything asked of the core attached (a resync or a changed view in flight, retries included, holds it); rejects as interrupted when that connection ends first. A caller that arrives while none is up waits for the next one. */
   synced(): Promise<void>;
   stop(): void;
 }
@@ -54,12 +55,13 @@ export function createViewManager(
   let restored = [...options.restored];
   let appOpen = false;
   let refresh = false;
-  let firstSynced: () => void = () => undefined;
-  let syncedNow: Promise<void> = new Promise<void>((resolve) => {
-    firstSynced = resolve;
-  });
   let everSynced = false;
   const live = (): boolean => client.status.state === 'ready';
+  // The connection that is up, and whether it has attached everything (Node: viewSync's `active`, and `completed === requested` after `open()`).
+  let up = live();
+  let connSynced = false;
+  const gate = new Set<{ resolve(): void; reject(error: Error): void }>();
+  const readyWaiters = new Set<() => void>();
 
   let requested = 0;
   let completed = 0;
@@ -68,7 +70,7 @@ export function createViewManager(
   let failures = 0;
   let retryDelay = SYNC_RETRY_MS;
   let retry: ReturnType<typeof setTimeout> | undefined;
-  const waiting = new Set<(ok: boolean) => void>();
+  const waiting = new Set<{ resolve(ok: boolean): void; reject(error: Error): void }>();
 
   const waitAttached = (): Promise<void> => {
     const pending = new Set<string>(['app', ...open]);
@@ -89,8 +91,11 @@ export function createViewManager(
   };
   const synced = (reconnected: boolean): void => {
     everSynced = true;
-    firstSynced();
+    connSynced = true;
     options.onSynced(reconnected);
+    if (completed !== requested) return;
+    for (const waiter of [...gate]) waiter.resolve();
+    gate.clear();
   };
 
   const attach = async (force: boolean): Promise<void> => {
@@ -129,7 +134,7 @@ export function createViewManager(
           restored = [];
           if (completed === requested) {
             synced(false);
-            for (const done of [...waiting]) done(true);
+            for (const waiter of [...waiting]) waiter.resolve(true);
             waiting.clear();
           }
         },
@@ -158,7 +163,7 @@ export function createViewManager(
   };
   const request = (): Promise<boolean> => {
     requested += 1;
-    const done = new Promise<boolean>((resolve) => waiting.add(resolve));
+    const done = new Promise<boolean>((resolve, reject) => waiting.add({ resolve, reject }));
     pump();
     return done;
   };
@@ -176,11 +181,22 @@ export function createViewManager(
       retryDelay = SYNC_RETRY_MS;
       clearTimeout(retry);
       retry = undefined;
-      for (const done of [...waiting]) done(false);
-      waiting.clear();
+      connSynced = false;
+      const wasUp = up;
+      up = false;
+      // Only a call waiting on a connection that was up is interrupted by its end; one that arrived while none was up waits for the next.
+      if (wasUp) {
+        for (const waiter of [...waiting]) waiter.reject(remoteConnectionInterruptedError());
+        waiting.clear();
+        for (const waiter of [...gate]) waiter.reject(remoteConnectionInterruptedError());
+        gate.clear();
+      }
       return;
     }
-    if (everSynced) syncedNow = appOpen || open.size > 0 ? waitAttached().then(() => synced(true)) : Promise.resolve(synced(true));
+    up = true;
+    for (const wake of [...readyWaiters]) wake();
+    readyWaiters.clear();
+    if (everSynced) void (appOpen || open.size > 0 ? waitAttached().then(() => synced(true)) : Promise.resolve(synced(true)));
     pump();
   });
 
@@ -195,15 +211,10 @@ export function createViewManager(
       refresh = true;
       return request();
     },
-    // The connection's first (or re-attach) sync, then whatever the page asked since: a resync or a changed view in flight holds the caller
-    // until it completes, retries included (Node: ready() waits for completed === requested, remote-view-sync.ts:67-70). A connection that
-    // ends meanwhile hands the caller to the next one's sync.
     async synced() {
-      for (;;) {
-        await syncedNow;
-        if (completed === requested || !live()) return;
-        if (await new Promise<boolean>((resolve) => waiting.add(resolve))) return;
-      }
+      while (!live()) await new Promise<void>((resolve) => readyWaiters.add(resolve));
+      if (connSynced && completed === requested) return;
+      await new Promise<void>((resolve, reject) => gate.add({ resolve, reject }));
     },
     stop: offStatus,
   };
