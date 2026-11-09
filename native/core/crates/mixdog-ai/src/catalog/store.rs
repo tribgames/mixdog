@@ -498,16 +498,55 @@ mod tests {
         assert!(catalog.snapshot().complete());
     }
 
-    /// Node's deadline timer is armed before the listing's own 4 s fetch timer, so a listing that ends exactly at the
-    /// deadline (a cold Claude OAuth warm against an unreachable registry) has missed it.
+    /// Node's deadline timer is armed before the listing's own 4 s timer, so a listing that ends exactly at the deadline
+    /// (a cold Claude OAuth warm against an unreachable registry) has missed it (`record-catalog-deadline-tie.mjs`):
+    /// each unforced read publishes Node's models and state, and asks the providers Node asked.
     #[tokio::test(start_paused = true)]
-    async fn a_listing_ending_exactly_at_the_deadline_has_missed_it() {
-        let clock = Arc::new(AtomicU64::new(0));
-        let catalog = clocked(&clock);
-        let (tie, _) = slow("tie", Some(LIST_DEADLINE));
-        catalog.refresh(&[tie]).await;
-        assert!(catalog.snapshot().models_of(&"tie".into()).is_empty());
-        assert!(matches!(catalog.snapshot().status.get(&ProviderId::from("tie")), Some(ProviderStatus::Missing { .. })));
+    async fn a_listing_ending_exactly_at_the_deadline_reads_as_nodes() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/catalog-deadline-tie/golden.json")).unwrap();
+        let now = golden["now"].as_u64().unwrap();
+        for scenario in golden["scenarios"].as_array().unwrap() {
+            let name = scenario["name"].as_str().unwrap();
+            let clock = Arc::new(AtomicU64::new(now));
+            let catalog = clocked(&clock);
+            let (sources, calls): (Vec<_>, Vec<_>) = scenario["providers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| slow(p["name"].as_str().unwrap(), Some(Duration::from_millis(p["answersAfterMs"].as_u64().unwrap()))))
+                .unzip();
+            // The latest listing's error per provider: what Node's kept entry carries.
+            let mut codes = BTreeMap::new();
+            for (read, calls_key) in [("first", "callsAfterFirst"), ("second", "callsAfterSecond")] {
+                let outcome = catalog.refresh_asking(&sources, Ask::Due).await;
+                for (provider, error) in &outcome.failed {
+                    codes.insert(provider.clone(), error.code.clone());
+                }
+                let snapshot = catalog.snapshot();
+                let entries: Vec<serde_json::Value> = sources
+                    .iter()
+                    .map(|s| {
+                        let provider = s.provider();
+                        let mut entry = serde_json::json!({
+                            "name": provider.as_str(),
+                            "models": snapshot.models_of(provider).iter().map(|m| m.id.clone()).collect::<Vec<_>>(),
+                        });
+                        if let Some(ProviderStatus::Missing { retry_at, message }) = snapshot.status.get(provider) {
+                            entry["error"] = serde_json::json!({ "code": codes[provider], "message": message });
+                            entry["retryAfterMs"] = serde_json::json!(retry_at - now);
+                        }
+                        entry
+                    })
+                    .collect();
+                assert_eq!(serde_json::Value::Array(entries), scenario[read], "{name}: {read} read");
+                let asked: serde_json::Map<String, serde_json::Value> = sources
+                    .iter()
+                    .zip(&calls)
+                    .map(|(s, c)| (s.provider().as_str().to_owned(), c.load(Ordering::SeqCst).into()))
+                    .collect();
+                assert_eq!(serde_json::Value::Object(asked), scenario[calls_key], "{name}: providers asked by the {read} read");
+            }
+        }
     }
 
     #[tokio::test(start_paused = true)]

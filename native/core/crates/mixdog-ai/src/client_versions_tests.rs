@@ -230,20 +230,54 @@ async fn the_remembered_file_keeps_each_clients_entry_and_refuses_foreign_conten
     assert_eq!(known.read("grok-cli").await, None);
 }
 
-/// `warmCliVersion` (`anthropic-oauth-client-version.mjs`): the claude-code package's npm `latest` is asked before the
-/// OAuth listing continues, unless `MIXDOG_CLI_VERSION` names the version. This is why Node's cold `anthropic-oauth`
-/// listing outlives the catalog's 4 s deadline when the registry cannot be reached.
+/// Node's cold `anthropic-oauth` listing with no credential (`record-claude-oauth-cold-listing.mjs`): `ensureAuth` awaits
+/// `warmCliVersion` (the claude-code package's npm `latest`, unless `MIXDOG_CLI_VERSION` names the version) before it
+/// finds no credential, and `listModels` answers its offline rows. Rust's source for the route, over the same scripted
+/// network, makes the same requests in the same order and answers the same rows.
 #[tokio::test]
-async fn the_claude_dialect_warms_the_claude_code_package_unless_the_version_is_named() {
-    for (env, asked) in [(HashMap::new(), 1), (HashMap::from([("MIXDOG_CLI_VERSION".to_owned(), "2.1.400".to_owned())]), 0)] {
+async fn a_cold_claude_oauth_listing_asks_and_answers_as_nodes() {
+    use crate::catalog::{ModelSource, OauthModelCache};
+    use crate::oauth::CredentialFile;
+    use crate::providers::anthropic::{AnthropicAdapter, AnthropicConfig, OAuthSession};
+    use crate::registry::versioned::VersionedAdapter;
+
+    let golden: Value = serde_json::from_str(include_str!("../../../fixtures/claude-oauth-cold-listing/golden.json")).unwrap();
+    for scenario in golden["scenarios"].as_array().unwrap() {
+        let name = scenario["name"].as_str().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let net = Arc::new(Net::default());
-        let versions = versions_in(dir.path(), &net, env, &Arc::new(AtomicU64::new(1_000_000)));
-        versions.warm(Dialect::Claude).await;
-        let log = net.log.lock().unwrap();
-        assert_eq!(log.len(), asked);
-        if asked == 1 {
-            assert_eq!(log[0].0, "https://registry.npmjs.org/@anthropic-ai/claude-code/latest");
-        }
+        net.queue.lock().unwrap().extend(scenario["net"].as_array().unwrap().iter().cloned());
+        let env = scenario["env"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();
+        let versions = versions_in(dir.path(), &net, env, &Arc::new(AtomicU64::new(1_800_000_000_000)));
+        let tokens = mixdog_rt::testing::tokens();
+        let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+        let session = OAuthSession::new(CredentialFile::new(dir.path().join("anthropic-oauth-credentials.json"), io.clone()), net.clone());
+        let adapter = AnthropicAdapter::oauth(AnthropicConfig::new(Arc::new(|_: &str| None)), net.clone(), Arc::new(session), false, tokens.cpu_bulk);
+        let wrapped = VersionedAdapter::wrap(Arc::new(adapter), Dialect::Claude, versions);
+        let source = ModelSource::of_adapter("anthropic-oauth".into(), wrapped)
+            .unwrap()
+            .with_oauth_cache(OauthModelCache::new(dir.path().join("data"), io));
+        let rows: Vec<Value> = source
+            .list()
+            .await
+            .unwrap()
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "id": r.id,
+                    "name": r.name,
+                    "provider": r.provider.as_str(),
+                    "family": r.family,
+                    "contextWindow": r.context_window,
+                    "display": r.display_name,
+                    "tier": r.picker.tier,
+                    "latest": r.picker.latest,
+                })
+            })
+            .collect();
+        let fetched: Vec<Value> =
+            net.log.lock().unwrap().iter().map(|(url, _)| serde_json::json!({ "method": "GET", "url": url })).collect();
+        assert_eq!(Value::Array(fetched), scenario["fetched"], "{name}: requests");
+        assert_eq!(Value::Array(rows), scenario["rows"], "{name}: rows");
     }
 }
