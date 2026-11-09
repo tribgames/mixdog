@@ -165,10 +165,11 @@ impl MediaLink for LinkFake {
     }
 }
 
+/// Returns once every task the adapter spawned has run as far as it can. The tests run on a paused
+/// clock, which the runtime moves only when no task is ready, so this sleep ends exactly then: the
+/// state the assertions read is complete, whatever number of wake-ups it took.
 async fn settle() {
-    for _ in 0..400 {
-        tokio::task::yield_now().await;
-    }
+    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
 }
 
 /// One sealed message as the recording shows it: a frame replaced by what it decrypts to, which
@@ -205,7 +206,7 @@ fn describe(actual: &Value, recorded: &Value, requests: &HashMap<String, Value>)
     json!({ "e": "send", "stream": actual["stream"], "message": { "type": message["type"], "op": "chunk", "id": id, "frame": shown } })
 }
 
-#[tokio::test(flavor = "current_thread")]
+#[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn the_adapter_seals_what_node_sealed_over_every_recorded_scenario() {
     let recorded: Value = serde_json::from_str(RECORDED).expect("the recording is JSON");
     let scenarios = recorded["scenarios"].as_array().expect("scenarios");
@@ -300,4 +301,30 @@ async fn the_adapter_seals_what_node_sealed_over_every_recorded_scenario() {
         }
     }
     assert!(checked > 100);
+}
+
+/// Two requests past the stream limit arrive before the refusal pump has run, and the first error's
+/// send is still pending: the queue head is sealed once. (Node claims the pump synchronously, so the
+/// second request finds `refusing` set.)
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn two_overflows_before_the_pump_runs_seal_the_head_refusal_once() {
+    let state = Arc::new(Mutex::new(LinkState {
+        room: HashMap::new(),
+        default_room: true,
+        held_mode: true,
+        queue: VecDeque::new(),
+        held: VecDeque::new(),
+        effects: Vec::new(),
+    }));
+    let gate: Gate = Arc::new(Mutex::new(VecDeque::new()));
+    let sources = Arc::new(Leases { gate, counts: Arc::new(Mutex::new(HashMap::new())) });
+    let adapter = TransportMedia::new(Arc::new(LinkFake { state: state.clone() }), sources, Some(KEY), Some(DEVICE.to_owned()));
+    let request = |n: u32| json!({ "type": "transport-media", "op": "request", "id": format!("m{n}"), "assetId": "dddddddd-0001", "variant": "download", "range": "", "enc": "e2ee1" });
+    // 32 streams fill the limit; m33 and m34 are refused, with no await between them.
+    for n in 1..=34 {
+        assert!(adapter.receive(&request(n)));
+    }
+    settle().await;
+    let errors: Vec<Value> = state.lock().unwrap().effects.iter().filter(|e| e["message"]["op"] == "error").map(|e| e["message"]["id"].clone()).collect();
+    assert_eq!(errors, vec![json!("m33")], "the head refusal is sealed by one pump");
 }
