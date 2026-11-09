@@ -44,8 +44,15 @@ export function installScriptedProcesses({ script, binDir, onSpawn }) {
     else if (typeof options === 'function') [options, callback] = [{}, options];
     argv = argv ?? [];
     const tool = toolOf(file, argv);
-    if (!tool) return realExecFile.call(this, file, argv, options, callback);
-    const child = new EventEmitter();
+    if (!tool) {
+      // Real git runs, but the machine's own git.exe path never reaches the recording: an error names the scripted path.
+      const name = basename(String(file)).toLowerCase().replace(/\.exe$/, '');
+      if (name !== 'git' || !callback || !script.gitPath) return realExecFile.call(this, file, argv, options, callback);
+      return realExecFile.call(this, file, argv, options, (error, ...rest) => {
+        if (error) for (const key of ['message', 'cmd']) if (typeof error[key] === 'string') error[key] = error[key].split(String(file)).join(script.gitPath);
+        return callback(error, ...rest);
+      });
+    }    const child = new EventEmitter();
     child.stdin = new PassThrough();
     const missing = tool === 'gh' && !world.ghInstalled;
     const rule = missing ? null : script.rules.find((candidate) => matches(candidate, tool, argv));

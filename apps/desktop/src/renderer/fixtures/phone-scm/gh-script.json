@@ -13,6 +13,7 @@
     "starred": false,
     "ghApiDown": false
   },
+  "gitPath": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe",
   "rules": [
     { "tool": "gh", "argv": ["--version"], "reply": { "code": 0, "stdout": "gh version 2.65.0 (2026-01-02)\nhttps://github.com/cli/cli/releases/tag/v2.65.0\n" } },
     { "tool": "gh", "argv": ["auth", "status", "--hostname", "github.com", "--active"], "when": { "ghAuth": true }, "reply": { "code": 0, "stdout": "github.com\n  ✓ Logged in to github.com account octo-dev (keyring)\n  - Active account: true\n" } },
@@ -55,6 +56,7 @@
     { "tool": "winget", "argv": ["install", "--id", "TheDocumentFoundation.LibreOffice", "**"], "when": { "wingetInstallsSoffice": true }, "set": { "soffice": true }, "reply": { "code": 0, "stdout": "Successfully installed\n" } },
     { "tool": "winget", "argv": ["install", "--id", "TheDocumentFoundation.LibreOffice", "**"], "reply": { "code": 0, "stdout": "Successfully installed\n" } },
     { "tool": "git", "argv": ["--version"], "when": { "gitMissing": true }, "reply": { "code": -1, "stderr": "ENOENT" } },
+    { "tool": "git", "argv": ["--version"], "reply": { "code": 0, "stdout": "git version 2.51.0.windows.1\n" } },
     { "tool": "soffice.com", "argv": ["--version"], "when": { "soffice": true }, "reply": { "code": 0, "stdout": "LibreOffice 24.8.4.2 480(Build:2)\n" } },
     { "tool": "soffice.com", "argv": ["--version"], "reply": { "code": -1, "stderr": "ENOENT" } }
   ]
