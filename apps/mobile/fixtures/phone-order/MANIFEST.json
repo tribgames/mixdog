@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 10056,
+      "bytes": 14535,
       "path": "golden.json",
-      "sha256": "810f64155729d53119f8a424404996fd3ff5711f9ee600ac93c59c072fba8b85"
+      "sha256": "605b65ab83711e12edb0d65e8a59718ae6dcb1d900954354f81fe3159578e6c5"
     }
   ],
   "product": {
@@ -26,7 +26,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-order.mjs",
-  "scenarios": 7,
+  "scenarios": 9,
   "set": "phone-order",
-  "totalBytes": 10056
+  "totalBytes": 14535
 }
