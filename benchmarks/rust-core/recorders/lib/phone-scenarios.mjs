@@ -575,6 +575,24 @@ export const SCENARIOS = {
     { op: 'advance', ms: 0 },
     { op: 'mark', name: 'served' },
   ],
+  // The first connection dies during its first sync: Node recorded the connection at once (remote-shim-socket.ts:188, :218, :221), so the
+  // replacement is a reconnection and tells the page so -- 'mixdog:remote-reconnected' -- after it syncs, never before (remote-shim-sync.ts:83-91).
+  'first-connection-drops-mid-sync': [
+    { op: 'boot', reads: true, hold: ['synchronizeViews'] },
+    { op: 'accept' },
+    { op: 'await-request', name: 'synchronizeViews' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'first-sync-held' },
+    { op: 'random', value: 0 },
+    { op: 'drop', code: 1006 },
+    { op: 'unhold', name: 'synchronizeViews' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'dropped' },
+    { op: 'accept' },
+    { op: 'check', name: 'replacement-synced', expect: { foreground: true } },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'after' },
+  ],
   // The reads the app makes as it mounts (Node: prefetchBootReads, remote-shim-calls.ts): started beside the first view sync, so a consumer
   // mounted while the sync is blocked is answered; the two reads of state the sync owns (snapshot, projects) wait for it.
   'boot-reads-sync-held': [
@@ -701,6 +719,8 @@ export async function play(world, driver, ops) {
         : {}),
       pairingInvalid: slice.filter((e) => e.ev === 'pairing-invalid').map((e) => e.message),
       reconnected: slice.filter((e) => e.ev === 'reconnected').length,
+      // The order of the two notices a page acts on when a connection is whole again: the indicator saying connected, and the reconnected event.
+      notices: slice.filter((e) => (e.ev === 'state' && e.state === 'connected') || e.ev === 'reconnected').map((e) => (e.ev === 'reconnected' ? 'reconnected' : 'connected')),
       calls: calls.splice(0),
       core: world.core() ? effectiveCore(world.core()) : null,
       ...extra,

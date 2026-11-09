@@ -19,6 +19,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -39,6 +42,7 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -67,6 +71,9 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -106,6 +113,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -132,6 +142,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": null
       },
@@ -150,6 +163,10 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "reconnected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -176,6 +193,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": null
       }
@@ -198,6 +218,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -237,6 +260,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": null,
         "maxRedialDelayMs": 60000,
@@ -276,6 +302,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -301,6 +330,9 @@
           "Your PC disconnected this device."
         ],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": null
       }
@@ -322,6 +354,7 @@
           "Your PC disconnected this device."
         ],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": null
       }
@@ -344,6 +377,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -362,6 +398,7 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -382,6 +419,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -402,6 +440,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -420,6 +459,7 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -447,6 +487,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -476,6 +519,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -494,6 +540,7 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": false,
@@ -514,6 +561,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -532,6 +580,7 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -559,6 +608,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -588,6 +640,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -614,6 +669,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -643,6 +701,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -661,6 +722,7 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": false,
@@ -679,6 +741,7 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": false,
@@ -705,6 +768,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": false,
@@ -723,6 +789,7 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": false,
@@ -750,6 +817,10 @@
         ],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "reconnected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -779,6 +850,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -804,6 +878,10 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "reconnected"
+        ],
         "calls": [
           "interrupted"
         ],
@@ -824,6 +902,7 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -853,6 +932,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -875,6 +957,7 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [
           "interrupted"
         ],
@@ -902,6 +985,10 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "reconnected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -920,6 +1007,7 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -949,6 +1037,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -982,6 +1073,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": null,
         "maxRedialDelayMs": 60000,
@@ -1010,6 +1104,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": null
       },
@@ -1028,6 +1123,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": null,
         "maxRedialDelayMs": 1000,
@@ -1056,6 +1152,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1087,6 +1186,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": null,
         "maxRedialDelayMs": 16000,
@@ -1118,6 +1220,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": null,
         "maxRedialDelayMs": 32000,
@@ -1149,6 +1252,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1174,6 +1280,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1203,6 +1312,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1232,6 +1344,11 @@
         ],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "connected",
+          "reconnected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1261,6 +1378,11 @@
         ],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "connected",
+          "reconnected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1290,6 +1412,11 @@
         ],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "connected",
+          "reconnected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1316,6 +1443,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": null
       }
@@ -1338,6 +1468,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1364,6 +1497,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": false,
@@ -1382,6 +1518,7 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": false,
@@ -1406,6 +1543,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": false,
@@ -1431,6 +1569,10 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "reconnected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1460,6 +1602,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1480,6 +1625,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1505,6 +1651,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1523,6 +1672,7 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1552,6 +1702,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1580,6 +1733,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [
           "interrupted"
         ],
@@ -1607,6 +1763,10 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "reconnected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1636,6 +1796,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1662,6 +1825,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": null
       },
@@ -1680,6 +1846,10 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "reconnected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1709,6 +1879,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1735,6 +1908,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1764,6 +1940,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1793,6 +1972,10 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected",
+          "connected"
+        ],
         "calls": [],
         "core": null
       },
@@ -1811,6 +1994,10 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "reconnected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1837,6 +2024,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": null,
@@ -1862,6 +2050,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": null,
@@ -1891,6 +2080,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1915,6 +2107,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1933,6 +2126,7 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1957,6 +2151,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -1986,6 +2183,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2010,6 +2210,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2034,6 +2235,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2052,6 +2254,7 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2080,6 +2283,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2105,6 +2309,10 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "reconnected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2134,6 +2342,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2152,6 +2363,7 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2180,6 +2392,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2200,6 +2413,7 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": false,
@@ -2228,6 +2442,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2259,6 +2476,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2285,6 +2505,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": false,
@@ -2312,6 +2535,10 @@
         ],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "reconnected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2340,6 +2567,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": null,
@@ -2379,6 +2607,9 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2399,6 +2630,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2427,6 +2659,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2455,6 +2688,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2494,6 +2730,9 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2514,6 +2753,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2542,6 +2782,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2566,6 +2807,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2586,6 +2828,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2614,6 +2857,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2653,6 +2899,9 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2673,6 +2922,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2701,6 +2951,9 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": null
       },
@@ -2726,6 +2979,10 @@
         ],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "reconnected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2750,6 +3007,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2789,6 +3047,9 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2809,6 +3070,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2837,6 +3099,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2867,6 +3130,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": null
       },
@@ -2889,6 +3153,10 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "reconnected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2913,6 +3181,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2952,6 +3221,9 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -2972,6 +3244,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3002,6 +3275,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3036,6 +3310,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3065,6 +3340,10 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "reconnected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3089,6 +3368,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3128,6 +3408,9 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3148,6 +3431,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3174,6 +3458,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3205,6 +3490,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3246,6 +3534,9 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3266,6 +3557,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3299,6 +3591,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": null
       }
@@ -3331,6 +3624,9 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3351,6 +3647,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3383,6 +3680,9 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": null,
@@ -3411,6 +3711,10 @@
         ],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "reconnected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3450,6 +3754,9 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3470,6 +3777,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3502,6 +3810,9 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": null,
@@ -3531,6 +3842,10 @@
         ],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "reconnected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3551,6 +3866,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3590,6 +3906,9 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3610,6 +3929,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3642,6 +3962,9 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": null,
@@ -3668,6 +3991,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": null,
@@ -3688,6 +4012,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": null,
@@ -3721,6 +4046,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": null,
@@ -3750,6 +4076,10 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 1,
+        "notices": [
+          "connected",
+          "reconnected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3774,6 +4104,120 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      }
+    ],
+    "first-connection-drops-mid-sync": [
+      {
+        "name": "first-sync-held",
+        "states": [
+          "connecting",
+          "syncing"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "requests": [
+          "readActivityRailPins@0",
+          "readHostDisplayPreferences@0",
+          "readSettings@0",
+          "synchronizeViews@0",
+          "viewerDevice@0"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "notices": [],
+        "calls": [],
+        "core": {
+          "foreground": null,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "dropped",
+        "states": [
+          "syncing",
+          "reconnecting"
+        ],
+        "banner": [
+          false,
+          true
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "requests": [],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "notices": [],
+        "calls": [],
+        "core": null
+      },
+      {
+        "name": "replacement-synced",
+        "states": [
+          "reconnecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [],
+        "requests": [
+          "synchronizeViews@0"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 1,
+        "notices": [
+          "connected",
+          "reconnected"
+        ],
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "after",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "wire": [],
+        "requests": [],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3810,6 +4254,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": null,
@@ -3835,6 +4280,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": null,
@@ -3855,6 +4301,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": null,
@@ -3885,6 +4332,9 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3924,6 +4374,9 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3944,6 +4397,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -3966,6 +4420,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -4002,6 +4457,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": null,
@@ -4029,6 +4485,9 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -4068,6 +4527,9 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,
@@ -4088,6 +4550,7 @@
         "settled": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -4110,6 +4573,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -4139,6 +4603,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -4163,6 +4628,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": {
           "foreground": true,
@@ -4189,6 +4655,7 @@
         ],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [],
         "calls": [],
         "core": null
       },
@@ -4207,6 +4674,9 @@
         "wire": [],
         "pairingInvalid": [],
         "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
         "calls": [],
         "core": {
           "foreground": true,

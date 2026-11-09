@@ -30,11 +30,11 @@ function rig(hold = false) {
   const store = (change: unknown) => {
     for (const fn of [...subscribers]) fn(change as StoreChange);
   };
-  const events = { synced: [] as boolean[], errors: 0, recycled: 0 };
+  const events = { synced: 0, errors: 0, recycled: 0 };
   const manager = createViewManager(client, {
     restored: [],
     wanted: ['t1'],
-    onSynced: (reconnected) => events.synced.push(reconnected),
+    onSynced: () => void (events.synced += 1),
     syncing: () => undefined,
     error: () => void (events.errors += 1),
     recycle: () => void (events.recycled += 1),
@@ -47,7 +47,7 @@ const settled = (promise: Promise<unknown>): Promise<'open' | 'shut'> => Promise
 test('a reconnect whose re-attachment was refused keeps the gate shut and retries on the backoff', async () => {
   const { calls, status, store, events, manager } = rig();
   await manager.synced();
-  assert.deepEqual(events.synced, [false]);
+  assert.equal(events.synced, 1);
   status(RECONNECTING);
   status(READY);
   const gate = manager.synced();
@@ -55,10 +55,10 @@ test('a reconnect whose re-attachment was refused keeps the gate shut and retrie
   store({ type: 'subscription', feedId: 't1', state: 'lost', error: REFUSED });
   assert.equal(await settled(gate), 'shut', 'one refused feed fails the whole re-attachment');
   assert.equal(events.errors, 1);
-  assert.deepEqual(events.synced, [false], 'no connected report for a refused re-attachment');
+  assert.equal(events.synced, 1, 'no connected report for a refused re-attachment');
   await gate;
   assert.deepEqual(calls.slice(-1), ['resume:t1'], 'the retry re-subscribes what the refusal dropped, not what was restored');
-  assert.deepEqual(events.synced, [false, true]);
+  assert.equal(events.synced, 2);
 });
 
 test('a refused re-attachment three times in a row recycles the connection and rejects the waiting call', async () => {
@@ -99,8 +99,8 @@ test('subscription events never open the gate: only the machine finishing a sync
   store({ type: 'subscription', feedId: 'app', state: 'restored' });
   store({ type: 'subscription', feedId: 't1', state: 'restored' });
   assert.equal(await settled(gate), 'shut');
-  assert.deepEqual(events.synced, []);
+  assert.equal(events.synced, 0);
   for (const release of held) release();
   await gate;
-  assert.deepEqual(events.synced, [false]);
+  assert.equal(events.synced, 1);
 });

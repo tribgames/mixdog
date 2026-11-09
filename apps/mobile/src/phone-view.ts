@@ -39,8 +39,8 @@ export function createViewManager(
     restored: readonly string[];
     /** Threads the page names now (Node: ctx.lastVisibleSessionIds, which the first sync reads). */
     wanted: readonly string[];
-    /** Called each time everything asked of the core has been attached (the first connection included); `reconnected` when a new connection did it. */
-    onSynced(reconnected: boolean): void;
+    /** Called each time everything asked of the core has been attached (Node: createRemoteViewSync's `state('connected')`). */
+    onSynced(): void;
     /** A sync of the view began on the connection that is up (a change of the view, a resync): the indicator shows it until `onSynced`. */
     syncing(): void;
     /** A sync failed (it is retried). */
@@ -54,10 +54,8 @@ export function createViewManager(
   let restored = [...options.restored];
   let appOpen = false;
   let refresh = false;
-  let everSynced = false;
   // The connection that is up began with the library re-attaching what was open: its first sync is that re-attachment's outcome.
   let reattach = false;
-  let freshConnection = false;
   let cancelReattach: (() => void) | undefined;
   // Which connection a sync ran on: a refresh that failed because its connection ended is not owed to the next one.
   let connection = 0;
@@ -129,10 +127,7 @@ export function createViewManager(
     },
     state: (state) => {
       if (state === 'syncing') return options.syncing();
-      const reconnected = freshConnection;
-      freshConnection = false;
-      everSynced = true;
-      options.onSynced(reconnected);
+      options.onSynced();
     },
     error: options.error,
     interrupted: remoteConnectionInterruptedError,
@@ -145,7 +140,6 @@ export function createViewManager(
   };
   const begin = (): void => {
     connection += 1;
-    freshConnection = everSynced;
     reattach = appOpen || open.size > 0;
     sync.open();
     for (const wake of [...readyWaiters]) wake();
