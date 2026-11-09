@@ -135,6 +135,14 @@ pub trait RemoteEvents: Send + Sync {
     fn owed_access_changed(&self);
     /// A relay leg failed to come up (status `failed`) or recovered.
     fn status(&self, value: Value);
+    /// A device is being unpaired, before the relay is asked (`remote-relay.ts` `revokeClient`): its download grants, link grants and
+    /// transfers end now. Its connections are still attached under its credential.
+    fn device_unpaired(&self, _credential_id: &str) {}
+    /// The relay confirmed the unpair (`remote-relay-session-wiring.ts` `forgetClient`): the runtime has dropped the device's push
+    /// registrations; its notification preferences go with them.
+    fn device_forgotten<'a>(&'a self, _credential_id: &'a str) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        Box::pin(async {})
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -948,6 +956,9 @@ impl RemoteRuntime {
             let (applied, revocation) = (id.clone(), *revocation);
             self.inner.with_roster(move |roster, lane| roster.applied(lane, &applied, revocation)).await??;
         }
+        if sent.is_ok() {
+            self.forget_device(client_id).await;
+        }
         sent?;
         self.inner.refresh();
         self.descriptor().await
@@ -959,8 +970,24 @@ impl RemoteRuntime {
     fn drop_credential(&self, credential_id: &str) {
         let peers = self.inner.state().table.revoke(credential_id);
         for peer in &peers {
-            self.inner.cfg.registry.detach_peer(peer);
+            self.inner.cfg.registry.revoke_screen(peer);
         }
+        self.inner.cfg.events.device_unpaired(credential_id);
+    }
+
+    /// The relay confirmed an unpair: the device's push registrations and notification preferences go with its credential
+    /// (`forgetClient`: the Web Push store, the native store, the preferences).
+    async fn forget_device(&self, credential_id: &str) {
+        let id = credential_id.to_owned();
+        let native = self.inner.state().native.clone();
+        if let Some(store) = native {
+            let id = id.clone();
+            let _ = self.inner.durable(move |lane| lock(&store).remove_by_client(lane, &id)).await;
+        }
+        if let Ok(store) = self.legacy_push() {
+            let _ = self.inner.durable(move |lane| store.remove_by_client(lane, &id)).await;
+        }
+        self.inner.cfg.events.device_forgotten(credential_id).await;
     }
 
     /// Revocations queued while access was off or the relay down, applied once the relay answers.
@@ -979,6 +1006,7 @@ impl RemoteRuntime {
                 // Checked right before the send: an entry withdrawn meanwhile is not sent.
                 let Some(revocation) = lock(&roster).revocation(&id) else { continue };
                 if self.control("revoke-client", revoke_payload(&id)).await.is_ok() {
+                    self.forget_device(&id).await;
                     let applied = id.clone();
                     let _ = self.inner.with_roster(move |roster, lane| roster.applied(lane, &applied, revocation)).await;
                 }
@@ -1524,15 +1552,18 @@ impl RemoteRuntime {
 
     async fn on_client_open(&self, client_id: &str, credential_id: &str) {
         let roster = self.inner.roster().await.ok();
-        // A device whose unpair is recorded is admitted as a connection with no pairing, as Node revokes it on admission
-        // (`screen-access-publisher.ts` `admitted`): it has no grants and no screen.
+        // A device whose unpair is recorded is admitted under its credential and revoked for the screen for the connection's lifetime,
+        // as Node does (`screen-access-publisher.ts` `admitted`).
         let unpaired = roster.is_some_and(|roster| !credential_id.is_empty() && lock(&roster).pending().iter().any(|id| id == credential_id));
-        let credential_id = if unpaired { "" } else { credential_id };
         let text = {
             let mut state = self.inner.state();
             // The core owns the peers, so the transport is always on offer to a phone that can take binary frames.
             let flags = challenge_flags(state.caps.binary_frames(), true, true);
-            state.table.open(client_id, credential_id, &flags)
+            let text = state.table.open(client_id, credential_id, &flags);
+            if text.is_some() && unpaired {
+                state.table.revoke_client(client_id);
+            }
+            text
         };
         match text {
             Some(text) => {
@@ -1609,6 +1640,9 @@ impl RemoteRuntime {
         let name = if !alias.is_empty() { alias } else { listed };
         let device = if name.is_empty() { crate::registry::DEFAULT_DEVICE_NAME } else { &name };
         self.inner.cfg.registry.attach_peer(client_id, &credential, device, &browser);
+        if self.inner.state().table.screen_revoked(client_id) {
+            self.inner.cfg.registry.revoke_screen(client_id);
+        }
     }
 
     fn close_client(&self, client_id: &str, reason: &str) {

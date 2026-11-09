@@ -90,17 +90,20 @@ pub trait ScreenAccess: Send + Sync {
 /// a connection acts as (`phone_credential`): a local client has none, and a peer whose pairing ended loses it.
 pub struct PairedScreenAccess {
     credential: Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync>,
+    /// Whether the connection is revoked for the screen for its lifetime (live at an unpair, or admitted while one was in force):
+    /// the peer keeps its credential, and so everything but the screen.
+    revoked: Arc<dyn Fn(ConnectionId) -> bool + Send + Sync>,
 }
 
 impl PairedScreenAccess {
-    pub fn new(credential: Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync>) -> Self {
-        Self { credential }
+    pub fn new(credential: Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync>, revoked: Arc<dyn Fn(ConnectionId) -> bool + Send + Sync>) -> Self {
+        Self { credential, revoked }
     }
 }
 
 impl ScreenAccess for PairedScreenAccess {
     fn allowed(&self, connection: ConnectionId) -> bool {
-        (self.credential)(connection).is_some()
+        (self.credential)(connection).is_some() && !(self.revoked)(connection)
     }
 }
 
@@ -880,7 +883,7 @@ mod tests {
         let (push_tx, mut pushes) = mpsc::unbounded_channel();
         let peers = Arc::new(Scripted::default());
         let media = HostMedia::new(1 << 20);
-        let service = LiveViewService::with_peers(desktop.clone(), Arc::new(Phones(push_tx)), media.clone(), runtime(dir), peers.clone(), Arc::new(PairedScreenAccess::new(Arc::new(|_| None))));
+        let service = LiveViewService::with_peers(desktop.clone(), Arc::new(Phones(push_tx)), media.clone(), runtime(dir), peers.clone(), Arc::new(PairedScreenAccess::new(Arc::new(|_| None), Arc::new(|_| false))));
         let session = "sess_1";
         for connection in [1, 2] {
             service.call(request(connection, "browser/stream", json!({ "sessionId": session, "on": true }))).await.unwrap();

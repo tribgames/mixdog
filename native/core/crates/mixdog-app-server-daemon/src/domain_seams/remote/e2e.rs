@@ -208,6 +208,8 @@ struct Harness {
     /// `turn/start` params that reached the thread.
     turns: Arc<Mutex<Vec<Value>>>,
     closed: watch::Receiver<Vec<ConnectionId>>,
+    /// What the unpair cleanup was asked, in order (`unpaired:<id>`, `forgotten:<id>`).
+    cleanup: Arc<Mutex<Vec<String>>>,
     /// The server's own hub and server: a client in this process attaches to them as the daemon's listeners do.
     hub: ConnectionHub,
     server: AppServer,
@@ -248,6 +250,8 @@ impl Harness {
         })
         .unwrap();
         late_publisher.bind(published.clone());
+        let cleanup: Arc<Mutex<Vec<String>>> = Arc::default();
+        remote.events.bind(Arc::new(RecordedCleanup(cleanup.clone()))).unwrap();
         let mock = MockCore::new(&[], MockLimits::default());
         let reads = Arc::new(AtomicUsize::new(0));
         let turns: Arc<Mutex<Vec<Value>>> = Arc::default();
@@ -277,7 +281,7 @@ impl Harness {
             HostMedia::new(1 << 20),
             remote.runtime.clone(),
             tokens.media_thread,
-            Arc::new(PairedScreenAccess::new(phone_credential(remote.registry.clone()))),
+            Arc::new(PairedScreenAccess::new(phone_credential(remote.registry.clone()), super::screen_revoked(remote.registry.clone()))),
         ));
         let core = Arc::new(Core { live, mock, screen, registry: remote.registry.clone(), owners, closed: closed_tx });
         let hub = ConnectionHub::new(Limits::default()).unwrap();
@@ -294,7 +298,7 @@ impl Harness {
         relay.legs.recv().await.expect("the relay ended");
         remote.runtime.watch_connected().wait_for(|up| *up).await.expect("the runtime ended");
         remote.runtime.list_clients().await.unwrap();
-        Self { dir, core, registry: remote.registry, runtime: remote.runtime, published, relay, identity, desktop, reads, turns, closed, hub: own_hub, server: own_server }
+        Self { dir, core, registry: remote.registry, runtime: remote.runtime, published, relay, identity, desktop, reads, turns, closed, cleanup, hub: own_hub, server: own_server }
     }
 
     /// The phone `id` of `credential` pairs and states who it is; the connection the core opened for it.
@@ -330,12 +334,29 @@ impl Harness {
     }
 
     async fn closed(&self, connection: ConnectionId) {
-        self.closed.clone().wait_for(|closed| closed.contains(&connection)).await.expect("the core ended");
+        let mut seen = self.closed.clone();
+        let got = tokio::time::timeout(FRAME_WAIT, seen.wait_for(|closed| closed.contains(&connection))).await;
+        got.unwrap_or_else(|_| panic!("connection {connection:?} was never closed")).expect("the core ended");
     }
 
     async fn viewing(&self, wanted: &[&str]) {
         let wanted: Vec<String> = wanted.iter().map(|id| (*id).to_owned()).collect();
-        self.published.remote_viewing.subscribe().wait_for(|ids| *ids == wanted).await.expect("the publisher ended");
+        let mut seen = self.published.remote_viewing.subscribe();
+        let got = tokio::time::timeout(FRAME_WAIT, seen.wait_for(|ids| *ids == wanted)).await;
+        got.unwrap_or_else(|_| panic!("the viewed sessions never became {wanted:?}")).expect("the publisher ended");
+    }
+}
+
+/// The device cleanup of an unpair, as the daemon binds it, recording what it was asked.
+struct RecordedCleanup(Arc<Mutex<Vec<String>>>);
+
+impl super::DeviceCleanup for RecordedCleanup {
+    fn unpaired(&self, credential_id: &str) {
+        self.0.lock().unwrap().push(format!("unpaired:{credential_id}"));
+    }
+
+    fn forgotten<'a>(&'a self, credential_id: &'a str) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move { self.0.lock().unwrap().push(format!("forgotten:{credential_id}")) })
     }
 }
 
@@ -374,7 +395,8 @@ impl Client {
     async fn call(&mut self, request: &Value) -> Value {
         self.to_server.send(Incoming::Text(request.to_string())).unwrap();
         loop {
-            let frame: Value = serde_json::from_str(&self.from_server.recv().await.expect("the server ended")).unwrap();
+            let next = tokio::time::timeout(FRAME_WAIT, self.from_server.recv()).await.expect("the server wrote no frame for the request");
+            let frame: Value = serde_json::from_str(&next.expect("the server ended")).unwrap();
             if frame["id"] == request["id"] {
                 return frame;
             }
@@ -382,9 +404,13 @@ impl Client {
     }
 }
 
+/// How long a frame the server owes is waited for before the test says it never came.
+const FRAME_WAIT: Duration = Duration::from_secs(10);
+
 async fn answer(phone: &mut Phone, id: u64) -> Value {
     loop {
-        let frame: Value = serde_json::from_str(&phone.recv().await).unwrap();
+        let text = tokio::time::timeout(FRAME_WAIT, phone.recv()).await.unwrap_or_else(|_| panic!("no frame with id {id} reached the phone"));
+        let frame: Value = serde_json::from_str(&text).unwrap();
         if frame["id"] == id {
             return frame;
         }
@@ -506,13 +532,13 @@ async fn an_unpair_the_relay_has_not_confirmed_leaves_every_connection_open_with
     let credential_of = phone_credential(h.registry.clone());
 
     assert!(h.runtime.revoke_client(CRED).await.is_err(), "the relay refused the unpair");
-    // Nothing closes the phone (Node closes none; the relay ends a leg only when it removed the pairing), but it holds no grant.
-    assert_eq!(credential_of(connection), None);
+    // Nothing closes the phone (Node closes none; the relay ends a leg only when it removed the pairing); it keeps its identity.
+    assert_eq!(credential_of(connection).as_deref(), Some(CRED));
     assert_eq!(list(&mut phone, 1).await["result"], listed());
 
     // The unpair is recorded and in force: the device's new connection is admitted (Node revokes it on admission) without a grant.
     let (mut again, again_connection) = h.connect("p2", CRED).await;
-    assert_eq!(credential_of(again_connection), None);
+    assert_eq!(credential_of(again_connection).as_deref(), Some(CRED));
     assert_eq!(list(&mut again, 1).await["result"], listed());
     h.runtime.close().await;
 }
@@ -776,4 +802,86 @@ async fn the_composed_screen_access_answers_as_nodes_relay_and_publisher_did() {
     );
     assert_eq!(asked(&h), local["hostAsked"].as_u64().unwrap());
     h.runtime.close().await;
+}
+
+const UNPAIR_ACCESS: &str = include_str!("../../../../../fixtures/unpair-access/unpair-access.json");
+
+/// The inputs `record-unpair-access.mjs` registered before its unpair.
+const PUSH_KEY: &str = "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM";
+const PUSH_ENDPOINT: &str = "https://push.example/x";
+
+/// What Node's desktop did across an unpair of a paired phone, recorded through its real unpair handler (`unpair-access.json`), replayed
+/// over the composed wiring: the same phone connection throughout, and the second connection of the same credential. A revoked phone
+/// keeps its credential, so its native and Web Push registrations and its chat answer as before; only its screen is refused. The
+/// registrations and notification preferences go when, and only when, the relay confirmed the unpair.
+///
+/// Not replayed here, because the composed server's core is a mock: the terminal and settings groups (Node answered them as before the
+/// unpair, and neither reads the credential) and the notification list (its frame is the machine's own).
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_desktop_did() {
+    let all: Value = serde_json::from_str(UNPAIR_ACCESS).unwrap();
+    let token = all["token"].as_str().unwrap();
+    assert_eq!(all["credential"], CRED);
+    let scenarios = all["scenarios"].as_array().unwrap();
+    assert_eq!(scenarios.len(), 2, "every recorded scenario is replayed below");
+    let native = json!({ "platform": "fcm", "token": token, "publicKey": PUSH_KEY });
+    let web = json!({ "endpoint": PUSH_ENDPOINT, "p256dh": PUSH_KEY, "auth": "AAAAAAAAAAAAAAAAAAAAAA", "clientId": CRED });
+
+    for scenario in scenarios {
+        let name = scenario["name"].as_str().unwrap();
+        let confirms = scenario["relayConfirms"].as_bool().unwrap();
+        let after = &scenario["after"];
+        let h = Harness::start(confirms).await;
+        let (mut phone, connection) = h.connect("p1", CRED).await;
+        let credential = phone_credential(h.registry.clone());
+        assert!(h.runtime.register_native_push(CRED, &native).await.unwrap(), "{name}");
+        assert!(h.runtime.register_push_subscription(&web).await.unwrap(), "{name}");
+        let key = h.runtime.push_public_key().await.unwrap();
+        assert_eq!(list(&mut phone, 1).await["result"], listed(), "{name}: chat before the unpair");
+
+        let sent = phone.arrived().await;
+        let outcome = h.runtime.revoke_client(CRED).await;
+        assert_eq!(scenario["revokeOutcome"].as_str().unwrap().starts_with("rejected"), outcome.is_err(), "{name}");
+        assert_eq!(scenario["desktopClosedPhone"], Value::Null);
+        assert_eq!(phone.arrived().await, sent, "{name}: the unpair sent the phone nothing and closed nothing");
+        // The device's files and transfers end at the unpair; its notification preferences only once the relay confirmed it.
+        let mut asked = vec![format!("unpaired:{CRED}")];
+        if confirms {
+            asked.push(format!("forgotten:{CRED}"));
+        }
+        assert_eq!(*h.cleanup.lock().unwrap(), asked, "{name}");
+
+        // The registrations: kept while the relay has not confirmed, gone when it has.
+        let kept = !confirms;
+        assert_eq!(after["removeNativePush"]["value"], kept, "{name}: the recording");
+        assert_eq!(h.runtime.remove_native_push(CRED, Some(token)).await.unwrap(), kept, "{name}: native push");
+        assert_eq!(h.runtime.remove_push_subscription(&json!(PUSH_ENDPOINT)).await.unwrap(), kept, "{name}: Web Push");
+        assert_eq!(h.runtime.push_public_key().await.unwrap(), key, "{name}: the Web Push key");
+
+        if scenario["phoneStillAttached"].as_bool().unwrap() {
+            // The connection keeps its identity: the credential, everything it asks but the screen, and the sessions it shows.
+            assert_eq!(credential(connection).as_deref(), Some(CRED), "{name}");
+            // What the services read of the connection to act as the device (RemoteAccessService::credential_id): still the device's.
+            let described = h.registry.describe(connection.0).unwrap();
+            assert_eq!((described.credential.as_str(), described.kind), (CRED, LinkKind::Phone), "{name}");
+            assert_eq!(list(&mut phone, 2).await["result"], listed(), "{name}: chat after the unpair");
+            phone.send(&displays_call(&after["screen"]).to_string());
+            assert_eq!(answer(&mut phone, after["screen"]["id"].as_u64().unwrap()).await, wire_of(&after["screen"]), "{name}: the screen");
+            phone.send(&json!({ "method": "ui/screenSessions/changed", "params": { "sessionIds": ["t1"], "visualizeSessionIds": ["t1"], "foreground": true } }).to_string());
+            h.viewing(&["t1"]).await;
+            assert_eq!(scenario["feedEvent"], json!(["e,s,w"]), "the recorded feed kept reaching the attached phone");
+            let (mut second, second_connection) = h.connect("p2", CRED).await;
+            assert_eq!(credential(second_connection).as_deref(), Some(CRED), "{name}");
+            second.send(&displays_call(&after["secondConnection"]["screen"]).to_string());
+            let refusal = &after["secondConnection"]["screen"];
+            assert_eq!(answer(&mut second, refusal["id"].as_u64().unwrap()).await, wire_of(refusal), "{name}: a second connection");
+        } else {
+            // The relay ended the leg: nothing reaches a phone it ended.
+            phone.leave();
+            h.closed(connection).await;
+            assert_eq!((&after["screen"], &after["secondConnection"]["screen"]), (&Value::Null, &Value::Null));
+            assert_eq!(scenario["feedEvent"], Value::Null);
+        }
+        h.runtime.close().await;
+    }
 }

@@ -92,6 +92,11 @@ impl GrantStore {
         Self { clock, catalog, devices: Mutex::default(), seen: Mutex::default() }
     }
 
+    /// Unpair (`dropFileGrants`): every grant the device holds ends.
+    pub fn revoke_device(&self, credential: &str) {
+        self.devices.lock().expect("grants").remove(credential);
+    }
+
     async fn conversation_gone(&self, session_id: &str) -> WsResult<bool> {
         if session_id.is_empty() || !self.seen.lock().expect("grant sessions").contains(session_id) {
             return Ok(false);
