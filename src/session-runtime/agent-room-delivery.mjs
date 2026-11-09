@@ -24,8 +24,27 @@ import {
   materializePromptSubmission,
   preparePromptSubmissionForProvider,
 } from '../runtime/attachments/store.mjs';
-import { promptContentImageMeta } from '../tui/session/queue-helpers.mjs';
 import { agentHomeLiveSurface } from './agent-home-delivery.mjs';
+
+/** The image chips of a prompt's image parts, named from the pasted-image records by position; null without images. */
+function promptContentImageMeta(content, pastedImages) {
+  const parts = Array.isArray(content) ? content.filter((part) => part?.type === 'image') : [];
+  if (parts.length === 0) return null;
+  const named = pastedImages && typeof pastedImages === 'object' ? Object.values(pastedImages) : [];
+  return parts.map((part, index) => {
+    const meta = named[index] && typeof named[index] === 'object' ? named[index] : null;
+    let data = '';
+    if (typeof part.data === 'string') data = part.data;
+    else if (typeof part.content === 'string') data = part.content;
+    return {
+      id: meta?.id ?? null,
+      name: String(meta?.filename || `Image ${index + 1}`),
+      mimeType: String(part.mimeType || part.mediaType || meta?.mediaType || 'image/png'),
+      bytes: Number(part.sizeBytes) || data.length,
+      ...(isAttachmentReference(part) ? { attachmentRef: part.attachmentRef } : {}),
+    };
+  });
+}
 
 /** A user row with its `upload` taken in: the files as stored references
  *  (`parts`), their attachment records and the bubble's image chips. */
