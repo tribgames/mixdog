@@ -1,0 +1,117 @@
+{
+ "relayUrl": "wss://relay.example",
+ "timezone": "Asia/Seoul",
+ "steps": [
+  {
+   "name": "saveSchedule",
+   "value": {
+    "name": "harness-schedule",
+    "description": "A schedule",
+    "whenAt": null,
+    "whenCron": "0 9 * * *",
+    "timezone": "Asia/Seoul",
+    "cwd": null,
+    "attachments": null,
+    "delivery": "app",
+    "prompt": "Say hello.",
+    "enabled": true,
+    "status": "active",
+    "lastFiredAt": null,
+    "lastScheduledAt": null,
+    "lastStartedAt": null,
+    "lastSuccessAt": null,
+    "lastFailedAt": null,
+    "lastSkippedAt": null,
+    "ownerAgentId": "lead",
+    "executorAgentId": null,
+    "consecutiveFailures": 0,
+    "resultDelivery": null,
+    "nextFireAt": null,
+    "deferredUntil": null,
+    "skippedUntil": null,
+    "createdAt": "2026-11-09T03:46:04.066Z",
+    "updatedAt": "2026-11-09T03:46:04.066Z"
+   }
+  },
+  {
+   "name": "readback:start-pending",
+   "value": {
+    "webhook": {
+     "enabled": true,
+     "port": 3333,
+     "publicUrl": null
+    },
+    "schedules": [
+     {
+      "name": "harness-schedule",
+      "description": "A schedule",
+      "time": "0 9 * * *",
+      "whenCron": "0 9 * * *",
+      "timezone": "Asia/Seoul",
+      "enabled": true,
+      "instructions": "Say hello.",
+      "owner": "lead",
+      "executorAgentId": null,
+      "consecutiveFailures": 0
+     }
+    ],
+    "webhooks": []
+   }
+  },
+  {
+   "name": "readback:identity-persisted-stamp-pending",
+   "value": {
+    "webhook": {
+     "enabled": true,
+     "port": 3333,
+     "publicUrl": "https://relay.example/hook/9471ebcd-893f-414e-8752-795d126d664a"
+    },
+    "schedules": [
+     {
+      "name": "harness-schedule",
+      "description": "A schedule",
+      "time": "0 9 * * *",
+      "whenCron": "0 9 * * *",
+      "timezone": "Asia/Seoul",
+      "enabled": true,
+      "instructions": "Say hello.",
+      "owner": "lead",
+      "executorAgentId": null,
+      "consecutiveFailures": 0
+     }
+    ],
+    "webhooks": []
+   }
+  },
+  {
+   "name": "readback:stamp-completed",
+   "value": {
+    "webhook": {
+     "enabled": true,
+     "port": 3333,
+     "publicUrl": "https://relay.example/hook/9471ebcd-893f-414e-8752-795d126d664a"
+    },
+    "schedules": [
+     {
+      "name": "harness-schedule",
+      "description": "A schedule",
+      "time": "0 9 * * *",
+      "whenCron": "0 9 * * *",
+      "timezone": "Asia/Seoul",
+      "enabled": true,
+      "instructions": "Say hello.",
+      "owner": "lead",
+      "executorAgentId": null,
+      "nextFireAt": "2026-11-10T00:00:00.000Z",
+      "consecutiveFailures": 0
+     }
+    ],
+    "webhooks": []
+   }
+  }
+ ],
+ "savedAt": "2026-11-09T03:46:04.126Z",
+ "identityFile": true,
+ "armedAt": "2026-11-09T03:46:07.064Z",
+ "completedAt": "2026-11-09T03:46:07.141Z"
+}

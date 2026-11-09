@@ -386,13 +386,14 @@ impl ChannelAdmin {
     }
 
     pub async fn get_channel_setup(&self) -> Done {
-        self.d.runtime.arming_settled().await;
         let webhook = self.d.settings.webhook().await?;
         let mut view = serde_json::to_value(webhook).map_err(|e| e.to_string())?;
+        // `channelSetup` (channel-admin.mjs:707-715) reads the rows first and the identity file
+        // after them, so a start that lands in between shows its identity with the older rows.
+        let schedules = self.list_schedules().await?;
+        let webhooks = self.list_webhooks().await?;
         view["publicUrl"] = self.d.base.hook_public_base().await?.into();
-        let setup = json!({"webhook": view, "schedules": self.list_schedules().await?, "webhooks": self.list_webhooks().await?});
-        self.d.runtime.release_stamps();
-        Ok(setup)
+        Ok(json!({"webhook": view, "schedules": schedules, "webhooks": webhooks}))
     }
 
     // ---- the settings and the runtime --------------------------------------------------

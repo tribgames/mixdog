@@ -12,7 +12,7 @@ pub mod store;
 mod tests;
 
 pub use durable::StateScheduleStore;
-pub use engine::{ScheduleStatusRow, Scheduler, StampHold};
+pub use engine::{ScheduleStatusRow, Scheduler};
 pub use model::{Schedule, ScheduleError, ScheduleStatus};
 pub use store::{
     Clock, MemoryScheduleStore, RunOutcome, ScheduleRecords, ScheduleRunner, ScheduleStore, SkipReason, SystemClock,
