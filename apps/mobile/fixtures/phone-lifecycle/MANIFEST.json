@@ -3,9 +3,9 @@
   "fileCount": 2,
   "files": [
     {
-      "bytes": 96914,
+      "bytes": 99496,
       "path": "golden.json",
-      "sha256": "b2f0e99caf7156444edc38223ab63cdeaf5a3b81df43203389fb647f754fe6a2"
+      "sha256": "65b66fd49bf964a25165bf59e910082bcc1c05b7cc090c8c30e1c350e7a0ff19"
     },
     {
       "bytes": 11911,
@@ -31,7 +31,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-lifecycle.mjs",
-  "scenarios": 43,
+  "scenarios": 44,
   "set": "phone-lifecycle",
-  "totalBytes": 108825
+  "totalBytes": 111407
 }

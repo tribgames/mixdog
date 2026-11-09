@@ -104,6 +104,15 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
   const add = (fn, ms, every) => {
     const id = ++clock.seq;
     clock.timers.set(id, { id, fn, due: clock.now + Math.max(0, ms || 0), seq: id, every });
+    // A zero delay is the next turn of a real event loop: it runs once the microtasks of this one are done, with no virtual time passing.
+    if (!every && !(ms > 0)) {
+      setImmediate(() => {
+        const timer = clock.timers.get(id);
+        if (!timer || timer.due > clock.now) return;
+        clock.timers.delete(id);
+        fn();
+      });
+    }
     return id;
   };
   const timerApi = {

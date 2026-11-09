@@ -38,6 +38,7 @@ function rig(hold = false) {
     syncing: () => undefined,
     error: () => void (events.errors += 1),
     recycle: () => void (events.recycled += 1),
+    probe: () => undefined,
   });
   return { calls, client, status, store, events, manager, held };
 }

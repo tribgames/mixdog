@@ -10,6 +10,7 @@
 // the machine retries on its backoff -- with this file's own attach, which re-subscribes what the refusal dropped -- and recycles the connection
 // after three failures in a row, exactly as for a refused resync.
 import type { ClientEvent, ProtocolClient, SessionFold, StoreChange } from '../../../packages/protocol-client/src/index.ts';
+import { armRemoteCallDeadline } from '../../desktop/src/renderer/remote-call-deadline.ts';
 import { remoteConnectionInterruptedError } from '../../desktop/src/renderer/remote-connection-state.ts';
 import { createViewSync } from './phone-view-sync.ts';
 
@@ -47,6 +48,8 @@ export function createViewManager(
     error(error: unknown): void;
     /** The connection is alive but cannot sync: replace it. */
     recycle(): void;
+    /** A sync overdue is probed like any call (Node: invoke('synchronizeViews') arms the call deadline, remote-shim-calls.ts:239). */
+    probe(): void;
   }
 ): ViewManager {
   const open = new Set<string>();
@@ -59,7 +62,9 @@ export function createViewManager(
   let cancelReattach: (() => void) | undefined;
   // Which connection a sync ran on: a refresh that failed because its connection ended is not owed to the next one.
   let connection = 0;
-  const live = (): boolean => client.status.state === 'ready';
+  // A connection is live for the view once its sync is open, not merely once the client is ready (the first sync opens a turn later).
+  let opened = false;
+  const live = (): boolean => opened;
   const readyWaiters = new Set<() => void>();
   const target = (): Set<string> => new Set([...wanted, ...restored]);
   const keyOf = (ids: Iterable<string>): string => JSON.stringify([...new Set(ids)].sort());
@@ -108,8 +113,30 @@ export function createViewManager(
     }
   };
 
+  const inFlight = new Map<number, true>();
+  let syncId = 0;
+  const timers = {
+    setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms) as unknown as number,
+    clearTimeout: (handle: number) => clearTimeout(handle as unknown as ReturnType<typeof setTimeout>),
+  };
+  // The sync request is a call like any other: its deadline starts when it is sent, and an overdue one probes the connection before it times out.
+  const underDeadline = <T>(run: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      const id = ++syncId;
+      inFlight.set(id, true);
+      const cancel = armRemoteCallDeadline(inFlight, id, reject, options.probe, timers);
+      const done = (): void => {
+        cancel();
+        inFlight.delete(id);
+      };
+      run().then(
+        (value) => (done(), resolve(value)),
+        (error: unknown) => (done(), reject(error))
+      );
+    });
   const sync = createViewSync({
-    synchronize: async () => {
+    synchronize: () =>
+      underDeadline(async () => {
       const force = refresh;
       const mine = connection;
       refresh = false;
@@ -124,7 +151,7 @@ export function createViewManager(
         throw error;
       }
       restored = [];
-    },
+      }),
     state: (state) => {
       if (state === 'syncing') return options.syncing();
       options.onSynced();
@@ -140,15 +167,21 @@ export function createViewManager(
   };
   const begin = (): void => {
     connection += 1;
+    opened = true;
     reattach = appOpen || open.size > 0;
     sync.open();
     for (const wake of [...readyWaiters]) wake();
     readyWaiters.clear();
   };
+  // The first connection's sync leaves a turn after the connection resolved (Node: its preparation awaits, remote-shim-sync.ts:60-66), so the
+  // reads that need no sync -- sent by the callers the connection wakes -- are on the wire before it.
+  let firstTurn: ReturnType<typeof setTimeout> | undefined;
   const offStatus = client.on((event: ClientEvent) => {
     if (event.type !== 'status') return;
+    clearTimeout(firstTurn);
     if (event.status.state !== 'ready') {
       connection += 1;
+      opened = false;
       cancelReattach?.();
       cancelReattach = undefined;
       // A refresh still owed to the connection that ended is not asked again of the next one: its first sync is the full one.
@@ -158,7 +191,7 @@ export function createViewManager(
     }
     begin();
   });
-  if (live()) begin();
+  if (client.status.state === 'ready') firstTurn = setTimeout(begin, 0);
 
   return {
     async set(threadIds) {
@@ -184,6 +217,7 @@ export function createViewManager(
       await sync.ready();
     },
     stop() {
+      clearTimeout(firstTurn);
       offStatus();
       cancelReattach?.();
       sync.close();
