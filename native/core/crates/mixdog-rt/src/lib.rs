@@ -25,6 +25,7 @@ pub mod exec;
 pub mod gate;
 pub mod lanes;
 pub mod liveness;
+pub mod node_log;
 pub mod scoped;
 pub mod serial;
 pub mod ticker;

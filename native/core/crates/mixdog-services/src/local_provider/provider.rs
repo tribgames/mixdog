@@ -134,7 +134,7 @@ impl LocalProvider {
         let catalog = Arc::new(Catalog::new(&parts.data_dir, hardware, state, durability));
         let on_exit: Arc<dyn Fn(&Value) + Send + Sync> = Arc::new(|d| {
             if d["expected"] != true {
-                eprintln!("[local-provider] llama-server exit {d}");
+                mixdog_rt::node_stderr!("[local-provider] llama-server exit {d}");
             }
         });
         let server = Arc::new(ServerProcess::new(parts.launcher, parts.health, parts.timing, on_exit).with_signal(signal.clone()));

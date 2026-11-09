@@ -71,12 +71,12 @@ impl WebhookServer {
             return;
         }
         match self.tunnels.start(self.port.clone()).await {
-            Ok(None) => tracing::info!("webhook: hook tunnel disabled (MIXDOG_RELAY_URL=off)"),
+            Ok(None) => mixdog_rt::node_stderr!("mixdog webhook: hook tunnel disabled (MIXDOG_RELAY_URL=off)"),
             Ok(Some(tunnel)) => {
-                tracing::info!("webhook: public hook base: {}", tunnel.public_base());
+                mixdog_rt::node_stderr!("mixdog webhook: public hook base: {}", tunnel.public_base());
                 self.tunnel = Some(tunnel);
             }
-            Err(e) => tracing::warn!("webhook: hook tunnel start failed: {e}"),
+            Err(e) => mixdog_rt::node_stderr!("mixdog webhook: hook tunnel start failed: {e}"),
         }
     }
 

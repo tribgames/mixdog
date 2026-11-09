@@ -111,6 +111,8 @@ struct Shared {
     file_bytes: Mutex<Option<u64>>,
     /// Woken when the drainer finds nothing left (or never ran).
     idle: Notify,
+    /// The memory worker's log (`memory-runtime-proxy.log`), flushed with this one.
+    memory: Mutex<Option<DaemonLog>>,
 }
 
 /// The daemon log. Cloning shares the queue.
@@ -177,6 +179,7 @@ impl DaemonLog {
                 state: Mutex::new(State::default()),
                 file_bytes: Mutex::new(None),
                 idle: Notify::new(),
+                memory: Mutex::new(None),
             }),
         }
     }
@@ -210,7 +213,31 @@ impl DaemonLog {
     /// line bounded as the redirect bounds an argument, then as any log line, without the `[daemon]` tag
     /// (`fixtures/console-redirect/golden.json`, from the real redirect).
     pub fn console_warn(&self, line: &str) {
-        self.raw(&format!("[console.warn] {}", bounded_text(line)));
+        self.console("warn", line);
+    }
+
+    /// `console.<method>(line)` once `installRedirect` has run, as [`Self::console_warn`] for any method.
+    pub fn console(&self, method: &str, line: &str) {
+        self.raw(&format!("[console.{method}] {}", bounded_text(line)));
+    }
+
+    /// The memory worker's stderr: `memory-runtime-proxy.log`, which the daemon's proxy appends `[<ISO>] <chunk>` rows to.
+    /// `memory` is flushed whenever this log is.
+    pub fn attach_memory_log(&self, memory: DaemonLog) {
+        *locked(&self.shared.memory) = Some(memory);
+    }
+
+    /// Where the lines Node writes to its stderr go once the daemon runs (`mixdog_rt::node_log`): what `installRedirect`
+    /// does with a `process.stderr.write` chunk or a `console` call, and the memory worker's stderr mirror.
+    pub fn node_sink(&self) -> mixdog_rt::node_log::Sink {
+        use mixdog_rt::node_log::Origin;
+        let daemon = self.clone();
+        let memory = locked(&self.shared.memory).clone().unwrap_or_else(|| self.clone());
+        Arc::new(move |origin, channel, line| match (origin, channel.console_method()) {
+            (Origin::MemoryWorker, _) => memory.raw(line),
+            (Origin::Daemon, Some(method)) => daemon.console(method, line),
+            (Origin::Daemon, None) => daemon.raw(line),
+        })
     }
 
     /// `console_warn` as a seam a `Fn(&str)` consumer takes.
@@ -228,6 +255,14 @@ impl DaemonLog {
     /// `flush`: returns once every line logged before the call is written (or lost to a failed
     /// write). A lane that refuses the drainer leaves the lines queued for the next line's try.
     pub async fn flush(&self) {
+        let memory = locked(&self.shared.memory).clone();
+        self.flush_own().await;
+        if let Some(memory) = memory {
+            memory.flush_own().await;
+        }
+    }
+
+    async fn flush_own(&self) {
         loop {
             let notified = self.shared.idle.notified();
             tokio::pin!(notified);

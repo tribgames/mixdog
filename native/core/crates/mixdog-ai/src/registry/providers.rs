@@ -411,7 +411,7 @@ impl ProviderRegistry {
                 Err(error) => {
                     Self::remove(&mut state, &name);
                     state.init_errors.insert(name, error.clone());
-                    tracing::warn!("{error} (provider skipped; fix its configuration)");
+                    mixdog_rt::node_stderr!("{error} (provider skipped; fix its configuration)");
                     skipped.push(error);
                 }
             }

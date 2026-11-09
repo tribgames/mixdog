@@ -191,7 +191,7 @@ pub fn resolve(pool: &[Arc<dyn Tool>], mcp: Tools, request: &Resolve<'_>) -> Too
                     "tools:mcp" => chosen.extend(merged.iter().cloned()),
                     // Name-pattern match: `recall` is reached through `tools:mcp` only.
                     "tools:websearch" => chosen.extend(merged.iter().filter(|t| SEARCH.is_match(name(t))).cloned()),
-                    other => tracing::warn!("[session] unknown toolset id \"{other}\" (profile.tools); skipping"),
+                    other => mixdog_rt::node_stderr!("[session] unknown toolset id \"{other}\" (profile.tools); skipping"),
                 }
             }
             with(&[&dedup(chosen), &skill_tools])

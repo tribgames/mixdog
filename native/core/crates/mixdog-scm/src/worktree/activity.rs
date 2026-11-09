@@ -294,7 +294,7 @@ impl Ledger {
             name.push(format!(".corrupt-{}", now_ms()));
             let aside = copy.path.with_file_name(name);
             write_atomic(&aside, copy.bytes.as_deref().unwrap_or_default()).map_err(|_| unverifiable())?;
-            eprintln!("[state] {} is damaged; kept as {}", copy.path.display(), aside.display());
+            mixdog_rt::node_stderr!("[state] {} is damaged; kept as {}", copy.path.display(), aside.display());
         }
         Ok(())
     }
@@ -343,7 +343,7 @@ impl Ledger {
         match Self::publish(&mut copies, target, recovered_at) {
             Ok(()) => self.settle(&withdrawn),
             Err(error) => {
-                eprintln!("[state] {} could not be published ({error})", paths[0].display());
+                mixdog_rt::node_stderr!("[state] {} could not be published ({error})", paths[0].display());
                 if let Some(refusal) = refusal {
                     return Err(refusal);
                 }

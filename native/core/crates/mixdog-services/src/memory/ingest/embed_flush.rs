@@ -135,7 +135,7 @@ impl RawEmbedFlush {
                 Ok(claimed) => claimed,
                 Err(error) => {
                     let _ = client.batch_execute("ROLLBACK").await;
-                    tracing::warn!(%error, "[embed] raw flush SKIP LOCKED claim failed");
+                    mixdog_rt::memory_stderr!("[embed] raw flush SKIP LOCKED claim failed: {error}");
                     break;
                 }
             };
@@ -151,7 +151,7 @@ impl RawEmbedFlush {
                     let _ = client.batch_execute("COMMIT").await;
                 }
                 Err(error) => {
-                    tracing::warn!(%error, first = claimed[0], "[embed] raw batch failed");
+                    mixdog_rt::memory_stderr!("[embed] raw batch failed (ids={}..{}): {error}", claimed[0], claimed[claimed.len() - 1]);
                     let _ = client.batch_execute("ROLLBACK").await;
                 }
             }
@@ -221,7 +221,7 @@ impl RawEmbedFlush {
                 continue;
             }
             if expected > 0.0 && vector.len() as f64 != expected {
-                tracing::warn!(id, got = vector.len(), expected, "[embed] raw dim mismatch");
+                mixdog_rt::memory_stderr!("[embed] raw dim mismatch (id={id} got={} expected={expected})", vector.len());
                 continue;
             }
             updates.push((*id, embedding_to_sql(vector), content.clone()));
@@ -339,7 +339,7 @@ impl RawEmbedFlush {
             *at = Some(Instant::now());
         }
         if let Err(error) = self.prune(cache_max_rows()).await {
-            tracing::warn!(%error, "[embed] cache prune skipped");
+            mixdog_rt::memory_stderr!("[embed] cache prune skipped: {error}");
         }
     }
 

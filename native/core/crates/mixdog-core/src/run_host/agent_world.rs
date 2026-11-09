@@ -150,7 +150,7 @@ impl DispatchWorld for AgentWorld {
     }
 
     fn diagnostic(&self, line: &str) {
-        tracing::info!("{line}");
+        mixdog_rt::node_stderr!("{line}");
     }
 }
 

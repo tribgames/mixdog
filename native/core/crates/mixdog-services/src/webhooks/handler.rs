@@ -146,8 +146,13 @@ fn percent_decode(raw: &str) -> Option<String> {
 
 /// The endpoint name of a `/webhook/<name>[?query]` path.
 pub fn parse_endpoint_name(path: &str) -> String {
-    let raw = path.strip_prefix("/webhook/").unwrap_or("").split('?').next().unwrap_or("");
+    let raw = raw_endpoint_name(path);
     percent_decode(raw).unwrap_or_else(|| raw.to_string())
+}
+
+/// `rawName` of Node's `parseEndpointName`: the path after `/webhook/`, undecoded, without its query.
+fn raw_endpoint_name(path: &str) -> &str {
+    path.strip_prefix("/webhook/").unwrap_or("").split('?').next().unwrap_or("")
 }
 
 /// Endpoint names are `[a-zA-Z0-9_-]{1,64}`; anything else never reaches a table lookup.
@@ -201,13 +206,13 @@ impl WebhookService {
     pub async fn precheck(&self, path: &str) -> Result<String, HttpReply> {
         let name = parse_endpoint_name(path);
         if !valid_endpoint_name(&name) {
-            tracing::warn!("webhook rejected: invalid endpoint name");
+            mixdog_rt::node_stderr!("mixdog webhook: rejected: invalid endpoint name \"{}\"", raw_endpoint_name(path));
             return Err(HttpReply::error(404, "invalid endpoint name"));
         }
         let endpoint = match self.store.load_endpoint(&name).await {
             Ok(db) => db.or_else(|| self.config_endpoint(&name)),
             Err(err) => {
-                tracing::warn!("webhook {name}: endpoint lookup failed — {err}");
+                mixdog_rt::node_stderr!("mixdog webhook: {name}: endpoint lookup failed — {err}");
                 return Err(HttpReply::error(500, "internal error"));
             }
         };
@@ -241,11 +246,11 @@ impl WebhookService {
         let parser = parser.as_deref().filter(|p| !p.is_empty());
         if let Some(secret) = secret {
             let Some(sig) = extract_signature(headers, parser) else {
-                tracing::warn!("webhook {name}: rejected — no signature header found");
+                mixdog_rt::node_stderr!("mixdog webhook: {name}: rejected — no signature header found");
                 return Err(HttpReply { status: 403, body: json!({"ok":false,"error":"missing signature"}) });
             };
             if !verify_signature(secret, body, &sig, parser, (self.now_ms)()) {
-                tracing::warn!("webhook {name}: rejected — signature mismatch");
+                mixdog_rt::node_stderr!("mixdog webhook: {name}: rejected — signature mismatch");
                 return Err(HttpReply { status: 403, body: json!({"ok":false,"error":"invalid signature"}) });
             }
             return Ok(());
@@ -253,29 +258,29 @@ impl WebhookService {
         // Fail closed: a configured parser implies a signed integration, and a table
         // endpoint is privileged; neither may fall back to unsigned input.
         if let Some(parser) = parser {
-            tracing::warn!("webhook {name}: rejected — parser \"{parser}\" configured but no secret set");
+            mixdog_rt::node_stderr!("mixdog webhook: {name}: rejected — parser \"{parser}\" configured but no secret set");
             return Err(HttpReply::error(401, "webhook secret required for signed parser"));
         }
         if in_table {
-            tracing::warn!("webhook {name}: rejected (table endpoint requires a webhook secret)");
+            mixdog_rt::node_stderr!("mixdog webhook: {name}: rejected (table endpoint requires a webhook secret)");
             return Err(HttpReply::error(401, "webhook secret required for endpoint"));
         }
         let allow = endpoint.allow_unsigned == Some(true)
             || config.endpoints.get(name).and_then(|e| e.allow_unsigned) == Some(true)
             || config.allow_unsigned_webhooks;
         if !allow {
-            tracing::warn!("webhook {name}: rejected — unsigned request and no secret configured");
+            mixdog_rt::node_stderr!("mixdog webhook: {name}: rejected — unsigned request and no secret configured");
             return Err(HttpReply::error(401, "webhook secret required for endpoint"));
         }
         if !self.warned_unsigned.swap(true, std::sync::atomic::Ordering::Relaxed) {
-            tracing::warn!("webhook warning — unsigned webhooks explicitly allowed, skipping signature verification");
+            mixdog_rt::node_stderr!("mixdog webhook: warning — unsigned webhooks explicitly allowed, skipping signature verification");
         }
         Ok(())
     }
 
     async fn fail(&self, name: &str, id: &str, error: &str) {
         if let Err(err) = self.store.update_delivery_status(name, id, "failed", Some(error)).await {
-            tracing::error!("webhook: failed to mark delivery {name}/{id} failed — {err}");
+            mixdog_rt::node_stderr!("mixdog webhook: failed to mark delivery {name}/{id} failed — {err}");
         }
     }
 
@@ -293,14 +298,14 @@ impl WebhookService {
         match outcome {
             Ok(reply) => reply,
             Err(Failure::Invalid(message)) => {
-                tracing::warn!("webhook JSON parse error for {name}: {message}");
+                mixdog_rt::node_stderr!("mixdog webhook: JSON parse error for {name}: {message}");
                 if let Some(id) = &claimed_id {
                     self.fail(name, id, &format!("invalid JSON: {message}")).await;
                 }
                 HttpReply::error(400, "invalid JSON")
             }
             Err(Failure::Internal(message)) => {
-                tracing::warn!("webhook {name}: request failed: {message}");
+                mixdog_rt::node_stderr!("mixdog webhook: {name}: request failed: {message}");
                 // A terminal failed row closes the `received` claim so retries don't loop on dedup.
                 if let Some(id) = &claimed_id {
                     self.fail(name, id, &message).await;
@@ -322,7 +327,7 @@ impl WebhookService {
         let in_table = db_endpoint.is_some();
         let Some(endpoint) = endpoint else { return Ok(HttpReply::error(404, "unknown endpoint")) };
         if endpoint.enabled == Some(false) {
-            tracing::warn!("webhook rejected: disabled endpoint {name}");
+            mixdog_rt::node_stderr!("mixdog webhook: rejected: disabled endpoint {name}");
             return Ok(HttpReply::error(404, "disabled endpoint"));
         }
         let secret = self
@@ -358,7 +363,7 @@ impl WebhookService {
         let claimed = self.store.claim_delivery(name, &id, claim).await.map_err(Failure::Internal)?;
         *claimed_id = Some(id.clone());
         if !claimed {
-            tracing::info!("webhook {name}: dedup {id}");
+            mixdog_rt::node_stderr!("mixdog webhook: {name}: dedup {id}");
             return Ok(HttpReply { status: 200, body: json!({"status":"dedup","id":id}) });
         }
         let ctype = headers.get("content-type").map(|v| v.to_lowercase()).unwrap_or_default();

@@ -23,7 +23,7 @@ pub struct Running {
 /// as Node writes it: `[session-sweep] sub-agent retention error: <message>`.
 pub fn start(host: Arc<dyn RetentionHost>, now: Arc<dyn Fn() -> f64 + Send + Sync>) -> Running {
     let stop = CancellationToken::new();
-    let on_error: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(|line| tracing::warn!("[session-sweep] {line}"));
+    let on_error: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(|line| mixdog_rt::node_stderr!("[session-sweep] {line}"));
     Running { task: start_cycle(host, now, on_error, stop.clone()), stop }
 }
 

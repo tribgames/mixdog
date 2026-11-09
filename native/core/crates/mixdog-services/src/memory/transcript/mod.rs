@@ -68,7 +68,7 @@ impl Offsets {
         let Ok(_turn) = self.persisting.acquire().await else { return };
         let blob = Value::Object(self.lock().clone());
         if let Err(error) = set_meta(db, OFFSETS_KEY, &blob).await {
-            tracing::info!("[memory] persist transcript offsets failed: {}", error.message());
+            mixdog_rt::memory_stderr!("[memory] persist transcript offsets failed: {}", error.message());
         }
     }
 

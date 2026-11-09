@@ -114,7 +114,7 @@ pub async fn ensure_runtime(options: &InstallOptions, cancel: &CancellationToken
     let (asset, selected) = options.manifest.select(&options.platform)?;
     let pkey = options.platform.key();
     if selected != pkey {
-        tracing::info!("[runtime-fetcher] {pkey} has no native runtime; using {selected} under emulation");
+        mixdog_rt::memory_stderr!("[runtime-fetcher] {pkey} has no native runtime; using {selected} under emulation");
     }
     let version = options.manifest.version();
     let (cache_base, cache_version, cache_sha) = (base.clone(), version.clone(), asset.sha256.clone());
@@ -139,7 +139,7 @@ async fn install(
     // `tar` is only needed here: a machine without it reuses a complete cached runtime.
     tar::probe().await.map_err(RuntimeInstallError::Text)?;
     check(cancel)?;
-    tracing::info!("[runtime-fetcher] downloading runtime {version} for {pkey} (~{} bytes) …", asset.size);
+    mixdog_rt::memory_stderr!("[runtime-fetcher] downloading runtime {version} for {pkey} (~{} bytes) …", asset.size);
 
     // A unique staging suffix keeps two siblings off one directory and its guarding lock file.
     let tag = format!("{}-{}-{}", (options.now)(), std::process::id(), stage::random_tag());
@@ -155,11 +155,11 @@ async fn install(
     match published {
         Ok(()) => {
             let dir = stage::ver_dir(base, &key);
-            tracing::info!("[runtime-fetcher] runtime ready at {}", dir.display());
+            mixdog_rt::memory_stderr!("[runtime-fetcher] runtime ready at {}", dir.display());
             Ok(dir)
         }
         Err(RuntimeInstallError::Cancelled) => {
-            tracing::info!("[runtime-fetcher] install of {version} cancelled; its staging was removed");
+            mixdog_rt::memory_stderr!("[runtime-fetcher] install of {version} cancelled; its staging was removed");
             Err(RuntimeInstallError::Cancelled)
         }
         Err(error) => Err(error),
@@ -197,7 +197,7 @@ async fn fetch_and_publish(
         stage::write_atomic(proof, &staging.join(".version-sha256"), sha256.as_bytes(), false)?;
         stage::normalize_bin_exec_bit(&staging);
         stage::publish(proof, &base, &staging, &key, &sha256, now).inspect_err(|error| {
-            tracing::warn!("[runtime-fetcher] atomic swap failed: {error}");
+            mixdog_rt::memory_stderr!("[runtime-fetcher] atomic swap failed: {error}");
         })?;
         // Stale runtimes go, still under the lock.
         stage::gc(&base, Some(&key), now);
@@ -234,7 +234,7 @@ async fn fetch_one(
         },
         cancel,
         |attempt, wait, error| {
-            tracing::warn!("[runtime-fetcher] download attempt {attempt} failed ({error}), retrying in {}ms…", wait.as_millis());
+            mixdog_rt::memory_stderr!("[runtime-fetcher] download attempt {attempt} failed ({error}), retrying in {}ms…", wait.as_millis());
         },
     )
     .await
@@ -263,7 +263,7 @@ async fn download_verified(
     let mut last = None;
     for url in url_candidates(&asset.url, &options.release_repositories) {
         if url != asset.url {
-            tracing::warn!("[runtime-fetcher] retrying runtime download from fallback release repo — {url}");
+            mixdog_rt::memory_stderr!("[runtime-fetcher] retrying runtime download from fallback release repo — {url}");
         }
         match fetch_one(options, asset, &url, tar_path, cancel).await {
             Ok(()) => return Ok(()),

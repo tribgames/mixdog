@@ -74,7 +74,7 @@ impl RoutineRuntime {
 
     async fn stamp_webhook(&self, name: &str, outcome: RunStamp) {
         if let Err(error) = self.records.record_webhook_run(name, outcome, self.clock.now()).await {
-            tracing::warn!("mixdog webhook: {name} {outcome:?} stamp failed: {error}");
+            mixdog_rt::node_stderr!("mixdog webhook: {name} {} stamp failed: {error}", outcome.as_str());
         }
     }
 

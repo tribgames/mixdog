@@ -223,7 +223,7 @@ impl ModelsDevSource {
                 state.retry_at = 0;
             }
             Err(reason) => {
-                tracing::warn!("[model-catalog] {}fetch failed: {reason}", self.label);
+                mixdog_rt::node_stderr!("[model-catalog] {}fetch failed: {reason}", self.label);
                 let disk = self.read_disk().await;
                 let mut state = self.lock();
                 state.fetched_remote = false;

@@ -170,3 +170,24 @@ async fn the_release_downloader_matches_the_node_golden() {
         }
     }
 }
+
+/// A failed attempt writes the retry line `createBinaryDownloader` writes to stderr, byte for byte as a real Node run
+/// wrote it (`node-stderr/lines.json`, `graphDownloadRetry`).
+#[tokio::test]
+async fn a_retried_download_writes_the_line_node_wrote() {
+    let tokens = mixdog_rt::testing::tokens();
+    let base = serve().await;
+    let downloader = ReleaseDownloader { bulk: tokens.cpu_bulk, durability: tokens.durability_io };
+    let data = tempfile::tempdir().expect("data dir");
+    let (lines, _guard) = mixdog_rt::node_log::capture();
+    downloader.download(&format!("{base}/flaky"), &data.path().join("flaky")).await.expect("the second attempt succeeds");
+    let recorded: Value = serde_json::from_str(include_str!("../../../../fixtures/node-stderr/lines.json")).expect("recording");
+    let want: Vec<String> = recorded["sites"]["graphDownloadRetry"]
+        .as_array()
+        .expect("lines")
+        .iter()
+        .map(|line| line.as_str().expect("line").strip_suffix('\n').expect("newline").replace("<BASE>", &base))
+        .collect();
+    let got: Vec<String> = lines.lock().unwrap().iter().map(|(_, _, line)| line.clone()).collect();
+    assert_eq!(got, want);
+}

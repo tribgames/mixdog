@@ -239,7 +239,7 @@ fn create_retry_policy(tuning: &Tuning) -> RetryPolicy {
 
 /// The line `_createGeminiCache` writes to stderr when the create fails (`gemini.mjs:596`).
 fn log_create_failure(message: &str) {
-    tracing::warn!("[gemini] cachedContents.create error: {message}");
+    mixdog_rt::node_stderr!("[gemini] cachedContents.create error: {message}");
 }
 
 struct CreateJob {
@@ -353,7 +353,11 @@ impl CreateJob {
         let response = self.http.send(self.post.clone(), CACHE_CREATE).await?;
         if !response.is_success() {
             let rejected = response.read_all().await?;
-            return Err(classify(&rejected, ErrorDialect { capacity_by_status: false }));
+            let mut error = classify(&rejected, ErrorDialect { capacity_by_status: false });
+            // `geminiRestError`'s message, which the create's catch writes to stderr.
+            let text = String::from_utf8_lossy(&rejected.body);
+            error.message = format!("Gemini cachedContents.create {}: {}", rejected.status.unwrap_or(0), mixdog_js::slice_utf16(&text, 300));
+            return Err(error);
         }
         let body = response.read_all().await?.body;
         let unreadable = || ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);

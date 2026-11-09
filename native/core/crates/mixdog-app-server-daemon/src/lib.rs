@@ -156,6 +156,10 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     let stop = mixdog_rt::CancellationToken::new();
     let log = daemon_log::DaemonLog::new(data_dir.join("daemon.log"), tokens.maintenance_io, stop.clone());
     log.enable_file_logging();
+    // From here a line Node writes to its stderr lands where Node's redirect put it (`mixdog_rt::node_log`): the memory worker's in its
+    // own proxy log, every other in `daemon.log`.
+    log.attach_memory_log(daemon_log::DaemonLog::new(data_dir.join("memory-runtime-proxy.log"), tokens.maintenance_io, stop.clone()));
+    mixdog_rt::node_log::install(log.node_sink());
     let sweep_dir = data_dir.clone();
     let config = compose::ComposeConfig {
         user_data_dir: data_dir.join("userdata"),

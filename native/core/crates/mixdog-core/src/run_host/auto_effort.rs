@@ -168,7 +168,7 @@ impl EffortDiagnostics for EffortDecisionLog {
     }
 
     fn warn(&self, line: &str) {
-        eprint!("{line}");
+        mixdog_rt::node_stderr!("{}", line.trim_end_matches('\n'));
     }
 }
 

@@ -84,6 +84,15 @@ pub enum RunStamp {
 }
 
 impl RunStamp {
+    /// The outcome word Node stamps (`success`, `failed`, `skipped`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::Failed => "failed",
+            Self::Skipped => "skipped",
+        }
+    }
+
     pub fn parse(text: &str) -> Option<Self> {
         match text {
             "success" => Some(Self::Success),

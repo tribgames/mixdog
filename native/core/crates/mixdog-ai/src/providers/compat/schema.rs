@@ -457,7 +457,7 @@ pub(crate) fn report_exclusion(options: &RequestOptions, found: ToolExclusion) {
             // Node's `console.warn` fires once per distinct message (`warned`).
             static WARNED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
             if WARNED.lock().unwrap_or_else(PoisonError::into_inner).insert(found.message.clone()) {
-                tracing::warn!("{}", found.message);
+                mixdog_rt::node_console_warn!("{}", found.message);
             }
         }
     }
