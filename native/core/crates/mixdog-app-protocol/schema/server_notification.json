@@ -2444,7 +2444,7 @@
           "type": "string"
         },
         {
-          "description": "Model catalog; pages through `model/list` when stubbed.",
+          "description": "Model catalog (the `model/list` rows); when stubbed the client reads `model/list`, which is not paged.",
           "enum": [
             "modelCatalog"
           ],
