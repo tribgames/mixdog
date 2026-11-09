@@ -438,7 +438,8 @@ struct Pending {
     redirect_url: String,
     state: String,
     callbacks: mpsc::UnboundedSender<Callback>,
-    stop: CancellationToken,
+    /// The listener's flag that this login's callback was taken.
+    answered: Arc<std::sync::atomic::AtomicBool>,
 }
 
 struct Control {
@@ -565,7 +566,7 @@ impl McpOAuth {
         let url = with_account_params(&url, mode);
 
         *ctl.pending.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(Pending { redirect_url: redirect_url.clone(), state, callbacks, stop: listener.stopper() });
+            Some(Pending { redirect_url: redirect_url.clone(), state, callbacks, answered: listener.answered() });
         ctl.emit(LoginState::Authorize { url: url.to_string(), manual_url: None });
 
         let waited = tokio::select! {
@@ -574,7 +575,6 @@ impl McpOAuth {
             callback = callback_rx.recv() => callback.ok_or(Stop::Failed(OAuthError::LoginFailed)),
         };
         ctl.pending.lock().unwrap_or_else(|e| e.into_inner()).take();
-        listener.stopper().cancel();
         match waited {
             Ok(callback) => {
                 ctl.emit(LoginState::Waiting);
@@ -588,9 +588,11 @@ impl McpOAuth {
                     Err(_) => PageOutcome::Failed { scope_not_granted: false },
                 };
                 let _ = callback.respond.send(outcome);
+                listener.close().await;
                 finished
             }
             Err(stop) => {
+                listener.close().await;
                 // A server that no longer knows our client_id answers the browser with an HTTP
                 // error nobody here sees: register again next time.
                 if !switch && static_client.is_none() {
@@ -740,7 +742,7 @@ impl LoginSession for Session {
         })?;
         // The same answer the loopback would give; an invalid paste above leaves the login pending.
         let waiting = pending.take().ok_or(LoginError::InputNotExpected)?;
-        waiting.stop.cancel();
+        waiting.answered.store(true, std::sync::atomic::Ordering::SeqCst);
         let (respond, _) = oneshot::channel();
         let code = match parsed {
             Pasted::Code(code) => Some(code),

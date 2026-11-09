@@ -8,6 +8,7 @@ function dechunk(raw) {
   let at = 0;
   for (;;) {
     const lineEnd = raw.indexOf('\r\n', at);
+    if (lineEnd < 0) return Buffer.concat(parts);
     const size = parseInt(raw.subarray(at, lineEnd).toString('latin1'), 16);
     if (size === 0) return Buffer.concat(parts);
     parts.push(raw.subarray(lineEnd + 2, lineEnd + 2 + size));
@@ -34,6 +35,9 @@ export function rawExchange(host, port, { method, target, hostHeader, extraHeade
       if (!bytes.length) return resolve({ connection: 'closed without an answer' });
       const split = bytes.indexOf('\r\n\r\n');
       const [statusLine, ...lines] = bytes.subarray(0, split).toString('utf8').split('\r\n');
+      // Normalizes only equivalent HTTP representations, it is not a filter: header-name case, chunked vs
+      // Content-Length framing (the body is decoded) and `Date` (set per request) are invisible to a browser. Every
+      // other header name and value, the status line and the decoded body bytes are recorded exactly.
       const headers = lines.map((line) => [line.slice(0, line.indexOf(':')).toLowerCase(), line.slice(line.indexOf(':') + 1).trim()]).filter(([name]) => name !== 'date');
       const raw = bytes.subarray(split + 4);
       const chunked = headers.some(([name, value]) => name === 'transfer-encoding' && value === 'chunked');

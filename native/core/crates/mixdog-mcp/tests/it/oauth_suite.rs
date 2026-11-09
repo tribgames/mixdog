@@ -68,7 +68,7 @@ struct Auth {
 
 type Shared = Arc<Mutex<Auth>>;
 
-async fn read_request(stream: &mut TcpStream) -> (String, String, HashMap<String, String>, String) {
+pub(crate) async fn read_request(stream: &mut TcpStream) -> (String, String, HashMap<String, String>, String) {
     let mut buf = Vec::new();
     let mut chunk = [0u8; 4096];
     let header_end = loop {
@@ -93,7 +93,7 @@ async fn read_request(stream: &mut TcpStream) -> (String, String, HashMap<String
     (method, path, headers, String::from_utf8_lossy(&buf[header_end..header_end + length]).into_owned())
 }
 
-async fn respond(stream: &mut TcpStream, status: &str, headers: &[(&str, String)], body: &str) {
+pub(crate) async fn respond(stream: &mut TcpStream, status: &str, headers: &[(&str, String)], body: &str) {
     let mut out = format!("HTTP/1.1 {status}\r\ncontent-length: {}\r\nconnection: close\r\n", body.len());
     for (k, v) in headers {
         out.push_str(&format!("{k}: {v}\r\n"));
@@ -103,7 +103,7 @@ async fn respond(stream: &mut TcpStream, status: &str, headers: &[(&str, String)
     stream.write_all(out.as_bytes()).await.unwrap();
 }
 
-fn form(body: &str) -> HashMap<String, String> {
+pub(crate) fn form(body: &str) -> HashMap<String, String> {
     url::form_urlencoded::parse(body.as_bytes()).into_owned().collect()
 }
 
