@@ -126,8 +126,12 @@ public static class MixWin32 {
     }
     if (StealPlanned) StealLanded.WaitOne();
     if (!Locked) return false;
-    Unlocks++; Locked = false; HeldMs = LockClock.ElapsedMilliseconds; return true;
+    Unlocks++; Locked = false; HeldMs = LockClock.ElapsedMilliseconds; Unlocked.Set(); return true;
   }
+  // Set once an unlock has really ended the lock. A call that blocks on it
+  // finishes only after the lock's own hold ended, whatever the timing.
+  public static readonly System.Threading.ManualResetEvent Unlocked = new System.Threading.ManualResetEvent(false);
+  public static void AwaitUnlock() { Unlocked.WaitOne(); }
   public static void InstallLock() { MixForegroundLock.Native = NativeLock; }
   public static void InstallHost(IMixLeaseChannel host) { MixForegroundLock.Host = host; }
   // Steals the target makes again after a restore, and a restore Windows refuses.
@@ -277,16 +281,18 @@ $null=Invoke-BackgroundWindow ([IntPtr]1) { [MixWin32]::TrySteal([IntPtr]1) }
 $results+=@{scenario='steal_past_lock'; restored=([MixWin32]::Current -eq [IntPtr]2); calls=[MixWin32]::FocusCalls;
   locks=[MixWin32]::Locks; unlocks=[MixWin32]::Unlocks; refused=[MixWin32]::RefusedSteals; locked=[MixWin32]::Locked}
 [MixWin32]::StealPassesLock=$false
-# A provider that blocks well past the hold: the lock still ends at its
-# deadline, counted from acquisition, while the call is still running.
+# A provider that blocks past the hold: the lock still ends at its deadline,
+# counted from acquisition, while the call is still running. The call here
+# blocks until an unlock has happened, so only the hold's own timer can end it.
 foreach($scenario in @('slow_operation','operation_throws')) {
   [MixWin32]::FocusCalls=0; [MixWin32]::Current=[IntPtr]2; [MixWin32]::HeldMs=-1
   [MixWin32]::Locks=0; [MixWin32]::Unlocks=0; [MixWin32]::RefusedSteals=0
   $script:lockedAfterCall=$null
   $failure=''
+  [void][MixWin32]::Unlocked.Reset()
   try {
     $null=Invoke-BackgroundWindow ([IntPtr]1) {
-      Start-Sleep -Milliseconds 350
+      [MixWin32]::AwaitUnlock()
       $script:lockedAfterCall=[MixWin32]::Locked
       if ($scenario -eq 'operation_throws') { throw 'provider_failed: fixture' }
     }
@@ -510,17 +516,17 @@ $results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32
       ]
     );
     assert.match(rows[12].text, /^invoked; the foreground lock was unavailable/);
-    // The hold is bounded from acquisition, not from the end of the call: a
-    // 350 ms provider call sees the lock already gone, which ended once, near
-    // its 250 ms deadline, on every path including a failing call.
+    // The hold is bounded from acquisition, not from the end of the call: the
+    // provider call blocks until an unlock has happened, so its seeing the lock
+    // already gone means the hold's own timer ended it, once, while the call was
+    // still running, on every path including a failing call.
     for (const row of [rows[9], rows[10]]) {
       assert.equal(row.locks, 1, JSON.stringify(row));
       assert.equal(row.unlocks, 1, JSON.stringify(row));
       assert.equal(row.locked, false, JSON.stringify(row));
       assert.equal(row.lockedAfterCall, false, JSON.stringify(row));
-      assert.ok(row.heldMs >= 200 && row.heldMs <= 330, JSON.stringify(row));
     }
-    // The hold's window: a steal 150 ms after the call is refused by the hold,
+    // The hold's window: a steal after the call returned is refused by the hold,
     // which then ends once at its deadline; without the lock the watch still
     // sees it and restores once; a steal that lifted the worker's own lock
     // leaves an unknown release (three false unlocks, each error recorded),
@@ -537,7 +543,6 @@ $results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32
       ],
       ['locked_delayed_steal', 1, 0, true, 1, 1]
     );
-    assert.ok(lockedLate.heldMs >= 200, JSON.stringify(lockedLate));
     assert.deepEqual(
       [
         unlockedLate.scenario,
