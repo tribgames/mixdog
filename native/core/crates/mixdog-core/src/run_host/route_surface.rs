@@ -207,8 +207,7 @@ fn exposure_change(surface: &ToolSurface, clock: &dyn Clock, header: &Header, mu
 pub trait PrepareTools: Send + Sync {
     async fn prepare(&self, header: &Header) -> Option<PreparedTools>;
 
-    /// The skill listing of `cwd`: the one outside read of the preparation, so that a route change
-    /// can collect it before it runs on the session's actor.
+    /// The skill listing of `cwd`: the one outside read of the preparation, awaited by a route change on the session's actor.
     async fn skills_listed(&self, cwd: &std::path::Path) -> Result<bool, String>;
 
     /// [`PrepareTools::prepare`] over a listing already collected: synchronous and pure.
@@ -278,16 +277,6 @@ impl RouteFacts for AiRouteFacts {
         let cwd = super::resume_tools::header_cwd(header);
         let listed = self.prepare_tools.skills_listed(&cwd).await;
         Some((cwd, listed))
-    }
-
-    /// The listing was collected for the working folder of the header the change commits against
-    /// (`surface_current` holds, so the change is never computed over another folder's listing); one that
-    /// could not be collected keeps the stored tools.
-    fn surface_current(&self, header: &Header, previous: &Route, lookup: &SurfaceLookup) -> bool {
-        match lookup {
-            Some((cwd, _)) => !is_first_route(previous) && *cwd == super::resume_tools::header_cwd(header),
-            None => is_first_route(previous),
-        }
     }
 
     fn surface_change(&self, header: &Header, previous: &Route, lookup: &SurfaceLookup) -> HeaderChange {

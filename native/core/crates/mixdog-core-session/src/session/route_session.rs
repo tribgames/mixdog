@@ -50,17 +50,9 @@ pub type RouteLookups = Box<dyn std::any::Any + Send + Sync>;
 /// `_prepareResumeTools` collects inside the call) is looked up first, by `lookups`.
 #[async_trait::async_trait]
 pub trait RouteChange: Send + Sync {
-    /// The outside reads of the change, collected before it runs. `header` is the header as last
-    /// acked; a header that moved since is the change's to notice, not this lookup's.
+    /// The outside reads of the change, awaited on the session's actor over the header the change commits against.
     async fn lookups(&self, _header: &Header, _route: &Route) -> RouteLookups {
         Box::new(())
-    }
-
-    /// Whether `lookups` were collected for what `header` states now (its folder, the route it ran on). Node reads
-    /// them from the live session inside the call; here a header that moved since the lookup makes the change
-    /// refuse to commit over them, and the lookups are collected again for the header that stands.
-    fn lookups_hold(&self, _header: &Header, _route: &Route, _lookups: &RouteLookups) -> bool {
-        true
     }
 
     fn route_change(&self, header: &Header, route: &Route, previous: &Route, cross_provider: bool, lookups: &RouteLookups) -> HeaderChange;
@@ -341,55 +333,39 @@ impl SessionRouteAdapter {
         self.threads.header(thread).await.map(Some)
     }
 
-    /// `updateSessionRoute` as one read-modify-write on the session's actor, the header's only writer
-    /// (`HeaderUpdates`): Node computes the change on the live session with no await between the read and
-    /// the write, so a write that landed before it (the installation's compaction sync) is part of what it
-    /// reads, a close is seen, and nothing is retried. `extra` adds the caller's own fields to the same
-    /// change. `false` when the session is closed or gone.
+    /// `updateSessionRoute` as one read-modify-write on the session's actor, the header's only writer: Node reads
+    /// the live session, lists the skills of its `cwd` (`_prepareResumeTools` -> `collectPromptSkillsCached`),
+    /// computes and writes in one synchronous pass. Here the whole pass is one step of the actor that awaits its
+    /// lookup there, so every other header write (the installation's compaction sync, a folder change) queues
+    /// behind it and the lookup is always for the header it commits against: nothing is retried and nothing can
+    /// fail for a moved header. The lookup reads the skill catalog, never this session's actor. `extra` adds the
+    /// caller's own fields to the same change. `false` when the session is closed or gone.
     async fn write_route(
         &self,
         thread: &ThreadId,
         route: &Route,
         cross_provider: bool,
-        extra: impl Fn(&Header, &mut HeaderChange) + Send + Sync + 'static,
+        extra: impl FnOnce(&Header, &mut HeaderChange) + Send + 'static,
     ) -> Result<bool, PortError> {
         use std::sync::atomic::{AtomicBool, Ordering};
-        let extra = Arc::new(extra);
-        // What the change reads from outside the header is collected before the actor runs it. A header that moved
-        // meanwhile (a worktree move changes the folder the skills are listed from) makes the change commit nothing
-        // and the lookups are collected again for the header that stands; the redo ends once a lookup meets an
-        // unmoved header, and a header that keeps moving is an error, never a change over stale lookups.
-        for _ in 0..REDO_LIMIT {
-            let acked = match self.threads.header(thread).await {
-                Ok(header) => header,
-                Err(PortError::NotFound { .. }) => return Ok(false),
-                Err(error) => return Err(error),
-            };
-            let lookups = self.change.lookups(&acked, route).await;
-            let (change, clock, route, extra) = (self.change.clone(), self.clock.clone(), route.clone(), extra.clone());
-            let written = Arc::new(AtomicBool::new(false));
-            let stale = Arc::new(AtomicBool::new(false));
-            let (seen, moved) = (written.clone(), stale.clone());
-            let update: mixdog_core_ports::ports::threads::HeaderUpdate = Box::new(move |header| {
+        let (change, clock, route) = (self.change.clone(), self.clock.clone(), route.clone());
+        let written = Arc::new(AtomicBool::new(false));
+        let seen = written.clone();
+        let update: super::actor::AwaitingHeaderUpdate = Box::new(move |header| {
+            Box::pin(async move {
                 if header.get("closed") == Some(&Value::Bool(true)) {
                     return HeaderChange { set: Map::new(), unset: Vec::new() };
                 }
-                if !change.lookups_hold(header, &route, &lookups) {
-                    moved.store(true, Ordering::SeqCst);
-                    return HeaderChange { set: Map::new(), unset: Vec::new() };
-                }
-                Self::route_write(&*change, &*clock, header, &route, cross_provider, &lookups, &*extra, &seen)
-            });
-            match self.directory.update_header(thread, update).await {
-                Ok(()) if stale.load(Ordering::SeqCst) => continue,
-                Ok(()) => return Ok(written.load(Ordering::SeqCst)),
-                Err(mixdog_core_api::CoreError::ThreadNotFound { .. }) => return Ok(false),
-                Err(error) => return Err(mixdog_core_ports::ports::threads::port_error(error)),
-            }
+                let lookups = change.lookups(&header, &route).await;
+                Self::route_write(&*change, &*clock, &header, &route, cross_provider, &lookups, extra, &seen)
+            })
+        });
+        match self.directory.update_header_awaiting(thread, update).await {
+            Ok(()) => Ok(written.load(Ordering::SeqCst)),
+            Err(mixdog_core_api::CoreError::ThreadNotFound { .. }) => Ok(false),
+            Err(error) => Err(mixdog_core_ports::ports::threads::port_error(error)),
         }
-        Err(PortError::Failed { capability: "route".into(), message: "the session's folder kept changing while its route was updated".into() })
     }
-
     #[allow(clippy::too_many_arguments)]
     fn route_write(
         change: &dyn RouteChange,
@@ -398,7 +374,7 @@ impl SessionRouteAdapter {
         route: &Route,
         cross_provider: bool,
         lookups: &RouteLookups,
-        extra: &(dyn Fn(&Header, &mut HeaderChange) + Send + Sync),
+        extra: impl FnOnce(&Header, &mut HeaderChange),
         seen: &std::sync::atomic::AtomicBool,
     ) -> HeaderChange {
         {
@@ -430,9 +406,6 @@ impl SessionRouteAdapter {
         }
     }
 }
-
-/// How often the lookups of a route change are collected again for a header that moved under them.
-const REDO_LIMIT: usize = 8;
 
 /// The sessions a route hop can write (`run_host::hop_host::HopSessions`): the threads this
 /// process hosts.
@@ -594,91 +567,6 @@ mod tests {
         let (seen, previous, cross) = change.0.lock().unwrap()[0].clone();
         assert_eq!((seen["model"].clone(), previous, cross), (json!("claude-x"), json!({ "provider": "openai", "model": "gpt-a" }), true));
         assert!(!adapter.update_route(&ThreadId::from("sess_gone"), Route::new(), false).await.expect("gone"));
-    }
-
-    /// A write that lands between the route change's outside reads and its run is part of what it reads: a close that
-    /// lands there ends the update (Node's `session.closed` check and its write have no await between them).
-    struct ClosesDuringLookup {
-        threads: Arc<dyn ThreadState>,
-        thread: ThreadId,
-    }
-    #[async_trait::async_trait]
-    impl RouteChange for ClosesDuringLookup {
-        async fn lookups(&self, _: &Header, _: &Route) -> RouteLookups {
-            self.threads.patch_header(&self.thread, obj(json!({ "closed": true })), Vec::new()).await.expect("close");
-            Box::new(())
-        }
-        fn route_change(&self, _: &Header, _: &Route, _: &Route, _: bool, _: &RouteLookups) -> HeaderChange {
-            HeaderChange { set: obj(json!({ "contextWindow": 1 })), unset: Vec::new() }
-        }
-        fn environment_reset(&self, _: &Header) -> HeaderChange {
-            HeaderChange { set: Map::new(), unset: Vec::new() }
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_close_that_lands_before_the_route_change_runs_ends_the_update() {
-        use crate::session::thread_state::SessionThreads;
-        let rig = crate::session::testing::Rig::new();
-        let directory = Arc::new(SessionDirectory::new(rig.deps()));
-        let thread = ThreadId::from("sess_closing");
-        directory.create_with_id(thread.clone(), obj(json!({ "provider": "openai", "model": "gpt-a" })), json!({})).await.expect("create");
-        let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
-        let change = Arc::new(ClosesDuringLookup { threads: threads.clone(), thread: thread.clone() });
-        let adapter = SessionRouteAdapter::new(directory.clone(), threads.clone(), change, Arc::new(Quiet), Arc::new(Quiet), Arc::new(Quiet), rig.clock.clone());
-        assert!(!adapter.update_route(&thread, obj(json!({ "provider": "anthropic", "model": "claude-x" })), true).await.expect("update"));
-        let stored = threads.header(&thread).await.expect("header");
-        assert_eq!((stored["provider"].clone(), stored["model"].clone()), (json!("openai"), json!("gpt-a")));
-        assert!(!stored.contains_key("contextWindow"));
-    }
-    /// Lookups keyed by the folder they were collected for. The first lookup is interrupted by a worktree move; the
-    /// change must never commit over the old folder's lookup (Node lists the skills of the live session's folder
-    /// inside the call), so the lookup is collected again for the folder that stands.
-    struct FolderLookups {
-        threads: Arc<dyn ThreadState>,
-        thread: ThreadId,
-        collected: Mutex<Vec<String>>,
-        used: Mutex<Vec<String>>,
-    }
-    #[async_trait::async_trait]
-    impl RouteChange for FolderLookups {
-        async fn lookups(&self, header: &Header, _: &Route) -> RouteLookups {
-            let folder = header["cwd"].as_str().expect("cwd").to_owned();
-            let first = self.collected.lock().unwrap().is_empty();
-            self.collected.lock().unwrap().push(folder.clone());
-            if first {
-                self.threads.patch_header(&self.thread, obj(json!({ "cwd": "/moved" })), Vec::new()).await.expect("move");
-            }
-            Box::new(folder)
-        }
-        fn lookups_hold(&self, header: &Header, _: &Route, lookups: &RouteLookups) -> bool {
-            lookups.downcast_ref::<String>().map(String::as_str) == header["cwd"].as_str()
-        }
-        fn route_change(&self, _: &Header, _: &Route, _: &Route, _: bool, lookups: &RouteLookups) -> HeaderChange {
-            let folder = lookups.downcast_ref::<String>().expect("folder").clone();
-            self.used.lock().unwrap().push(folder.clone());
-            HeaderChange { set: obj(json!({ "toolsFolder": folder })), unset: Vec::new() }
-        }
-        fn environment_reset(&self, _: &Header) -> HeaderChange {
-            HeaderChange { set: Map::new(), unset: Vec::new() }
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_folder_that_moves_during_the_lookup_has_its_lookup_collected_again() {
-        use crate::session::thread_state::SessionThreads;
-        let rig = crate::session::testing::Rig::new();
-        let directory = Arc::new(SessionDirectory::new(rig.deps()));
-        let thread = ThreadId::from("sess_moving");
-        directory.create_with_id(thread.clone(), obj(json!({ "provider": "openai", "model": "gpt-a", "cwd": "/before" })), json!({})).await.expect("create");
-        let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
-        let change = Arc::new(FolderLookups { threads: threads.clone(), thread: thread.clone(), collected: Mutex::default(), used: Mutex::default() });
-        let adapter = SessionRouteAdapter::new(directory.clone(), threads.clone(), change.clone(), Arc::new(Quiet), Arc::new(Quiet), Arc::new(Quiet), rig.clock.clone());
-        assert!(adapter.update_route(&thread, obj(json!({ "provider": "anthropic", "model": "claude-x" })), true).await.expect("update"));
-        assert_eq!(*change.collected.lock().unwrap(), vec!["/before".to_owned(), "/moved".to_owned()]);
-        assert_eq!(*change.used.lock().unwrap(), vec!["/moved".to_owned()], "the change ran once, over the folder that stands");
-        let stored = threads.header(&thread).await.expect("header");
-        assert_eq!((stored["toolsFolder"].clone(), stored["model"].clone()), (json!("/moved"), json!("claude-x")));
     }
 
     struct NullWire;

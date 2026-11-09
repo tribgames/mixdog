@@ -115,6 +115,15 @@ let storedText = JSON.stringify(result.stored);
 for (const [raw, token] of tokens.slice(0, 2)) storedText = storedText.replaceAll(JSON.stringify(raw).slice(1, -1), token);
 const stored = JSON.parse(storedText);
 
+// What Node's session holds after the route change and then a config change of the compaction (`syncSessionCompaction`, which
+// Node runs on the live session after the route change's one synchronous pass): the sequential result a write submitted
+// while the route change is in flight must reach. The route change's own result is `afterRoute`, read from the daemon.
+const { syncSessionCompaction } = await import(pathToFileURL(join(tree, 'src', 'session-runtime', 'session-compaction-sync.mjs')).href);
+const SAVED_AFTER = { auto: false };
+const sequential = { compaction: structuredClone(result.afterRoute.compaction) };
+syncSessionCompaction(sequential, { compaction: SAVED_AFTER });
+const afterRouteThenSync = { saved: SAVED_AFTER, compaction: sequential.compaction };
+
 const rel = 'benchmarks/rust-core/recorders/context-status-route/record.mjs';
 const finalOut = join(FIXTURES_ROOT, 'context-status-route');
 const out = stageSet(finalOut);
@@ -127,6 +136,7 @@ writeJson(join(out, 'golden.json'), {
   config: CONFIG,
   stored,
   afterRoute: result.afterRoute,
+  afterRouteThenSync,
   steps,
 });
 writeSetManifest(out, {
