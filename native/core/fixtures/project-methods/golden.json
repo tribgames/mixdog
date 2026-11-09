@@ -2941,6 +2941,50 @@
       }
     },
     {
+      "name": "remove: session runs a turn",
+      "error": {
+        "code": "WORKTREE_BUSY_JOBS",
+        "message": "The session is running a turn; wait for it to finish.",
+        "details": {
+          "reason": "turn"
+        }
+      },
+      "after": {
+        "branches": [
+          "dev",
+          "fresh",
+          "fresh2",
+          "main",
+          "solo-wt",
+          "topic",
+          "topic2",
+          "wt-clean",
+          "wt-live",
+          "wt-merge",
+          "wt-shared",
+          "wt-unmerged"
+        ],
+        "folders": {
+          "wt-clean": false,
+          "wt-unmerged": false,
+          "wt-dirty": false,
+          "wt-retained": false,
+          "wt-live": true,
+          "wt-shared": true,
+          "wt-merge": false,
+          "solo-wt": true
+        },
+        "head": "main",
+        "mainFiles": [
+          ".gitignore",
+          "f.txt",
+          "m.txt",
+          "t.txt"
+        ],
+        "status": []
+      }
+    },
+    {
       "name": "remove: stale revision",
       "error": {
         "code": "WORKTREE_REVISION_CONFLICT",

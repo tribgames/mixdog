@@ -1,30 +1,30 @@
 {
-  "command": "node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-delete-idle.mjs --tree <tree>",
+  "command": "node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-delete-idle.mjs --tree <tree> --ref <commit>",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 4645,
+      "bytes": 5207,
       "path": "golden.json",
-      "sha256": "8795a7f07a3dc3cdef8db6e10331fd4f514caf871f4a35651e0768056d505d1d"
+      "sha256": "f90caac6ee82ac334ab9a7b342295198e2c0cf50797871adcb7b476b48005d08"
     }
   ],
   "product": {
-    "appsSha256": "bab7444cae87dd010b6ebcff4195cba87d0cc3a8f1873b6b0e5d2786d98e3785",
-    "commit": "60a7fa2347721586f62074dac5cd2544fe68653f",
-    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9270,
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a",
+    "files": 9139,
     "refComparison": {
-      "closestCommit": "60a7fa2347721586f62074dac5cd2544fe68653f",
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
     },
-    "srcSha256": "5cdc856dd5029974664ecc2a9deebf6d10c4549688e85621a553a1fb4b7801b0",
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "git-checkout",
+    "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-delete-idle.mjs",
   "set": "delete-idle",
-  "totalBytes": 4645
+  "totalBytes": 5207
 }

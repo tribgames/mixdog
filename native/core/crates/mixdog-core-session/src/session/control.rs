@@ -394,18 +394,21 @@ impl ControlCell {
         Ok(json!({ "cancelRequested": true, "turnId": turn }))
     }
 
-    /// `turn/steer{expectedTurnId, queuedId}` → `{accepted: true, queuedId}` (R10, R12).
-    pub fn steer(&self, expected: &TurnId, queued: QueuedId) -> Result<Value, CoreError> {
-        let run = self.run.load_full();
-        let Some(run) = run.filter(|run| &run.turn == expected) else {
-            return Err(self.not_active(Some(expected)));
-        };
+    /// `turn/steer{expectedTurnId, queuedId}` → `{accepted: true, queuedId}` (R10, R12). Node's
+    /// `prioritizeQueued` (`queue.mjs`) goes by queue membership alone and has no turn
+    /// precondition, so the entry is checked first; one that is queued while no run matches
+    /// (`expected` when named, else any) has nothing to steer into and stays queued for its own turn.
+    pub fn steer(&self, expected: Option<&TurnId>, queued: QueuedId) -> Result<Value, CoreError> {
         if !self.queued.load().contains(queued.as_str()) {
             return Err(CoreError::QueuedEntryNotFound {
                 thread_id: self.thread.clone(),
                 queued_id: queued,
             });
         }
+        let run = self.run.load_full();
+        let Some(run) = run.filter(|run| expected.is_none_or(|expected| &run.turn == expected)) else {
+            return Ok(json!({ "accepted": true, "queuedId": queued }));
+        };
         {
             let mut steers = lock(&run.steers);
             if !steers.contains(&queued) {

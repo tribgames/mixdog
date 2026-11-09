@@ -62,13 +62,14 @@ pub trait RunControl: Send + Sync {
     /// Errors: `turnNotActive` (no or another active turn), `queueFull` (control lane full).
     fn interrupt(&self, turn: &TurnId, restore_prompt: Option<bool>) -> Result<Value, CoreError>;
 
-    /// `turn/steer`: validates against the run's control cell (active regular run, matching
-    /// turn, non-empty input) and queues the input; the run injects it at its next model-call
-    /// boundary after the entry is durable. Errors: `turnNotActive`, `queueFull`.
-    fn steer(&self, expected_turn: &TurnId, input: Value, op: OpId) -> Result<Value, CoreError>;
+    /// `turn/steer`: validates against the run's control cell (the named queued entry, then an
+    /// active regular run, matching `expected_turn` when one is named) and queues the input; the
+    /// run injects it at its next model-call boundary after the entry is durable. An entry that is
+    /// queued while no matching run exists is accepted as it stands: Node's `prioritizeQueued`
+    /// has no turn precondition. Errors: `queuedEntryNotFound`, `queueFull`.
+    fn steer(&self, expected_turn: Option<&TurnId>, input: Value, op: OpId) -> Result<Value, CoreError>;
 
-    /// The turn the thread's run is in, `None` between runs: what a `turn/steer` that names no
-    /// turn steers.
+    /// The turn the thread's run is in, `None` between runs.
     fn active_turn(&self) -> Option<TurnId>;
 
     /// A client's response to a server request owned by this thread (P §8.4 step 1). Routed to

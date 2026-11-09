@@ -284,13 +284,16 @@ export function createCapabilityLane({
       });
     }
     // `prioritizeQueued` (`session-flow/queue.mjs`) answers an entry that is not queued with a count of none; the core refuses it
-    // as `queuedEntryNotFound` (and as `turnNotActive` when the session runs no turn, where nothing is queued either), which would
-    // leave the entry marked sending in the renderer.
+    // as `queuedEntryNotFound`, which would leave the entry marked sending in the renderer; a queued one is promoted and answers a count
+    // of one, whether or not a turn runs (the core's `turn/steer` acknowledgement is not Node's reply).
     if (capability === 'prioritizeQueued') {
-      return request(method, params).catch((error: unknown) => {
-        if (hasRpcReason(error, 'queuedEntryNotFound', 'turnNotActive')) return { count: 0, ids: [], priority: 'now' };
-        throw error;
-      });
+      return request(method, params).then(
+        () => ({ count: 1, ids: [args[0]], priority: 'now' }),
+        (error: unknown) => {
+          if (hasRpcReason(error, 'queuedEntryNotFound')) return { count: 0, ids: [], priority: 'now' };
+          throw error;
+        }
+      );
     }
     if (!ADDRESSED_SESSION_CAPABILITIES.has(capability)) return request(method, params);
     return request(method, params).catch((error: unknown) => {

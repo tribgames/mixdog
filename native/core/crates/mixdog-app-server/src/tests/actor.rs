@@ -232,7 +232,7 @@ impl RunControl for ActorThread {
         Ok(reply)
     }
 
-    fn steer(&self, expected_turn: &TurnId, input: Value, op: OpId) -> Result<Value, CoreError> {
+    fn steer(&self, expected_turn: Option<&TurnId>, input: Value, op: OpId) -> Result<Value, CoreError> {
         self.thread.steer(expected_turn, input, op)
     }
 
