@@ -1,13 +1,22 @@
 // What the phone has open on the core: the threads its panes show, plus the app feed. This replaces Node's `setVisibleSessions` /
-// `synchronizeViews` pair. A thread is subscribed with `thread/resume` and dropped with `thread/unsubscribe`; the client library
-// restores every subscription itself after a reconnect (with `resumeFrom`), so this module never re-sends them. What it adds is
-// the order Node kept: the set the page last named wins, the set of the last visit is opened with the first connection, and a
-// connection counts as synced only when the app feed and every open thread are attached again.
+// `synchronizeViews` pair. A thread is subscribed with `thread/resume` and dropped with `thread/unsubscribe`.
+//
+// The state machine that decides when the app's calls may leave is Node's, ported whole (phone-view-sync.ts): this file only says what one
+// "sync" is in the protocol's dialect -- the app feed and every wanted thread attached on the connection that is up -- and tells the machine
+// when a connection began and ended. Nothing else (no subscription event, no status of the client) opens or closes the gate.
+//
+// On a reconnect the client library re-attaches what was open on its own (`app/subscribe`, `thread/resume` with `resumeFrom`); that re-attachment
+// is the first sync of the new connection: it succeeds only when every one of them was restored, and a refusal (`state: 'lost'`) fails it, so
+// the machine retries on its backoff -- with this file's own attach, which re-subscribes what the refusal dropped -- and recycles the connection
+// after three failures in a row, exactly as for a refused resync.
 import type { ClientEvent, ProtocolClient, SessionFold, StoreChange } from '../../../packages/protocol-client/src/index.ts';
 import { remoteConnectionInterruptedError } from '../../desktop/src/renderer/remote-connection-state.ts';
+import { createViewSync } from './phone-view-sync.ts';
 
 /** Threads open per pane: the same window `thread/resume` is asked for everywhere on the phone. */
 export const VIEW_WINDOW = { lastItems: 50 } as const;
+
+const APP_FEED = 'app';
 
 export type ViewClient = Pick<ProtocolClient<SessionFold>, 'resumeThread' | 'unsubscribeThread' | 'subscribeApp' | 'status' | 'on'> & {
   readonly store: Pick<ProtocolClient<SessionFold>['store'], 'subscribe'>;
@@ -18,28 +27,18 @@ export interface ViewManager {
   set(threadIds: readonly string[]): Promise<boolean>;
   /** Asks the core again for the app feed and every open thread (they resume from where they were): the page doubts the stream, e.g. after a wake. Settles like `set`. */
   resync(): Promise<boolean>;
-  /** The gate of the app's calls: resolves when a connection that is up has everything asked of the core attached (a resync or a changed view in flight, retries included, holds it); rejects as interrupted when that connection ends first. A caller that arrives while none is up waits for the next one. */
+  /** The gate of the app's calls (Node: `viewSync.ready()` after `connect()`): a caller that arrives while no connection is up waits for the next one; then it waits for everything asked of the core to be attached, retries included, and rejects as interrupted when that connection ends first. */
   synced(): Promise<void>;
   stop(): void;
 }
 
-/** Syncs that fail this many times in a row on one connection recycle it (Node: `createRemoteViewSync` `failureLimit`, remote-view-sync.ts:16). */
-export const SYNC_FAILURE_LIMIT = 3;
-/** A failed sync is retried after 250 ms, doubling to 10 s (remote-view-sync.ts:24, :53). */
-export const SYNC_RETRY_MS = 250;
-export const SYNC_RETRY_MAX_MS = 10_000;
-
-/**
- * One sync in flight per connection; requests made meanwhile coalesce into the next (remote-view-sync.ts:30-34 `pump`). A failed
- * sync is reported, retried on the backoff above, and after `SYNC_FAILURE_LIMIT` failures in a row the connection is recycled: the
- * socket is alive but useless for syncing, and everything waiting on the view would wait forever (remote-view-sync.ts:46-59). A
- * connection that ended takes its failures and its retry with it; the library re-attaches what was open on the next one.
- */
 export function createViewManager(
   client: ViewClient,
   options: {
     /** Threads of the last visit: opened with the first connection, whatever the panes name first. */
     restored: readonly string[];
+    /** Threads the page names now (Node: ctx.lastVisibleSessionIds, which the first sync reads). */
+    wanted: readonly string[];
     /** Called each time everything asked of the core has been attached (the first connection included); `reconnected` when a new connection did it. */
     onSynced(reconnected: boolean): void;
     /** A sync of the view began on the connection that is up (a change of the view, a resync): the indicator shows it until `onSynced`. */
@@ -51,171 +50,149 @@ export function createViewManager(
   }
 ): ViewManager {
   const open = new Set<string>();
-  let wanted: readonly string[] = [];
+  let wanted: readonly string[] = [...new Set(options.wanted)];
   let restored = [...options.restored];
   let appOpen = false;
   let refresh = false;
   let everSynced = false;
+  // The connection that is up began with the library re-attaching what was open: its first sync is that re-attachment's outcome.
+  let reattach = false;
+  let freshConnection = false;
+  let cancelReattach: (() => void) | undefined;
+  // Which connection a sync ran on: a refresh that failed because its connection ended is not owed to the next one.
+  let connection = 0;
   const live = (): boolean => client.status.state === 'ready';
-  // The connection that is up, and whether it has attached everything (Node: viewSync's `active`, and `completed === requested` after `open()`).
-  let up = live();
-  let connSynced = false;
-  const gate = new Set<{ resolve(): void; reject(error: Error): void }>();
   const readyWaiters = new Set<() => void>();
+  const target = (): Set<string> => new Set([...wanted, ...restored]);
+  const keyOf = (ids: Iterable<string>): string => JSON.stringify([...new Set(ids)].sort());
+  let requestedKey = keyOf(target());
 
-  let requested = 0;
-  let completed = 0;
-  let running = false;
-  let generation = 0;
-  let failures = 0;
-  let retryDelay = SYNC_RETRY_MS;
-  let retry: ReturnType<typeof setTimeout> | undefined;
-  const waiting = new Set<{ resolve(ok: boolean): void; reject(error: Error): void }>();
-
-  const waitAttached = (): Promise<void> => {
-    const pending = new Set<string>(['app', ...open]);
-    return new Promise<void>((resolve) => {
-      const off = client.store.subscribe((change: StoreChange) => {
-        if (change.type !== 'subscription') return;
-        pending.delete(change.feedId);
-        if (pending.size === 0) {
-          off();
-          resolve();
-        }
-      });
-      if (pending.size === 0) {
+  /** Resolves when every feed the library is restoring on this connection was restored; rejects with the refusal of a `lost` one (after noting the loss). */
+  const reattached = (): Promise<void> => {
+    const pending = new Set<string>([...(appOpen ? [APP_FEED] : []), ...open]);
+    let refused: unknown;
+    return new Promise<void>((resolve, reject) => {
+      const finish = (): void => {
         off();
-        resolve();
-      }
+        cancelReattach = undefined;
+        if (refused === undefined) resolve();
+        else reject(refused);
+      };
+      const off = client.store.subscribe((change: StoreChange) => {
+        if (change.type !== 'subscription' || !pending.delete(change.feedId)) return;
+        if (change.state === 'lost') {
+          if (change.feedId === APP_FEED) appOpen = false;
+          else open.delete(change.feedId);
+          refused ??= change.error;
+        }
+        if (pending.size === 0) finish();
+      });
+      cancelReattach = off;
+      if (pending.size === 0) finish();
     });
-  };
-  const synced = (reconnected: boolean): void => {
-    everSynced = true;
-    connSynced = true;
-    options.onSynced(reconnected);
-    if (completed !== requested) return;
-    for (const waiter of [...gate]) waiter.resolve();
-    gate.clear();
   };
 
   const attach = async (force: boolean): Promise<void> => {
-    const target = new Set([...wanted, ...restored]);
+    const want = target();
     if (!appOpen || force) {
       await client.subscribeApp();
       appOpen = true;
     }
     for (const id of [...open]) {
-      if (target.has(id)) continue;
+      if (want.has(id)) continue;
       open.delete(id);
       await client.unsubscribeThread(id);
     }
-    for (const id of target) {
+    for (const id of want) {
       if (open.has(id) && !force) continue;
       await client.resumeThread(id, VIEW_WINDOW);
       open.add(id);
     }
   };
 
-  const pump = (): void => {
-    if (running || retry !== undefined || completed === requested || !live()) return;
-    const epoch = generation;
-    const revision = requested;
-    const force = refresh;
-    refresh = false;
-    running = true;
-    options.syncing();
-    attach(force)
-      .then(
-        () => {
-          if (epoch !== generation) return;
-          completed = revision;
-          retryDelay = SYNC_RETRY_MS;
-          failures = 0;
-          restored = [];
-          if (completed === requested) {
-            synced(false);
-            for (const waiter of [...waiting]) waiter.resolve(true);
-            waiting.clear();
-          }
-        },
-        (error: unknown) => {
-          if (epoch !== generation) return;
-          if (force) refresh = true;
-          options.error(error);
-          failures += 1;
-          retry = setTimeout(() => {
-            retry = undefined;
-            pump();
-          }, retryDelay);
-          retryDelay = Math.min(SYNC_RETRY_MAX_MS, retryDelay * 2);
-          // Armed first: the recycle's close ends this connection, which clears the timer with the rest of its state.
-          if (failures >= SYNC_FAILURE_LIMIT) {
-            failures = 0;
-            options.recycle();
-          }
+  const sync = createViewSync({
+    synchronize: async () => {
+      const force = refresh;
+      const mine = connection;
+      refresh = false;
+      try {
+        if (reattach) {
+          reattach = false;
+          await reattached();
         }
-      )
-      .finally(() => {
-        if (epoch !== generation) return;
-        running = false;
-        pump();
-      });
-  };
-  const request = (): Promise<boolean> => {
-    requested += 1;
-    const done = new Promise<boolean>((resolve, reject) => waiting.add({ resolve, reject }));
-    pump();
-    return done;
-  };
+        await attach(force);
+      } catch (error) {
+        if (force && mine === connection) refresh = true;
+        throw error;
+      }
+      restored = [];
+    },
+    state: (state) => {
+      if (state === 'syncing') return options.syncing();
+      const reconnected = freshConnection;
+      freshConnection = false;
+      everSynced = true;
+      options.onSynced(reconnected);
+    },
+    error: options.error,
+    interrupted: remoteConnectionInterruptedError,
+    recycle: options.recycle,
+  });
 
-  // A new connection: the library re-attaches what was open; this connection is synced when all of it is back.
+  // Node's `connect()`: a caller that finds no connection up waits for the next one.
+  const connected = async (): Promise<void> => {
+    while (!live()) await new Promise<void>((resolve) => readyWaiters.add(resolve));
+  };
+  const begin = (): void => {
+    connection += 1;
+    freshConnection = everSynced;
+    reattach = appOpen || open.size > 0;
+    sync.open();
+    for (const wake of [...readyWaiters]) wake();
+    readyWaiters.clear();
+  };
   const offStatus = client.on((event: ClientEvent) => {
     if (event.type !== 'status') return;
     if (event.status.state !== 'ready') {
-      // The connection's sync, its failures and its retry end with it (a new connection owes nothing to the previous one's failures).
-      generation += 1;
-      running = false;
-      // The next connection's attach is the full sync; a refresh still owed to the one that ended is not asked again of it.
+      connection += 1;
+      cancelReattach?.();
+      cancelReattach = undefined;
+      // A refresh still owed to the connection that ended is not asked again of the next one: its first sync is the full one.
       refresh = false;
-      failures = 0;
-      retryDelay = SYNC_RETRY_MS;
-      clearTimeout(retry);
-      retry = undefined;
-      connSynced = false;
-      const wasUp = up;
-      up = false;
-      // Only a call waiting on a connection that was up is interrupted by its end; one that arrived while none was up waits for the next.
-      if (wasUp) {
-        for (const waiter of [...waiting]) waiter.reject(remoteConnectionInterruptedError());
-        waiting.clear();
-        for (const waiter of [...gate]) waiter.reject(remoteConnectionInterruptedError());
-        gate.clear();
-      }
+      sync.close();
       return;
     }
-    up = true;
-    for (const wake of [...readyWaiters]) wake();
-    readyWaiters.clear();
-    if (everSynced) void (appOpen || open.size > 0 ? waitAttached().then(() => synced(true)) : Promise.resolve(synced(true)));
-    pump();
+    begin();
   });
+  if (live()) begin();
 
   return {
-    set(threadIds) {
+    async set(threadIds) {
       wanted = [...new Set(threadIds)];
-      const target = new Set([...wanted, ...restored]);
-      const unchanged = appOpen && completed === requested && target.size === open.size && [...target].every((id) => open.has(id));
-      return unchanged ? Promise.resolve(true) : request();
+      await connected();
+      const key = keyOf(target());
+      // Already named by the latest sync: wait for it instead of asking again (remote-shim-api.ts:306-307).
+      if (key === requestedKey) await sync.ready();
+      else {
+        requestedKey = key;
+        await sync.request();
+      }
+      return true;
     },
-    resync() {
+    async resync() {
+      if (!live()) return true;
       refresh = true;
-      return request();
+      await sync.request();
+      return true;
     },
     async synced() {
-      while (!live()) await new Promise<void>((resolve) => readyWaiters.add(resolve));
-      if (connSynced && completed === requested) return;
-      await new Promise<void>((resolve, reject) => gate.add({ resolve, reject }));
+      await connected();
+      await sync.ready();
     },
-    stop: offStatus,
+    stop() {
+      offStatus();
+      cancelReattach?.();
+      sync.close();
+    },
   };
 }
