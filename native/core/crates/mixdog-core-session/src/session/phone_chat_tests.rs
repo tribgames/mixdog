@@ -280,72 +280,149 @@ fn node_entry(rust: &Value, clock: u64, node_at: i64, store: &[Value]) -> Value 
     })
 }
 
-/// What Node's session handed its surfaces (`events`), as the frames Rust publishes for the same thing, `(method, payload)`,
-/// in the order Node made them. The queue shown to the viewer is a `thread/queue/changed`; the row pushed is an
-/// `item/completed` and the prompt history's `added`; the busy patch is `turn/started`.
-fn node_frames(events: &[Value]) -> Vec<(String, Value)> {
+/// What is random on each side, as one placeholder: a string equal to a known id, a `msg_` message id, an attempt id and a request
+/// digest. Everything else is compared as it is.
+fn anon(value: &Value, ids: &[(&str, &str)]) -> Value {
+    match value {
+        Value::String(text) => match ids.iter().find(|(id, _)| id == text) {
+            Some((_, placeholder)) => json!(placeholder),
+            None => match text.strip_prefix("msg_") {
+                Some(digits) => {
+                    assert!(digits.len() == 32 && digits.bytes().all(|b| b.is_ascii_hexdigit()), "{text}");
+                    json!("msg_<random>")
+                }
+                None => value.clone(),
+            },
+        },
+        Value::Array(items) => Value::Array(items.iter().map(|item| anon(item, ids)).collect()),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, held)| {
+                    let held = match (key.as_str(), held) {
+                        ("attemptId", Value::String(_)) => json!("<random>"),
+                        ("digest", Value::String(digest)) => {
+                            assert!(digest.starts_with("sha256:"), "{digest}");
+                            json!("<digest>")
+                        }
+                        _ => anon(held, ids),
+                    };
+                    (key.clone(), held)
+                })
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+/// Node's pushed user row (transcript-intake.mjs `pushUserOrSyntheticItem`: `{kind, id, text, at, messageId, device}`) as the wire
+/// item Rust publishes for it. Each Node field has its Rust place, and every Rust field is either one of them or listed:
+///   kind `'user'`  = `type: userMessage`;       id = `clientSubmissionId` (the submission id is the row's id in Node);
+///   text           = `content[0].text` and `displayText` (Node's row text is the display text, `promptDisplayText`);
+///   at, messageId  = `meta.at`, `meta.messageId` (`createTranscriptRouteMetadata`); device = `device`.
+/// Rust-only, with no Node row field: the item's own `id`, its `turnId`s (Node's turn is not on the row) and
+/// `countsForPromptHistory` (Node's `pushItem` rebuilds the prompt history for every user row: `true`).
+fn wire_item(row: &Value, clock: u64) -> Value {
+    let mut item = json!({
+        "type": "userMessage",
+        "id": "<iid>",
+        "content": [{ "type": "text", "text": row["text"] }],
+        "clientSubmissionId": row["id"],
+        "displayText": row["text"],
+        "countsForPromptHistory": true,
+        "meta": { "turnId": "<turn>", "at": clock, "messageId": row["messageId"] },
+    });
+    if let Some(device) = row.get("device") {
+        item["device"] = device.clone();
+    }
+    item
+}
+
+/// Node's pushed user row as the record Rust stores for it (`transcript_rows.rs`, `actor.rs` `turn_start`), whole. Node's row maps to
+/// `prompt` (the display text), `meta.transcript.{at, messageId, device, clientSubmissionId}` and the role and form. The rest is
+/// Rust's own and Node keeps it on the model-history message, not on this row (`stampCheckpoint`, ask-callbacks.mjs: `checkpointId`,
+/// `attemptId`; the prompt's `content`, `displayText`): the record's ids, the request that wrote it, the raw prompt parts.
+fn stored_item(row: &Value, prompt: &Value, clock: u64) -> Value {
+    let mut transcript = json!({
+        "messageId": row["messageId"],
+        "displayText": row["text"],
+        "checkpointId": "<iid>",
+        "at": clock,
+        "clientSubmissionId": row["id"],
+        "attemptId": "<random>",
+    });
+    if let Some(device) = row.get("device") {
+        transcript["device"] = device.clone();
+    }
+    json!({
+        "k": "item", "iid": "<iid>", "turn": "<turn>", "role": "user", "form": "message", "model": true, "visible": true,
+        "op": { "id": "op-0", "method": "turn/start", "digest": "<digest>", "result": { "kind": "started", "turnId": "<turn>" } },
+        "prompt": { "inline": row["text"] },
+        "refs": [],
+        "body": { "inline": { "role": "user", "content": prompt, "meta": { "transcript": transcript } } },
+    })
+}
+
+/// Node's queue entry (`makeQueueEntry`) as the record Rust stores when it queues it, whole. `message` is Node's `content`, the
+/// submission id its `id` (kept under `options`), `restorable` is `isQueuedEditable` (queue-helpers.mjs); `enqueuedAt` is the entry's
+/// submit time on Rust's clock. Node's other entry keys are defaults (`node_entry` pins them against the stored entry).
+fn stored_queue(entry: &Value, clock: u64) -> Value {
+    json!({
+        "k": "queue", "qid": "<qid>", "action": "enqueue",
+        "op": { "id": "op-0", "method": "turn/start", "digest": "<digest>", "result": { "kind": "queued", "queuedId": "<qid>" } },
+        "entry": { "inline": {
+            "message": entry["content"],
+            "enqueuedAt": clock,
+            "options": { "clientSubmissionId": entry["id"] },
+            "transcriptMeta": entry["transcriptMeta"],
+            "restorable": entry["isMeta"] == false && entry["suppressDisplay"] == false,
+        } },
+    })
+}
+
+/// What Node's viewer was shown (`publications`: the store's published snapshot at each publication, whole), as the frames Rust
+/// publishes for the same change, `(method, params)` with random ids as placeholders. A publication is one atomic snapshot: Node
+/// has no order among the changes inside it, so inside one the frames are in Rust's order (rows, prompt history, queue, turn start);
+/// the order across publications is Node's. A queue that is filled and emptied inside one chain is never published (the store
+/// publishes the state as it stands at the flush, `frame-batched-store.mjs`), so it has no frame.
+fn node_frames(publications: &[Value], at: i64, clock: u64) -> Vec<(String, Value)> {
     let mut out = Vec::new();
-    // The viewer sees the store's published snapshots, not each patch: `enqueue` sets the queue and asks for an immediate flush
-    // (drain-enqueue.mjs:63-64), which publishes one microtask later the state as it then stands (frame-batched-store.mjs
-    // `flushImmediate`). So a queue the session fills and empties again before that flush is never shown, and the queue frame
-    // is the difference between the queue last shown and the one at the flush, spelled by the entries last set.
-    let (mut held, mut shown): (Vec<Value>, Vec<Value>) = (Vec::new(), Vec::new());
-    for event in events {
-        match event["call"].as_str().unwrap() {
-            "set" => {
-                if let Some(queue) = event["patch"].get("queued") {
-                    held = queue.as_array().unwrap().iter().map(|entry| entry["displayText"].clone()).collect();
-                }
-                if event["patch"]["busy"] == true {
-                    out.push(("turn/started".to_owned(), json!({})));
-                }
-            }
-            "publish" => {
-                assert_eq!(event["queued"].as_array().unwrap().len(), held.len(), "the queue published is the one last set");
-                if held != shown {
-                    out.push(("thread/queue/changed".to_owned(), json!({ "queued": held })));
-                    shown = held.clone();
-                }
-            }
-            "pushItem" => {
-                let text = &event["item"]["text"];
-                out.push(("item/completed".to_owned(), json!({ "id": event["item"]["id"], "text": text, "displayText": text })));
-                out.push(("thread/promptHistory/updated".to_owned(), json!({ "kind": "added", "prompt": text })));
-            }
-            other => panic!("an event this replay does not map: {other}"),
+    let (mut rows, mut history, mut queued, mut busy) = (0usize, Vec::<Value>::new(), Vec::<Value>::new(), false);
+    for publication in publications {
+        let state = &publication["state"];
+        let items = state["items"].as_array().unwrap();
+        for row in &items[rows..] {
+            assert_eq!(row["at"], json!(at), "Node stamps the submit time");
+            out.push(("item/completed".to_owned(), json!({ "turnId": "<turn>", "item": wire_item(row, clock) })));
         }
+        rows = items.len();
+        let list = state["promptHistoryList"].as_array().unwrap();
+        if *list != history {
+            // `pushItem` puts the new prompt first in the merged list (`buildMergedPromptHistory`): an `added`.
+            assert_eq!(list[1..], history[..], "the prompt history gained one prompt");
+            out.push(("thread/promptHistory/updated".to_owned(), json!({ "value": { "kind": "added", "prompt": list[0] } })));
+            history = list.clone();
+        }
+        let queue = state["queued"].as_array().unwrap();
+        if *queue != queued {
+            let row = |entry: &Value| json!({ "id": "<qid>", "text": entry["displayText"], "enqueuedAt": clock, "clientSubmissionId": entry["id"] });
+            out.push(("thread/queue/changed".to_owned(), json!({ "queued": queue.iter().map(row).collect::<Vec<_>>() })));
+            queued = queue.clone();
+        }
+        if state["busy"] == true && !busy {
+            assert_eq!(state["spinner"]["startedAt"], json!(at), "the turn starts at the submit");
+            out.push(("turn/started".to_owned(), json!({ "turn": { "id": "<turn>", "status": "inProgress", "startedAt": clock } })));
+        }
+        busy = state["busy"] == true;
     }
     out
 }
 
-fn rust_frames(frames: &[(u64, String, Value)]) -> Vec<(String, Value)> {
-    let mut out: Vec<(String, Value)> = frames
-        .iter()
-        .map(|(_, method, params)| {
-            let payload = match method.as_str() {
-                "item/completed" => {
-                    assert_eq!(params["item"]["type"], "userMessage");
-                    json!({ "id": params["item"]["clientSubmissionId"], "text": params["item"]["content"][0]["text"], "displayText": params["item"]["displayText"] })
-                }
-                "thread/queue/changed" => json!({ "queued": params["queued"].as_array().unwrap().iter().map(|entry| entry["text"].clone()).collect::<Vec<_>>() }),
-                "thread/promptHistory/updated" => params["value"].clone(),
-                "turn/started" => {
-                    assert_eq!(params["turn"]["status"], "inProgress");
-                    json!({})
-                }
-                other => panic!("a frame this replay does not map: {other}"),
-            };
-            (method.clone(), payload)
-        })
-        .collect();
-    out
-}
-
 /// Every recorded Node submit (`submitToSession`), whole: the answer (`true` accepted, `false` refused) and what Node left
-/// behind (its stored rows, its queue entries, and every state patch and row push it made) against what Rust stored,
-/// queued and published for the same submission. Only what the submits added is compared: the stores and frames from after
-/// the setup. Node's `closing` admission has no counterpart here: a user prompt is accepted there and here alike, and the
-/// thread refuses starts only while an idle delete fences it (`threadClosing`).
+/// behind (its stored rows, its queue entries, and what its viewer was shown) against what Rust stored, queued and published for
+/// the same submission. Only what the submits added is compared: the stores and frames from after the setup. Node's `closing`
+/// admission has no counterpart here: a user prompt is accepted there and here alike, and the thread refuses starts only while an
+/// idle delete fences it (`threadClosing`). Every comparison is of the whole value: the stored records and the published frames
+/// are built from Node's rows and entries and compared to Rust's as they are, so a field Rust adds fails.
 #[tokio::test(start_paused = true)]
 async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
     let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
@@ -378,62 +455,148 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         }
         let since = || frames().into_iter().skip(base_frames).collect::<Vec<_>>();
         let node = &case["after"];
-        let node_events = node["events"].as_array().unwrap();
-        let want_frames = node_frames(node_events);
+        let at = case["at"].as_i64().unwrap();
+        let clock = rig.clock.0.load(std::sync::atomic::Ordering::SeqCst);
+        let want_frames = node_frames(node["publications"].as_array().unwrap(), at, clock);
         // Paused time: the deadline is virtual, it only fires when no step can publish what Node did, so a missing frame fails here.
         let arrived = tokio::time::timeout(
             std::time::Duration::from_secs(60),
             eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (since().len() >= want_frames.len()).then_some(())),
         )
         .await;
-        assert!(arrived.is_ok(), "{name}: frames never arrived: {:?}, Node: {want_frames:?}", rust_frames(&since()));
-        // The notifications.
-        assert_eq!(rust_frames(&since()), want_frames, "{name}: notifications");
+        assert!(arrived.is_ok(), "{name}: frames never arrived: {:?}, Node: {want_frames:?}", since());
         let store: Vec<Value> = rig.store.records(&handle.id)[base_records..].iter().map(|(_, record)| serde_json::to_value(record).unwrap()).collect();
-        // The stored rows. Node's row (transcript-intake.mjs `pushUserOrSyntheticItem`, the `pushItem` call) is
-        // `{kind, id, text, at, messageId, device}`; Rust's user item record holds each of them:
-        //   kind      `kind: 'user'`        = the record's role `user` and form `message`;
-        //   text      `text`                = the record's `prompt` (the display text, `promptDisplayText`);
-        //   at        `...transcriptMeta`   = `meta.transcript.at` (transcript-metadata.mjs `createTranscriptRouteMetadata`),
-        //             each side's own clock: Rust's is the rig clock and Node's the recorded `at` of the submit;
-        //   messageId `newTranscriptMessageId()` = `meta.transcript.messageId`, `msg_` and 32 hex digits, random on both sides;
-        //   device    `extra.device`        = `meta.transcript.device`.
-        //   id        the submission id (`sub1`)      = `meta.transcript.clientSubmissionId`, which the item carries as its
-        //             `clientSubmissionId` on the wire; the client matches its pending bubble to the row by it
-        //             (conversation-prompt-items.ts `pendingPromptTranscriptItems`).
-        let clock = rig.clock.0.load(std::sync::atomic::Ordering::SeqCst);
-        let random_id = |id: &Value| {
-            let id = id.as_str().unwrap();
-            let digits = id.strip_prefix("msg_").unwrap();
-            assert!(digits.len() == 32 && digits.bytes().all(|b| b.is_ascii_hexdigit()), "{id}");
-            json!("msg_<random>")
-        };
-        let rows: Vec<Value> = store
-            .iter()
-            .filter(|record| record["k"] == "item" && record["role"] == "user")
-            .map(|record| {
-                assert_eq!(record["op"]["id"], "op-0", "{name}: the row answers the first submit");
-                assert_eq!(record["form"], "message");
-                let meta = &record["body"]["inline"]["meta"]["transcript"];
-                assert_eq!(meta["at"], json!(clock), "Rust stamps its clock");
-                let mut row = json!({ "kind": "user", "id": meta["clientSubmissionId"], "text": record["prompt"]["inline"], "at": case["at"], "messageId": random_id(&meta["messageId"]) });
-                if let Some(device) = meta.get("device") {
-                    row["device"] = device.clone();
-                }
-                row
+        // The ids Rust gave: the user item's and its turn's, the queue entry's.
+        let id_of = |value: &Value, key: &str| value[key].as_str().unwrap().to_owned();
+        let user_records = store.iter().filter(|record| record["k"] == "item" && record["role"] == "user").collect::<Vec<_>>();
+        let queue_records = store.iter().filter(|record| record["k"] == "queue").collect::<Vec<_>>();
+        let (iid, turn) = user_records.first().map(|record| (id_of(record, "iid"), id_of(record, "turn"))).unwrap_or_default();
+        let qid = queue_records.first().map(|record| id_of(record, "qid")).unwrap_or_default();
+        let ids = [(iid.as_str(), "<iid>"), (turn.as_str(), "<turn>"), (qid.as_str(), "<qid>")];
+        let ids = &ids[..].iter().copied().filter(|(id, _)| !id.is_empty()).collect::<Vec<_>>();
+
+        // The notifications, whole and in order.
+        let rust_frames: Vec<(String, Value)> = since()
+            .into_iter()
+            .map(|(_, method, mut params)| {
+                assert_eq!(params.as_object_mut().unwrap().remove("threadId"), Some(json!(handle.id)), "{name}: {method}");
+                (method, anon(&params, ids))
             })
             .collect();
+        assert_eq!(rust_frames, want_frames, "{name}: notifications");
+
+        // The stored rows, whole. Node's row maps to the record as `stored_item` says; the ids (`iid`, `turn`) are Rust's own,
+        // and `checkpointId` is the item's own id.
         let node_rows = node["items"].as_array().unwrap();
-        assert_eq!(rows.len(), node_rows.len(), "{name}: stored rows");
-        for (rust, node) in rows.iter().zip(node_rows) {
-            assert_eq!(rust.as_object().unwrap().len(), node.as_object().unwrap().len(), "{name}: the same fields: {rust} / {node}");
-            assert_eq!(rust, node, "{name}: stored row");
+        assert_eq!(user_records.len(), node_rows.len(), "{name}: stored rows");
+        for (record, row) in user_records.iter().zip(node_rows) {
+            assert_eq!(row["at"], json!(at));
+            assert_eq!(anon(record, ids), stored_item(row, &case["prompt"], clock), "{name}: stored row");
         }
-        // The queue: Node's `queued` (the same entries as `pending`) against Rust's.
-        let queued: Vec<Value> = handle.cell.queue.load().iter().map(|queued| node_entry(&queued.entry, rig.clock.0.load(std::sync::atomic::Ordering::SeqCst), case["at"].as_i64().unwrap(), &store)).collect();
-        assert_eq!(&queued, node["queued"].as_array().unwrap(), "{name}: queue entries");
+        // The stored queue entries, whole, and the runtime records no Node row stands for (bookkeeping of the run).
+        let node_queued = node["queued"].as_array().unwrap();
+        assert_eq!(queue_records.len(), node_queued.len(), "{name}: stored queue entries");
+        for (record, entry) in queue_records.iter().zip(node_queued) {
+            assert_eq!(anon(record, ids), stored_queue(entry, clock), "{name}: stored queue entry");
+        }
+        for record in &store {
+            assert!(["item", "queue", "meta", "run"].contains(&record["k"].as_str().unwrap()), "{name}: a record Node has no counterpart for: {record}");
+        }
+        // The queue: Node's `queued` (the same entries as `pending`) against Rust's, entry by entry, every key.
+        let queued: Vec<Value> = handle.cell.queue.load().iter().map(|queued| node_entry(&queued.entry, clock, at, &store)).collect();
+        assert_eq!(&queued, node_queued, "{name}: queue entries");
+        // Every entry Node's viewer was shown is one of them, whole.
+        for publication in node["publications"].as_array().unwrap() {
+            for entry in publication["state"]["queued"].as_array().unwrap() {
+                assert!(node_queued.contains(entry), "{name}: a published queue entry that Node does not keep");
+            }
+        }
         assert_eq!(node["pending"], node["queued"], "{name}: Node's pending list is its queue");
         assert_eq!(node["promptRestore"], Value::Null);
+    }
+}
+
+/// A wait that fails with the rows it saw instead of hanging: paused time makes the deadline fire only when nothing can still happen.
+async fn within<T>(wait: impl std::future::Future<Output = T>, name: &str, seen: &[(&'static str, String)]) -> T {
+    tokio::time::timeout(std::time::Duration::from_secs(60), wait).await.unwrap_or_else(|_| panic!("{name}: never reached; rows {seen:?}"))
+}
+
+/// Node's message selector (`rewindToItem`, intake/rewind.mjs) on a submitted row: the client names the row by the id it shows, the
+/// submission id, and Node resolves that on its rows, then rewinds to the row's stable message id. Rust resolves the displayed id the
+/// same way, and answers what Node answers: the prompt's text and the number of rows removed (the prompt, its answer and its turn
+/// end), an id that is no row as `ItemNotFound` (Node's `null`), a running turn as `PreconditionFailed` (Node's `null` while busy).
+#[tokio::test(start_paused = true)]
+async fn every_recorded_rewind_resolves_the_displayed_id_as_nodes_does() {
+    let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
+    let cases = all["cases"].as_array().unwrap().iter().filter(|case| case["kind"] == "rewind").collect::<Vec<_>>();
+    assert_eq!(cases.len(), 3);
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let rig = Rig::new();
+        let busy = case["busy"] == true;
+        if busy {
+            rig.set_script(Arc::new(|run| {
+                Box::pin(async move {
+                    run.cancel.cancelled().await;
+                    RunOutcome::Interrupted
+                })
+            }));
+        } else {
+            // An answer in the stored message shape, which the record transcript shows as a row (the echo's `{text}` body is not one).
+            rig.set_script(Arc::new(|run| {
+                Box::pin(async move {
+                    run.port.input_durable().await.expect("input durable");
+                    run.port
+                        .commit_item(super::ItemCommit {
+                            iid: mixdog_core_api::ids::ItemId::from(format!("a-{}", run.turn)),
+                            role: Some("assistant".into()),
+                            model: true,
+                            visible: true,
+                            body: json!({ "role": "assistant", "content": "re: hello" }),
+                            prompt: None,
+                        })
+                        .await
+                        .expect("commit");
+                    RunOutcome::Completed(Default::default())
+                })
+            }));
+        }
+        // The stored records' own rows: the rig's text-only transcript carries no submission id on the user row.
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.transcript = Arc::new(super::testing::RecordTranscript::new());
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let handle = start_thread(&directory).await;
+        submit(&handle, 1, "op-0", case["prompt"].as_str().unwrap(), "sub1").await.expect("the prompt");
+        if busy {
+            within(eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == 1).then_some(())), name, &rows(&handle)).await;
+        } else {
+            // The prompt and its answer; Node's third row, the turn end, is not a text row.
+            within(eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (idle(&handle) && rows(&handle).len() >= 2).then_some(())), name, &rows(&handle)).await;
+        }
+        let rewound = handle
+            .request(CoreRequest {
+                method: Method("thread/rewind"),
+                params: json!({ "threadId": handle.id, "opId": "op-rewind", "itemId": case["itemId"] }),
+                op: Some(OpId::from("op-rewind")),
+                ctx: from(1),
+            })
+            .await;
+        match &case["reply"] {
+            Value::Null if busy => assert!(matches!(rewound, Err(CoreError::PreconditionFailed { .. })), "{name}: {rewound:?}"),
+            Value::Null => assert!(matches!(rewound, Err(CoreError::ItemNotFound { .. })), "{name}: {rewound:?}"),
+            reply => {
+                let Ok(Reply::Value(value)) = rewound else { panic!("{name}: Node rewound, Rust answered {rewound:?}") };
+                assert_eq!(value["text"], reply["text"], "{name}: the prompt handed back");
+                // Node counts the turn-end row (`turndone`) among the rows it removes; the scripted run here emits no live end row, so
+                // Rust's window holds every other row of Node's.
+                let turn_ends = case["before"]["items"].as_array().unwrap().iter().filter(|row| row["kind"] == "turndone").count() as u64;
+                assert_eq!(value["removed"].as_u64().unwrap(), reply["removed"].as_u64().unwrap() - turn_ends, "{name}: the rows removed");
+                // Node asked the runtime to rewind to the row's message id with its text; the row is gone and the history is as before it.
+                assert_eq!(case["runtimeCalls"][0]["text"], reply["text"]);
+                within(eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || rows(&handle).is_empty().then_some(())), name, &rows(&handle)).await;
+                assert_eq!(case["after"]["items"], json!([]), "{name}: Node's transcript is empty");
+            }
+        }
     }
 }
 

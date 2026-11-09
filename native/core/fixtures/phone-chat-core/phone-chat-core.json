@@ -30,88 +30,10 @@
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": true,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000000000,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000000000,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000000000,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          }
-        ]
+        "promptHistory": [
+          "draft"
+        ],
+        "busy": true
       },
       "result": {
         "aborted": true,
@@ -133,122 +55,7 @@
         "pending": [],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000000000,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000000000,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000000000,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "promptHistoryList": [],
-              "items": []
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              }
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": false,
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              },
-              "toolMode": "auto"
-            }
-          }
-        ]
+        "busy": false
       }
     },
     {
@@ -282,88 +89,10 @@
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": true,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000000150,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000000150,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000000150,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          }
-        ]
+        "promptHistory": [
+          "draft"
+        ],
+        "busy": true
       },
       "result": {
         "aborted": true,
@@ -400,136 +129,16 @@
             "at": 1700000000150,
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "e949ccdd-ff98-4c03-ba43-112de0995d8c"
+            "attemptId": "8ae5264c-b3f6-4138-bcbe-0837e9303642"
           }
         ],
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000000150,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000000150,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000000150,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              }
-            }
-          },
-          {
-            "call": "appendItems",
-            "items": [
-              {
-                "kind": "turndone",
-                "id": "abort-1-item-1",
-                "checkpointId": "sub1",
-                "elapsedMs": 0,
-                "status": "cancelled",
-                "outputTokens": 0,
-                "thinkingElapsedMs": 0,
-                "toolCount": 0,
-                "verb": "Mapped",
-                "at": 1700000000150,
-                "device": "PC",
-                "completionVerb": "Mapped",
-                "attemptId": "e949ccdd-ff98-4c03-ba43-112de0995d8c"
-              }
-            ],
-            "extra": {
-              "busy": false,
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              },
-              "toolMode": "auto"
-            }
-          }
-        ]
+        "promptHistory": [
+          "draft"
+        ],
+        "busy": false
       }
     },
     {
@@ -562,88 +171,10 @@
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": true,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000000300,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000000300,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000000300,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          }
-        ]
+        "promptHistory": [
+          "draft"
+        ],
+        "busy": true
       },
       "result": {
         "aborted": true,
@@ -665,122 +196,7 @@
         "pending": [],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000000300,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000000300,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000000300,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "promptHistoryList": [],
-              "items": []
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              }
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": false,
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              },
-              "toolMode": "auto"
-            }
-          }
-        ]
+        "busy": false
       }
     },
     {
@@ -813,88 +229,10 @@
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": true,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000000450,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000000450,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000000450,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          }
-        ]
+        "promptHistory": [
+          "draft"
+        ],
+        "busy": true
       },
       "result": {
         "aborted": true,
@@ -922,131 +260,7 @@
           "at": 1700000000450
         },
         "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000000450,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000000450,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000000450,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "promptRestore": {
-                "id": "restore-1700000000450-sub1",
-                "ids": [
-                  "sub1"
-                ],
-                "text": "draft",
-                "device": "PC",
-                "at": 1700000000450
-              },
-              "promptHistoryList": [],
-              "items": []
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              }
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": false,
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              },
-              "toolMode": "auto"
-            }
-          }
-        ]
+        "busy": false
       }
     },
     {
@@ -1085,93 +299,10 @@
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": true,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000000600,
-                  "text": "see [Image #1]",
-                  "content": "see [Image #1]",
-                  "pastedImages": {
-                    "1": {
-                      "data": "AAAA",
-                      "mimeType": "image/png"
-                    }
-                  },
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "see [Image #1]",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "see [Image #1]",
-              "at": 1700000000600,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000000600,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          }
-        ]
+        "promptHistory": [
+          "see [Image #1]"
+        ],
+        "busy": true
       },
       "result": {
         "aborted": true,
@@ -1208,141 +339,16 @@
             "at": 1700000000600,
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "985bffcc-ca98-44f2-96fa-5883de258aa4"
+            "attemptId": "ed5b8b3d-f9ad-48ff-ad1c-d39754b7244d"
           }
         ],
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000000600,
-                  "text": "see [Image #1]",
-                  "content": "see [Image #1]",
-                  "pastedImages": {
-                    "1": {
-                      "data": "AAAA",
-                      "mimeType": "image/png"
-                    }
-                  },
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "see [Image #1]",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "see [Image #1]",
-              "at": 1700000000600,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000000600,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              }
-            }
-          },
-          {
-            "call": "appendItems",
-            "items": [
-              {
-                "kind": "turndone",
-                "id": "abort-4-item-1",
-                "checkpointId": "sub1",
-                "elapsedMs": 0,
-                "status": "cancelled",
-                "outputTokens": 0,
-                "thinkingElapsedMs": 0,
-                "toolCount": 0,
-                "verb": "Mapped",
-                "at": 1700000000600,
-                "device": "PC",
-                "completionVerb": "Mapped",
-                "attemptId": "985bffcc-ca98-44f2-96fa-5883de258aa4"
-              }
-            ],
-            "extra": {
-              "busy": false,
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              },
-              "toolMode": "auto"
-            }
-          }
-        ]
+        "promptHistory": [
+          "see [Image #1]"
+        ],
+        "busy": false
       }
     },
     {
@@ -1381,93 +387,10 @@
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": true,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000000750,
-                  "text": "see [Image #1]",
-                  "content": "see [Image #1]",
-                  "pastedImages": {
-                    "1": {
-                      "data": "AAAA",
-                      "mimeType": "image/png"
-                    }
-                  },
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "see [Image #1]",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "see [Image #1]",
-              "at": 1700000000750,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000000750,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          }
-        ]
+        "promptHistory": [
+          "see [Image #1]"
+        ],
+        "busy": true
       },
       "result": {
         "aborted": true,
@@ -1494,127 +417,7 @@
         "pending": [],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000000750,
-                  "text": "see [Image #1]",
-                  "content": "see [Image #1]",
-                  "pastedImages": {
-                    "1": {
-                      "data": "AAAA",
-                      "mimeType": "image/png"
-                    }
-                  },
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "see [Image #1]",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "see [Image #1]",
-              "at": 1700000000750,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000000750,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "promptHistoryList": [],
-              "items": []
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              }
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": false,
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              },
-              "toolMode": "auto"
-            }
-          }
-        ]
+        "busy": false
       }
     },
     {
@@ -1650,92 +453,10 @@
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": true,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000000900,
-                  "text": "see [Text #1]",
-                  "content": "see [Text #1]",
-                  "pastedImages": null,
-                  "pastedTexts": {
-                    "1": {
-                      "text": "inline text"
-                    }
-                  },
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "see [Text #1]",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "see [Text #1]",
-              "at": 1700000000900,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000000900,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          }
-        ]
+        "promptHistory": [
+          "see [Text #1]"
+        ],
+        "busy": true
       },
       "result": {
         "aborted": true,
@@ -1761,126 +482,7 @@
         "pending": [],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000000900,
-                  "text": "see [Text #1]",
-                  "content": "see [Text #1]",
-                  "pastedImages": null,
-                  "pastedTexts": {
-                    "1": {
-                      "text": "inline text"
-                    }
-                  },
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "see [Text #1]",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "see [Text #1]",
-              "at": 1700000000900,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000000900,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "promptHistoryList": [],
-              "items": []
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              }
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": false,
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              },
-              "toolMode": "auto"
-            }
-          }
-        ]
+        "busy": false
       }
     },
     {
@@ -1978,133 +580,10 @@
           }
         ],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": true,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000001050,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000001050,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000001050,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub2",
-                  "submittedAt": 1700000001050,
-                  "text": "redirect",
-                  "content": "redirect",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": null,
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "redirect",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3vve_<random>",
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [
-              "sub2"
-            ],
-            "busy": true,
-            "items": 1
-          }
-        ]
+        "promptHistory": [
+          "draft"
+        ],
+        "busy": true
       },
       "result": {
         "aborted": true,
@@ -2141,7 +620,7 @@
             "at": 1700000001050,
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "e8062b34-f0f2-4cca-a028-3e55f6fff544"
+            "attemptId": "724382aa-86a1-4da0-826d-790ca56bb116"
           },
           {
             "kind": "user",
@@ -2154,207 +633,11 @@
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": true,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000001050,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000001050,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000001050,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub2",
-                  "submittedAt": 1700000001050,
-                  "text": "redirect",
-                  "content": "redirect",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": null,
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "redirect",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3vve_<random>",
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [
-              "sub2"
-            ],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              }
-            }
-          },
-          {
-            "call": "appendItems",
-            "items": [
-              {
-                "kind": "turndone",
-                "id": "abort-7-item-1",
-                "checkpointId": "sub1",
-                "elapsedMs": 0,
-                "status": "cancelled",
-                "outputTokens": 0,
-                "thinkingElapsedMs": 0,
-                "toolCount": 0,
-                "verb": "Mapped",
-                "at": 1700000001050,
-                "device": "PC",
-                "completionVerb": "Mapped",
-                "attemptId": "e8062b34-f0f2-4cca-a028-3e55f6fff544"
-              }
-            ],
-            "extra": {
-              "busy": false,
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              },
-              "toolMode": "auto"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub2",
-              "text": "redirect",
-              "at": 1700000001050,
-              "messageId": "msg_<random>"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Bloviating",
-                "startedAt": 1700000001050,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          }
-        ]
+        "promptHistory": [
+          "redirect",
+          "draft"
+        ],
+        "busy": true
       }
     },
     {
@@ -2456,138 +739,10 @@
           }
         ],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": true,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000001200,
-                  "text": "see [Image #1]",
-                  "content": "see [Image #1]",
-                  "pastedImages": {
-                    "1": {
-                      "data": "AAAA",
-                      "mimeType": "image/png"
-                    }
-                  },
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "see [Image #1]",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "see [Image #1]",
-              "at": 1700000001200,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000001200,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub2",
-                  "submittedAt": 1700000001200,
-                  "text": "redirect",
-                  "content": "redirect",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": null,
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "redirect",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3vzk_<random>",
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [
-              "sub2"
-            ],
-            "busy": true,
-            "items": 1
-          }
-        ]
+        "promptHistory": [
+          "see [Image #1]"
+        ],
+        "busy": true
       },
       "result": {
         "aborted": true,
@@ -2629,7 +784,7 @@
             "at": 1700000001200,
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "bbd189de-3644-4a9b-a189-03dccdf82906"
+            "attemptId": "6e0ecdc4-6390-404c-8e60-dda97f6eac97"
           },
           {
             "kind": "user",
@@ -2642,212 +797,11 @@
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": true,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000001200,
-                  "text": "see [Image #1]",
-                  "content": "see [Image #1]",
-                  "pastedImages": {
-                    "1": {
-                      "data": "AAAA",
-                      "mimeType": "image/png"
-                    }
-                  },
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "see [Image #1]",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "see [Image #1]",
-              "at": 1700000001200,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000001200,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub2",
-                  "submittedAt": 1700000001200,
-                  "text": "redirect",
-                  "content": "redirect",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": null,
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "redirect",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3vzk_<random>",
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [
-              "sub2"
-            ],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              }
-            }
-          },
-          {
-            "call": "appendItems",
-            "items": [
-              {
-                "kind": "turndone",
-                "id": "abort-8-item-1",
-                "checkpointId": "sub1",
-                "elapsedMs": 0,
-                "status": "cancelled",
-                "outputTokens": 0,
-                "thinkingElapsedMs": 0,
-                "toolCount": 0,
-                "verb": "Mapped",
-                "at": 1700000001200,
-                "device": "PC",
-                "completionVerb": "Mapped",
-                "attemptId": "bbd189de-3644-4a9b-a189-03dccdf82906"
-              }
-            ],
-            "extra": {
-              "busy": false,
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              },
-              "toolMode": "auto"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub2",
-              "text": "redirect",
-              "at": 1700000001200,
-              "messageId": "msg_<random>"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Bloviating",
-                "startedAt": 1700000001200,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          }
-        ]
+        "promptHistory": [
+          "redirect",
+          "see [Image #1]"
+        ],
+        "busy": true
       }
     },
     {
@@ -2883,107 +837,10 @@
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": true,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000001350,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000001350,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000001350,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000001350,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting",
-                "liveCall": {
-                  "startedAt": 1700000001350,
-                  "outputTokens": 4,
-                  "at": 1700000001350
-                }
-              }
-            }
-          }
-        ]
+        "promptHistory": [
+          "draft"
+        ],
+        "busy": true
       },
       "result": {
         "aborted": true,
@@ -3013,7 +870,7 @@
             "messageId": "msg_<random>",
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "9f62186a-0ab5-435a-b0b3-47035a8bf8a4",
+            "attemptId": "d34a81cd-4565-43ae-8d8e-2dc287aaabb6",
             "kind": "assistant",
             "id": "abort-9-item-1",
             "streaming": false
@@ -3031,217 +888,16 @@
             "at": 1700000001350,
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "9f62186a-0ab5-435a-b0b3-47035a8bf8a4"
+            "attemptId": "d34a81cd-4565-43ae-8d8e-2dc287aaabb6"
           }
         ],
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000001350,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000001350,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000001350,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000001350,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting",
-                "liveCall": {
-                  "startedAt": 1700000001350,
-                  "outputTokens": 4,
-                  "at": 1700000001350
-                }
-              }
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "streamingPartial": {
-                "id": "abort-9-item-1",
-                "from": 0,
-                "text": "partial answer",
-                "tail": {
-                  "kind": "assistant",
-                  "id": "abort-9-item-1",
-                  "streaming": true,
-                  "at": 1700000001350,
-                  "messageId": "msg_<random>",
-                  "device": "PC",
-                  "completionVerb": "Mapped",
-                  "attemptId": "9f62186a-0ab5-435a-b0b3-47035a8bf8a4"
-                }
-              }
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "streamingTail": {
-                "text": "partial answer",
-                "at": 1700000001350,
-                "messageId": "msg_<random>",
-                "device": "PC",
-                "completionVerb": "Mapped",
-                "attemptId": "9f62186a-0ab5-435a-b0b3-47035a8bf8a4",
-                "kind": "assistant",
-                "id": "abort-9-item-1",
-                "streaming": true
-              }
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "text": "partial answer",
-              "at": 1700000001350,
-              "messageId": "msg_<random>",
-              "device": "PC",
-              "completionVerb": "Mapped",
-              "attemptId": "9f62186a-0ab5-435a-b0b3-47035a8bf8a4",
-              "kind": "assistant",
-              "id": "abort-9-item-1",
-              "streaming": false
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "streamingTail": null
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "streamingPartial": null
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              }
-            }
-          },
-          {
-            "call": "appendItems",
-            "items": [
-              {
-                "kind": "turndone",
-                "id": "abort-9-item-2",
-                "checkpointId": "sub1",
-                "elapsedMs": 0,
-                "status": "cancelled",
-                "outputTokens": 4,
-                "thinkingElapsedMs": 0,
-                "toolCount": 0,
-                "verb": "Mapped",
-                "at": 1700000001350,
-                "device": "PC",
-                "completionVerb": "Mapped",
-                "attemptId": "9f62186a-0ab5-435a-b0b3-47035a8bf8a4"
-              }
-            ],
-            "extra": {
-              "busy": false,
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              },
-              "toolMode": "auto"
-            }
-          }
-        ]
+        "promptHistory": [
+          "draft"
+        ],
+        "busy": false
       }
     },
     {
@@ -3277,107 +933,10 @@
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": true,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000001500,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000001500,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000001500,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000001500,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting",
-                "liveCall": {
-                  "startedAt": 1700000001500,
-                  "outputTokens": 1,
-                  "at": 1700000001500
-                }
-              }
-            }
-          }
-        ]
+        "promptHistory": [
+          "draft"
+        ],
+        "busy": true
       },
       "result": {
         "aborted": true,
@@ -3399,141 +958,7 @@
         "pending": [],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000001500,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000001500,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000001500,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000001500,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting",
-                "liveCall": {
-                  "startedAt": 1700000001500,
-                  "outputTokens": 1,
-                  "at": 1700000001500
-                }
-              }
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "promptHistoryList": [],
-              "items": []
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              }
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": false,
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              },
-              "toolMode": "auto"
-            }
-          }
-        ]
+        "busy": false
       }
     },
     {
@@ -3559,25 +984,7 @@
         "pending": [],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": true,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000001650,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          }
-        ]
+        "busy": true
       },
       "result": {
         "aborted": true,
@@ -3597,74 +1004,7 @@
         "pending": [],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": true,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000001650,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              }
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": false,
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              },
-              "toolMode": "auto"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Bloviating",
-                "startedAt": 1700000001650,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          }
-        ]
+        "busy": true
       }
     },
     {
@@ -3698,88 +1038,10 @@
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": true,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000001800,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000001800,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000001800,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          }
-        ]
+        "promptHistory": [
+          "draft"
+        ],
+        "busy": true
       },
       "result": {
         "aborted": true,
@@ -3816,136 +1078,16 @@
             "at": 1700000001800,
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "053eb9d4-de70-45ef-8c1f-e3cde538b406"
+            "attemptId": "6d0f807c-5af9-48af-b253-716033a940c9"
           }
         ],
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000001800,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000001800,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000001800,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              }
-            }
-          },
-          {
-            "call": "appendItems",
-            "items": [
-              {
-                "kind": "turndone",
-                "id": "abort-12-item-1",
-                "checkpointId": "sub1",
-                "elapsedMs": 0,
-                "status": "cancelled",
-                "outputTokens": 0,
-                "thinkingElapsedMs": 0,
-                "toolCount": 0,
-                "verb": "Mapped",
-                "at": 1700000001800,
-                "device": "PC",
-                "completionVerb": "Mapped",
-                "attemptId": "053eb9d4-de70-45ef-8c1f-e3cde538b406"
-              }
-            ],
-            "extra": {
-              "busy": false,
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              },
-              "toolMode": "auto"
-            }
-          }
-        ]
+        "promptHistory": [
+          "draft"
+        ],
+        "busy": false
       }
     },
     {
@@ -3976,88 +1118,10 @@
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": true,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000001950,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000001950,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000001950,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          }
-        ]
+        "promptHistory": [
+          "draft"
+        ],
+        "busy": true
       },
       "result": {
         "aborted": true,
@@ -4079,122 +1143,7 @@
         "pending": [],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000001950,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "PC"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000001950,
-              "messageId": "msg_<random>",
-              "device": "PC"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000001950,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "promptHistoryList": [],
-              "items": []
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              }
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": false,
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              },
-              "toolMode": "auto"
-            }
-          }
-        ]
+        "busy": false
       }
     },
     {
@@ -4224,85 +1173,10 @@
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
-        "busy": true,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000002100,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {},
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000002100,
-              "messageId": "msg_<random>"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000002100,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          }
-        ]
+        "promptHistory": [
+          "draft"
+        ],
+        "busy": true
       },
       "result": {
         "aborted": true,
@@ -4324,119 +1198,7 @@
         "pending": [],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000002100,
-                  "text": "draft",
-                  "content": "draft",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {},
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "draft",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "draft",
-              "at": 1700000002100,
-              "messageId": "msg_<random>"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": true,
-              "lastTurn": null,
-              "spinner": {
-                "active": true,
-                "verb": "Architecting",
-                "startedAt": 1700000002100,
-                "responseLength": 0,
-                "inputTokens": 0,
-                "outputTokens": 0,
-                "mode": "requesting"
-              }
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
-          },
-          {
-            "call": "set",
-            "patch": {
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "promptHistoryList": [],
-              "items": []
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              }
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "busy": false,
-              "spinner": null,
-              "thinking": null,
-              "lastTurn": null,
-              "stats": {
-                "turns": 1,
-                "inputTokens": 0,
-                "outputTokens": 0
-              },
-              "toolMode": "auto"
-            }
-          }
-        ]
+        "busy": false
       }
     },
     {
@@ -4587,130 +1349,7 @@
         ],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000002250,
-                  "text": "queued one",
-                  "content": "queued one",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": null,
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "queued one",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3wsq_<random>",
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [
-              "sub1"
-            ],
-            "busy": false,
-            "items": 0
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000002250,
-                  "text": "queued one",
-                  "content": "queued one",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": null,
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "queued one",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3wsq_<random>",
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                },
-                {
-                  "id": "sub2",
-                  "submittedAt": 1700000002250,
-                  "text": "queued two",
-                  "content": "queued two",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": null,
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "queued two",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3wsq_<random>",
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [
-              "sub1",
-              "sub2"
-            ],
-            "busy": false,
-            "items": 0
-          }
-        ]
+        "busy": false
       },
       "raw": {
         "aborted": false,
@@ -4798,167 +1437,7 @@
         ],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000002250,
-                  "text": "queued one",
-                  "content": "queued one",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": null,
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "queued one",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3wsq_<random>",
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [
-              "sub1"
-            ],
-            "busy": false,
-            "items": 0
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000002250,
-                  "text": "queued one",
-                  "content": "queued one",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": null,
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "queued one",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3wsq_<random>",
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                },
-                {
-                  "id": "sub2",
-                  "submittedAt": 1700000002250,
-                  "text": "queued two",
-                  "content": "queued two",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": null,
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "queued two",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3wsq_<random>",
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [
-              "sub1",
-              "sub2"
-            ],
-            "busy": false,
-            "items": 0
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub2",
-                  "submittedAt": 1700000002250,
-                  "text": "queued two",
-                  "content": "queued two",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": null,
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "queued two",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3wsq_<random>",
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          }
-        ]
+        "busy": false
       }
     },
     {
@@ -5044,54 +1523,7 @@
         ],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000002400,
-                  "text": "queued one",
-                  "content": "queued one",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": null,
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "queued one",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3www_<random>",
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [
-              "sub1"
-            ],
-            "busy": false,
-            "items": 0
-          }
-        ]
+        "busy": false
       },
       "raw": false,
       "reply": {
@@ -5165,54 +1597,7 @@
         ],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000002400,
-                  "text": "queued one",
-                  "content": "queued one",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": null,
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "queued one",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3www_<random>",
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [
-              "sub1"
-            ],
-            "busy": false,
-            "items": 0
-          }
-        ]
+        "busy": false
       }
     },
     {
@@ -5296,54 +1681,7 @@
         ],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000002550,
-                  "text": "queued one",
-                  "content": "queued one",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": null,
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "queued one",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3x12_<random>",
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [
-              "sub1"
-            ],
-            "busy": false,
-            "items": 0
-          }
-        ]
+        "busy": false
       },
       "raw": false,
       "reply": {
@@ -5417,54 +1755,7 @@
         ],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000002550,
-                  "text": "queued one",
-                  "content": "queued one",
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": null,
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "queued one",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3x12_<random>",
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [
-              "sub1"
-            ],
-            "busy": false,
-            "items": 0
-          }
-        ]
+        "busy": false
       }
     },
     {
@@ -5481,8 +1772,7 @@
         "pending": [],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": false,
-        "events": []
+        "busy": false
       },
       "raw": false,
       "reply": {
@@ -5494,8 +1784,7 @@
         "pending": [],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": false,
-        "events": []
+        "busy": false
       }
     },
     {
@@ -5599,59 +1888,7 @@
         ],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000002850,
-                  "text": "see [Image #1]",
-                  "content": "see [Image #1]",
-                  "pastedImages": {
-                    "1": {
-                      "data": "AAAA",
-                      "mimeType": "image/png"
-                    }
-                  },
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": null,
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "see [Image #1]",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3x9e_<random>",
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [
-              "sub1"
-            ],
-            "busy": false,
-            "items": 0
-          }
-        ]
+        "busy": false
       },
       "raw": {
         "aborted": false,
@@ -5687,65 +1924,7 @@
         "pending": [],
         "promptRestore": null,
         "promptHistory": [],
-        "busy": false,
-        "events": [
-          {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000002850,
-                  "text": "see [Image #1]",
-                  "content": "see [Image #1]",
-                  "pastedImages": {
-                    "1": {
-                      "data": "AAAA",
-                      "mimeType": "image/png"
-                    }
-                  },
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": null,
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "see [Image #1]",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3x9e_<random>",
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "publish",
-            "queued": [
-              "sub1"
-            ],
-            "busy": false,
-            "items": 0
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          }
-        ]
+        "busy": false
       }
     },
     {
@@ -5772,7 +1951,7 @@
         "promptRestore": null,
         "promptHistory": [],
         "busy": false,
-        "events": []
+        "publications": []
       }
     },
     {
@@ -5793,7 +1972,7 @@
       "answers": [
         false
       ],
-      "at": 1700000003000,
+      "at": 1700000003050,
       "after": {
         "items": [],
         "queued": [],
@@ -5801,7 +1980,7 @@
         "promptRestore": null,
         "promptHistory": [],
         "busy": false,
-        "events": []
+        "publications": []
       }
     },
     {
@@ -5822,14 +2001,14 @@
       "answers": [
         true
       ],
-      "at": 1700000003000,
+      "at": 1700000003100,
       "after": {
         "items": [
           {
             "kind": "user",
             "id": "sub1",
             "text": "shown",
-            "at": 1700000003000,
+            "at": 1700000003100,
             "messageId": "msg_<random>",
             "device": "desktop-1"
           }
@@ -5837,91 +2016,56 @@
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [],
+        "promptHistory": [
+          "shown"
+        ],
         "busy": true,
-        "events": [
+        "publications": [
           {
-            "call": "set",
-            "patch": {
-              "queued": [
-                {
-                  "id": "sub1",
-                  "submittedAt": 1700000003000,
-                  "text": "shown",
-                  "content": [
-                    {
-                      "type": "text",
-                      "text": " "
-                    }
-                  ],
-                  "pastedImages": null,
-                  "pastedTexts": null,
-                  "images": null,
-                  "onCommitted": null,
-                  "onSettled": null,
-                  "onToolResult": null,
-                  "transcriptMeta": {
-                    "device": "desktop-1"
-                  },
-                  "context": null,
-                  "mode": "prompt",
-                  "priority": "next",
-                  "key": null,
-                  "origin": null,
-                  "skipSlashCommands": false,
-                  "displayText": "shown",
-                  "suppressDisplay": false,
-                  "abortDiscardOnAbort": false,
-                  "resumeCompletionKeys": [],
-                  "steeringPersistId": null,
-                  "isMeta": false,
-                  "skillSelection": null,
-                  "goalId": null,
-                  "retryFailedTurn": false,
-                  "retryTurnId": null,
-                  "retryAttemptId": null
-                }
-              ]
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
-              "queued": []
-            }
-          },
-          {
-            "call": "pushItem",
-            "item": {
-              "kind": "user",
-              "id": "sub1",
-              "text": "shown",
-              "at": 1700000003000,
-              "messageId": "msg_<random>",
-              "device": "desktop-1"
-            }
-          },
-          {
-            "call": "set",
-            "patch": {
+            "at": 1700000003100,
+            "state": {
               "busy": true,
+              "commandBusy": false,
+              "queued": [],
+              "items": [
+                {
+                  "kind": "user",
+                  "id": "sub1",
+                  "text": "shown",
+                  "at": 1700000003100,
+                  "messageId": "msg_<random>",
+                  "device": "desktop-1"
+                }
+              ],
+              "promptHistoryList": [
+                "shown"
+              ],
+              "stats": {
+                "turns": 0,
+                "inputTokens": 0,
+                "outputTokens": 0
+              },
+              "structureRevision": 1,
+              "transcriptViewRevision": 0,
+              "transcriptViewItems": null,
+              "cwd": "<cwd>",
+              "transcriptHistoryBefore": false,
+              "transcriptHistoryAfter": false,
+              "transcriptSpilled": {
+                "rows": 0,
+                "epoch": 0
+              },
               "lastTurn": null,
               "spinner": {
                 "active": true,
                 "verb": "Architecting",
-                "startedAt": 1700000003000,
+                "startedAt": 1700000003100,
                 "responseLength": 0,
                 "inputTokens": 0,
                 "outputTokens": 0,
                 "mode": "requesting"
               }
             }
-          },
-          {
-            "call": "publish",
-            "queued": [],
-            "busy": true,
-            "items": 1
           }
         ]
       }
@@ -5937,13 +2081,13 @@
       "answers": [
         true
       ],
-      "at": 1700000003000,
+      "at": 1700000003150,
       "after": {
         "items": [],
         "queued": [
           {
             "id": "sub1",
-            "submittedAt": 1700000003000,
+            "submittedAt": 1700000003150,
             "text": "hello",
             "content": "hello",
             "pastedImages": null,
@@ -5965,7 +2109,7 @@
             "suppressDisplay": false,
             "abortDiscardOnAbort": false,
             "resumeCompletionKeys": [],
-            "steeringPersistId": "ts_loyw3xdk_<random>",
+            "steeringPersistId": "ts_loyw3xhq_<random>",
             "isMeta": false,
             "skillSelection": null,
             "goalId": null,
@@ -5977,7 +2121,7 @@
         "pending": [
           {
             "id": "sub1",
-            "submittedAt": 1700000003000,
+            "submittedAt": 1700000003150,
             "text": "hello",
             "content": "hello",
             "pastedImages": null,
@@ -5999,7 +2143,7 @@
             "suppressDisplay": false,
             "abortDiscardOnAbort": false,
             "resumeCompletionKeys": [],
-            "steeringPersistId": "ts_loyw3xdk_<random>",
+            "steeringPersistId": "ts_loyw3xhq_<random>",
             "isMeta": false,
             "skillSelection": null,
             "goalId": null,
@@ -6011,14 +2155,16 @@
         "promptRestore": null,
         "promptHistory": [],
         "busy": false,
-        "events": [
+        "publications": [
           {
-            "call": "set",
-            "patch": {
+            "at": 1700000003150,
+            "state": {
+              "busy": false,
+              "commandBusy": true,
               "queued": [
                 {
                   "id": "sub1",
-                  "submittedAt": 1700000003000,
+                  "submittedAt": 1700000003150,
                   "text": "hello",
                   "content": "hello",
                   "pastedImages": null,
@@ -6040,7 +2186,7 @@
                   "suppressDisplay": false,
                   "abortDiscardOnAbort": false,
                   "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3xdk_<random>",
+                  "steeringPersistId": "ts_loyw3xhq_<random>",
                   "isMeta": false,
                   "skillSelection": null,
                   "goalId": null,
@@ -6048,16 +2194,19 @@
                   "retryTurnId": null,
                   "retryAttemptId": null
                 }
-              ]
+              ],
+              "items": [],
+              "promptHistoryList": [],
+              "stats": {
+                "turns": 0,
+                "inputTokens": 0,
+                "outputTokens": 0
+              },
+              "structureRevision": 0,
+              "transcriptViewRevision": 0,
+              "transcriptViewItems": null,
+              "cwd": "<cwd>"
             }
-          },
-          {
-            "call": "publish",
-            "queued": [
-              "sub1"
-            ],
-            "busy": false,
-            "items": 0
           }
         ]
       }
@@ -6073,13 +2222,13 @@
       "answers": [
         true
       ],
-      "at": 1700000003000,
+      "at": 1700000003200,
       "after": {
         "items": [],
         "queued": [
           {
             "id": "sub1",
-            "submittedAt": 1700000003000,
+            "submittedAt": 1700000003200,
             "text": "hello",
             "content": "hello",
             "pastedImages": null,
@@ -6101,7 +2250,7 @@
             "suppressDisplay": false,
             "abortDiscardOnAbort": false,
             "resumeCompletionKeys": [],
-            "steeringPersistId": "ts_loyw3xdk_<random>",
+            "steeringPersistId": "ts_loyw3xj4_<random>",
             "isMeta": false,
             "skillSelection": null,
             "goalId": null,
@@ -6113,7 +2262,7 @@
         "pending": [
           {
             "id": "sub1",
-            "submittedAt": 1700000003000,
+            "submittedAt": 1700000003200,
             "text": "hello",
             "content": "hello",
             "pastedImages": null,
@@ -6135,7 +2284,7 @@
             "suppressDisplay": false,
             "abortDiscardOnAbort": false,
             "resumeCompletionKeys": [],
-            "steeringPersistId": "ts_loyw3xdk_<random>",
+            "steeringPersistId": "ts_loyw3xj4_<random>",
             "isMeta": false,
             "skillSelection": null,
             "goalId": null,
@@ -6147,14 +2296,16 @@
         "promptRestore": null,
         "promptHistory": [],
         "busy": false,
-        "events": [
+        "publications": [
           {
-            "call": "set",
-            "patch": {
+            "at": 1700000003200,
+            "state": {
+              "busy": false,
+              "commandBusy": true,
               "queued": [
                 {
                   "id": "sub1",
-                  "submittedAt": 1700000003000,
+                  "submittedAt": 1700000003200,
                   "text": "hello",
                   "content": "hello",
                   "pastedImages": null,
@@ -6176,7 +2327,7 @@
                   "suppressDisplay": false,
                   "abortDiscardOnAbort": false,
                   "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3xdk_<random>",
+                  "steeringPersistId": "ts_loyw3xj4_<random>",
                   "isMeta": false,
                   "skillSelection": null,
                   "goalId": null,
@@ -6184,16 +2335,19 @@
                   "retryTurnId": null,
                   "retryAttemptId": null
                 }
-              ]
+              ],
+              "items": [],
+              "promptHistoryList": [],
+              "stats": {
+                "turns": 0,
+                "inputTokens": 0,
+                "outputTokens": 0
+              },
+              "structureRevision": 0,
+              "transcriptViewRevision": 0,
+              "transcriptViewItems": null,
+              "cwd": "<cwd>"
             }
-          },
-          {
-            "call": "publish",
-            "queued": [
-              "sub1"
-            ],
-            "busy": false,
-            "items": 0
           }
         ]
       }
@@ -6209,7 +2363,7 @@
       "answers": [
         false
       ],
-      "at": 1700000003000,
+      "at": 1700000003250,
       "after": {
         "items": [],
         "queued": [],
@@ -6217,7 +2371,7 @@
         "promptRestore": null,
         "promptHistory": [],
         "busy": false,
-        "events": []
+        "publications": []
       }
     },
     {
@@ -6232,13 +2386,13 @@
         true,
         true
       ],
-      "at": 1700000003000,
+      "at": 1700000003300,
       "after": {
         "items": [],
         "queued": [
           {
             "id": "sub1",
-            "submittedAt": 1700000003000,
+            "submittedAt": 1700000003300,
             "text": "hello",
             "content": "hello",
             "pastedImages": null,
@@ -6260,7 +2414,7 @@
             "suppressDisplay": false,
             "abortDiscardOnAbort": false,
             "resumeCompletionKeys": [],
-            "steeringPersistId": "ts_loyw3xdk_<random>",
+            "steeringPersistId": "ts_loyw3xlw_<random>",
             "isMeta": false,
             "skillSelection": null,
             "goalId": null,
@@ -6272,7 +2426,7 @@
         "pending": [
           {
             "id": "sub1",
-            "submittedAt": 1700000003000,
+            "submittedAt": 1700000003300,
             "text": "hello",
             "content": "hello",
             "pastedImages": null,
@@ -6294,7 +2448,7 @@
             "suppressDisplay": false,
             "abortDiscardOnAbort": false,
             "resumeCompletionKeys": [],
-            "steeringPersistId": "ts_loyw3xdk_<random>",
+            "steeringPersistId": "ts_loyw3xlw_<random>",
             "isMeta": false,
             "skillSelection": null,
             "goalId": null,
@@ -6306,14 +2460,16 @@
         "promptRestore": null,
         "promptHistory": [],
         "busy": false,
-        "events": [
+        "publications": [
           {
-            "call": "set",
-            "patch": {
+            "at": 1700000003300,
+            "state": {
+              "busy": false,
+              "commandBusy": true,
               "queued": [
                 {
                   "id": "sub1",
-                  "submittedAt": 1700000003000,
+                  "submittedAt": 1700000003300,
                   "text": "hello",
                   "content": "hello",
                   "pastedImages": null,
@@ -6335,7 +2491,7 @@
                   "suppressDisplay": false,
                   "abortDiscardOnAbort": false,
                   "resumeCompletionKeys": [],
-                  "steeringPersistId": "ts_loyw3xdk_<random>",
+                  "steeringPersistId": "ts_loyw3xlw_<random>",
                   "isMeta": false,
                   "skillSelection": null,
                   "goalId": null,
@@ -6343,18 +2499,301 @@
                   "retryTurnId": null,
                   "retryAttemptId": null
                 }
-              ]
+              ],
+              "items": [],
+              "promptHistoryList": [],
+              "stats": {
+                "turns": 0,
+                "inputTokens": 0,
+                "outputTokens": 0
+              },
+              "structureRevision": 0,
+              "transcriptViewRevision": 0,
+              "transcriptViewItems": null,
+              "cwd": "<cwd>"
             }
-          },
-          {
-            "call": "publish",
-            "queued": [
-              "sub1"
-            ],
-            "busy": false,
-            "items": 0
           }
         ]
+      }
+    },
+    {
+      "name": "a submitted row is rewound by the id it shows",
+      "kind": "rewind",
+      "prompt": "hello",
+      "itemId": "sub1",
+      "busy": false,
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "hello",
+            "at": 1700000003350,
+            "messageId": "msg_<random>",
+            "device": "desktop-1"
+          },
+          {
+            "text": "hi",
+            "at": 1700000003350,
+            "messageId": "msg_<random>",
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "aaa00823-3027-4c3b-8639-f7cdca985af9",
+            "kind": "assistant",
+            "id": "rewind-27-item-1",
+            "streaming": false
+          },
+          {
+            "kind": "turndone",
+            "id": "rewind-27-item-2",
+            "checkpointId": "sub1",
+            "elapsedMs": 0,
+            "status": "done",
+            "finalAssistantId": "rewind-27-item-1",
+            "outputTokens": 1,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1700000003350,
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "aaa00823-3027-4c3b-8639-f7cdca985af9"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [
+          "hello"
+        ],
+        "busy": false
+      },
+      "reply": {
+        "text": "hello",
+        "removed": 3,
+        "messages": 2
+      },
+      "runtimeCalls": [
+        {
+          "text": "hello",
+          "messageId": "msg_<random>",
+          "dryRun": true
+        },
+        {
+          "text": "hello",
+          "messageId": "msg_<random>",
+          "expectedHistoryMarker": "marker-1"
+        }
+      ],
+      "after": {
+        "items": [],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false
+      }
+    },
+    {
+      "name": "an id that names no row answers nothing",
+      "kind": "rewind",
+      "prompt": "hello",
+      "itemId": "zz",
+      "busy": false,
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "hello",
+            "at": 1700000003450,
+            "messageId": "msg_<random>",
+            "device": "desktop-1"
+          },
+          {
+            "text": "hi",
+            "at": 1700000003450,
+            "messageId": "msg_<random>",
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "e751bf13-ed9c-48e5-a3f7-502322ebfc74",
+            "kind": "assistant",
+            "id": "rewind-28-item-1",
+            "streaming": false
+          },
+          {
+            "kind": "turndone",
+            "id": "rewind-28-item-2",
+            "checkpointId": "sub1",
+            "elapsedMs": 0,
+            "status": "done",
+            "finalAssistantId": "rewind-28-item-1",
+            "outputTokens": 1,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1700000003450,
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "e751bf13-ed9c-48e5-a3f7-502322ebfc74"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [
+          "hello"
+        ],
+        "busy": false
+      },
+      "reply": null,
+      "runtimeCalls": [],
+      "after": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "hello",
+            "at": 1700000003450,
+            "messageId": "msg_<random>",
+            "device": "desktop-1"
+          },
+          {
+            "text": "hi",
+            "at": 1700000003450,
+            "messageId": "msg_<random>",
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "e751bf13-ed9c-48e5-a3f7-502322ebfc74",
+            "kind": "assistant",
+            "id": "rewind-28-item-1",
+            "streaming": false
+          },
+          {
+            "kind": "turndone",
+            "id": "rewind-28-item-2",
+            "checkpointId": "sub1",
+            "elapsedMs": 0,
+            "status": "done",
+            "finalAssistantId": "rewind-28-item-1",
+            "outputTokens": 1,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1700000003450,
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "e751bf13-ed9c-48e5-a3f7-502322ebfc74"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [
+          "hello"
+        ],
+        "busy": false
+      }
+    },
+    {
+      "name": "a busy session answers nothing",
+      "kind": "rewind",
+      "prompt": "hello",
+      "itemId": "sub1",
+      "busy": true,
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "hello",
+            "at": 1700000003550,
+            "messageId": "msg_<random>",
+            "device": "desktop-1"
+          },
+          {
+            "text": "hi",
+            "at": 1700000003550,
+            "messageId": "msg_<random>",
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "d399334d-2806-4c55-9704-3bb99691cde0",
+            "kind": "assistant",
+            "id": "rewind-29-item-1",
+            "streaming": false
+          },
+          {
+            "kind": "turndone",
+            "id": "rewind-29-item-2",
+            "checkpointId": "sub1",
+            "elapsedMs": 0,
+            "status": "done",
+            "finalAssistantId": "rewind-29-item-1",
+            "outputTokens": 1,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1700000003550,
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "d399334d-2806-4c55-9704-3bb99691cde0"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [
+          "hello"
+        ],
+        "busy": false
+      },
+      "reply": null,
+      "runtimeCalls": [],
+      "after": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "hello",
+            "at": 1700000003550,
+            "messageId": "msg_<random>",
+            "device": "desktop-1"
+          },
+          {
+            "text": "hi",
+            "at": 1700000003550,
+            "messageId": "msg_<random>",
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "d399334d-2806-4c55-9704-3bb99691cde0",
+            "kind": "assistant",
+            "id": "rewind-29-item-1",
+            "streaming": false
+          },
+          {
+            "kind": "turndone",
+            "id": "rewind-29-item-2",
+            "checkpointId": "sub1",
+            "elapsedMs": 0,
+            "status": "done",
+            "finalAssistantId": "rewind-29-item-1",
+            "outputTokens": 1,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1700000003550,
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "d399334d-2806-4c55-9704-3bb99691cde0"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [
+          "hello"
+        ],
+        "busy": false
       }
     }
   ]

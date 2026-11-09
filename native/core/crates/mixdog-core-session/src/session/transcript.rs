@@ -63,6 +63,7 @@ pub(super) use self::transcript_live::idle_notice_item;
 pub(super) use self::transcript_live::notice_item;
 pub(super) use self::transcript_response::has_body;
 pub(super) use self::transcript_convert::live_end;
+pub(super) use self::transcript_convert::position_of_id;
 
 /// `MessageRows` of one run: every history message the run holds is registered with the
 /// `item.body` the store holds for it (the `Value` read back at load, or the body the run
@@ -203,7 +204,8 @@ impl Transcript for RecordTranscript {
         }
     }
 
-    /// `{id, text, enqueuedAt?}`: the entry's display text as the composer showed it.
+    /// `{id, text, enqueuedAt?, clientSubmissionId?}`: the entry's display text as the composer showed it, and the submission it
+    /// answers (Node's queue entry is named by it, `makeQueueEntry`; a client matches its pending bubble by that id).
     fn queued(&self, qid: &str, entry: &Value) -> Value {
         let shown = entry
             .pointer("/options/displayText")
@@ -219,6 +221,9 @@ impl Transcript for RecordTranscript {
         let mut row = json!({ "id": qid, "text": text });
         if let Some(at) = entry.get("enqueuedAt").filter(|at| at.is_number()) {
             row["enqueuedAt"] = at.clone();
+        }
+        if let Some(submission) = entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+            row["clientSubmissionId"] = json!(submission);
         }
         row
     }

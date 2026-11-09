@@ -55,6 +55,10 @@ const { createRunTurn } = await importFrom(tree, 'src/tui/session/turn.mjs');
 const { createAbortAction } = await importFrom(tree, 'src/tui/session/session-api/intake/abort.mjs');
 const { createSubmissionIntake } = await importFrom(tree, 'src/tui/session/session-api/intake/submission.mjs');
 const { createTranscriptIntake } = await importFrom(tree, 'src/tui/session/transcript-intake.mjs');
+const { createRewindAction } = await importFrom(tree, 'src/tui/session/session-api/intake/rewind.mjs');
+const { createSessionDraftStore } = await importFrom(tree, 'src/tui/session/draft-store.mjs');
+const { createTranscriptStore } = await importFrom(tree, 'src/tui/session/transcript-store.mjs');
+const { createTranscriptSpillBuffer } = await importFrom(tree, 'src/tui/session/transcript-spill.mjs');
 const { createTranscriptRouteMetadata } = await importFrom(tree, 'src/runtime/shared/transcript-metadata.mjs');
 const { flushTuiSteeringPersist } = await importFrom(tree, 'src/tui/session/tui-steering-persist.mjs');
 
@@ -73,21 +77,32 @@ const cancelled = () => Object.assign(new Error('aborted'), { name: 'AbortError'
 
 /** One session: only the provider request is controlled. Intake, turn ownership and abort are Node's own. */
 function boot(sessionId) {
-  const state = {
-    busy: false,
-    commandBusy: false,
-    queued: [],
-    items: [],
-    promptHistoryList: [],
-    stats: { turns: 0, inputTokens: 0, outputTokens: 0 },
+  // The session's own store: Node's real draft store (frame-batched publication, with its emission and disposal guards) and its real
+  // transcript store (`pushItem` rebuilds the prompt history and asks for the immediate flush). Only the clock and the frame
+  // scheduler are the virtual ones above.
+  const draft = {
+    state: {
+      busy: false,
+      commandBusy: false,
+      queued: [],
+      items: [],
+      promptHistoryList: [],
+      stats: { turns: 0, inputTokens: 0, outputTokens: 0 },
+      structureRevision: 0,
+      transcriptViewRevision: 0,
+      transcriptViewItems: null,
+      // Its own folder: the prompt history Node merges in is read from the folder's file, so no case sees another's prompts.
+      cwd: join(dataDir, 'project', sessionId),
+    },
   };
-  const flags = { leadTurnEpoch: 0 };
+  const flags = { leadTurnEpoch: 0, pushingFromDeferredEntry: false, flushDeferredBeforeImmediatePush: null };
   const pending = [];
   const requests = [];
   const waiting = new Map();
   const abortReasons = [];
-  /** Everything the session handed its surfaces, in order: state patches (the queue, busy) and the rows it pushed. */
-  const events = [];
+  /** What a viewer was shown: the store's published snapshot at each publication, whole, in order. */
+  const publications = [];
+  const rewinds = [];
   let active;
   let sequenceId = 0;
   const runtime = {
@@ -111,33 +126,36 @@ function boot(sessionId) {
       active.reject(cancelled());
       return true;
     },
+    // The model-history rewind (`session-crud.mjs`) is the runtime's; what the session asks of it is what is recorded.
+    async rewindMessages(options) {
+      rewinds.push(plain(options));
+      return { message: { content: [{ type: 'text', text: options.text }] }, historyMarker: 'marker-1', removed: 2 };
+    },
   };
+  // `bag.drain` is not yet built when the store is: a release of `busy` re-kicks it (local-session-runtime.mjs).
+  const store = createSessionDraftStore({
+    draft,
+    listeners: new Set([() => publications.push({ at: now, state: plain({ ...store.getPublishedState(), cwd: '<cwd>' }) })]),
+    isDisposed: () => flags.disposed === true,
+    onBusyReleased: () => {
+      void bag.drain?.();
+    },
+  });
+  const itemIndexById = new Map();
+  const transcript = createTranscriptStore({ draft, store, flags, transcriptSpill: createTranscriptSpillBuffer(), itemIndexById, onBulkReplace() {} });
   const bag = {
     runtime,
     flags,
     pending,
     pendingNotificationKeys: new Set(),
-    getState: () => state,
-    set: (patch) => {
-      events.push({ call: 'set', patch: plain(patch) });
-      return Object.assign(state, patch);
-    },
+    getState: store.getState,
+    set: store.set,
     nextId: () => `${sessionId}-item-${++sequenceId}`,
-    appendItems: (items, extra) => {
-      events.push({ call: 'appendItems', items: plain(items), extra: plain(extra) });
-      return Object.assign(state, { items: [...state.items, ...items] }, extra);
-    },
-    pushItem: (item) => {
-      events.push({ call: 'pushItem', item: plain(item) });
-      return state.items.push(item);
-    },
-    patchItem: (id, patch) => Object.assign(state.items.find((item) => item.id === id) || {}, patch),
-    replaceItems: (items) => items,
-    // The store's immediate flush (frame-batched-store.mjs `flushImmediate`): one microtask later it publishes the state as it
-    // then stands, which is what a viewer is shown. Recorded as a `publish` event carrying that state's queue and busy flag.
-    flushEmitImmediate: () => {
-      queueMicrotask(() => events.push({ call: 'publish', queued: state.queued.map((entry) => entry.id), busy: state.busy, items: state.items.length }));
-    },
+    appendItems: transcript.appendItems,
+    pushItem: transcript.pushItem,
+    patchItem: transcript.patchItem,
+    replaceItems: transcript.replaceItems,
+    flushEmitImmediate: store.flushEmitImmediate,
     tuiDebug() {},
     pushNotice() {},
     syncContextStats() {},
@@ -157,13 +175,17 @@ function boot(sessionId) {
   const intake = createSubmissionIntake(bag);
   let draining;
   return {
-    state,
+    get state() {
+      return draft.state;
+    },
     flags,
     pending,
     requests,
     abortReasons,
-    events,
+    publications,
+    rewinds,
     flow: bag,
+    rewind: createRewindAction(bag).rewindToItem,
     abort,
     submitAsync: intake.submitAsync,
     start() {
@@ -190,8 +212,8 @@ function boot(sessionId) {
 
 /**
  * Everything the session holds after a scenario, whole: the stored transcript rows and the queue entries as Node keeps them
- * (callbacks read as a marker), the pending list, the restore handed to the composer, and every state patch and row push the
- * session made on the way (`events`, oldest first).
+ * (callbacks read as a marker), the pending list and the restore handed to the composer. A submit case adds what its viewer was
+ * shown (`publications`).
  */
 const left = (f) => ({
   items: plain(f.state.items),
@@ -200,7 +222,6 @@ const left = (f) => ({
   promptRestore: plain(f.state.promptRestore ?? null),
   promptHistory: plain(f.state.promptHistoryList),
   busy: f.state.busy,
-  events: plain(f.events),
 });
 
 const PNG = { 1: { data: 'AAAA', mimeType: 'image/png' } };
@@ -285,11 +306,14 @@ async function submitting(name, { prompt, options = {}, admission, repeat = 1, b
   if (admission) f.flags.admission = admission;
   f.state.commandBusy = busy;
   const answers = [];
+  const base = f.publications.length;
+  const submittedAt = now;
   // The host stamps the sending device on a connection's submit (`transcriptMeta.device`); the replay's connection is desktop-1.
   const submitted = { id: 'sub1', awaitPersistence: true, transcriptMeta: { device: 'desktop-1' }, ...options };
   for (let i = 0; i < repeat; i += 1) answers.push(await f.submitAsync(prompt, submitted));
-  await advance(0);
-  cases.push({ name, kind: 'submit', prompt, options, admission: admission ?? 'open', repeat, busy, answers, at: now, after: left(f) });
+  // The frame timer (`TUI_FRAME_MS`) fires within this: every publication the submit asked for is made.
+  await advance(50);
+  cases.push({ name, kind: 'submit', prompt, options, admission: admission ?? 'open', repeat, busy, answers, at: submittedAt, after: { ...left(f), publications: f.publications.slice(base) } });
   f.flags.disposed = true;
   await flushTuiSteeringPersist();
 }
@@ -301,6 +325,33 @@ await submitting('a prompt of text is accepted and queued', { prompt: 'hello', b
 await submitting('a closing session still takes a user prompt', { prompt: 'hello', admission: 'closing', busy: true });
 await submitting('a closed session takes nothing', { prompt: 'hello', admission: 'terminal', busy: true });
 await submitting('a repeated submission id is one prompt', { prompt: 'hello', repeat: 2, busy: true });
+
+/**
+ * The message selector's rewind and edit (`rewindToItem`, session-api/intake/rewind.mjs) on a submitted row: the client names the row
+ * by the id it shows (a user row's id is its submission id) and Node resolves that id on the rows, then hands the runtime the row's
+ * stable message id with its text. What the session answered and what it asked of the runtime are recorded.
+ */
+async function rewinding(name, { itemId, busy = false }) {
+  const f = boot(`rewind-${cases.length}`);
+  await f.submitAsync('hello', { id: 'sub1', awaitPersistence: true, transcriptMeta: { device: 'desktop-1' } });
+  const drained = f.start();
+  const request = await f.nextRequest();
+  // The turn ends with an answer; the session is then idle with the row of its prompt in the transcript.
+  request.resolve({ result: { content: 'hi', usage: {} }, session: { id: request.options.id, messages: [] } });
+  await drained;
+  await advance(50);
+  f.state.commandBusy = busy;
+  const before = left(f);
+  const reply = await f.rewind(itemId);
+  await advance(50);
+  cases.push({ name, kind: 'rewind', prompt: 'hello', itemId, busy, before, reply: plain(reply), runtimeCalls: f.rewinds, after: left(f) });
+  f.flags.disposed = true;
+  await flushTuiSteeringPersist();
+}
+
+await rewinding('a submitted row is rewound by the id it shows', { itemId: 'sub1' });
+await rewinding('an id that names no row answers nothing', { itemId: 'zz' });
+await rewinding('a busy session answers nothing', { itemId: 'sub1', busy: true });
 
 const out = join(FIXTURES_ROOT, 'phone-chat-core', 'phone-chat-core.json');
 mkdirSync(join(FIXTURES_ROOT, 'phone-chat-core'), { recursive: true });

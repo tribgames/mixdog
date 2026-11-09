@@ -26,6 +26,11 @@ async function scenario(name, { gate = null, startOver = () => 'sess_archived_ro
   let clock = 1_000;
   let ids = 0;
   const answers = new Map();
+  // An exchange ends by publishing the room's view once it has released the room and saved it (`settleExchange`,
+  // agent-room-exchange.ts: `release`, `persist`, `republishCatalog`, `republish`): that publication is the completion.
+  let logSession = null;
+  const idleWaiters = [];
+  const untilIdle = () => (rooms.isRunning(roomId) ? new Promise((resolve) => idleWaiters.push(resolve)) : Promise.resolve());
   const rooms = createAgentRooms({
     store: { load: async () => structuredClone(saved.doc), save: async (doc) => { saved.doc = structuredClone(doc); } },
     listAgents: async () => AGENTS,
@@ -55,7 +60,9 @@ async function scenario(name, { gate = null, startOver = () => 'sess_archived_ro
     startOver: async (id) => { calls.push(['startOver', id]); return startOver(id); },
     resetMember: async (id) => { calls.push(['resetMember', id]); if (failMembers.some((who) => id.endsWith(`_${who}`))) throw new Error('could not clear'); },
     taskWorkspace: async () => '/tmp',
-    republish: () => {},
+    republish: (id) => {
+      if (id === logSession && !rooms.isRunning(roomId)) for (const resolve of idleWaiters.splice(0)) resolve();
+    },
     republishCatalog: () => {},
     now: () => (clock += 1),
     random: () => 0.999999,
@@ -64,8 +71,9 @@ async function scenario(name, { gate = null, startOver = () => 'sess_archived_ro
     log: () => {},
   });
   const { sessionId, roomId } = await rooms.create({ name: 'Release check', members: ['gh', 'rel', 'bench'], maxRounds: 1, maxMessages: 30 });
+  logSession = sessionId;
   await rooms.send(sessionId, 'old question');
-  if (!gate) for (let i = 0; i < 2000 && rooms.isRunning(roomId); i += 1) await new Promise((r) => setImmediate(r));
+  if (!gate) await untilIdle();
   for (const id of dropSessions) sessions.delete(id.replace('<room>', roomId));
   const before = structuredClone(saved.doc.rooms[roomId]);
   const existing = [...sessions].filter((id) => id !== sessionId).sort();
@@ -79,7 +87,7 @@ async function scenario(name, { gate = null, startOver = () => 'sess_archived_ro
   }
   const after = structuredClone(saved.doc.rooms[roomId]);
   gate?.release();
-  for (let i = 0; i < 2000 && rooms.isRunning(roomId); i += 1) await new Promise((r) => setImmediate(r));
+  await untilIdle();
   // inject is what the scripted daemon did: the members whose clear failed, and what the log's start-over answered (a string, null, or a throw).
   const inject = { failMembers, startOver: startOver === startOverNull ? null : startOver === startOverThrows ? 'throws' : 'sess_archived_room' };
   return { name, roomId, logSession: sessionId, running, existing, inject, before, outcome, calls, after };

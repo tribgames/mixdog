@@ -4401,10 +4401,8 @@ impl SessionActor {
             item_id: params.item_id.clone(),
         };
         let window = &self.acked.window;
-        let index = window
-            .iter()
-            .position(|row| row.item.id() == &params.item_id)
-            .ok_or_else(not_found)?;
+        // The client holds the displayed id (a user row shows its submission id); Node resolves it first (`rewind.mjs:19`).
+        let index = super::transcript::position_of_id(window.iter().map(|row| row.item.as_ref()), params.item_id.as_str()).ok_or_else(not_found)?;
         let target = &window[index];
         let (Some(ordinal), Some(text)) = (target.ordinal, target.prompt.clone()) else {
             return Err(not_found());
@@ -5492,4 +5490,3 @@ async fn mark_go(mark: &mut Option<oneshot::Receiver<serde_json::Map<String, Val
         None => std::future::pending().await,
     }
 }
-
