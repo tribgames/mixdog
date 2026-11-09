@@ -531,8 +531,9 @@ mod tests {
             typing: Some(json!({ "kind": "notice", "id": "room-typing-n1", "tone": "info", "text": "Git Hub…", "room": { "kind": "typing", "speaker": "gh.bot", "name": "Git Hub" } })),
             handoff_questions: None,
         };
+        let log = directory.handle(&thread).expect("loaded");
         summaries.publish_room(&thread, Some(view.clone())).await;
-        let shown = crate::session::tests::eventually(|| {
+        let shown = crate::session::tests::eventually_on(&[&log.cell.stepped], || {
             directory.handle(&thread).and_then(|handle| handle.cell.view.load_full().state.room_view.clone())
         })
         .await;
@@ -542,7 +543,7 @@ mod tests {
         assert_eq!(sent, vec![serde_json::to_value(&view).unwrap()]);
 
         summaries.publish_room(&thread, None).await;
-        crate::session::tests::eventually(|| {
+        crate::session::tests::eventually_on(&[&log.cell.stepped], || {
             directory.handle(&thread).filter(|handle| handle.cell.view.load_full().state.room_view.is_none()).map(drop)
         })
         .await;

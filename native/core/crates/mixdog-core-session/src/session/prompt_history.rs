@@ -612,6 +612,7 @@ mod tests {
         fail: std::sync::atomic::AtomicU32,
         stamps: std::sync::Mutex<Vec<tokio::time::Instant>>,
         landed: std::sync::Mutex<Vec<String>>,
+        landed_wake: tokio::sync::Notify,
     }
 
     impl PromptHistoryStore for Flaky {
@@ -624,6 +625,7 @@ mod tests {
             let failing = self.fail.try_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok();
             if !failing {
                 self.landed.lock().unwrap().push(text.to_owned());
+                self.landed_wake.notify_waiters();
             }
             Appended { list: s(&[text]), written: !failing }
         }
@@ -635,17 +637,17 @@ mod tests {
     async fn a_prompt_whose_write_failed_is_retried_on_nodes_backoff_until_it_lands() {
         use crate::session::SessionDirectory;
         use crate::session::testing::Rig;
-        use crate::session::tests::{eventually, start_thread, turn};
+        use crate::session::tests::{eventually_on, start_thread, turn};
 
         let rig = Rig::new();
-        let flaky = std::sync::Arc::new(Flaky { fail: 2.into(), stamps: Default::default(), landed: Default::default() });
+        let flaky = std::sync::Arc::new(Flaky { fail: 2.into(), stamps: Default::default(), landed: Default::default(), landed_wake: Default::default() });
         let mut deps = rig.deps_parts(rig.store.clone());
         deps.prompts = flaky.clone();
         let directory = SessionDirectory::new(std::sync::Arc::new(deps));
         let handle = start_thread(&directory).await;
         let asked = tokio::time::Instant::now();
         turn(&handle, "remember me", "op-1").await;
-        eventually(|| (!flaky.landed.lock().unwrap().is_empty()).then_some(())).await;
+        eventually_on(&[&flaky.landed_wake], || (!flaky.landed.lock().unwrap().is_empty()).then_some(())).await;
         let stamps = flaky.stamps.lock().unwrap().clone();
         assert_eq!(stamps.len(), 3);
         assert_eq!(stamps[0] - asked, Duration::from_millis(WRITE_BEHIND_MS), "the first flush waits the window");

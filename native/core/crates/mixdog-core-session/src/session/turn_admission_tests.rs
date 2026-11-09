@@ -14,7 +14,6 @@ use super::SessionDirectory;
 use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::testing::lock;
-use super::tests::eventually;
 use super::tests::eventually_on;
 use super::tests::idle;
 use super::tests::start_thread;
@@ -36,9 +35,9 @@ async fn a_turn_runs_admitted_and_releases_its_admission_when_it_settles() {
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "one", "op-1").await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let id = handle.id.as_str();
-    eventually(|| (lock(&rig.admissions.seen).len() == 2).then_some(())).await;
+    eventually_on(&[&*rig.admissions.changed], || (lock(&rig.admissions.seen).len() == 2).then_some(())).await;
     assert_eq!(*lock(&at_run), vec![format!("admit:{id}")], "the loop ran admitted");
     assert_eq!(*lock(&rig.admissions.seen), vec![format!("admit:{id}"), format!("release:{id}")]);
 }

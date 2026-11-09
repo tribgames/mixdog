@@ -13,7 +13,7 @@ use serde_json::json;
 use super::SessionDirectory;
 use super::testing::Rig;
 use super::testing::lock;
-use super::tests::eventually;
+use super::tests::eventually_on;
 
 /// A room member's requests show on its room's log (P §8.3): its surface is the log, so a client
 /// on the log receives the member's server requests and its response decides them in the member's
@@ -49,13 +49,13 @@ async fn a_members_questions_are_read_and_their_moves_republish_its_room() {
 
     let asked = vec![json!({ "id": "q1", "kind": "question" })];
     handle.set_section(Section::Approvals(ThreadApprovals { handoff_questions: Some(asked.clone()), ..ThreadApprovals::default() })).await.expect("published");
-    eventually(|| (directory.member_handoff_questions(&member) == asked).then_some(())).await;
-    eventually(|| (lock(&rig.room_members.moved).as_slice() == ["room01"]).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped, &rig.room_members.changed], || (directory.member_handoff_questions(&member) == asked).then_some(())).await;
+    eventually_on(&[&rig.room_members.changed], || (lock(&rig.room_members.moved).as_slice() == ["room01"]).then_some(())).await;
 
     // The same list again moves nothing; an emptied one does.
     handle.set_section(Section::Approvals(ThreadApprovals { handoff_questions: Some(asked), ..ThreadApprovals::default() })).await.expect("published");
     handle.set_section(Section::Approvals(ThreadApprovals { handoff_questions: Some(Vec::new()), ..ThreadApprovals::default() })).await.expect("published");
-    eventually(|| (lock(&rig.room_members.moved).len() == 2).then_some(())).await;
+    eventually_on(&[&rig.room_members.changed], || (lock(&rig.room_members.moved).len() == 2).then_some(())).await;
     assert!(directory.member_handoff_questions(&member).is_empty());
     assert_eq!(*lock(&rig.room_members.moved), ["room01", "room01"]);
 }

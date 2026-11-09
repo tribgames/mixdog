@@ -21,7 +21,7 @@ use crate::session::seams::RunOutcome;
 use crate::session::testing::Rig;
 use crate::session::testing::Script;
 use crate::session::testing::lock;
-use crate::session::tests::eventually;
+use crate::session::tests::eventually_on;
 use crate::session::tests::turn;
 
 fn recording(name: &str) -> Value {
@@ -293,7 +293,7 @@ async fn an_idle_conversation_takes_the_switch_now_and_keeps_its_boundary() {
     world.rig.set_script(answer_then_wait());
     let handle = world.session("sess_a", world.scenario_header("idle-workflow-round-trip")).await;
     turn(&handle, "hi", "op-1").await;
-    eventually(|| (handle.cell.run.load().is_none() && world.rig.store.records(&ThreadId::from("sess_a")).len() > 4).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (handle.cell.run.load().is_none() && world.rig.store.records(&ThreadId::from("sess_a")).len() > 4).then_some(())).await;
     assert!(!world.switches.settings_reach("sess_a").await, "a conversation keeps its prompt");
 
     // alpha -> beta (the prompt carries alpha): an overlay, its notice and the transcript boundary.
@@ -330,9 +330,9 @@ async fn a_running_turn_holds_the_choice_for_the_next_one() {
     world.rig.set_script(answer_then_wait());
     let handle = world.session("sess_b", world.scenario_header("in-flight-then-pending")).await;
     turn(&handle, "first", "op-1").await;
-    eventually(|| (handle.cell.run.load().is_none() && world.rig.store.records(&ThreadId::from("sess_b")).len() > 4).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (handle.cell.run.load().is_none() && world.rig.store.records(&ThreadId::from("sess_b")).len() > 4).then_some(())).await;
     turn(&handle, "second", "op-2").await;
-    eventually(|| handle.cell.run.load().is_some().then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
 
     let deferred = world.switches.switch_workflow("sess_b", "beta").await.expect("staged").expect("a conversation");
     assert_eq!(deferred["deferred"], true);
@@ -347,7 +347,7 @@ async fn a_running_turn_holds_the_choice_for_the_next_one() {
 
     // The turn ends; the next turn start applies what was held, the mode first.
     assert!(world.directory.abort_session_turn(&ThreadId::from("sess_b"), "test"));
-    eventually(|| handle.cell.run.load().is_none().then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || handle.cell.run.load().is_none().then_some(())).await;
     let applied = world.switches.apply_pending_switches(&ThreadId::from("sess_b")).await.expect("applied").expect("held choices");
     assert_eq!(applied["orchestrationModeSwitch"]["to"], "swarm");
     assert_eq!(applied["workflowSwitch"]["toId"], "beta");
@@ -364,7 +364,7 @@ async fn only_a_coding_session_with_a_prompt_switches() {
     for (id, scenario, owner) in [("sess_w", "agent-owner", "workflow"), ("sess_old", "too-old", "workflow")] {
         let handle = world.session(id, world.scenario_header(scenario)).await;
         turn(&handle, "hi", "op-1").await;
-        eventually(|| handle.cell.run.load().is_none().then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || handle.cell.run.load().is_none().then_some(())).await;
         let refused = world.switches.switch_workflow(id, "beta").await.expect_err("refused");
         assert_eq!(json!(refused), step(&world, scenario, 0)["error"], "{owner}");
         world.rig.set_script(answer_then_wait());
@@ -514,17 +514,17 @@ async fn the_session_left_is_closed_as_node_closes_it() {
     world.rig.set_script(answer_then_wait());
     let handle = world.session("sess_used", world.scenario_header("idle-workflow-round-trip")).await;
     turn(&handle, "hi", "op-1").await;
-    eventually(|| (handle.cell.run.load().is_none() && world.rig.store.records(&ThreadId::from("sess_used")).len() > 4).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (handle.cell.run.load().is_none() && world.rig.store.records(&ThreadId::from("sess_used")).len() > 4).then_some(())).await;
     turn(&handle, "again", "op-2").await;
-    eventually(|| handle.cell.run.load().is_some().then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
     lock(&target.calls).clear();
     switch.switch_context("sess_used", None, Some(json!({ "id": "d1" })), false).await.expect("switched");
     let kept = world.stored("sess_used").await;
     assert!(kept.get("closed").is_none(), "a conversation stays resumable: {kept:?}");
     assert_eq!(kept.get("detachedReason"), Some(&json!(CONTEXT_SWITCH_REASON)), "but it is detached, as Node's closeSession(.., {{ tombstone: false }}) does: {kept:?}");
     assert!(kept.get("generation").and_then(Value::as_f64).is_some_and(|generation| generation >= 1.0), "which moves its generation on: {kept:?}");
-    eventually(|| handle.cell.run.load().is_none().then_some(())).await;
-    eventually(|| lock(&world.rig.closes.seen).iter().any(|(id, _)| id.as_str() == "sess_used").then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || handle.cell.run.load().is_none().then_some(())).await;
+    eventually_on(&[&*world.rig.closes.ended], || lock(&world.rig.closes.seen).iter().any(|(id, _)| id.as_str() == "sess_used").then_some(())).await;
     assert_eq!(
         *lock(&target.calls),
         [json!(["invalidateContextStatusCache"]), json!(["invalidatePreSessionToolSurface"])],
@@ -555,7 +555,7 @@ async fn the_exit_closes_the_runtimes_own_session_and_no_worker() {
     for (id, header) in [("sess_lead", world.scenario_header("idle-workflow-round-trip")), ("sess_worker", worker_header.clone()), ("sess_detached", worker_header)] {
         let handle = world.session(id, header).await;
         turn(&handle, "hi", "op-1").await;
-        eventually(|| (handle.cell.run.load().is_none() && world.rig.store.records(&ThreadId::from(id)).len() > 4).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || (handle.cell.run.load().is_none() && world.rig.store.records(&ThreadId::from(id)).len() > 4).then_some(())).await;
         handles.push(handle);
     }
     // The agents' close ran first and detached this worker.

@@ -474,7 +474,7 @@ async fn a_turn_claims_the_originals_it_names_before_it_is_submitted() {
     });
     use mixdog_core_api::ThreadHandle as _;
     handle.request(request("turn/start", params, Some(1))).await.unwrap();
-    let options = super::tests::eventually(|| seen.lock().unwrap().clone()).await;
+    let options = super::tests::eventually_on(&[&handle.cell.stepped], || seen.lock().unwrap().clone()).await;
     assert_eq!(options["pastedImages"]["1"]["originalRef"], json!(claimed));
     assert!(options["pastedImages"]["2"].get("originalRef").is_none() && options["pastedImages"]["2"].get("originalMediaType").is_none());
     let at = dir_of(&deps).join("prompt-attachments");

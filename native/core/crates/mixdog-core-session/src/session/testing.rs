@@ -90,6 +90,8 @@ pub struct TestCompaction {
     pub text_books: std::sync::atomic::AtomicBool,
     pub result: Mutex<Option<Value>>,
     pub calls: Mutex<Vec<String>>,
+    /// Wakes after a compaction call is recorded.
+    pub called: tokio::sync::Notify,
     /// A compaction waits on it before answering, when set.
     pub hold: Mutex<Option<Arc<tokio::sync::Notify>>>,
     /// The `compaction` record the saved configuration gives a thread, when it has one.
@@ -120,6 +122,7 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
     }
     async fn compact(&self, _: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, mixdog_core_api::CoreError> {
         lock(&self.calls).push(format!("compact {trigger} {require_reduction}"));
+        self.called.notify_waiters();
         let hold = lock(&self.hold).clone();
         if let Some(hold) = hold {
             hold.notified().await;
@@ -193,6 +196,8 @@ pub struct TestSide {
     pub reply: Mutex<Option<Result<super::turn_ops::SideReply, super::turn_ops::SideFailure>>>,
     pub prompts: Mutex<Vec<String>>,
     pub begins: std::sync::atomic::AtomicUsize,
+    /// Wakes after a begin or a send's prompt is recorded.
+    pub began: tokio::sync::Notify,
     /// Every `forget(thread, cancel)`, in order.
     pub forgets: Mutex<Vec<(String, bool)>>,
     active: Mutex<Option<mixdog_rt::CancellationToken>>,
@@ -205,6 +210,7 @@ impl super::turn_ops::SideQuestions for TestSide {
     }
     fn begin(&self, _: &ThreadId) -> super::turn_ops::SideRun {
         self.begins.fetch_add(1, Ordering::SeqCst);
+        self.began.notify_waiters();
         let cancel = mixdog_rt::CancellationToken::new();
         if let Some(previous) = lock(&self.active).replace(cancel.clone()) {
             previous.cancel();
@@ -220,6 +226,7 @@ impl super::turn_ops::SideQuestions for TestSide {
     async fn send(&self, _: &ThreadId, prompt: &str, _: &str, cancel: &mixdog_rt::CancellationToken) -> Result<super::turn_ops::SideReply, super::turn_ops::SideFailure> {
         let scripted = lock(&self.reply).take();
         lock(&self.prompts).push(prompt.to_owned());
+        self.began.notify_waiters();
         match scripted {
             Some(reply) => reply,
             None => {
@@ -254,6 +261,8 @@ pub struct MemStore {
     /// The next batch holding a `meta` record that sets `compaction` (a manual compaction's header) tells `.0` it arrived, then
     /// waits for `.1` before it becomes durable.
     pub header_gate: CommitGate,
+    /// Wakes after every batch lands in a log (or a log is created): the event a test waits on for a record to be durable.
+    pub committed: Arc<tokio::sync::Notify>,
 }
 
 impl MemStore {
@@ -277,6 +286,7 @@ struct MemLog {
     fail_next: Arc<AtomicBool>,
     commit_gate: CommitGate,
     header_gate: CommitGate,
+    committed: Arc<tokio::sync::Notify>,
 }
 
 impl SessionLog for MemLog {
@@ -309,6 +319,8 @@ impl SessionLog for MemLog {
             out.push(next);
             next += 1;
         }
+        drop(log);
+        self.committed.notify_waiters();
         Ok(out)
     }
 
@@ -479,6 +491,7 @@ impl ThreadStore for MemStore {
             fail_next: self.fail_next.clone(),
             commit_gate: self.commit_gate.clone(),
             header_gate: self.header_gate.clone(),
+            committed: self.committed.clone(),
         }))
     }
 
@@ -498,6 +511,7 @@ impl ThreadStore for MemStore {
             fail_next: self.fail_next.clone(),
             commit_gate: self.commit_gate.clone(),
             header_gate: self.header_gate.clone(),
+            committed: self.committed.clone(),
         };
         let ordinal = log.commit(lane, std::slice::from_ref(session))?[0];
         Ok((Box::new(log), ordinal))
@@ -850,13 +864,16 @@ impl Feed for RecFeed {
 pub struct TestAdmission {
     pub seen: Arc<Mutex<Vec<String>>>,
     pub refuse: Mutex<Option<mixdog_scm::error::ScmFailure>>,
+    /// Wakes after each admission and release is recorded.
+    pub changed: Arc<tokio::sync::Notify>,
 }
 
-struct Released(Arc<Mutex<Vec<String>>>, String);
+struct Released(Arc<Mutex<Vec<String>>>, String, Arc<tokio::sync::Notify>);
 
 impl Drop for Released {
     fn drop(&mut self) {
         lock(&self.0).push(format!("release:{}", self.1));
+        self.2.notify_waiters();
     }
 }
 
@@ -872,7 +889,8 @@ impl super::worktree::TurnAdmission for TestAdmission {
             return Err(failure);
         }
         lock(&self.seen).push(format!("admit:{thread}"));
-        Ok(Box::new(Released(self.seen.clone(), thread.to_owned())))
+        self.changed.notify_waiters();
+        Ok(Box::new(Released(self.seen.clone(), thread.to_owned(), self.changed.clone())))
     }
 }
 
@@ -1047,14 +1065,18 @@ impl super::NewThreadPlace for RecordingPlace {
 pub struct TestRoomMembers {
     pub moved: Mutex<Vec<String>>,
     pub resolved: Mutex<Vec<String>>,
+    /// Wakes after each event is recorded.
+    pub changed: tokio::sync::Notify,
 }
 
 impl super::RoomMemberEvents for TestRoomMembers {
     fn questions_moved(&self, room_id: &str) {
         lock(&self.moved).push(room_id.to_owned());
+        self.changed.notify_waiters();
     }
     fn approval_resolved(&self, room_id: &str, approval_id: &str) {
         lock(&self.resolved).push(format!("{room_id}:{approval_id}"));
+        self.changed.notify_waiters();
     }
 }
 
@@ -1089,6 +1111,21 @@ impl ToolSurfaceSource for HeaderSurfaces {
                 .unwrap_or_default(),
             ..SessionSurface::default()
         }
+    }
+}
+
+/// The rig's prompt-history store: the real file store, telling wrote after each append (the write runs on a lane thread).
+pub(crate) struct NotifyingPrompts(pub Arc<FilePromptHistory>, pub Arc<tokio::sync::Notify>);
+
+impl super::prompt_history::PromptHistoryStore for NotifyingPrompts {
+    fn load(&self, lane: &InLane<InteractiveIo>, cwd: &str) -> Vec<String> {
+        self.0.load(lane, cwd)
+    }
+
+    fn append(&self, lane: &InLane<DurabilityIo>, cwd: &str, text: &str) -> super::prompt_history::Appended {
+        let appended = self.0.append(lane, cwd, text);
+        self.1.notify_waiters();
+        appended
     }
 }
 
@@ -1141,6 +1178,8 @@ pub struct Rig {
     pub store: Arc<MemStore>,
     /// The real file store over a temp data dir.
     pub prompts: Arc<FilePromptHistory>,
+    /// Woken after each append to prompts.
+    pub prompts_wrote: Arc<tokio::sync::Notify>,
     /// Holds the temp data dir for the rig's lifetime.
     pub _data: tempfile::TempDir,
     pub runs: Arc<ScriptRuns>,
@@ -1189,6 +1228,9 @@ pub struct Rig {
     pub compaction: Arc<TestCompaction>,
     /// The quota-resume queue over the temp data dir.
     pub quota: Arc<mixdog_core_base::quota_resume::QuotaResumeStore>,
+    /// Woken by every change the quota-resume store announces (its writes run on a lane thread, so no clock can pace a test).
+    pub quota_changed: Arc<tokio::sync::Notify>,
+    _quota_subscription: mixdog_core_base::quota_resume::Subscription,
     /// The route change a clear reads its environment reset from.
     pub route_change: Arc<ResetRouteChange>,
 }
@@ -1251,14 +1293,16 @@ impl mixdog_core_run::run_host::guards::RunningWork for TestWork {
 
 /// The agent-status signals, in order: `approval:<id>`, `record:<id>`.
 #[derive(Default)]
-pub struct TestSignals(pub Mutex<Vec<String>>);
+pub struct TestSignals(pub Mutex<Vec<String>>, pub tokio::sync::Notify);
 
 impl super::agent_activity::AgentSignals for TestSignals {
     fn approval_wait(&self, session: &str) {
         lock(&self.0).push(format!("approval:{session}"));
+        self.1.notify_waiters();
     }
     fn session_record(&self, session: &str) {
         lock(&self.0).push(format!("record:{session}"));
+        self.1.notify_waiters();
     }
 }
 
@@ -1268,15 +1312,19 @@ impl super::agent_activity::AgentSignals for TestSignals {
 pub struct TestCodeGraphPrewarm {
     pub calls: Mutex<Vec<String>>,
     pub lazy: AtomicBool,
+    /// Wakes after each recorded call.
+    pub called: tokio::sync::Notify,
 }
 
 impl super::prewarm_signals::CodeGraphPrewarmSignals for TestCodeGraphPrewarm {
     fn schedule(&self, delay: Option<std::time::Duration>, reason: &'static str) {
         let delay = delay.map_or_else(|| "default".to_owned(), |d| d.as_millis().to_string());
         lock(&self.calls).push(format!("schedule:{reason}:{delay}"));
+        self.called.notify_waiters();
     }
     fn wake(&self) {
         lock(&self.calls).push("wake".to_owned());
+        self.called.notify_waiters();
     }
     fn lazy(&self) -> bool {
         self.lazy.load(Ordering::SeqCst)
@@ -1288,12 +1336,15 @@ impl super::prewarm_signals::CodeGraphPrewarmSignals for TestCodeGraphPrewarm {
 pub struct TestAgents {
     pub status: Mutex<mixdog_app_protocol::v2::thread::ThreadAgents>,
     pub reads: Mutex<Vec<ThreadId>>,
+    /// Wakes after each read is recorded.
+    pub read: tokio::sync::Notify,
 }
 
 #[async_trait::async_trait]
 impl super::agent_activity::AgentStatus for TestAgents {
     async fn status(&self, thread: &ThreadId) -> mixdog_app_protocol::v2::thread::ThreadAgents {
         lock(&self.reads).push(thread.clone());
+        self.read.notify_waiters();
         lock(&self.status).clone()
     }
 }
@@ -1404,11 +1455,12 @@ impl super::CloseIngest for Closes {
 
 /// The session-search ingests, in order: each thread and its messages.
 #[derive(Default)]
-pub struct Ingests(pub Mutex<Vec<(ThreadId, Vec<Value>)>>);
+pub struct Ingests(pub Mutex<Vec<(ThreadId, Vec<Value>)>>, pub tokio::sync::Notify);
 
 impl super::TurnIngest for Ingests {
     fn ingest_turn(&self, id: &ThreadId, _header: &Header, messages: Vec<Value>) {
         lock(&self.0).push((id.clone(), messages));
+        self.1.notify_waiters();
     }
 }
 
@@ -1417,13 +1469,16 @@ impl super::TurnIngest for Ingests {
 pub struct RecWarmth {
     pub begun: Mutex<Vec<(ThreadId, Value, Option<Value>)>>,
     pub ended: Arc<std::sync::atomic::AtomicUsize>,
+    /// Wakes after each turn's note ends.
+    pub ended_wake: Arc<tokio::sync::Notify>,
 }
 
-struct Ended(Arc<std::sync::atomic::AtomicUsize>);
+struct Ended(Arc<std::sync::atomic::AtomicUsize>, Arc<tokio::sync::Notify>);
 
 impl Drop for Ended {
     fn drop(&mut self) {
         self.0.fetch_add(1, Ordering::SeqCst);
+        self.1.notify_waiters();
     }
 }
 
@@ -1440,53 +1495,60 @@ impl super::BuiltinSkills for TestBuiltinSkills {
 impl super::turn_warm::TurnWarmth for RecWarmth {
     fn begin(&self, thread: &ThreadId, input: &Value, messages: Option<&Value>) -> Box<dyn Send> {
         lock(&self.begun).push((thread.clone(), input.clone(), messages.cloned()));
-        Box::new(Ended(self.ended.clone()))
+        Box::new(Ended(self.ended.clone(), self.ended_wake.clone()))
     }
 }
 
 /// The threads the effort judge was prewarmed for, in order.
 #[derive(Default)]
-pub struct Prewarms(pub Mutex<Vec<ThreadId>>);
+pub struct Prewarms(pub Mutex<Vec<ThreadId>>, pub tokio::sync::Notify);
 
 impl super::EffortPrewarm for Prewarms {
     fn prewarm(&self, thread: &ThreadId, _header: &Header) {
         lock(&self.0).push(thread.clone());
+        self.1.notify_waiters();
     }
 }
 
 /// The turn snapshot calls, in order: `settled:<thread>`, `stopped:<thread>`, `dispose`.
 #[derive(Default)]
-pub struct TestSnapshots(pub Mutex<Vec<String>>);
+pub struct TestSnapshots(pub Mutex<Vec<String>>, pub tokio::sync::Notify);
 
 impl super::turn_snapshots::TurnSnapshots for TestSnapshots {
     fn turn_settled(&self, thread: &ThreadId) {
         lock(&self.0).push(format!("settled:{}", thread.as_str()));
+        self.1.notify_waiters();
     }
 
     fn runtime_stopped(&self, thread: &ThreadId) {
         lock(&self.0).push(format!("stopped:{}", thread.as_str()));
+        self.1.notify_waiters();
     }
 
     fn dispose(&self) {
         lock(&self.0).push("dispose".to_owned());
+        self.1.notify_waiters();
     }
 }
 
 /// The notice events, in order: `completed:<provider>`, `failed:<provider>:<kind>`, `save-failed`.
 #[derive(Default)]
-pub struct TestNotices(pub Mutex<Vec<String>>);
+pub struct TestNotices(pub Mutex<Vec<String>>, pub tokio::sync::Notify);
 
 impl super::notices::SessionNotices for TestNotices {
     fn turn_completed(&self, provider: &str) {
         lock(&self.0).push(format!("completed:{provider}"));
+        self.1.notify_waiters();
     }
 
     fn turn_failed(&self, provider: &str, kind: Option<&str>) {
         lock(&self.0).push(format!("failed:{provider}:{}", kind.unwrap_or("-")));
+        self.1.notify_waiters();
     }
 
     fn save_failed(&self) {
         lock(&self.0).push("save-failed".to_owned());
+        self.1.notify_waiters();
     }
 }
 
@@ -1513,7 +1575,12 @@ impl Rig {
             mixdog_rt::CancellationToken::new(),
         ))
         .expect("quota-resume store");
+        let quota_changed = Arc::new(tokio::sync::Notify::new());
+        let wake = quota_changed.clone();
+        let quota_subscription = quota.subscribe(move |_| wake.notify_waiters());
         Self {
+            quota_changed,
+            _quota_subscription: quota_subscription,
             quota: Arc::new(quota),
             route_change: Arc::new(ResetRouteChange),
             goals,
@@ -1528,6 +1595,7 @@ impl Rig {
             inherit: Arc::default(),
             compaction: Arc::default(),
             prompts: Arc::new(FilePromptHistory::new(data.path())),
+            prompts_wrote: Arc::default(),
             _data: data,
             store,
             runs: Arc::new(ScriptRuns {
@@ -1571,7 +1639,7 @@ impl Rig {
             store,
             codec: Arc::new(super::store::StoreCodec),
             transcript: Arc::new(TextTranscript),
-            prompts: self.prompts.clone(),
+            prompts: Arc::new(NotifyingPrompts(self.prompts.clone(), self.prompts_wrote.clone())),
             runs: self.runs.clone(),
             surfaces: Arc::new(HeaderSurfaces),
             new_tools: Arc::new(KeepHeader),

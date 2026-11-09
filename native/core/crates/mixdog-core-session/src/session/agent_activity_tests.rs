@@ -14,7 +14,7 @@ use serde_json::json;
 
 use super::SessionDirectory;
 use super::testing::Rig;
-use super::tests::eventually;
+use super::tests::eventually_on;
 use super::tests::idle;
 use super::tests::start_thread;
 use super::tests::turn;
@@ -49,14 +49,14 @@ async fn a_loaded_thread_publishes_its_agent_status_after_one_settle_beat() {
     let rig = Rig::new();
     let directory = SessionDirectory::new(rig.deps());
     let quiet = start_thread(&directory).await;
-    eventually(|| (reads(&rig) == 1).then_some(())).await;
+    eventually_on(&[&rig.agents.read], || (reads(&rig) == 1).then_some(())).await;
     tokio::time::sleep(Duration::from_millis(10)).await;
     assert!(published(&rig, &quiet.id).is_empty(), "empty lists are Node's initial state: no change");
 
     set_status(&rig, agents("review"));
     let started = tokio::time::Instant::now();
     let busy = start_thread(&directory).await;
-    eventually(|| (published(&rig, &busy.id).len() == 1).then_some(())).await;
+    eventually_on(&[&rig.feeds.published], || (published(&rig, &busy.id).len() == 1).then_some(())).await;
     assert!(tokio::time::Instant::now() - started >= super::actor::STATUS_SETTLE, "not before the settle beat");
     assert_eq!(published(&rig, &busy.id), vec![serde_json::to_value(agents("review")).unwrap()]);
 }
@@ -69,19 +69,19 @@ async fn a_job_change_republishes_the_owners_agent_status_only_when_it_changed()
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     // The load's own pass (empty lists, nothing published).
-    eventually(|| (reads(&rig) == 1).then_some(())).await;
+    eventually_on(&[&rig.agents.read], || (reads(&rig) == 1).then_some(())).await;
 
     set_status(&rig, agents("review"));
     directory.agent_activity(handle.id.as_str());
-    eventually(|| (published(&rig, &handle.id).len() == 1).then_some(())).await;
+    eventually_on(&[&rig.feeds.published], || (published(&rig, &handle.id).len() == 1).then_some(())).await;
 
     // The same answer: read again, published no second time.
     directory.agent_activity(handle.id.as_str());
-    eventually(|| (reads(&rig) == 3).then_some(())).await;
+    eventually_on(&[&rig.agents.read], || (reads(&rig) == 3).then_some(())).await;
 
     set_status(&rig, agents("plan"));
     directory.agent_activity(handle.id.as_str());
-    eventually(|| (published(&rig, &handle.id).len() == 2).then_some(())).await;
+    eventually_on(&[&rig.feeds.published], || (published(&rig, &handle.id).len() == 2).then_some(())).await;
     assert_eq!(
         published(&rig, &handle.id),
         vec![serde_json::to_value(agents("review")).unwrap(), serde_json::to_value(agents("plan")).unwrap()],
@@ -96,7 +96,7 @@ async fn a_thread_that_is_not_loaded_hears_nothing() {
     let rig = Rig::new();
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
-    eventually(|| (reads(&rig) == 1).then_some(())).await;
+    eventually_on(&[&rig.agents.read], || (reads(&rig) == 1).then_some(())).await;
     directory.agent_activity("never-loaded");
     directory.agent_activity("");
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -113,7 +113,7 @@ async fn a_thread_nobody_watched_stays_while_its_background_work_runs() {
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "start the job", "op-1").await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     rig.work.0.store(true, Ordering::SeqCst);
 
     tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
@@ -127,7 +127,7 @@ async fn a_thread_nobody_watched_stays_while_its_background_work_runs() {
     tokio::time::sleep(Duration::from_millis(10)).await;
     assert!(directory.handle(&handle.id).is_some(), "the clock started over at the signal");
     tokio::time::advance(Duration::from_secs(2)).await;
-    eventually(|| directory.handle(&handle.id).is_none().then_some(())).await;
+    eventually_on(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
 }
 
 /// How often the actors emitted `signal` (`approval`, `record`) for `thread`.
@@ -153,7 +153,7 @@ async fn a_stored_header_change_signals_the_session_record() {
         .request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") })
         .await
         .expect("patch");
-    eventually(|| (signals(&rig, "record", &handle.id) > before).then_some(())).await;
+    eventually_on(&[&rig.signals.1], || (signals(&rig, "record", &handle.id) > before).then_some(())).await;
 }
 
 /// `onSessionApprovalWaitChange`: a turn that starts waiting on an approval signals once.
@@ -192,6 +192,6 @@ async fn an_approval_wait_signals_the_approval_change() {
     let handle = start_thread(&directory).await;
     assert_eq!(signals(&rig, "approval", &handle.id), 0, "no wait before the turn");
     turn(&handle, "long job", "op-1").await;
-    eventually(|| (!handle.cell.approvals.load().is_empty()).then_some(())).await;
-    eventually(|| (signals(&rig, "approval", &handle.id) == 1).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (!handle.cell.approvals.load().is_empty()).then_some(())).await;
+    eventually_on(&[&rig.signals.1], || (signals(&rig, "approval", &handle.id) == 1).then_some(())).await;
 }
