@@ -14,7 +14,8 @@
 //
 // Scratch repositories live under D:\mixdog-build\tmp\phone-ph2-scm-rec and are deleted when the run ends.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { installScriptedProcesses, scriptedPty } from './lib/phone-scm-world.mjs';
@@ -43,13 +44,33 @@ Object.assign(process.env, {
   GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
   GIT_AUTHOR_DATE: '2026-01-02T03:04:05+00:00',
   GIT_COMMITTER_DATE: '2026-01-02T03:04:05+00:00',
+  // git's own clock for "10 months ago": 2026-11-02T03:04:05Z. The Rust side runs git with the same variable.
+  GIT_TEST_DATE_NOW: '1793588645',
   MIXDOG_DATA_DIR: join(WORK, 'data'),
   PATH: `${join(WORK, 'bin')};${process.env.PATH}`,
 });
 delete process.env.MIXDOG_FEATURE_GIT;
 
-const processes = [];
-const scripted = installScriptedProcesses({ script, binDir: join(WORK, 'bin'), onSpawn: (spawn) => processes.push(spawn) });
+// `ghlogin_<pid>_<n>` (github-cli.ts): the scripted host has a fixed pid.
+Object.defineProperty(process, 'pid', { value: 4242 });
+// A worktree file's revision token (git-history.ts worktreeRevision) is `size:mtimeNs:ctimeNs:ino` of the file system. The
+// recording's file system is scripted the same way: the identity of a path, and a time that moves with the content.
+{
+  const realStat = fs.promises.stat;
+  const fnv = (text) => {
+    let h = 0x811c9dc5n;
+    for (const byte of Buffer.from(text)) h = ((h ^ BigInt(byte)) * 0x01000193n) & 0xffffffffn;
+    return h;
+  };
+  fs.promises.stat = async (path, options) => {
+    const info = await realStat(path, options);
+    if (!options?.bigint || !String(path).startsWith(WORK) || !info.isFile()) return info;
+    const time = 1_767_323_045_000_000_000n + fnv(fs.readFileSync(path));
+    return Object.assign(Object.create(Object.getPrototypeOf(info)), info, { mtimeNs: time, ctimeNs: time, ino: fnv(String(path).slice(WORK.length)) });
+  };
+  syncBuiltinESMExports();
+}
+const processes = [];const scripted = installScriptedProcesses({ script, binDir: join(WORK, 'bin'), onSpawn: (spawn) => processes.push(spawn) });
 const { world } = scripted;
 const pty = scriptedPty({ onSpawn: (spawn) => processes.push(spawn) });
 
@@ -135,7 +156,7 @@ write(R, 'a.txt', 'one\nTWO\nthree\nfour\n');
 git(R, 'commit', '-q', '-am', 'second: edit a');
 git(R, 'branch', 'feature');
 const rev = (what) => git(R, 'rev-parse', what).trim();
-const gitVersion = git(R, '--version').trim();
+const gitVersion = script.rules.find((rule) => rule.tool === 'git' && !rule.when).reply.stdout.trim();
 
 const cases = [];
 const covered = new Set();

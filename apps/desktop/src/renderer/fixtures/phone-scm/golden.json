@@ -1761,7 +1761,7 @@
               "additions": 1,
               "deletions": 0,
               "untracked": false,
-              "revision": "24:1794222164001949500:1794222164001949500:6755399442294874"
+              "revision": "24:1767323045460518749:1767323045460518749:2199140066"
             },
             {
               "path": "new.txt",
@@ -1769,7 +1769,7 @@
               "additions": 1,
               "deletions": 0,
               "untracked": true,
-              "revision": "10:1794222164143534500:1794222164143534500:10133099162821315"
+              "revision": "10:1767323048610145150:1767323048610145150:2640131855"
             },
             {
               "path": "src/b.mjs",
@@ -1777,7 +1777,7 @@
               "additions": 1,
               "deletions": 1,
               "untracked": false,
-              "revision": "20:1794222164001949500:1794222164001949500:10414574139535326"
+              "revision": "20:1767323045617494522:1767323045617494522:2560163993"
             }
           ],
           "untrackedOmitted": 0
@@ -1801,7 +1801,7 @@
                 "additions": 1,
                 "deletions": 0,
                 "untracked": false,
-                "revision": "24:1794222164001949500:1794222164001949500:6755399442294874"
+                "revision": "24:1767323045460518749:1767323045460518749:2199140066"
               },
               {
                 "path": "new.txt",
@@ -1809,7 +1809,7 @@
                 "additions": 1,
                 "deletions": 0,
                 "untracked": true,
-                "revision": "10:1794222164143534500:1794222164143534500:10133099162821315"
+                "revision": "10:1767323048610145150:1767323048610145150:2640131855"
               },
               {
                 "path": "src/b.mjs",
@@ -1817,7 +1817,7 @@
                 "additions": 1,
                 "deletions": 1,
                 "untracked": false,
-                "revision": "20:1794222164001949500:1794222164001949500:10414574139535326"
+                "revision": "20:1767323045617494522:1767323045617494522:2560163993"
               }
             ],
             "untrackedOmitted": 0
@@ -1858,7 +1858,7 @@
               "additions": 1,
               "deletions": 0,
               "untracked": false,
-              "revision": "24:1794222164001949500:1794222164001949500:6755399442294874"
+              "revision": "24:1767323045460518749:1767323045460518749:2199140066"
             },
             {
               "path": "new.txt",
@@ -1866,7 +1866,7 @@
               "additions": 1,
               "deletions": 0,
               "untracked": true,
-              "revision": "10:1794222164143534500:1794222164143534500:10133099162821315"
+              "revision": "10:1767323048610145150:1767323048610145150:2640131855"
             },
             {
               "path": "src/b.mjs",
@@ -1874,7 +1874,7 @@
               "additions": 1,
               "deletions": 1,
               "untracked": false,
-              "revision": "20:1794222164001949500:1794222164001949500:10414574139535326"
+              "revision": "20:1767323045617494522:1767323045617494522:2560163993"
             }
           ],
           "untrackedOmitted": 0
@@ -1898,7 +1898,7 @@
                 "additions": 1,
                 "deletions": 0,
                 "untracked": false,
-                "revision": "24:1794222164001949500:1794222164001949500:6755399442294874"
+                "revision": "24:1767323045460518749:1767323045460518749:2199140066"
               },
               {
                 "path": "new.txt",
@@ -1906,7 +1906,7 @@
                 "additions": 1,
                 "deletions": 0,
                 "untracked": true,
-                "revision": "10:1794222164143534500:1794222164143534500:10133099162821315"
+                "revision": "10:1767323048610145150:1767323048610145150:2640131855"
               },
               {
                 "path": "src/b.mjs",
@@ -1914,7 +1914,7 @@
                 "additions": 1,
                 "deletions": 1,
                 "untracked": false,
-                "revision": "20:1794222164001949500:1794222164001949500:10414574139535326"
+                "revision": "20:1767323045617494522:1767323045617494522:2560163993"
               }
             ],
             "untrackedOmitted": 0
@@ -2849,6 +2849,19 @@
           "result": {
             "installed": true,
             "version": "2.51.0.windows.1"
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--version"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0,
+            "stdout": "git version 2.51.0.windows.1\n"
           }
         }
       ],
@@ -6969,7 +6982,7 @@
       "frame": {
         "ok": true,
         "value": {
-          "flowId": "ghlogin_43972_1",
+          "flowId": "ghlogin_4242_1",
           "state": "pending"
         }
       },
@@ -6982,7 +6995,7 @@
             }
           ],
           "result": {
-            "flowId": "ghlogin_43972_1",
+            "flowId": "ghlogin_4242_1",
             "state": "pending"
           }
         }
@@ -7023,12 +7036,12 @@
       "name": "githubCliLoginStatus-pending",
       "call": "githubCliLoginStatus",
       "params": [
-        "ghlogin_43972_1"
+        "ghlogin_4242_1"
       ],
       "frame": {
         "ok": true,
         "value": {
-          "flowId": "ghlogin_43972_1",
+          "flowId": "ghlogin_4242_1",
           "state": "pending"
         }
       },
@@ -7036,10 +7049,10 @@
         {
           "name": "githubCliLoginStatus",
           "args": [
-            "ghlogin_43972_1"
+            "ghlogin_4242_1"
           ],
           "result": {
-            "flowId": "ghlogin_43972_1",
+            "flowId": "ghlogin_4242_1",
             "state": "pending"
           }
         }
@@ -7062,12 +7075,12 @@
       "name": "githubCliLoginStatus-code",
       "call": "githubCliLoginStatus",
       "params": [
-        "ghlogin_43972_1"
+        "ghlogin_4242_1"
       ],
       "frame": {
         "ok": true,
         "value": {
-          "flowId": "ghlogin_43972_1",
+          "flowId": "ghlogin_4242_1",
           "state": "code",
           "code": "ABCD-1234",
           "url": "https://github.com/login/device"
@@ -7077,10 +7090,10 @@
         {
           "name": "githubCliLoginStatus",
           "args": [
-            "ghlogin_43972_1"
+            "ghlogin_4242_1"
           ],
           "result": {
-            "flowId": "ghlogin_43972_1",
+            "flowId": "ghlogin_4242_1",
             "state": "code",
             "code": "ABCD-1234",
             "url": "https://github.com/login/device"
@@ -7105,7 +7118,7 @@
       "name": "githubCliLoginOpenBrowser",
       "call": "githubCliLoginOpenBrowser",
       "params": [
-        "ghlogin_43972_1",
+        "ghlogin_4242_1",
         {
           "openBrowser": false
         }
@@ -7118,7 +7131,7 @@
         {
           "name": "githubCliLoginOpenBrowser",
           "args": [
-            "ghlogin_43972_1",
+            "ghlogin_4242_1",
             {
               "openBrowser": false
             }
@@ -7144,7 +7157,7 @@
       "name": "githubCliLoginOpenBrowser-no-options",
       "call": "githubCliLoginOpenBrowser",
       "params": [
-        "ghlogin_43972_1"
+        "ghlogin_4242_1"
       ],
       "frame": {
         "ok": true,
@@ -7154,7 +7167,7 @@
         {
           "name": "githubCliLoginOpenBrowser",
           "args": [
-            "ghlogin_43972_1",
+            "ghlogin_4242_1",
             {}
           ],
           "result": false
@@ -7178,7 +7191,7 @@
       "name": "githubCliLoginOpenBrowser-bad-options",
       "call": "githubCliLoginOpenBrowser",
       "params": [
-        "ghlogin_43972_1",
+        "ghlogin_4242_1",
         "yes"
       ],
       "frame": {
@@ -7300,7 +7313,7 @@
       "name": "githubCliLoginCancel",
       "call": "githubCliLoginCancel",
       "params": [
-        "ghlogin_43972_1"
+        "ghlogin_4242_1"
       ],
       "frame": {
         "ok": true,
@@ -7310,7 +7323,7 @@
         {
           "name": "cancelGithubCliLogin",
           "args": [
-            "ghlogin_43972_1"
+            "ghlogin_4242_1"
           ]
         }
       ],
@@ -7332,7 +7345,7 @@
       "name": "githubCliLoginStatus-cancelled",
       "call": "githubCliLoginStatus",
       "params": [
-        "ghlogin_43972_1"
+        "ghlogin_4242_1"
       ],
       "frame": {
         "ok": false,
@@ -7342,7 +7355,7 @@
         {
           "name": "githubCliLoginStatus",
           "args": [
-            "ghlogin_43972_1"
+            "ghlogin_4242_1"
           ],
           "error": {
             "message": "Unknown GitHub login flow."
@@ -7367,7 +7380,7 @@
       "name": "githubCliLoginCancel-unknown-flow",
       "call": "githubCliLoginCancel",
       "params": [
-        "ghlogin_43972_1"
+        "ghlogin_4242_1"
       ],
       "frame": {
         "ok": true,
@@ -7377,7 +7390,7 @@
         {
           "name": "cancelGithubCliLogin",
           "args": [
-            "ghlogin_43972_1"
+            "ghlogin_4242_1"
           ]
         }
       ],
@@ -7402,7 +7415,7 @@
       "frame": {
         "ok": true,
         "value": {
-          "flowId": "ghlogin_43972_2",
+          "flowId": "ghlogin_4242_2",
           "state": "pending"
         }
       },
@@ -7415,7 +7428,7 @@
             }
           ],
           "result": {
-            "flowId": "ghlogin_43972_2",
+            "flowId": "ghlogin_4242_2",
             "state": "pending"
           }
         }
@@ -7456,12 +7469,12 @@
       "name": "githubCliLoginStatus-success",
       "call": "githubCliLoginStatus",
       "params": [
-        "ghlogin_43972_2"
+        "ghlogin_4242_2"
       ],
       "frame": {
         "ok": true,
         "value": {
-          "flowId": "ghlogin_43972_2",
+          "flowId": "ghlogin_4242_2",
           "state": "success",
           "code": "WXYZ-9876",
           "url": "https://github.com/login/device",
@@ -7472,10 +7485,10 @@
         {
           "name": "githubCliLoginStatus",
           "args": [
-            "ghlogin_43972_2"
+            "ghlogin_4242_2"
           ],
           "result": {
-            "flowId": "ghlogin_43972_2",
+            "flowId": "ghlogin_4242_2",
             "state": "success",
             "code": "WXYZ-9876",
             "url": "https://github.com/login/device",
@@ -7504,7 +7517,7 @@
       "frame": {
         "ok": true,
         "value": {
-          "flowId": "ghlogin_43972_3",
+          "flowId": "ghlogin_4242_3",
           "state": "pending"
         }
       },
@@ -7517,7 +7530,7 @@
             }
           ],
           "result": {
-            "flowId": "ghlogin_43972_3",
+            "flowId": "ghlogin_4242_3",
             "state": "pending"
           }
         }
@@ -7558,12 +7571,12 @@
       "name": "githubCliLoginStatus-error",
       "call": "githubCliLoginStatus",
       "params": [
-        "ghlogin_43972_3"
+        "ghlogin_4242_3"
       ],
       "frame": {
         "ok": true,
         "value": {
-          "flowId": "ghlogin_43972_3",
+          "flowId": "ghlogin_4242_3",
           "state": "error",
           "message": "error connecting to github.com please try again later"
         }
@@ -7572,10 +7585,10 @@
         {
           "name": "githubCliLoginStatus",
           "args": [
-            "ghlogin_43972_3"
+            "ghlogin_4242_3"
           ],
           "result": {
-            "flowId": "ghlogin_43972_3",
+            "flowId": "ghlogin_4242_3",
             "state": "error",
             "message": "error connecting to github.com please try again later"
           }
@@ -7599,7 +7612,7 @@
       "name": "githubCliLoginCancel-failed-flow",
       "call": "githubCliLoginCancel",
       "params": [
-        "ghlogin_43972_3"
+        "ghlogin_4242_3"
       ],
       "frame": {
         "ok": true,
@@ -7609,7 +7622,7 @@
         {
           "name": "cancelGithubCliLogin",
           "args": [
-            "ghlogin_43972_3"
+            "ghlogin_4242_3"
           ]
         }
       ],
@@ -9625,6 +9638,19 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--version"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0,
+            "stdout": "git version 2.51.0.windows.1\n"
+          }
+        }
+      ],
       "world": {
         "ghInstalled": true,
         "ghAuth": true,
@@ -9905,6 +9931,17 @@
           "reply": {
             "code": 0,
             "stdout": "Successfully installed\n"
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--version"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0,
+            "stdout": "git version 2.51.0.windows.1\n"
           }
         }
       ],
