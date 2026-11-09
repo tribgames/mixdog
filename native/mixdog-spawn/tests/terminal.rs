@@ -927,3 +927,156 @@ async fn terminal_tool_lists_runs_and_reads_in_process() {
     assert!(exit.killed.is_none(), "the shell left on its own");
     rig.tabs.dispose_all();
 }
+
+// ----- the terminal operations' failure paths, against the Node recording -----------------------
+
+/// What the dispatcher makes of an argument: `String(arg || '')` for the ids it reads.
+fn coerced(arg: Option<&Value>) -> String {
+    match arg {
+        None | Some(Value::Null) => String::new(),
+        Some(Value::String(text)) => text.clone(),
+        Some(other) => other.to_string(),
+    }
+}
+
+/// `term_<pid>_<n>`: the id the manager makes when the one asked for is not acceptable.
+fn is_generated(id: &str) -> bool {
+    id.strip_prefix(&format!("term_{}_", std::process::id())).is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// `failure-paths.json` is Node's `createDesktopOperations` over its real terminal manager and a
+/// scripted PTY (`record-terminal-ops.mjs`). The replay runs the same cases on a real shell, so
+/// text is compared by the relations the recording shows (reset flags, suffixes of the full text,
+/// the replay equal to the snapshot), never by the script's own words. The phone-claim cases are
+/// not replayed: in Node a view's resize claims the size and a non-positive resize releases it
+/// (with a 30 s lease); here focus claims it and there is no lease. That difference is reported,
+/// not matched.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn terminal_operation_failure_paths_equal_nodes_recording() {
+    const S: &str = "session-terminal:S";
+    const NOT_REPLAYED: [&str; 5] = [
+        "a phone claims the size",
+        "attach while the phone owns the size",
+        "ensure while the phone owns the size",
+        "the phone releases it",
+        "attach after the release",
+    ];
+    let recorded = fixture("../core/fixtures/terminal-ops/failure-paths.json");
+    let rig = rig("failure-paths").await;
+    let tabs = &rig.tabs;
+    let payload = |attached: &Attached| json!({ "id": attached.id, "replay": attached.replay });
+    let mut base = 0u64;
+    let mut full = String::new();
+    let total = recorded["total"].as_i64().unwrap();
+    let mut seen = 0;
+    for case in recorded["cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let args = case["args"].as_array().unwrap();
+        let want = &case["result"];
+        if NOT_REPLAYED.contains(&name) {
+            continue;
+        }
+        seen += 1;
+        match name {
+            n if n.starts_with("tabs of [") && n.ends_with("with no tab open") => {
+                assert_eq!(json!(tabs.session_tabs(&coerced(args.first())).len()), json!(want.as_array().unwrap().len()), "{name}");
+            }
+            n if n.starts_with("attach [") && n.ends_with("before anything runs") => {
+                assert_eq!(tabs.attach(&coerced(args.first())).await, None, "{name}");
+                assert!(want.is_null());
+            }
+            "ensure a session tab" => {
+                let attached = tabs.ensure(Some(S), rig.request()).await.unwrap();
+                assert_eq!(payload(&attached), *want, "{name}");
+                assert_eq!(attached.size_owner, None);
+            }
+            n if n.starts_with("ensure ") && args[0] != json!(S) && !n.contains("exited") => {
+                // An id that is not term_<id> or session-terminal:<id> is replaced; null asks for none.
+                let asked = args[0].as_str();
+                let attached = tabs.ensure(asked, rig.request()).await.unwrap();
+                assert!(is_generated(&attached.id), "{name}: {}", attached.id);
+                assert_eq!(json!({ "id": "<generated>", "replay": attached.replay }), *want, "{name}");
+            }
+            "ensure the same id again replays what it printed" | "attach the running tab" => {
+                if full.is_empty() {
+                    // The shell is quiet once it has drawn the prompt after this marker, so the text below is the whole of it.
+                    tabs.write(S, "echo MIXDOG_QUIET\r");
+                    rig.wait_prompt_frame_after(S, "MIXDOG_QUIET").await;
+                }
+                let text = tabs.snapshot(S, None).unwrap();
+                full = text.text.clone();
+                base = text.cursor - full.encode_utf16().count() as u64;
+                let attached = if name.starts_with("ensure") { tabs.ensure(Some(S), rig.request()).await.unwrap() } else { tabs.attach(S).await.unwrap() };
+                assert_eq!(attached.id, want["id"].as_str().unwrap());
+                assert!(!want["replay"].as_str().unwrap().is_empty());
+                assert_eq!(attached.replay, full, "{name}: the replay is what the tab printed");
+            }
+            n if n.starts_with("snapshot since ") => {
+                let units: Vec<u16> = full.encode_utf16().collect();
+                let have = units.len() as i64;
+                // The recording's script printed `total` units; the same positions in this tab's text.
+                let place = |rel: i64| if rel == total { have } else if rel == total - 1 { have - 1 } else if rel == total + 1 { have + 1 } else { rel };
+                let since = match args.get(1) {
+                    None | Some(Value::Null) => None,
+                    Some(Value::Number(literal)) => Some(literal.as_u64().unwrap()),
+                    Some(object) => Some((base as i64 + place(object["rel"].as_i64().unwrap())) as u64),
+                };
+                let got = tabs.snapshot(S, since).unwrap();
+                assert_eq!(got.reset, want["reset"].as_bool().unwrap(), "{name}: reset");
+                assert_eq!(got.cursor - base, have as u64, "{name}: cursor");
+                let relative = since.map(|s| s as i64 - base as i64);
+                let expected = match relative {
+                    Some(r) if !got.reset => String::from_utf16(&units[r as usize..]).unwrap(),
+                    _ => full.clone(),
+                };
+                assert_eq!(got.text, expected, "{name}: text");
+            }
+            n if n.starts_with("snapshot [") && n.ends_with("a tab that is not there") => {
+                let since = args.get(1).map(|v| v.as_u64().unwrap());
+                assert_eq!(tabs.snapshot(&coerced(args.first()), since), None, "{name}");
+                assert!(want.is_null());
+            }
+            "attach an exited tab" => {
+                tabs.write(S, "exit 7\r");
+                collect(&rig.manager, &mixdog_protocol::ProcessHandle::from(S)).await;
+                assert_eq!(tabs.attach(S).await, None);
+                assert!(want.is_null());
+            }
+            "snapshot an exited tab" => {
+                let tail = "\r\n[process exited with code 7]\r\n";
+                assert!(want["text"].as_str().unwrap().ends_with(tail));
+                assert!(tabs.snapshot(S, None).unwrap().text.ends_with(tail));
+            }
+            "tabs of S after the exit" => {
+                let got: Vec<Value> = tabs.session_tabs("S").iter().map(|t| json!({ "tab": t.tab, "id": t.id, "running": t.running })).collect();
+                assert_eq!(Value::Array(got), *want);
+            }
+            "ensure the exited id again" => {
+                let attached = tabs.ensure(Some(S), rig.request()).await.unwrap();
+                assert_eq!(payload(&attached), *want);
+            }
+            "attach the respawned tab" => {
+                let attached = tabs.attach(S).await.unwrap();
+                assert_eq!(attached.id, want["id"].as_str().unwrap());
+                assert!(tabs.snapshot(S, None).unwrap().text.starts_with(&attached.replay));
+            }
+            "dispose it" => tabs.dispose(S),
+            "attach a disposed tab" => {
+                assert_eq!(tabs.attach(S).await, None);
+                assert!(want.is_null());
+            }
+            "snapshot a disposed tab" => {
+                assert_eq!(tabs.snapshot(S, None), None);
+                assert!(want.is_null());
+            }
+            "tabs after the dispose" => assert!(tabs.session_tabs("S").is_empty()),
+            "write to a tab that is not there" => {
+                tabs.write("nope", "x");
+                assert!(want.is_null());
+            }
+            other => panic!("unmapped recorded case {other}"),
+        }
+    }
+    assert_eq!(seen, recorded["cases"].as_array().unwrap().len() - NOT_REPLAYED.len());
+    tabs.dispose_all();
+}
