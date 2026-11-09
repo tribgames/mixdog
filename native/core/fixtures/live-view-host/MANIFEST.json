@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 349858,
+      "bytes": 352973,
       "path": "host.json",
-      "sha256": "8829697bbb4b8a6db5f8e01afdd5b8fc40aa56e88f180fa96eace673ada61465"
+      "sha256": "ef33ff9325ae4e1c537e9ae1cedcbdd892f085e2a2ab88faec65761257b2a696"
     }
   ],
   "product": {
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-live-view-host.mjs",
   "set": "live-view-host",
-  "totalBytes": 349858
+  "totalBytes": 352973
 }

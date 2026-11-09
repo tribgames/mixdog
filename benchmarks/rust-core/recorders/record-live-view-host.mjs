@@ -246,7 +246,7 @@ const scenarios = [
   ]),
   await hostScenario('a ready with a video limit widens the source before the offer; ICE servers that are not a list are none', [
     PAGE,
-    signalA(readySig({ videoLimit: { pixelWidth: 1920, pixelHeight: 1080 } }), 'not a list'),
+    signalA(readySig({ videoLimit: { maxWidth: 1920, maxHeight: 1080 } }), 'not a list'),
     { op: 'sender', event: { type: 'offer', connectionId: C1, sdp: SDP } },
   ]),
   await hostScenario('negotiation: offer, answer, candidates both ways, DTLS', [
