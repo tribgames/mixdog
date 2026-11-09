@@ -6178,6 +6178,13 @@
     "ProjectDirectoryParams": {
       "description": "Params of `project/directory`.",
       "properties": {
+        "owner": {
+          "description": "Answer the registered Project's real path even when `path` names a managed worktree of it.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "path": {
           "type": "string"
         }

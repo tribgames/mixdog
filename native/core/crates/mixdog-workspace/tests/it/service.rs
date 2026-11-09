@@ -1121,3 +1121,108 @@ async fn recorded_lsp_registry_and_unsupported_answers_replay() {
         assert_eq!(table[language]["args"], json!(spec.args), "{language}");
     }
 }
+
+// ---- the phone's start calls: what Node's `canonicalDirectory`, `knownProject` and `enter` answered (fixtures/phone-chat/host.json) --------
+
+/// The fixture's managed worktrees: `(worktree folder, owner Project, ready)`. A stand-in for the worktree manager's registry behind the daemon's
+/// `SessionProjectWorkspaces::managed`, the one resolver the service takes (`set_managed_projects`).
+struct Worktrees(CoreState, Vec<(String, String, bool)>);
+
+#[async_trait::async_trait]
+impl mixdog_workspace::service::ManagedProjects for Worktrees {
+    async fn owner(&self, path: &str) -> Option<(String, String)> {
+        let real = canonical(std::path::Path::new(path)).ok()?.to_string_lossy().into_owned();
+        let below = |folder: &str| real == folder || real.starts_with(&format!("{folder}{}", std::path::MAIN_SEPARATOR));
+        let (_, owner, _) = self.1.iter().find(|(folder, _, ready)| *ready && below(folder))?;
+        self.0.project(owner).await.ok().flatten()?;
+        Some((owner.clone(), real))
+    }
+}
+
+fn domain(error: &CoreError) -> (Option<String>, Option<String>) {
+    match error {
+        CoreError::DomainError { code, message, .. } => (code.as_ref().map(|c| c.to_string()), message.as_ref().map(|m| m.to_string())),
+        other => panic!("not a domain error: {other:?}"),
+    }
+}
+
+/// The adapter's sequence for `startProject` / `startProjectTask` (remote-protocol-chat-host.ts): the core calls, and the folder the blank snapshot names.
+async fn start_through_core(env: &Env, call: &str, path: &str) -> Result<String, CoreError> {
+    if call == "startProject" {
+        let created = self::call(env, "project/create", json!({ "path": path })).await?;
+        let folder = created["project"]["path"].as_str().unwrap().to_owned();
+        let _ = self::call(env, "project/touch", json!({ "path": folder })).await;
+        Ok(folder)
+    } else {
+        let folder = self::call(env, "project/directory", json!({ "path": path, "owner": true })).await?["path"].as_str().unwrap().to_owned();
+        let _ = self::call(env, "project/touch", json!({ "path": path })).await;
+        Ok(folder)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn recorded_start_calls_resolve_the_folder_node_did() {
+    let fixture: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat/host.json")).unwrap();
+    let mut replayed = 0;
+    for case in fixture["cases"].as_array().unwrap().iter().filter(|case| case["group"] == "start" && case["call"] != "startTask") {
+        let name = case["name"].as_str().unwrap();
+        let env = env();
+        let base = env.root.parent().unwrap().to_path_buf();
+        let root = base.to_string_lossy().into_owned();
+        let at = |text: &str| text.replace("<ROOT>/", &format!("{root}/")).replace('/', std::path::MAIN_SEPARATOR_STR);
+        let setup = &case["setup"];
+        for dir in setup["dirs"].as_array().unwrap() {
+            std::fs::create_dir_all(base.join(dir.as_str().unwrap())).unwrap();
+        }
+        for file in setup["files"].as_array().unwrap() {
+            std::fs::write(base.join(file.as_str().unwrap()), "x").unwrap();
+        }
+        let hidden: Vec<String> = setup["hidden"].as_array().unwrap().iter().map(|h| at(h.as_str().unwrap())).collect();
+        let registered: Vec<String> = setup["projects"].as_array().unwrap().iter().map(|p| at(p["path"].as_str().unwrap())).collect();
+        for (rank, path) in registered.iter().chain(hidden.iter().filter(|h| !registered.contains(h))).enumerate() {
+            let tombstone = hidden.contains(path);
+            let row = mixdog_store::state::ProjectRow { path: path.clone(), alias: None, hidden: tombstone, hidden_rank: tombstone.then_some(rank as i64), last_used_at: None };
+            env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
+        }
+        if setup["worktrees"] == true {
+            let ready = name != "startProjectTask-worktree-not-ready";
+            let folder = canonical(&base.join("wt")).unwrap().to_string_lossy().into_owned();
+            env.service.set_managed_projects(Arc::new(Worktrees(env.state.clone(), vec![(folder, at("<ROOT>/proj"), ready)])));
+        }
+        // `requiredString` (the phone method layer) trims before a call reaches the host; a blank or non-string path never does.
+        let Some(given) = case["args"][0].as_str().map(str::trim).filter(|g| !g.is_empty()) else { continue };
+        let outcome = start_through_core(&env, case["call"].as_str().unwrap(), &at(given)).await;
+        let node = &case["node"];
+        match (&outcome, node.get("error")) {
+            (Ok(folder), None) => assert_eq!(*folder, at(node["result"]["cwd"].as_str().unwrap()), "{name}: the folder of the blank snapshot"),
+            (Err(CoreError::PermissionDenied { .. }), Some(error)) => assert_eq!(error["message"], "Project is not available.", "{name}"),
+            (Err(error), Some(node_error)) => {
+                let (code, message) = domain(error);
+                let node_message = node_error["message"].as_str().unwrap();
+                match code.as_deref() {
+                    // The message is the path the OS error names; the client builds Node's text from it.
+                    Some("pathMissing") => {
+                        assert_eq!(node_error["code"], "ENOENT", "{name}");
+                        let named = message.unwrap().replace('\\', "/").replace(&root.replace('\\', "/"), "<ROOT>");
+                        assert!(node_message.contains(&format!("realpath '{named}'")), "{name}: {node_message}");
+                    }
+                    Some("notADirectory") => assert_eq!(message.as_deref(), Some(node_message), "{name}"),
+                    other => panic!("{name}: unexpected code {other:?}"),
+                }
+            }
+            (outcome, node) => panic!("{name}: core {outcome:?} against Node {node:?}"),
+        }
+        // The registry afterwards: the touch went to the Project Node touched, and the entered Project lost its tombstone.
+        let rows = env.state.projects().await.unwrap();
+        let used: Vec<&str> = rows.iter().filter(|row| row.last_used_at.is_some()).map(|row| row.path.as_str()).collect();
+        let touched: Vec<String> = node["storeCalls"].as_array().unwrap().iter().filter(|c| c[0] == "touchProjectSelected").map(|c| at(c[1].as_str().unwrap())).collect();
+        assert_eq!(used, touched.iter().map(String::as_str).collect::<Vec<_>>(), "{name}: touched");
+        let mut left: Vec<String> = rows.iter().filter(|row| row.hidden).map(|row| row.path.clone()).collect();
+        left.sort();
+        let node_left: Vec<String> = node["hiddenAfter"].as_array().map(|h| h.iter().map(|p| at(p.as_str().unwrap())).collect()).unwrap_or_else(|| hidden.clone());
+        assert_eq!(left, node_left, "{name}: tombstones left");
+        assert!(rows.iter().all(|row| row.hidden || row.hidden_rank.is_none()), "{name}: a rank outlived its tombstone");
+        replayed += 1;
+    }
+    assert_eq!(replayed, 18, "recorded start cases replayed");
+}

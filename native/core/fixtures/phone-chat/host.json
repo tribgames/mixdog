@@ -1,0 +1,4359 @@
+{
+  "manifest": {
+    "exact": true,
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+    "source": "git archive of the whole tree; session-host.ts, remote-methods.ts, transcript-window.mjs, remote-view-staleness.ts and secret-requests.ts run unchanged"
+  },
+  "cases": [
+    {
+      "group": "start",
+      "name": "startTask",
+      "setup": {
+        "projects": [],
+        "hidden": [],
+        "worktrees": false,
+        "touchThrows": false,
+        "dirs": [],
+        "files": []
+      },
+      "call": "startTask",
+      "args": [],
+      "node": {
+        "daemonCalls": [],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/userData/workspace/unclassified",
+          "currentProject": null,
+          "desktopSession": {
+            "classification": "task",
+            "projectPath": null
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "storeCalls": [],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/userData/workspace/unclassified",
+            "currentProject": null,
+            "desktopSession": {
+              "classification": "task",
+              "projectPath": null
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        ],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProject-new",
+      "setup": {
+        "projects": [],
+        "hidden": [],
+        "worktrees": false,
+        "touchThrows": false,
+        "dirs": [
+          "proj"
+        ],
+        "files": []
+      },
+      "call": "startProject",
+      "args": [
+        "<ROOT>/proj"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/proj",
+          "currentProject": "<ROOT>/proj",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "<ROOT>/proj"
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "storeCalls": [
+          [
+            "addProject",
+            "<ROOT>/proj"
+          ],
+          [
+            "touchProjectSelected",
+            "<ROOT>/proj"
+          ]
+        ],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/proj",
+            "currentProject": "<ROOT>/proj",
+            "desktopSession": {
+              "classification": "project",
+              "projectPath": "<ROOT>/proj"
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        ],
+        "hiddenAfter": []
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProject-registered",
+      "setup": {
+        "projects": [
+          {
+            "name": "proj",
+            "path": "<ROOT>/proj",
+            "addedAt": 1
+          }
+        ],
+        "hidden": [],
+        "worktrees": false,
+        "touchThrows": false,
+        "dirs": [
+          "proj"
+        ],
+        "files": []
+      },
+      "call": "startProject",
+      "args": [
+        "<ROOT>/proj"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/proj",
+          "currentProject": "<ROOT>/proj",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "<ROOT>/proj"
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "storeCalls": [
+          [
+            "addProject",
+            "<ROOT>/proj"
+          ],
+          [
+            "touchProjectSelected",
+            "<ROOT>/proj"
+          ]
+        ],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/proj",
+            "currentProject": "<ROOT>/proj",
+            "desktopSession": {
+              "classification": "project",
+              "projectPath": "<ROOT>/proj"
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        ],
+        "hiddenAfter": []
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProject-tombstone",
+      "setup": {
+        "projects": [
+          {
+            "name": "proj",
+            "path": "<ROOT>/proj",
+            "addedAt": 1
+          }
+        ],
+        "hidden": [
+          "<ROOT>/proj",
+          "<ROOT>/other"
+        ],
+        "worktrees": false,
+        "touchThrows": false,
+        "dirs": [
+          "proj"
+        ],
+        "files": []
+      },
+      "call": "startProject",
+      "args": [
+        "<ROOT>/proj"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/proj",
+          "currentProject": "<ROOT>/proj",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "<ROOT>/proj"
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "storeCalls": [
+          [
+            "addProject",
+            "<ROOT>/proj"
+          ],
+          [
+            "touchProjectSelected",
+            "<ROOT>/proj"
+          ]
+        ],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/proj",
+            "currentProject": "<ROOT>/proj",
+            "desktopSession": {
+              "classification": "project",
+              "projectPath": "<ROOT>/proj"
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        ],
+        "hiddenAfter": [
+          "<ROOT>/other"
+        ]
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProject-padded",
+      "setup": {
+        "projects": [],
+        "hidden": [],
+        "worktrees": false,
+        "touchThrows": false,
+        "dirs": [
+          "proj"
+        ],
+        "files": []
+      },
+      "call": "startProject",
+      "args": [
+        "  <ROOT>/proj  "
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/proj",
+          "currentProject": "<ROOT>/proj",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "<ROOT>/proj"
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "storeCalls": [
+          [
+            "addProject",
+            "<ROOT>/proj"
+          ],
+          [
+            "touchProjectSelected",
+            "<ROOT>/proj"
+          ]
+        ],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/proj",
+            "currentProject": "<ROOT>/proj",
+            "desktopSession": {
+              "classification": "project",
+              "projectPath": "<ROOT>/proj"
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        ],
+        "hiddenAfter": []
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProject-missing",
+      "setup": {
+        "projects": [],
+        "hidden": [],
+        "worktrees": false,
+        "touchThrows": false,
+        "dirs": [],
+        "files": []
+      },
+      "call": "startProject",
+      "args": [
+        "<ROOT>/nowhere"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "ENOENT: no such file or directory, realpath '<ROOT>/nowhere'",
+          "code": "ENOENT",
+          "name": "Error"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProject-below-missing",
+      "setup": {
+        "projects": [],
+        "hidden": [],
+        "worktrees": false,
+        "touchThrows": false,
+        "dirs": [],
+        "files": []
+      },
+      "call": "startProject",
+      "args": [
+        "<ROOT>/nowhere/deeper"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "ENOENT: no such file or directory, realpath '<ROOT>/nowhere/deeper'",
+          "code": "ENOENT",
+          "name": "Error"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProject-file",
+      "setup": {
+        "projects": [],
+        "hidden": [],
+        "worktrees": false,
+        "touchThrows": false,
+        "dirs": [],
+        "files": [
+          "file.txt"
+        ]
+      },
+      "call": "startProject",
+      "args": [
+        "<ROOT>/file.txt"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "Session workspace is not a directory.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProject-empty",
+      "setup": {
+        "projects": [],
+        "hidden": [],
+        "worktrees": false,
+        "touchThrows": false,
+        "dirs": [],
+        "files": []
+      },
+      "call": "startProject",
+      "args": [
+        "   "
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "projectPath is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProject-number",
+      "setup": {
+        "projects": [],
+        "hidden": [],
+        "worktrees": false,
+        "touchThrows": false,
+        "dirs": [],
+        "files": []
+      },
+      "call": "startProject",
+      "args": [
+        7
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "projectPath must be a string.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProject-touch-throws",
+      "setup": {
+        "projects": [],
+        "hidden": [],
+        "worktrees": false,
+        "touchThrows": true,
+        "dirs": [
+          "proj"
+        ],
+        "files": []
+      },
+      "call": "startProject",
+      "args": [
+        "<ROOT>/proj"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/proj",
+          "currentProject": "<ROOT>/proj",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "<ROOT>/proj"
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "storeCalls": [
+          [
+            "addProject",
+            "<ROOT>/proj"
+          ],
+          [
+            "touchProjectSelected",
+            "<ROOT>/proj"
+          ]
+        ],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/proj",
+            "currentProject": "<ROOT>/proj",
+            "desktopSession": {
+              "classification": "project",
+              "projectPath": "<ROOT>/proj"
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        ],
+        "hiddenAfter": []
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProjectTask-registered",
+      "setup": {
+        "projects": [
+          {
+            "name": "proj",
+            "path": "<ROOT>/proj",
+            "addedAt": 1
+          }
+        ],
+        "hidden": [],
+        "worktrees": false,
+        "touchThrows": false,
+        "dirs": [
+          "proj"
+        ],
+        "files": []
+      },
+      "call": "startProjectTask",
+      "args": [
+        "<ROOT>/proj"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/proj",
+          "currentProject": "<ROOT>/proj",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "<ROOT>/proj"
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "storeCalls": [
+          [
+            "touchProjectSelected",
+            "<ROOT>/proj"
+          ]
+        ],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/proj",
+            "currentProject": "<ROOT>/proj",
+            "desktopSession": {
+              "classification": "project",
+              "projectPath": "<ROOT>/proj"
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        ],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProjectTask-unregistered",
+      "setup": {
+        "projects": [],
+        "hidden": [],
+        "worktrees": false,
+        "touchThrows": false,
+        "dirs": [
+          "proj"
+        ],
+        "files": []
+      },
+      "call": "startProjectTask",
+      "args": [
+        "<ROOT>/proj"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "Project is not available.",
+          "name": "Error"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProjectTask-vanished",
+      "setup": {
+        "projects": [
+          {
+            "name": "proj",
+            "path": "<ROOT>/proj",
+            "addedAt": 1
+          }
+        ],
+        "hidden": [],
+        "worktrees": false,
+        "touchThrows": false,
+        "dirs": [],
+        "files": []
+      },
+      "call": "startProjectTask",
+      "args": [
+        "<ROOT>/proj"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "ENOENT: no such file or directory, realpath '<ROOT>/proj'",
+          "code": "ENOENT",
+          "name": "Error"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProjectTask-registered-file",
+      "setup": {
+        "projects": [
+          {
+            "name": "proj",
+            "path": "<ROOT>/proj",
+            "addedAt": 1
+          }
+        ],
+        "hidden": [],
+        "worktrees": false,
+        "touchThrows": false,
+        "dirs": [],
+        "files": [
+          "proj"
+        ]
+      },
+      "call": "startProjectTask",
+      "args": [
+        "<ROOT>/proj"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "Session workspace is not a directory.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProjectTask-touch-throws",
+      "setup": {
+        "projects": [
+          {
+            "name": "proj",
+            "path": "<ROOT>/proj",
+            "addedAt": 1
+          }
+        ],
+        "hidden": [],
+        "worktrees": false,
+        "touchThrows": true,
+        "dirs": [
+          "proj"
+        ],
+        "files": []
+      },
+      "call": "startProjectTask",
+      "args": [
+        "<ROOT>/proj"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/proj",
+          "currentProject": "<ROOT>/proj",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "<ROOT>/proj"
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "storeCalls": [
+          [
+            "touchProjectSelected",
+            "<ROOT>/proj"
+          ]
+        ],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/proj",
+            "currentProject": "<ROOT>/proj",
+            "desktopSession": {
+              "classification": "project",
+              "projectPath": "<ROOT>/proj"
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        ],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProjectTask-empty",
+      "setup": {
+        "projects": [],
+        "hidden": [],
+        "worktrees": false,
+        "touchThrows": false,
+        "dirs": [],
+        "files": []
+      },
+      "call": "startProjectTask",
+      "args": [
+        ""
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "projectPath is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProjectTask-worktree",
+      "setup": {
+        "projects": [
+          {
+            "name": "proj",
+            "path": "<ROOT>/proj",
+            "addedAt": 1
+          }
+        ],
+        "hidden": [],
+        "worktrees": true,
+        "touchThrows": false,
+        "dirs": [
+          "proj",
+          "wt"
+        ],
+        "files": []
+      },
+      "call": "startProjectTask",
+      "args": [
+        "<ROOT>/wt"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/proj",
+          "currentProject": "<ROOT>/proj",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "<ROOT>/proj"
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "storeCalls": [
+          [
+            "touchProjectSelected",
+            "<ROOT>/proj"
+          ]
+        ],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/proj",
+            "currentProject": "<ROOT>/proj",
+            "desktopSession": {
+              "classification": "project",
+              "projectPath": "<ROOT>/proj"
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        ],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProjectTask-worktree-subfolder",
+      "setup": {
+        "projects": [
+          {
+            "name": "proj",
+            "path": "<ROOT>/proj",
+            "addedAt": 1
+          }
+        ],
+        "hidden": [],
+        "worktrees": true,
+        "touchThrows": false,
+        "dirs": [
+          "proj",
+          "wt/sub"
+        ],
+        "files": []
+      },
+      "call": "startProjectTask",
+      "args": [
+        "<ROOT>/wt/sub"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/proj",
+          "currentProject": "<ROOT>/proj",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "<ROOT>/proj"
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "storeCalls": [
+          [
+            "touchProjectSelected",
+            "<ROOT>/proj"
+          ]
+        ],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/proj",
+            "currentProject": "<ROOT>/proj",
+            "desktopSession": {
+              "classification": "project",
+              "projectPath": "<ROOT>/proj"
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        ],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProjectTask-worktree-not-ready",
+      "setup": {
+        "projects": [
+          {
+            "name": "proj",
+            "path": "<ROOT>/proj",
+            "addedAt": 1
+          }
+        ],
+        "hidden": [],
+        "worktrees": true,
+        "touchThrows": false,
+        "dirs": [
+          "proj",
+          "wt"
+        ],
+        "files": []
+      },
+      "call": "startProjectTask",
+      "args": [
+        "<ROOT>/wt"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "Project is not available.",
+          "name": "Error"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProjectTask-worktree-owner-unregistered",
+      "setup": {
+        "projects": [],
+        "hidden": [],
+        "worktrees": true,
+        "touchThrows": false,
+        "dirs": [
+          "proj",
+          "wt"
+        ],
+        "files": []
+      },
+      "call": "startProjectTask",
+      "args": [
+        "<ROOT>/wt"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "Project is not available.",
+          "name": "Error"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "start",
+      "name": "startProjectTask-worktree-owner-vanished",
+      "setup": {
+        "projects": [
+          {
+            "name": "proj",
+            "path": "<ROOT>/proj",
+            "addedAt": 1
+          }
+        ],
+        "hidden": [],
+        "worktrees": true,
+        "touchThrows": false,
+        "dirs": [
+          "wt"
+        ],
+        "files": []
+      },
+      "call": "startProjectTask",
+      "args": [
+        "<ROOT>/wt"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "ENOENT: no such file or directory, realpath '<ROOT>/proj'",
+          "code": "ENOENT",
+          "name": "Error"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "remote",
+      "name": "startTask-remote-off",
+      "setup": {
+        "remoteSession": null
+      },
+      "call": "startTask",
+      "args": [],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "list"
+          }
+        ],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/userData/workspace/unclassified",
+          "currentProject": null,
+          "desktopSession": {
+            "classification": "task",
+            "projectPath": null
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "storeCalls": [],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/userData/workspace/unclassified",
+            "currentProject": null,
+            "desktopSession": {
+              "classification": "task",
+              "projectPath": null
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        ],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "remote",
+      "name": "startTask-remote-enabled",
+      "setup": {
+        "remoteSession": {
+          "enabled": true,
+          "sessionId": "sess_remote_1"
+        }
+      },
+      "call": "startTask",
+      "args": [],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "list"
+          }
+        ],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/userData/workspace/unclassified",
+          "currentProject": null,
+          "desktopSession": {
+            "classification": "task",
+            "projectPath": null
+          },
+          "remoteEnabled": true,
+          "remoteSessionId": "sess_remote_1"
+        },
+        "storeCalls": [],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/userData/workspace/unclassified",
+            "currentProject": null,
+            "desktopSession": {
+              "classification": "task",
+              "projectPath": null
+            },
+            "remoteEnabled": true,
+            "remoteSessionId": "sess_remote_1"
+          }
+        ],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "remote",
+      "name": "startTask-remote-enabled-padded-hyphen",
+      "setup": {
+        "remoteSession": {
+          "enabled": true,
+          "sessionId": "Aa0_-z"
+        }
+      },
+      "call": "startTask",
+      "args": [],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "list"
+          }
+        ],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/userData/workspace/unclassified",
+          "currentProject": null,
+          "desktopSession": {
+            "classification": "task",
+            "projectPath": null
+          },
+          "remoteEnabled": true,
+          "remoteSessionId": "Aa0_-z"
+        },
+        "storeCalls": [],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/userData/workspace/unclassified",
+            "currentProject": null,
+            "desktopSession": {
+              "classification": "task",
+              "projectPath": null
+            },
+            "remoteEnabled": true,
+            "remoteSessionId": "Aa0_-z"
+          }
+        ],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "remote",
+      "name": "startTask-remote-disabled-with-id",
+      "setup": {
+        "remoteSession": {
+          "enabled": false,
+          "sessionId": "sess_remote_1"
+        }
+      },
+      "call": "startTask",
+      "args": [],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "list"
+          }
+        ],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/userData/workspace/unclassified",
+          "currentProject": null,
+          "desktopSession": {
+            "classification": "task",
+            "projectPath": null
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "storeCalls": [],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/userData/workspace/unclassified",
+            "currentProject": null,
+            "desktopSession": {
+              "classification": "task",
+              "projectPath": null
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        ],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "remote",
+      "name": "startTask-remote-enabled-no-id",
+      "setup": {
+        "remoteSession": {
+          "enabled": true
+        }
+      },
+      "call": "startTask",
+      "args": [],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "list"
+          }
+        ],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/userData/workspace/unclassified",
+          "currentProject": null,
+          "desktopSession": {
+            "classification": "task",
+            "projectPath": null
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "storeCalls": [],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/userData/workspace/unclassified",
+            "currentProject": null,
+            "desktopSession": {
+              "classification": "task",
+              "projectPath": null
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        ],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "remote",
+      "name": "startTask-remote-enabled-empty-id",
+      "setup": {
+        "remoteSession": {
+          "enabled": true,
+          "sessionId": ""
+        }
+      },
+      "call": "startTask",
+      "args": [],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "list"
+          }
+        ],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/userData/workspace/unclassified",
+          "currentProject": null,
+          "desktopSession": {
+            "classification": "task",
+            "projectPath": null
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "storeCalls": [],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/userData/workspace/unclassified",
+            "currentProject": null,
+            "desktopSession": {
+              "classification": "task",
+              "projectPath": null
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        ],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "remote",
+      "name": "startTask-remote-enabled-bad-chars",
+      "setup": {
+        "remoteSession": {
+          "enabled": true,
+          "sessionId": "sess remote"
+        }
+      },
+      "call": "startTask",
+      "args": [],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "list"
+          }
+        ],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/userData/workspace/unclassified",
+          "currentProject": null,
+          "desktopSession": {
+            "classification": "task",
+            "projectPath": null
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "storeCalls": [],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/userData/workspace/unclassified",
+            "currentProject": null,
+            "desktopSession": {
+              "classification": "task",
+              "projectPath": null
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        ],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "remote",
+      "name": "startTask-remote-enabled-too-long",
+      "setup": {
+        "remoteSession": {
+          "enabled": true,
+          "sessionId": "sess_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "call": "startTask",
+      "args": [],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "list"
+          }
+        ],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/userData/workspace/unclassified",
+          "currentProject": null,
+          "desktopSession": {
+            "classification": "task",
+            "projectPath": null
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "storeCalls": [],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/userData/workspace/unclassified",
+            "currentProject": null,
+            "desktopSession": {
+              "classification": "task",
+              "projectPath": null
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        ],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "remote",
+      "name": "startTask-remote-enabled-number-id",
+      "setup": {
+        "remoteSession": {
+          "enabled": true,
+          "sessionId": 5
+        }
+      },
+      "call": "startTask",
+      "args": [],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "list"
+          }
+        ],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/userData/workspace/unclassified",
+          "currentProject": null,
+          "desktopSession": {
+            "classification": "task",
+            "projectPath": null
+          },
+          "remoteEnabled": true,
+          "remoteSessionId": "5"
+        },
+        "storeCalls": [],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/userData/workspace/unclassified",
+            "currentProject": null,
+            "desktopSession": {
+              "classification": "task",
+              "projectPath": null
+            },
+            "remoteEnabled": true,
+            "remoteSessionId": "5"
+          }
+        ],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "remote",
+      "name": "startTask-remote-enabled-string-flag",
+      "setup": {
+        "remoteSession": {
+          "enabled": "true",
+          "sessionId": "sess_remote_1"
+        }
+      },
+      "call": "startTask",
+      "args": [],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "list"
+          }
+        ],
+        "result": {
+          "sessionId": "",
+          "items": [],
+          "queued": [],
+          "busy": false,
+          "commandBusy": false,
+          "cwd": "<ROOT>/userData/workspace/unclassified",
+          "currentProject": null,
+          "desktopSession": {
+            "classification": "task",
+            "projectPath": null
+          },
+          "remoteEnabled": false,
+          "remoteSessionId": null
+        },
+        "storeCalls": [],
+        "shells": [
+          {
+            "sessionId": "",
+            "items": [],
+            "queued": [],
+            "busy": false,
+            "commandBusy": false,
+            "cwd": "<ROOT>/userData/workspace/unclassified",
+            "currentProject": null,
+            "desktopSession": {
+              "classification": "task",
+              "projectPath": null
+            },
+            "remoteEnabled": false,
+            "remoteSessionId": null
+          }
+        ],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "history",
+      "name": "before-middle",
+      "setup": {
+        "rows": 30,
+        "source": "live"
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r20",
+          "limit": 5
+        }
+      ],
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [
+            {
+              "kind": "user",
+              "id": "r15",
+              "text": "ask 15 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r16",
+              "text": "answer 16 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r17",
+              "text": "ask 17 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r18",
+              "text": "answer 18 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r19",
+              "text": "ask 19 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            }
+          ],
+          "hasOlder": true,
+          "hasNewer": true
+        }
+      }
+    },
+    {
+      "group": "history",
+      "name": "before-near-start",
+      "setup": {
+        "rows": 30,
+        "source": "live"
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r3",
+          "limit": 5
+        }
+      ],
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [
+            {
+              "kind": "user",
+              "id": "r1",
+              "text": "ask 1 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r2",
+              "text": "answer 2 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+          ],
+          "hasOlder": false,
+          "hasNewer": true
+        }
+      }
+    },
+    {
+      "group": "history",
+      "name": "before-first",
+      "setup": {
+        "rows": 30,
+        "source": "live"
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r1",
+          "limit": 5
+        }
+      ],
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [],
+          "hasOlder": false,
+          "hasNewer": true
+        }
+      }
+    },
+    {
+      "group": "history",
+      "name": "before-more-than-exist",
+      "setup": {
+        "rows": 30,
+        "source": "live"
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r6",
+          "limit": 50
+        }
+      ],
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [
+            {
+              "kind": "user",
+              "id": "r1",
+              "text": "ask 1 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r2",
+              "text": "answer 2 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r3",
+              "text": "ask 3 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r4",
+              "text": "answer 4 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r5",
+              "text": "ask 5 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            }
+          ],
+          "hasOlder": false,
+          "hasNewer": true
+        }
+      }
+    },
+    {
+      "group": "history",
+      "name": "after-middle",
+      "setup": {
+        "rows": 30,
+        "source": "live"
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "after": "r10",
+          "limit": 5
+        }
+      ],
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [
+            {
+              "kind": "user",
+              "id": "r11",
+              "text": "ask 11 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r12",
+              "text": "answer 12 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r13",
+              "text": "ask 13 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r14",
+              "text": "answer 14 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r15",
+              "text": "ask 15 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            }
+          ],
+          "hasOlder": true,
+          "hasNewer": true
+        }
+      }
+    },
+    {
+      "group": "history",
+      "name": "after-near-end",
+      "setup": {
+        "rows": 30,
+        "source": "live"
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "after": "r28",
+          "limit": 5
+        }
+      ],
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [
+            {
+              "kind": "user",
+              "id": "r29",
+              "text": "ask 29 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r30",
+              "text": "answer 30 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+          ],
+          "hasOlder": true,
+          "hasNewer": false
+        }
+      }
+    },
+    {
+      "group": "history",
+      "name": "after-last",
+      "setup": {
+        "rows": 30,
+        "source": "live"
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "after": "r30",
+          "limit": 5
+        }
+      ],
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [],
+          "hasOlder": true,
+          "hasNewer": false
+        }
+      }
+    },
+    {
+      "group": "history",
+      "name": "before-byte-floor",
+      "setup": {
+        "rows": 30,
+        "source": "live"
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r25",
+          "limit": 20,
+          "byteBudget": 1
+        }
+      ],
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [
+            {
+              "kind": "user",
+              "id": "r17",
+              "text": "ask 17 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r18",
+              "text": "answer 18 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r19",
+              "text": "ask 19 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r20",
+              "text": "answer 20 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r21",
+              "text": "ask 21 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r22",
+              "text": "answer 22 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r23",
+              "text": "ask 23 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r24",
+              "text": "answer 24 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+          ],
+          "hasOlder": true,
+          "hasNewer": true
+        }
+      }
+    },
+    {
+      "group": "history",
+      "name": "before-byte-budget",
+      "setup": {
+        "rows": 30,
+        "source": "live"
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r25",
+          "limit": 20,
+          "byteBudget": 1500
+        }
+      ],
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [
+            {
+              "kind": "user",
+              "id": "r17",
+              "text": "ask 17 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r18",
+              "text": "answer 18 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r19",
+              "text": "ask 19 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r20",
+              "text": "answer 20 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r21",
+              "text": "ask 21 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r22",
+              "text": "answer 22 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r23",
+              "text": "ask 23 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r24",
+              "text": "answer 24 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+          ],
+          "hasOlder": true,
+          "hasNewer": true
+        }
+      }
+    },
+    {
+      "group": "history",
+      "name": "after-byte-floor",
+      "setup": {
+        "rows": 30,
+        "source": "live"
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "after": "r2",
+          "limit": 20,
+          "byteBudget": 1
+        }
+      ],
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [
+            {
+              "kind": "user",
+              "id": "r3",
+              "text": "ask 3 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r4",
+              "text": "answer 4 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r5",
+              "text": "ask 5 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r6",
+              "text": "answer 6 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r7",
+              "text": "ask 7 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r8",
+              "text": "answer 8 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r9",
+              "text": "ask 9 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r10",
+              "text": "answer 10 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+          ],
+          "hasOlder": true,
+          "hasNewer": true
+        }
+      }
+    },
+    {
+      "group": "history",
+      "name": "after-byte-budget",
+      "setup": {
+        "rows": 30,
+        "source": "live"
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "after": "r2",
+          "limit": 20,
+          "byteBudget": 1500
+        }
+      ],
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [
+            {
+              "kind": "user",
+              "id": "r3",
+              "text": "ask 3 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r4",
+              "text": "answer 4 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r5",
+              "text": "ask 5 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r6",
+              "text": "answer 6 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r7",
+              "text": "ask 7 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r8",
+              "text": "answer 8 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r9",
+              "text": "ask 9 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r10",
+              "text": "answer 10 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+          ],
+          "hasOlder": true,
+          "hasNewer": true
+        }
+      }
+    },
+    {
+      "group": "history",
+      "name": "before-small-limit-floor",
+      "setup": {
+        "rows": 30,
+        "source": "live"
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r25",
+          "limit": 3,
+          "byteBudget": 1
+        }
+      ],
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [
+            {
+              "kind": "assistant",
+              "id": "r22",
+              "text": "answer 22 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r23",
+              "text": "ask 23 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r24",
+              "text": "answer 24 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+          ],
+          "hasOlder": true,
+          "hasNewer": true
+        }
+      }
+    },
+    {
+      "group": "history",
+      "name": "stored-before",
+      "setup": {
+        "source": "stored",
+        "page": {
+          "items": [
+            {
+              "kind": "user",
+              "id": "r15",
+              "text": "ask 15 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r16",
+              "text": "answer 16 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r17",
+              "text": "ask 17 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r18",
+              "text": "answer 18 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r19",
+              "text": "ask 19 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            }
+          ],
+          "transcriptHasOlder": true,
+          "transcriptHasNewer": true
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r20",
+          "limit": 5
+        }
+      ],
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [
+            {
+              "kind": "user",
+              "id": "r15",
+              "text": "ask 15 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r16",
+              "text": "answer 16 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r17",
+              "text": "ask 17 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r18",
+              "text": "answer 18 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r19",
+              "text": "ask 19 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            }
+          ],
+          "hasOlder": true,
+          "hasNewer": true
+        }
+      },
+      "scripted": "the stored reader (session-views.mjs transcriptCursor) is scripted with `page`"
+    },
+    {
+      "group": "history",
+      "name": "stored-after",
+      "setup": {
+        "source": "stored",
+        "page": {
+          "items": [
+            {
+              "kind": "user",
+              "id": "r11",
+              "text": "ask 11 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r12",
+              "text": "answer 12 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r13",
+              "text": "ask 13 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r14",
+              "text": "answer 14 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r15",
+              "text": "ask 15 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            }
+          ],
+          "transcriptHasOlder": true,
+          "transcriptHasNewer": true
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "after": "r10",
+          "limit": 5
+        }
+      ],
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [
+            {
+              "kind": "user",
+              "id": "r11",
+              "text": "ask 11 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r12",
+              "text": "answer 12 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r13",
+              "text": "ask 13 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r14",
+              "text": "answer 14 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r15",
+              "text": "ask 15 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            }
+          ],
+          "hasOlder": true,
+          "hasNewer": true
+        }
+      },
+      "scripted": "the stored reader (session-views.mjs transcriptCursor) is scripted with `page`"
+    },
+    {
+      "group": "history",
+      "name": "stored-vanished-row",
+      "setup": {
+        "source": "stored",
+        "page": {
+          "items": [],
+          "cursorMissing": true
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "gone",
+          "limit": 5
+        }
+      ],
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [],
+          "hasOlder": false,
+          "hasNewer": false,
+          "reset": true
+        }
+      },
+      "scripted": "the stored reader (session-views.mjs transcriptCursor) is scripted with `page`"
+    },
+    {
+      "group": "history",
+      "name": "stored-vanished-after",
+      "setup": {
+        "source": "stored",
+        "page": {
+          "items": [],
+          "cursorMissing": true
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "after": "gone",
+          "limit": 5
+        }
+      ],
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [],
+          "hasOlder": false,
+          "hasNewer": false,
+          "reset": true
+        }
+      },
+      "scripted": "the stored reader (session-views.mjs transcriptCursor) is scripted with `page`"
+    },
+    {
+      "group": "history",
+      "name": "stored-unsupported-reader",
+      "setup": {
+        "source": "stored",
+        "page": {
+          "items": [
+            {
+              "kind": "user",
+              "id": "r15",
+              "text": "ask 15 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r16",
+              "text": "answer 16 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r17",
+              "text": "ask 17 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            },
+            {
+              "kind": "assistant",
+              "id": "r18",
+              "text": "answer 18 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "kind": "user",
+              "id": "r19",
+              "text": "ask 19 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+            }
+          ]
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r20",
+          "limit": 5
+        }
+      ],
+      "node": {
+        "result": {
+          "sessionId": "sess_a",
+          "items": [],
+          "hasOlder": false,
+          "hasNewer": false,
+          "reset": true
+        }
+      },
+      "scripted": "the stored reader (session-views.mjs transcriptCursor) is scripted with `page`"
+    },
+    {
+      "group": "history-request",
+      "name": "valid",
+      "setup": {
+        "request": {
+          "before": "r20",
+          "limit": 5
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r20",
+          "limit": 5
+        }
+      ],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "read"
+          }
+        ],
+        "result": {
+          "items": [],
+          "hasOlder": false,
+          "hasNewer": false
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "history-request",
+      "name": "valid-budget",
+      "setup": {
+        "request": {
+          "after": "r20",
+          "limit": 512,
+          "byteBudget": 9000
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "after": "r20",
+          "limit": 512,
+          "byteBudget": 9000
+        }
+      ],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "read"
+          }
+        ],
+        "result": {
+          "items": [],
+          "hasOlder": false,
+          "hasNewer": false
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "history-request",
+      "name": "valid-null-budget",
+      "setup": {
+        "request": {
+          "before": "r20",
+          "limit": 5,
+          "byteBudget": null
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r20",
+          "limit": 5,
+          "byteBudget": null
+        }
+      ],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "read"
+          }
+        ],
+        "result": {
+          "items": [],
+          "hasOlder": false,
+          "hasNewer": false
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "history-request",
+      "name": "both",
+      "setup": {
+        "request": {
+          "before": "r2",
+          "after": "r3",
+          "limit": 5
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r2",
+          "after": "r3",
+          "limit": 5
+        }
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "transcript history request is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "history-request",
+      "name": "neither",
+      "setup": {
+        "request": {
+          "limit": 5
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "limit": 5
+        }
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "transcript history request is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "history-request",
+      "name": "limit-zero",
+      "setup": {
+        "request": {
+          "before": "r2",
+          "limit": 0
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r2",
+          "limit": 0
+        }
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "transcript history request is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "history-request",
+      "name": "limit-513",
+      "setup": {
+        "request": {
+          "before": "r2",
+          "limit": 513
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r2",
+          "limit": 513
+        }
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "transcript history request is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "history-request",
+      "name": "limit-float",
+      "setup": {
+        "request": {
+          "before": "r2",
+          "limit": 2.5
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r2",
+          "limit": 2.5
+        }
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "transcript history request is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "history-request",
+      "name": "limit-string",
+      "setup": {
+        "request": {
+          "before": "r2",
+          "limit": "5"
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r2",
+          "limit": "5"
+        }
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "transcript history request is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "history-request",
+      "name": "budget-zero",
+      "setup": {
+        "request": {
+          "before": "r2",
+          "limit": 5,
+          "byteBudget": 0
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r2",
+          "limit": 5,
+          "byteBudget": 0
+        }
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "transcript history request is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "history-request",
+      "name": "budget-float",
+      "setup": {
+        "request": {
+          "before": "r2",
+          "limit": 5,
+          "byteBudget": 1.5
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r2",
+          "limit": 5,
+          "byteBudget": 1.5
+        }
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "transcript history request is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "history-request",
+      "name": "id-number",
+      "setup": {
+        "request": {
+          "before": 7,
+          "limit": 5
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": 7,
+          "limit": 5
+        }
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "transcript history request is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "history-request",
+      "name": "id-empty",
+      "setup": {
+        "request": {
+          "before": "",
+          "limit": 5
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "",
+          "limit": 5
+        }
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "transcript history request is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "history-request",
+      "name": "id-513",
+      "setup": {
+        "request": {
+          "before": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "limit": 5
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "limit": 5
+        }
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "transcript history request is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "history-request",
+      "name": "position-bad",
+      "setup": {
+        "request": {
+          "before": "r2",
+          "limit": 5,
+          "position": "x"
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r2",
+          "limit": 5,
+          "position": "x"
+        }
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "transcript history request is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "history-request",
+      "name": "position-ok",
+      "setup": {
+        "request": {
+          "before": "r2",
+          "limit": 5,
+          "position": "s:1:2"
+        }
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        {
+          "before": "r2",
+          "limit": 5,
+          "position": "s:1:2"
+        }
+      ],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "read"
+          }
+        ],
+        "result": {
+          "items": [],
+          "hasOlder": false,
+          "hasNewer": false
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "history-request",
+      "name": "not-an-object",
+      "setup": {
+        "request": "r2"
+      },
+      "call": "readTranscriptHistory",
+      "args": [
+        "sess_a",
+        "r2"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "transcript history request is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "stale",
+      "name": "fresh-same-rows",
+      "setup": {
+        "held": [
+          {
+            "kind": "user",
+            "id": "u1",
+            "text": "u1",
+            "device": "Pixel 9"
+          },
+          {
+            "kind": "assistant",
+            "id": "a1",
+            "text": "a1"
+          }
+        ],
+        "latest": [
+          {
+            "kind": "user",
+            "id": "u1",
+            "text": "u1",
+            "device": "Pixel 9"
+          },
+          {
+            "kind": "assistant",
+            "id": "a1",
+            "text": "a1"
+          }
+        ]
+      },
+      "call": "submitToSession",
+      "args": [
+        "sess_a",
+        "hi",
+        {
+          "id": "sub1"
+        }
+      ],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "submit"
+          }
+        ],
+        "result": {
+          "result": true,
+          "refreshed": []
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      },
+      "scripted": "the relay leg's held rows and the fan-out's latest rows are scripted; remote-relay-device-methods.ts staleView runs unchanged"
+    },
+    {
+      "group": "stale",
+      "name": "other-device-prompt",
+      "setup": {
+        "held": [
+          {
+            "kind": "user",
+            "id": "u1",
+            "text": "u1",
+            "device": "Pixel 9"
+          },
+          {
+            "kind": "assistant",
+            "id": "a1",
+            "text": "a1"
+          }
+        ],
+        "latest": [
+          {
+            "kind": "user",
+            "id": "u1",
+            "text": "u1",
+            "device": "Pixel 9"
+          },
+          {
+            "kind": "assistant",
+            "id": "a1",
+            "text": "a1"
+          },
+          {
+            "kind": "user",
+            "id": "u2",
+            "text": "u2",
+            "device": "Laptop"
+          }
+        ]
+      },
+      "call": "submitToSession",
+      "args": [
+        "sess_a",
+        "hi",
+        {
+          "id": "sub1"
+        }
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": {
+          "error": {
+            "message": "This conversation changed on another device. Review the latest messages, then send again.",
+            "name": "Error"
+          },
+          "refreshed": [
+            "sess_a"
+          ]
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      },
+      "scripted": "the relay leg's held rows and the fan-out's latest rows are scripted; remote-relay-device-methods.ts staleView runs unchanged"
+    },
+    {
+      "group": "stale",
+      "name": "own-device-prompt",
+      "setup": {
+        "held": [
+          {
+            "kind": "user",
+            "id": "u1",
+            "text": "u1",
+            "device": "Pixel 9"
+          },
+          {
+            "kind": "assistant",
+            "id": "a1",
+            "text": "a1"
+          }
+        ],
+        "latest": [
+          {
+            "kind": "user",
+            "id": "u1",
+            "text": "u1",
+            "device": "Pixel 9"
+          },
+          {
+            "kind": "assistant",
+            "id": "a1",
+            "text": "a1"
+          },
+          {
+            "kind": "user",
+            "id": "u2",
+            "text": "u2",
+            "device": "Pixel 9"
+          }
+        ]
+      },
+      "call": "submitToSession",
+      "args": [
+        "sess_a",
+        "hi",
+        {
+          "id": "sub1"
+        }
+      ],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "submit"
+          }
+        ],
+        "result": {
+          "result": true,
+          "refreshed": []
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      },
+      "scripted": "the relay leg's held rows and the fan-out's latest rows are scripted; remote-relay-device-methods.ts staleView runs unchanged"
+    },
+    {
+      "group": "stale",
+      "name": "prompt-without-device",
+      "setup": {
+        "held": [
+          {
+            "kind": "user",
+            "id": "u1",
+            "text": "u1",
+            "device": "Pixel 9"
+          }
+        ],
+        "latest": [
+          {
+            "kind": "user",
+            "id": "u1",
+            "text": "u1",
+            "device": "Pixel 9"
+          },
+          {
+            "kind": "user",
+            "id": "u2",
+            "text": "u2"
+          }
+        ]
+      },
+      "call": "submitToSession",
+      "args": [
+        "sess_a",
+        "hi",
+        {
+          "id": "sub1"
+        }
+      ],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "submit"
+          }
+        ],
+        "result": {
+          "result": true,
+          "refreshed": []
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      },
+      "scripted": "the relay leg's held rows and the fan-out's latest rows are scripted; remote-relay-device-methods.ts staleView runs unchanged"
+    },
+    {
+      "group": "stale",
+      "name": "prompt-empty-device",
+      "setup": {
+        "held": [
+          {
+            "kind": "user",
+            "id": "u1",
+            "text": "u1",
+            "device": "Pixel 9"
+          }
+        ],
+        "latest": [
+          {
+            "kind": "user",
+            "id": "u1",
+            "text": "u1",
+            "device": "Pixel 9"
+          },
+          {
+            "kind": "user",
+            "id": "u2",
+            "text": "u2",
+            "device": ""
+          }
+        ]
+      },
+      "call": "submitToSession",
+      "args": [
+        "sess_a",
+        "hi",
+        {
+          "id": "sub1"
+        }
+      ],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "submit"
+          }
+        ],
+        "result": {
+          "result": true,
+          "refreshed": []
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      },
+      "scripted": "the relay leg's held rows and the fan-out's latest rows are scripted; remote-relay-device-methods.ts staleView runs unchanged"
+    },
+    {
+      "group": "stale",
+      "name": "assistant-only-news",
+      "setup": {
+        "held": [
+          {
+            "kind": "user",
+            "id": "u1",
+            "text": "u1",
+            "device": "Pixel 9"
+          }
+        ],
+        "latest": [
+          {
+            "kind": "user",
+            "id": "u1",
+            "text": "u1",
+            "device": "Pixel 9"
+          },
+          {
+            "kind": "assistant",
+            "id": "a2",
+            "text": "a2"
+          }
+        ]
+      },
+      "call": "submitToSession",
+      "args": [
+        "sess_a",
+        "hi",
+        {
+          "id": "sub1"
+        }
+      ],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "submit"
+          }
+        ],
+        "result": {
+          "result": true,
+          "refreshed": []
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      },
+      "scripted": "the relay leg's held rows and the fan-out's latest rows are scripted; remote-relay-device-methods.ts staleView runs unchanged"
+    },
+    {
+      "group": "stale",
+      "name": "news-above-held-window",
+      "setup": {
+        "held": [
+          {
+            "kind": "assistant",
+            "id": "a5",
+            "text": "a5"
+          },
+          {
+            "kind": "assistant",
+            "id": "a6",
+            "text": "a6"
+          }
+        ],
+        "latest": [
+          {
+            "kind": "user",
+            "id": "u1",
+            "text": "u1",
+            "device": "Laptop"
+          },
+          {
+            "kind": "assistant",
+            "id": "a5",
+            "text": "a5"
+          },
+          {
+            "kind": "assistant",
+            "id": "a6",
+            "text": "a6"
+          }
+        ]
+      },
+      "call": "submitToSession",
+      "args": [
+        "sess_a",
+        "hi",
+        {
+          "id": "sub1"
+        }
+      ],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "submit"
+          }
+        ],
+        "result": {
+          "result": true,
+          "refreshed": []
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      },
+      "scripted": "the relay leg's held rows and the fan-out's latest rows are scripted; remote-relay-device-methods.ts staleView runs unchanged"
+    },
+    {
+      "group": "stale",
+      "name": "held-first-row-gone",
+      "setup": {
+        "held": [
+          {
+            "kind": "assistant",
+            "id": "a5",
+            "text": "a5"
+          },
+          {
+            "kind": "assistant",
+            "id": "a6",
+            "text": "a6"
+          }
+        ],
+        "latest": [
+          {
+            "kind": "user",
+            "id": "u1",
+            "text": "u1",
+            "device": "Laptop"
+          },
+          {
+            "kind": "assistant",
+            "id": "a7",
+            "text": "a7"
+          }
+        ]
+      },
+      "call": "submitToSession",
+      "args": [
+        "sess_a",
+        "hi",
+        {
+          "id": "sub1"
+        }
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": {
+          "error": {
+            "message": "This conversation changed on another device. Review the latest messages, then send again.",
+            "name": "Error"
+          },
+          "refreshed": [
+            "sess_a"
+          ]
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      },
+      "scripted": "the relay leg's held rows and the fan-out's latest rows are scripted; remote-relay-device-methods.ts staleView runs unchanged"
+    },
+    {
+      "group": "stale",
+      "name": "no-held",
+      "setup": {
+        "held": null,
+        "latest": [
+          {
+            "kind": "user",
+            "id": "u2",
+            "text": "u2",
+            "device": "Laptop"
+          }
+        ]
+      },
+      "call": "submitToSession",
+      "args": [
+        "sess_a",
+        "hi",
+        {
+          "id": "sub1"
+        }
+      ],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "submit"
+          }
+        ],
+        "result": {
+          "result": true,
+          "refreshed": []
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      },
+      "scripted": "the relay leg's held rows and the fan-out's latest rows are scripted; remote-relay-device-methods.ts staleView runs unchanged"
+    },
+    {
+      "group": "stale",
+      "name": "no-latest",
+      "setup": {
+        "held": [
+          {
+            "kind": "user",
+            "id": "u1",
+            "text": "u1",
+            "device": "Pixel 9"
+          }
+        ],
+        "latest": null
+      },
+      "call": "submitToSession",
+      "args": [
+        "sess_a",
+        "hi",
+        {
+          "id": "sub1"
+        }
+      ],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "submit"
+          }
+        ],
+        "result": {
+          "result": true,
+          "refreshed": []
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      },
+      "scripted": "the relay leg's held rows and the fan-out's latest rows are scripted; remote-relay-device-methods.ts staleView runs unchanged"
+    },
+    {
+      "group": "stale",
+      "name": "empty-held",
+      "setup": {
+        "held": [],
+        "latest": [
+          {
+            "kind": "user",
+            "id": "u2",
+            "text": "u2",
+            "device": "Laptop"
+          }
+        ]
+      },
+      "call": "submitToSession",
+      "args": [
+        "sess_a",
+        "hi",
+        {
+          "id": "sub1"
+        }
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": {
+          "error": {
+            "message": "This conversation changed on another device. Review the latest messages, then send again.",
+            "name": "Error"
+          },
+          "refreshed": [
+            "sess_a"
+          ]
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      },
+      "scripted": "the relay leg's held rows and the fan-out's latest rows are scripted; remote-relay-device-methods.ts staleView runs unchanged"
+    },
+    {
+      "group": "stale",
+      "name": "held-rows-without-ids",
+      "setup": {
+        "held": [
+          {
+            "kind": "user",
+            "text": "x"
+          }
+        ],
+        "latest": [
+          {
+            "kind": "user",
+            "id": "u2",
+            "text": "u2",
+            "device": "Laptop"
+          }
+        ]
+      },
+      "call": "submitToSession",
+      "args": [
+        "sess_a",
+        "hi",
+        {
+          "id": "sub1"
+        }
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": {
+          "error": {
+            "message": "This conversation changed on another device. Review the latest messages, then send again.",
+            "name": "Error"
+          },
+          "refreshed": [
+            "sess_a"
+          ]
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      },
+      "scripted": "the relay leg's held rows and the fan-out's latest rows are scripted; remote-relay-device-methods.ts staleView runs unchanged"
+    },
+    {
+      "group": "secret",
+      "name": "valid",
+      "setup": {},
+      "call": "provideSecretInput",
+      "args": [
+        "secret_abcdefgh1234",
+        "s3cret"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": true,
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "secret",
+      "name": "valid-min-id",
+      "setup": {},
+      "call": "provideSecretInput",
+      "args": [
+        "secret_abcdefgh",
+        "v"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": true,
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "secret",
+      "name": "valid-max-id",
+      "setup": {},
+      "call": "provideSecretInput",
+      "args": [
+        "secret_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "v"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": true,
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "secret",
+      "name": "valid-value-4096",
+      "setup": {},
+      "call": "provideSecretInput",
+      "args": [
+        "secret_abcdefgh1234",
+        "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": true,
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "secret",
+      "name": "padded-id",
+      "setup": {},
+      "call": "provideSecretInput",
+      "args": [
+        "  secret_abcdefgh1234  ",
+        "s3cret"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": true,
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "secret",
+      "name": "malformed-id",
+      "setup": {},
+      "call": "provideSecretInput",
+      "args": [
+        "not-a-secret",
+        "s3cret"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": false,
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "secret",
+      "name": "short-id",
+      "setup": {},
+      "call": "provideSecretInput",
+      "args": [
+        "secret_abc",
+        "s3cret"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": false,
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "secret",
+      "name": "long-id-81",
+      "setup": {},
+      "call": "provideSecretInput",
+      "args": [
+        "secret_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "s3cret"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": false,
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "secret",
+      "name": "bad-id-chars",
+      "setup": {},
+      "call": "provideSecretInput",
+      "args": [
+        "secret_abcdefgh!!",
+        "s3cret"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": false,
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "secret",
+      "name": "empty-value",
+      "setup": {},
+      "call": "provideSecretInput",
+      "args": [
+        "secret_abcdefgh1234",
+        ""
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": false,
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "secret",
+      "name": "value-4097",
+      "setup": {},
+      "call": "provideSecretInput",
+      "args": [
+        "secret_abcdefgh1234",
+        "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": false,
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "secret",
+      "name": "value-not-a-string",
+      "setup": {},
+      "call": "provideSecretInput",
+      "args": [
+        "secret_abcdefgh1234",
+        42
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": false,
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "secret",
+      "name": "value-missing",
+      "setup": {},
+      "call": "provideSecretInput",
+      "args": [
+        "secret_abcdefgh1234"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": false,
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "secret",
+      "name": "value-spaces",
+      "setup": {},
+      "call": "provideSecretInput",
+      "args": [
+        "secret_abcdefgh1234",
+        "   "
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": true,
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "secret",
+      "name": "id-empty",
+      "setup": {},
+      "call": "provideSecretInput",
+      "args": [
+        "",
+        "s3cret"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "secret request id is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "secret",
+      "name": "id-blank",
+      "setup": {},
+      "call": "provideSecretInput",
+      "args": [
+        "   ",
+        "s3cret"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "secret request id is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "secret",
+      "name": "id-not-a-string",
+      "setup": {},
+      "call": "provideSecretInput",
+      "args": [
+        5,
+        "s3cret"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "secret request id must be a string.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "secret",
+      "name": "id-121",
+      "setup": {},
+      "call": "provideSecretInput",
+      "args": [
+        "secret_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "s3cret"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "result": false,
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "room",
+      "name": "unknown",
+      "setup": {},
+      "call": "agentRoomAction",
+      "args": [
+        "bogus",
+        []
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "Unknown room action \"bogus\".",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "room",
+      "name": "unknown-padded",
+      "setup": {},
+      "call": "agentRoomAction",
+      "args": [
+        "  bogus  ",
+        []
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "Unknown room action \"bogus\".",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "room",
+      "name": "proceed",
+      "setup": {},
+      "call": "agentRoomAction",
+      "args": [
+        "proceed",
+        [
+          "room_x"
+        ]
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "Unknown room action \"proceed\".",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "room",
+      "name": "prototype-name",
+      "setup": {},
+      "call": "agentRoomAction",
+      "args": [
+        "constructor",
+        []
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "Unknown room action \"constructor\".",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "room",
+      "name": "to-string",
+      "setup": {},
+      "call": "agentRoomAction",
+      "args": [
+        "toString",
+        []
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "Unknown room action \"toString\".",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "room",
+      "name": "empty",
+      "setup": {},
+      "call": "agentRoomAction",
+      "args": [
+        "",
+        []
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "action is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "room",
+      "name": "blank",
+      "setup": {},
+      "call": "agentRoomAction",
+      "args": [
+        "   ",
+        []
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "action is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "room",
+      "name": "not-a-string",
+      "setup": {},
+      "call": "agentRoomAction",
+      "args": [
+        5,
+        []
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "action must be a string.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "room",
+      "name": "too-long-33",
+      "setup": {},
+      "call": "agentRoomAction",
+      "args": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        []
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "action is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "room",
+      "name": "long-32",
+      "setup": {},
+      "call": "agentRoomAction",
+      "args": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        []
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "Unknown room action \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\".",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "room",
+      "name": "upper-case",
+      "setup": {},
+      "call": "agentRoomAction",
+      "args": [
+        "Create",
+        []
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "Unknown room action \"Create\".",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "room",
+      "name": "args-not-array",
+      "setup": {},
+      "call": "agentRoomAction",
+      "args": [
+        "bogus",
+        "x"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "Unknown room action \"bogus\".",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "home",
+      "name": "openAgentHome-unknown-agent",
+      "setup": {
+        "agents": [
+          "agent1"
+        ]
+      },
+      "call": "openAgentHome",
+      "args": [
+        "nobody"
+      ],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "create"
+          },
+          {
+            "method": "read",
+            "action": "listAgents"
+          }
+        ],
+        "error": {
+          "message": "Agent \"nobody\" is not available.",
+          "name": "Error"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "home",
+      "name": "resetAgentHome-unknown-agent",
+      "setup": {
+        "agents": [
+          "agent1"
+        ]
+      },
+      "call": "resetAgentHome",
+      "args": [
+        "nobody"
+      ],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "create"
+          },
+          {
+            "method": "read",
+            "action": "listAgents"
+          }
+        ],
+        "error": {
+          "message": "Agent \"nobody\" is not available.",
+          "name": "Error"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "home",
+      "name": "openAgentHome-padded-unknown-agent",
+      "setup": {
+        "agents": [
+          "agent1"
+        ]
+      },
+      "call": "openAgentHome",
+      "args": [
+        "  nobody  "
+      ],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "create"
+          },
+          {
+            "method": "read",
+            "action": "listAgents"
+          }
+        ],
+        "error": {
+          "message": "Agent \"nobody\" is not available.",
+          "name": "Error"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "home",
+      "name": "resetAgentHome-padded-unknown-agent",
+      "setup": {
+        "agents": [
+          "agent1"
+        ]
+      },
+      "call": "resetAgentHome",
+      "args": [
+        "  nobody  "
+      ],
+      "node": {
+        "daemonCalls": [
+          {
+            "method": "create"
+          },
+          {
+            "method": "read",
+            "action": "listAgents"
+          }
+        ],
+        "error": {
+          "message": "Agent \"nobody\" is not available.",
+          "name": "Error"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "home",
+      "name": "openAgentHome-empty",
+      "setup": {
+        "agents": [
+          "agent1"
+        ]
+      },
+      "call": "openAgentHome",
+      "args": [
+        ""
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "agentId is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "home",
+      "name": "resetAgentHome-empty",
+      "setup": {
+        "agents": [
+          "agent1"
+        ]
+      },
+      "call": "resetAgentHome",
+      "args": [
+        ""
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "agentId is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "home",
+      "name": "openAgentHome-not-a-string",
+      "setup": {
+        "agents": [
+          "agent1"
+        ]
+      },
+      "call": "openAgentHome",
+      "args": [
+        3
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "agentId must be a string.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "home",
+      "name": "resetAgentHome-not-a-string",
+      "setup": {
+        "agents": [
+          "agent1"
+        ]
+      },
+      "call": "resetAgentHome",
+      "args": [
+        3
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "agentId must be a string.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "home",
+      "name": "openAgentHome-too-long-201",
+      "setup": {
+        "agents": [
+          "agent1"
+        ]
+      },
+      "call": "openAgentHome",
+      "args": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "agentId is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "home",
+      "name": "resetAgentHome-too-long-201",
+      "setup": {
+        "agents": [
+          "agent1"
+        ]
+      },
+      "call": "resetAgentHome",
+      "args": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "agentId is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "home",
+      "name": "openAgentHome-bad-chars",
+      "setup": {
+        "agents": [
+          "agent1"
+        ]
+      },
+      "call": "openAgentHome",
+      "args": [
+        "bad id!"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "agent id is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    },
+    {
+      "group": "home",
+      "name": "resetAgentHome-bad-chars",
+      "setup": {
+        "agents": [
+          "agent1"
+        ]
+      },
+      "call": "resetAgentHome",
+      "args": [
+        "bad id!"
+      ],
+      "node": {
+        "daemonCalls": [],
+        "error": {
+          "message": "agent id is invalid.",
+          "name": "TypeError"
+        },
+        "storeCalls": [],
+        "shells": [],
+        "hiddenAfter": null
+      }
+    }
+  ]
+}

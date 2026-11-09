@@ -123,6 +123,10 @@ const SCRIPT = {
 
 /** Differences that are the Rust gaps of the report: Node's answer and the adapter's, both asserted. */
 const DIFFERENT = {
+  // The start calls create no thread (Node's blank snapshot): remote-protocol-chat-host.ts composes it, replayed in remote-protocol-chat-host.test.mjs.
+  startTask: 'covered by remote-protocol-chat-host.test.mjs',
+  startProject: 'covered by remote-protocol-chat-host.test.mjs',
+  'startProjectTask-registered': 'covered by remote-protocol-chat-host.test.mjs',
   // control.rs:366, actor.rs:2619: `turn/interrupt` hands no prompt back and its reply carries no `aborted` outcome
   'abortSession-restored': { aborted: true, restoreText: '', restoredSubmissionIds: [] },
   'abortSession-idle': { aborted: true, restoreText: '', restoredSubmissionIds: [] },

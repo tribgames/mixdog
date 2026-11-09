@@ -251,7 +251,16 @@ pub struct WorkspaceService {
     phone_grants: OnceLock<PhoneGrants>,
     /// The user's Markdown default view, read when editor settings are (see [`Self::set_user_markdown_view`]).
     user_markdown_view: OnceLock<UserMarkdownView>,
+    /// Where a path inside a managed worktree is resolved to its owner Project (see [`ManagedProjects`]).
+    managed: OnceLock<Arc<dyn ManagedProjects>>,
     releases: Arc<crate::release::FolderReleases>,
+}
+
+/// Node's `resolveManagedWorktree`, which the worktree manager owns: the registered Project that owns the ready managed
+/// worktree at (or below) a path, and the folder's real path.
+#[async_trait::async_trait]
+pub trait ManagedProjects: Send + Sync {
+    async fn owner(&self, path: &str) -> Option<(String, String)>;
 }
 
 /// Reads the user's Markdown default view.
@@ -319,6 +328,7 @@ impl WorkspaceService {
             host: OnceLock::new(),
             phone_grants: OnceLock::new(),
             user_markdown_view: OnceLock::new(),
+            managed: OnceLock::new(),
             releases: deps.releases,
         });
         let _ = service.me.set(Arc::downgrade(&service));
@@ -358,6 +368,26 @@ impl WorkspaceService {
     /// user settings file). Without it only the settings file is read. Set once.
     pub fn set_user_markdown_view(&self, read: Arc<dyn Fn() -> Option<String> + Send + Sync>) {
         let _ = self.user_markdown_view.set(read);
+    }
+
+    /// Connects the worktree manager's resolution of a managed worktree path to its owner Project. Without it only a
+    /// registered Project's own path is accepted. Set once.
+    pub fn set_managed_projects(&self, managed: Arc<dyn ManagedProjects>) {
+        let _ = self.managed.set(managed);
+    }
+
+    /// Node's `projectScope`: the registered Project a path names, or the owner of the managed worktree it names (with
+    /// that worktree's folder). Any other path is the registry's refusal.
+    async fn scope(&self, path: &str) -> WsResult<(PathBuf, Option<PathBuf>)> {
+        let refusal = match self.catalog.resolve(path).await {
+            Ok(project) => return Ok((project, None)),
+            Err(refusal) => refusal,
+        };
+        let owned = match self.managed.get() {
+            Some(managed) => managed.owner(path).await,
+            None => None,
+        };
+        owned.map(|(project, folder)| (PathBuf::from(project), Some(PathBuf::from(folder)))).ok_or(refusal)
     }
 
     /// Connects the paired devices' one-file grants (`transfer/grant/mint` and the `granted` read source): the
@@ -533,7 +563,11 @@ impl WorkspaceService {
                 value(json!({ "path": path.to_string_lossy(), "exists": exists, "directory": directory }))
             }
             "project/create" => value(json!({ "project": self.catalog.add(s(params, "path")?, &cancel, op).await? })),
-            "project/touch" => value(json!({ "project": self.catalog.touch(s(params, "path")?, op).await? })),
+            "project/touch" => {
+                // Node's `touchProject` takes the registered Project (`knownProject`: a managed worktree names its owner).
+                let (project, _) = self.scope(s(params, "path")?).await?;
+                value(json!({ "project": self.catalog.touch(&project.to_string_lossy(), op).await? }))
+            }
             "project/update" => {
                 let alias = params.get("alias").and_then(Value::as_str).unwrap_or_default();
                 value(json!({ "project": self.catalog.rename(s(params, "path")?, alias, op).await? }))
@@ -554,7 +588,19 @@ impl WorkspaceService {
                 let path = self.catalog.ensure_directory(s(params, "path")?, &cancel).await?;
                 value(json!({ "path": path.to_string_lossy() }))
             }
-            "project/directory" => value(json!({ "path": self.catalog.resolve(s(params, "path")?).await?.to_string_lossy() })),
+            "project/directory" => {
+                // `projectDirectory`: the managed worktree's folder, else the Project's real path. `owner` asks for the
+                // Project's real path even for a worktree (`startProjectTask`'s `canonicalDirectory(knownProject(path))`).
+                let (project, worktree) = self.scope(s(params, "path")?).await?;
+                let folder = match worktree.filter(|_| !opt_bool(params, "owner")) {
+                    Some(folder) => folder,
+                    None => {
+                        let given = project.to_string_lossy().into_owned();
+                        run_fallible(self.lanes.interactive, &cancel, move || crate::catalog::canonical_directory(&project, &given)).await?
+                    }
+                };
+                value(json!({ "path": folder.to_string_lossy() }))
+            }
             "project/recoveryDirectory" => {
                 let root = self.catalog.resolve(s(params, "path")?).await?;
                 value(json!({ "path": self.fs.recovery.store_path(&root).to_string_lossy() }))

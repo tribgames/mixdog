@@ -43,6 +43,15 @@ fn store(error: mixdog_store::sqlite::DbError) -> WsError {
     WsError::new(Reason::Io, error.to_string())
 }
 
+/// Node's `canonicalDirectory`: the real path of `requested`, which must be a folder. `given` is the path as the caller
+/// wrote it, which is what Node's `ENOENT: ... realpath '<path>'` names.
+pub fn canonical_directory(requested: &Path, given: &str) -> WsResult<PathBuf> {
+    let real = canonical(requested).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound { WsError::new(Reason::PathMissing, given) } else { error.into() }
+    })?;
+    if real.is_dir() { Ok(real) } else { Err(WsError::new(Reason::NotADirectory, "Session workspace is not a directory.")) }
+}
+
 /// The wire shape of a project: its display name is the alias, else the folder name.
 pub fn project_json(row: &ProjectRow) -> Value {
     json!({
@@ -127,14 +136,12 @@ impl Catalog {
 
     pub async fn add(&self, path: &str, cancel: &CancellationToken, op: Option<OpRecord>) -> WsResult<Value> {
         let requested = absolute_local_path(path)?;
-        let folder = run_fallible(self.lanes.interactive, cancel, move || {
-            let real = canonical(&requested)?;
-            if real.is_dir() { Ok(real) } else { Err(WsError::invalid("Project path must be a folder.")) }
-        })
-        .await?;
+        let given = path.to_owned();
+        let folder = run_fallible(self.lanes.interactive, cancel, move || canonical_directory(&requested, &given)).await?;
         let path = folder.to_string_lossy().into_owned();
         let row = match self.state.project(&path).await.map_err(store)? {
-            Some(existing) => existing,
+            // Node's `enter` and `register` both undo the legacy hidden tombstone (`unhide`) of the Project they register.
+            Some(existing) => ProjectRow { hidden: false, hidden_rank: None, ..existing },
             None => ProjectRow { path, alias: None, hidden: false, hidden_rank: None, last_used_at: None },
         };
         let out = project_json(&row);

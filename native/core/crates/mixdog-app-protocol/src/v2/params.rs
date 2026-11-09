@@ -4271,6 +4271,10 @@ impl crate::common::HasOpId for ProjectEnsureDirectoryParams {
 #[serde(rename_all = "camelCase")]
 pub struct ProjectDirectoryParams {
     pub path: String,
+    /// Answer the registered Project's real path even when `path` names a managed worktree of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub owner: Option<bool>,
 }
 
 /// Params of `project/recoveryDirectory`.

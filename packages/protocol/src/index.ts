@@ -2545,7 +2545,11 @@ export type ProjectDeleteWorktreeParams = { opId: OpId, threadId?: ThreadId, inp
 /**
  * Params of `project/directory`.
  */
-export type ProjectDirectoryParams = { path: string, };
+export type ProjectDirectoryParams = { path: string,
+/**
+ * Answer the registered Project's real path even when `path` names a managed worktree of it.
+ */
+owner?: boolean, };
 
 /**
  * Params of `project/ensureDirectory`.
@@ -12413,7 +12417,8 @@ export const methodTable = {
       },
       "origins": [
         "local",
-        "ssh"
+        "ssh",
+        "relay"
       ],
       "params": "ProjectTouchParams",
       "result": "JsonValue",
@@ -12501,7 +12506,8 @@ export const methodTable = {
       },
       "origins": [
         "local",
-        "ssh"
+        "ssh",
+        "relay"
       ],
       "params": "ProjectDirectoryParams",
       "result": "JsonValue",
