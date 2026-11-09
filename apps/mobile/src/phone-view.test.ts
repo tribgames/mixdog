@@ -40,6 +40,7 @@ function rig(hold = false) {
     recycle: () => void (events.recycled += 1),
     probe: () => undefined,
     silentSince: () => false,
+    nextRequestSent: () => Promise.resolve(),
   });
   return { calls, client, status, store, events, manager, held };
 }

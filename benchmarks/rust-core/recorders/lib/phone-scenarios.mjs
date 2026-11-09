@@ -575,6 +575,40 @@ export const SCENARIOS = {
     { op: 'advance', ms: 0 },
     { op: 'mark', name: 'served' },
   ],
+  // A frame that takes 12 s to leave the page (its sealing is held): the call's own send-phase deadline is overdue-probed meanwhile, but the
+  // deadline restarts and the silence is measured only once the frame has left (Node: remote-shim-calls.ts:255-268). Pongs answer every ping.
+  'call-delayed-send': [
+    { op: 'boot', reads: true },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'advance', ms: 10000 },
+    { op: 'hold', name: 'readSettings' },
+    { op: 'hold-seal' },
+    { op: 'read', name: 'readSettings', as: 'late' },
+    { op: 'advance', ms: 9999 },
+    { op: 'mark', name: 'sealing-held-just-under-10s' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'overdue-probe-at-10s' },
+    { op: 'pong' },
+    { op: 'advance', ms: 2000 },
+    { op: 'release-seal' },
+    { op: 'mark', name: 'frame-left-at-12s' },
+    { op: 'advance', ms: 4999 },
+    { op: 'mark', name: 'quiet-just-under-5s-after-send' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'silence-probe-5s-after-send' },
+    { op: 'pong' },
+    { op: 'advance', ms: 5000 },
+    { op: 'mark', name: 'overdue-probe-10s-after-send' },
+    { op: 'pong' },
+    { op: 'advance', ms: 10000 },
+    { op: 'mark', name: 'second-overdue-probe' },
+    { op: 'pong' },
+    { op: 'advance', ms: 4999 },
+    { op: 'mark', name: 'pending-just-under-25s-after-send' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'expired-25s-after-send' },
+  ],
   // A call on the wire with nothing arriving for 5 s probes the leg (Node: remote-shim-calls.ts:264-268). Just under 5 s nothing is sent; at 5 s the
   // ping leaves; its pong answers it, and the call is answered afterwards.
   'silent-call-probe': [
@@ -786,15 +820,14 @@ export async function play(world, driver, ops) {
       states,
       banner,
       offline: slice.some((e) => e.ev === 'state' && e.desktop === 'offline'),
-      wire: slice
-        .filter((e) => e.ev === 'ping' || e.ev === 'close' || e.ev === 'socket' || e.ev === 'resync' || (e.ev === 'xcontrol' && e.kind !== 'ack'))
-        .map((e) => `${e.ev === 'xcontrol' ? `x:${e.kind}` : e.ev}${e.ev === 'close' ? `(${e.code},${e.reason})` : ''}@${e.at - since}`),
-      ...(traceReads
-        ? {
-            requests: slice.filter((e) => e.ev === 'request').map((e) => `${e.name}@${e.at - since}`),
-            settled: slice.filter((e) => e.ev === 'settled').map((e) => `${e.as}:${e.ok ? `ok=${JSON.stringify(e.value)}` : `err(${e.code})`}@${e.at - since}`),
-          }
-        : {}),
+      // One log in the order things happened: a ping and a request at the same virtual time keep the order they occurred in.
+      log: slice
+        .filter((e) => e.ev === 'ping' || e.ev === 'close' || e.ev === 'socket' || e.ev === 'resync' || (e.ev === 'xcontrol' && e.kind !== 'ack') || (traceReads && (e.ev === 'request' || e.ev === 'settled')))
+        .map((e) => {
+          if (e.ev === 'request') return `request:${e.name}@${e.at - since}`;
+          if (e.ev === 'settled') return `settled:${e.as}:${e.ok ? `ok=${JSON.stringify(e.value)}` : `err(${e.code})`}@${e.at - since}`;
+          return `${e.ev === 'xcontrol' ? `x:${e.kind}` : e.ev}${e.ev === 'close' ? `(${e.code},${e.reason})` : ''}@${e.at - since}`;
+        }),
       pairingInvalid: slice.filter((e) => e.ev === 'pairing-invalid').map((e) => e.message),
       reconnected: slice.filter((e) => e.ev === 'reconnected').length,
       // The order of the two notices a page acts on when a connection is whole again: the indicator saying connected, and the reconnected event.
@@ -907,6 +940,12 @@ export async function play(world, driver, ops) {
       case 'hold':
         world.holds.add(op.name);
         break;
+      case 'hold-seal':
+        world.holdSeal();
+        break;
+      case 'release-seal':
+        await world.releaseSeal();
+        break;
       case 'release':
         await world.release(op.name);
         break;
@@ -938,11 +977,10 @@ export async function play(world, driver, ops) {
         let last = world.clock.now;
         for (let i = 0; i < op.rounds; i += 1) {
           const pending = () => world.sockets.find((s) => !refused.has(s) && !world.accepted(s));
-          let guard = 0;
-          while (!pending() && guard++ < 400) await world.advance(250);
+          await world.advanceUntil(() => pending() !== undefined);
           const ws = pending();
           refused.add(ws);
-          // The delay is read from the socket's creation event, not from the polling step.
+          // The delay is read from the socket's creation event.
           const created = world.events.findLast((e) => e.ev === 'socket' && e.n === world.sockets.indexOf(ws) + 1);
           delays.push(created.at - last);
           ws.readyState = 1;

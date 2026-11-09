@@ -34,9 +34,6 @@ export const SYNTHETIC_READ_REQUESTS = {
 };
 const SYNTHETIC_READ_NAMES = Object.fromEntries(Object.entries(SYNTHETIC_READ_REQUESTS).map(([name, method]) => [method, name]));
 
-/** Requests the trace names (a dialect maps its own request to these); everything else is answered and not traced. */
-const TRACKED_REQUESTS = new Set(['synchronizeViews', ...Object.keys(READ_VALUES)]);
-
 export async function createPhoneWorld({ tree, dialect, random = () => 0.5, paired = true, registration = 200, hidden = false, mxt = false, installed = true }) {
   const E2EE = await importFrom(tree, 'apps/desktop/src/shared/remote-e2ee.ts');
   const Transport = await importFrom(tree, 'apps/desktop/src/shared/remote-transport.ts');
@@ -62,8 +59,11 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
   // count bounds. Every Web Crypto call is counted from its start to its settlement, and settled means: no call in flight, the desktop's
   // frame queue empty, and a whole turn of the event loop (`setImmediate` runs after every microtask the last completion queued) in which
   // neither started anything. There is no sleep and no wall-clock quantum: a completion is what ends the wait.
+  // Sealing held: a frame whose encryption has not finished has not left the page (the send phase of a call outlasting its transmission).
+  let sealGate = null;
   let cryptoInFlight = 0;
   let cryptoDone = () => {};
+  let releaseSealGate = () => {};
   const subtle = globalThis.crypto.subtle;
   const subtleProto = Object.getPrototypeOf(subtle);
   for (const name of Object.getOwnPropertyNames(subtleProto)) {
@@ -73,6 +73,7 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
       configurable: true,
       writable: true,
       value: (...callArgs) => {
+        if (name === 'encrypt' && sealGate) return sealGate.then(() => subtle[name](...callArgs));
         cryptoInFlight += 1;
         const settled = () => {
           cryptoInFlight -= 1;
@@ -84,6 +85,9 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
       },
     });
   }
+  const holdSeal = () => {
+    sealGate = new Promise((resolve) => (releaseSealGate = resolve));
+  };
   const turn = () => new Promise((resolve) => setImmediate(resolve));
   const settle = async () => {
     for (;;) {
@@ -340,6 +344,21 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
     events,
     log,
     advance,
+    holdSeal,
+    async releaseSeal() {
+      sealGate = null;
+      releaseSealGate();
+      await settle();
+    },
+    /** Moves the virtual clock to each next timer until `cond` holds: the wait is on the event, with no step size and no cap. */
+    async advanceUntil(cond) {
+      await settle();
+      while (!cond()) {
+        const due = Math.min(...[...clock.timers.values()].map((timer) => timer.due));
+        if (!Number.isFinite(due)) throw new Error('advanceUntil: no timer is pending and the condition does not hold');
+        await advance(Math.max(0, due - clock.now));
+      }
+    },
     waitFor,
     until,
     mark: () => events.length,
@@ -376,9 +395,9 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
         pings: 0,
         core: { foreground: null, browserId: null, screen: [], panels: [], view: [], lanes: [], resyncs: 0 },
         queue: Promise.resolve(),
-        /** A request arrived: traced by name when it is one the contract tracks. */
+        /** A request arrived: every one is traced, by the name Node's call carries (a dialect maps its own request to it). */
         requested(name) {
-          if (name && TRACKED_REQUESTS.has(name)) log({ ev: 'request', name });
+          if (name) log({ ev: 'request', name });
         },
         /** Answers it (or holds / refuses it as the script asked); `build(ok, value)` makes the dialect's message. */
         answer(name, build) {
@@ -493,7 +512,8 @@ export const nodeDialect = {
   onFrame(leg, frame, log) {
     const [a] = frame.params ?? [];
     const name = frame.id !== undefined ? frame.method : null;
-    leg.requested(name);
+    // Node publishes its lane set on every connect, an empty one too; the replay names that request as Node-only (remote-shim-lifecycle.slow.test.mjs).
+    leg.requested(name === 'setRemoteLanes' && a.length === 0 ? 'setRemoteLanes(empty)' : name);
     if (frame.method === 'setForeground') {
       leg.core.foreground = a;
       leg.core.browserId = frame.params[1];

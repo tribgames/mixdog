@@ -86,6 +86,8 @@ export interface RelayConnector extends Connector {
   wake(): boolean;
   /** Nothing has arrived on the live socket since `since`, and no probe is out: a call sent then is worth a probe (Node: remote-shim-calls.ts:264-267). */
   silentSince(since: number): boolean;
+  /** Resolves when the next request frame has been sealed and handed to the socket or a transport carrier (Node: sendApplicationFrame settling, remote-shim-calls.ts:258). */
+  nextRequestSent(): Promise<void>;
   /** The page stayed in the background: end the socket with 1000 `background` once what was handed to it is sent, and hold every open until `wake`. */
   suspend(): void;
   readonly suspended: boolean;
@@ -125,6 +127,8 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
   // A socket whose desktop leg went away while the relay kept it: the relay re-challenges it when the desktop returns, so the
   // next open takes it over instead of dialing again. Frames that arrive meanwhile (the new challenge) wait here.
   let parked: { readonly ws: RelaySocket; readonly inbox: unknown[] } | null = null;
+  // Callers waiting for the next request frame to leave this page.
+  let sentWaiters: Array<() => void> = [];
   let suspended = false;
   let release: (() => void) | null = null;
   let held: Promise<void> | null = null;
@@ -166,6 +170,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
     },
     retire: () => current?.retire(),
     silentSince: (since) => current?.silentSince(since) ?? false,
+    nextRequestSent: () => new Promise<void>((resolve) => sentWaiters.push(resolve)),
     suspend: () => {
       suspended = true;
       hold();
@@ -386,11 +391,9 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
                 const value: unknown = JSON.parse(text);
                 const request = value as { id?: unknown; method?: unknown } | null;
                 if (request && request.id !== undefined && request.method !== undefined) inflight.add(request.id);
-                if (peer) {
-                  await peer.send(value);
-                  return;
-                }
-                ws.send(binaryFrames ? await channel.encryptBinary(value) : await channel.encryptJson(value));
+                if (peer) await peer.send(value);
+                else ws.send(binaryFrames ? await channel.encryptBinary(value) : await channel.encryptJson(value));
+                if (request && request.id !== undefined && request.method !== undefined) for (const resolve of sentWaiters.splice(0)) resolve();
               })
               .catch(() => fail(CLOSE_PROTOCOL_ERROR, 'frame failed'));
           },

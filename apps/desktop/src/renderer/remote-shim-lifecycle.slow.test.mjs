@@ -5,7 +5,7 @@
 // Every checkpoint of every scenario is compared whole and exactly: the connection indicator's full state sequence, the outage
 // transitions, every socket opened, pinged or closed (with its code, reason and virtual time), the resync requests, what the core
 // knows of the phone, how a pending call ended, the pairing reset message and the reconnected signal; for the boot-read scenarios also every
-// traced request with its virtual time and every consumer settlement. Nothing is filtered or collapsed.
+// request and consumer settlement, in one log in the order they happened. Nothing is filtered or collapsed but the one named Node-only request below.
 //
 // The MXT transport's ACKs are not part of a lifecycle trace (how many records the PC sends differs with the protocol's requests, and the ACK
 // count follows it): they are pinned by the transport oracle below, which gives both products one scripted record stream and compares the
@@ -31,6 +31,12 @@ ${child.stderr.slice(-3000)}`);
   return JSON.parse(child.stdout.slice(at + '@@TRACE@@'.length));
 };
 
+// The one request Node makes and the phone does not: Node publishes its lane set (`setRemoteLanes`) on every connect, an empty set too; the
+// phone's lanes are protocol feeds opened only while a lane is in use (apps/mobile/src/phone-lanes.ts), and a request sent only to match
+// Node's count would be a dummy. Only the empty publish is removed from the recording; a non-empty one would still have to match.
+const NODE_ONLY_REQUEST = /^request:setRemoteLanes\(empty\)@/u;
+const withoutNodeOnly = (checkpoint) => (checkpoint.log ? { ...checkpoint, log: checkpoint.log.filter((entry) => !NODE_ONLY_REQUEST.test(entry)) } : checkpoint);
+
 for (const name of Object.keys(golden)) {
   test(`phone lifecycle replays the Node recording: ${name}`, () => {
     const got = run(runner, name);
@@ -39,7 +45,7 @@ for (const name of Object.keys(golden)) {
       got.map((c) => c.name),
       want.map((c) => c.name)
     );
-    want.forEach((expected, i) => {
+    want.map(withoutNodeOnly).forEach((expected, i) => {
       assert.deepEqual(got[i], expected, `${name} / ${expected.name}`);
     });
   });

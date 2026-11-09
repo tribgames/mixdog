@@ -96,6 +96,8 @@ export function createProtocolRouter(
     probe(): void;
     /** Nothing has arrived since `since` and no probe is out: a call sent then is worth a probe. */
     silentSince(since: number): boolean;
+    /** Resolves when the next request frame has left this page (transmission complete). */
+    nextRequestSent(): Promise<void>;
   }
 ): ProtocolRouter {
   const owners = new Map<string, string>();
@@ -136,11 +138,13 @@ export function createProtocolRouter(
           const id = nextId++;
           waiting.set(id, true);
           // The deadline of this call alone; an overdue call first probes the connection.
-          const cancel = armCallWatch(waiting, id, reject, link.probe, link.silentSince);
+          const watch = armCallWatch(waiting, id, reject, link.probe, link.silentSince);
           settle = (): void => {
-            cancel();
+            watch.cancel();
             waiting.delete(id);
           };
+          // Node restarts the deadline and starts measuring silence when the frame is on its way, not when the call began (:258-268).
+          void link.nextRequestSent().then(watch.transmitted);
           return handler(params, link.host);
         })().then(
           (value) => {
