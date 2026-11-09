@@ -4,7 +4,7 @@ import type { PhoneProtocolAdapter } from './remote-shim-protocol';
 
 /** The adapters the bundle holds, in file-name order. */
 export function bundledPhoneAdapters(): PhoneProtocolAdapter[] {
-  const modules = import.meta.glob<{ adapter: PhoneProtocolAdapter }>('./remote-protocol-*.ts', { eager: true });
+  const modules = import.meta.glob<{ adapter: PhoneProtocolAdapter }>(['./remote-protocol-*.ts', '!./remote-protocol-queue.ts'], { eager: true });
   return Object.keys(modules)
     .sort()
     .map((path) => modules[path].adapter);

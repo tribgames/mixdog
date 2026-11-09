@@ -419,6 +419,14 @@ impl crate::common::HasOpId for UpdateDesktopCommandParams {
     }
 }
 
+/// Params of `host/files/trashItem` (core → host): the absolute path the core has already confined.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HostFilesTrashItemParams {
+    pub path: String,
+}
+
 /// Params of `host/capture/fileSnapshot` (core → host). The core has already confined the path.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]

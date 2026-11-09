@@ -232,6 +232,8 @@ pub struct WorkspaceService {
     fs: Arc<ProjectFs>,
     paths: Claims<PathBuf>,
     transfers: Arc<Transfers>,
+    /// The file previews' media leases (`media-leases.ts`), served by the media lane through [`WorkspaceService::file_leases`].
+    file_leases: Arc<crate::preview::FileLeases>,
     watcher: Arc<FolderWatcher>,
     router: Arc<Router>,
     watches: Mutex<HashMap<String, Owned>>,
@@ -311,6 +313,7 @@ impl WorkspaceService {
             fs: Arc::new(ProjectFs::new(Arc::new(RecoveryStore::new(deps.recovery_dir)))),
             paths: path_claims(),
             transfers: Arc::new(Transfers::default()),
+            file_leases: Arc::default(),
             watcher,
             router,
             watches: Mutex::default(),
@@ -352,6 +355,10 @@ impl WorkspaceService {
                 .await;
             }
         }));
+    }
+    /// The media leases a file preview minted: the media lane resolves a `mediaAssetId` through them.
+    pub fn file_leases(&self) -> Arc<crate::preview::FileLeases> {
+        self.file_leases.clone()
     }
     pub fn catalog(&self) -> &Catalog {
         &self.catalog
@@ -476,6 +483,7 @@ impl WorkspaceService {
             },
             Reason::Overloaded => CoreError::QueueFull { queue: "workspace".into() },
             Reason::Cancelled => CoreError::Cancelled { by: "caller".into() },
+            Reason::Plain => CoreError::DomainError { domain: "workspace".into(), code: None, message: Some(error.message.clone().into()), detail: None },
             ref other => CoreError::DomainError { domain: "workspace".into(), code: Some(other.code().into()), message: Some(error.message.clone().into()), detail: None },
         }
     }
@@ -611,21 +619,49 @@ impl WorkspaceService {
             }
             "projectFs/readText" => {
                 let (root, rel) = self.file_target(req, params).await?;
-                let file = run_fallible(self.lanes.interactive, &cancel, move || fsops::read_text(&root, &rel)).await?;
-                value(json!(file))
+                let authorized = opt_bool(params, "authorized");
+                let file = run_fallible(self.lanes.interactive, &cancel, move || {
+                    if authorized { fsops::read_text_authorized(&root, &rel) } else { fsops::read_text(&root, &rel) }
+                })
+                .await?;
+                let mut answer = json!(file);
+                // A connection carries at most 512 KiB per answer, a file up to 10 MiB: the reader asks for the text a window at a time
+                // (code points, so no character is split) and joins the pieces; `nextChar` names where the next window starts.
+                if let Some(max) = req.params.get("maxChars").and_then(Value::as_u64) {
+                    let from = req.params.get("fromChar").and_then(Value::as_u64).unwrap_or(0) as usize;
+                    let content = answer["content"].as_str().unwrap_or_default();
+                    let total = content.chars().count();
+                    let piece: String = content.chars().skip(from).take(max as usize).collect();
+                    answer["content"] = json!(piece);
+                    if from + (max as usize) < total {
+                        answer["nextChar"] = json!(from + max as usize);
+                    }
+                }
+                value(answer)
             }
             "projectFs/stat" => {
                 let (root, rel) = self.file_target(req, params).await?;
                 value(json!(run_fallible(self.lanes.interactive, &cancel, move || fsops::stat(&root, &rel)).await?))
             }
             "projectFs/entryPath" => {
-                let root = self.root(req.ctx.origin, params).await?;
-                value(json!({ "path": project_entry_path(&root, s(params, "rel")?)?.to_string_lossy() }))
+                let (root, rel) = self.file_target(req, params).await?;
+                value(json!({ "path": project_entry_path(&root, &rel)?.to_string_lossy() }))
             }
             "projectFs/browseDirs" => {
                 let path = s(params, "path")?.to_owned();
                 let include_hidden = params.get("includeHidden").and_then(Value::as_bool);
                 value(run_fallible(self.lanes.interactive, &cancel, move || crate::browse::browse_dirs(&path, include_hidden)).await?)
+            }
+            "projectFs/previewFile" => {
+                let (root, rel) = self.file_target(req, params).await?;
+                let leases = self.file_leases.clone();
+                value(run_fallible(self.lanes.interactive, &cancel, move || crate::preview::preview_file(&leases, &root, &rel)).await?)
+            }
+            "projectFs/previewRange" => {
+                let (root, rel) = self.file_target(req, params).await?;
+                let offset = params.get("offset").and_then(Value::as_u64).ok_or_else(|| WsError::invalid("offset is invalid."))?;
+                let length = params.get("length").and_then(Value::as_u64).filter(|n| (1..=crate::preview::RANGE_MAX).contains(n)).ok_or_else(|| WsError::invalid("length is invalid."))?;
+                value(run_fallible(self.lanes.interactive, &cancel, move || crate::preview::preview_range(&root, &rel, offset, length)).await?)
             }
             "projectFs/readLocal" => {
                 let path = s(params, "path")?.to_owned();
@@ -646,8 +682,7 @@ impl WorkspaceService {
                 value(json!(entries))
             }
             "projectFs/writeText" => {
-                let root = self.root(req.ctx.origin, params).await?;
-                let rel = s(params, "rel")?.to_owned();
+                let (root, rel) = self.file_target(req, params).await?;
                 let (content, expected) = (s(params, "content")?.to_owned(), s(params, "expectedContent")?.to_owned());
                 let encoding = params.get("encoding").and_then(Value::as_str).map(fsops::parse_encoding).transpose()?;
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel])?).await;
@@ -671,6 +706,8 @@ impl WorkspaceService {
             "projectFs/create" => {
                 let root = self.root(req.ctx.origin, params).await?;
                 let (dir, name, directory) = (s(params, "relDir")?.to_owned(), s(params, "name")?.to_owned(), opt_bool(params, "directory"));
+                // Node names the segments invalid before it joins and claims the path.
+                fsops::entry_segments(&name)?;
                 let target = PathBuf::from(&dir).join(name.replace('\\', "/"));
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&target.to_string_lossy()])?).await;
                 let note_root = root.clone();
@@ -1208,6 +1245,16 @@ impl DomainService for WorkspaceService {
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         // `dispatch` needs `Arc<Self>` for lane closures; services are always held in an Arc.
         let this = self.me.get().and_then(Weak::upgrade).ok_or(CoreError::ConnectionClosed)?;
+        // The OS trash is the window's (Node's `trashItem` host request): the path is confined here, the window moves it.
+        if req.method.as_str() == "projectFs/trash" && opt_bool(&req.params, "viaHost") {
+            let confined = async {
+                let root = this.root(req.ctx.origin, &req.params).await?;
+                let target = project_entry_path(&root, s(&req.params, "rel")?)?;
+                Ok::<_, WsError>(json!({ "path": target.to_string_lossy() }))
+            };
+            let host_params = confined.await.map_err(|e| this.map_error(&req, e))?;
+            return this.host_files("host/files/trashItem", host_params).await.map(|_| Reply::Value(json!({})));
+        }
         if let (Some(scope), Some(op)) = (op_scope(req.method.as_str()), req.op.as_ref()) {
             return this.with_op(&req, scope, op.to_string()).await;
         }
@@ -1217,12 +1264,16 @@ impl DomainService for WorkspaceService {
             _ => None,
         };
         if let Some(host_method) = host_method {
-            // The path is confined here; the window only renders it.
+            // The path is confined here; the window only renders it. A one-file grant names the granted file alone.
             let confined = async {
-                let root = this.root(req.ctx.origin, &req.params).await?;
-                let rel = s(&req.params, "rel")?;
-                project_entry_path(&root, rel)?;
-                Ok::<_, WsError>(json!({ "root": root.to_string_lossy(), "rel": rel }))
+                let (root, rel) = this.file_target(&req, &req.params).await?;
+                project_entry_path(&root, &rel)?;
+                let granted = req.params.get("accessToken").is_some();
+                Ok::<_, WsError>(if host_method == "host/capture/fileSnapshot" {
+                    json!({ "root": root.to_string_lossy(), "rel": rel, "grant": granted })
+                } else {
+                    json!({ "root": root.to_string_lossy(), "rel": rel, "scope": if granted { "file" } else { "project" } })
+                })
             };
             let host_params = confined.await.map_err(|e| this.map_error(&req, e))?;
             return this.host_files(host_method, host_params).await.map(Reply::Value);
@@ -1247,6 +1298,8 @@ impl DomainService for WorkspaceService {
             "projectFs/readText",
             "projectFs/stat",
             "projectFs/entryPath",
+            "projectFs/previewFile",
+            "projectFs/previewRange",
             "projectFs/readLocal",
             "projectFs/statLocal",
             "projectFs/browseDirs",

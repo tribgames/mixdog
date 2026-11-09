@@ -63,14 +63,14 @@ fn segment_count(path: &str) -> usize {
     path.split('/').count() - usize::from(path.ends_with('/'))
 }
 
-/// Tier, then fewer segments, then shorter path, then alphabetical.
+/// Tier, then fewer segments, then shorter path, then `localeCompare` (ICU) of the paths.
 pub fn compare(left: (&str, &FileMatch), right: (&str, &FileMatch)) -> Ordering {
     left.1
         .tier
         .cmp(&right.1.tier)
         .then(segment_count(left.0).cmp(&segment_count(right.0)))
         .then(left.0.encode_utf16().count().cmp(&right.0.encode_utf16().count()))
-        .then(left.0.cmp(right.0))
+        .then(mixdog_js::locale_compare(left.0, right.0))
 }
 
 #[cfg(test)]

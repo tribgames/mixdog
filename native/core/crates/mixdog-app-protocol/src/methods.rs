@@ -2996,7 +2996,7 @@ crate::client_request_definitions! {
         scope: none,
         class: C1,
         mutation: none,
-        origins: [Local, Ssh],
+        origins: [Local, Ssh, Relay],
     },
     /// Read an absolute path the connection may read.
     ProjectFsReadLocal => "projectFs/readLocal" {
@@ -3118,6 +3118,24 @@ crate::client_request_definitions! {
     /// URL of the desktop host's local page server (`host/localPage/url`).
     ProjectFsLocalPageUrl => "projectFs/localPageUrl" {
         params: ProjectFsLocalPageUrlParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// What a paired device's file preview reads first: kind, mime, size, modification time and the media lease (Node's `previewProjectFile`).
+    ProjectFsPreviewFile => "projectFs/previewFile" {
+        params: ProjectFsPreviewFileParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// One bounded window of a previewable file, base64 (Node's `previewProjectFileRange`).
+    ProjectFsPreviewRange => "projectFs/previewRange" {
+        params: ProjectFsPreviewRangeParams,
         result: JsonValue,
         scope: none,
         class: C1,

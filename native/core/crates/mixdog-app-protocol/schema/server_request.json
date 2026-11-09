@@ -170,6 +170,18 @@
       ],
       "type": "object"
     },
+    "HostFilesTrashItemParams": {
+      "description": "Params of `host/files/trashItem` (core → host): the absolute path the core has already confined.",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
     "HostLocalPageUrlParams": {
       "description": "Params of `host/localPage/url` (core → host); the result is the URL string.",
       "properties": {
@@ -1660,6 +1672,29 @@
         },
         "params": {
           "$ref": "#/definitions/HostLocalPageUrlParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The OS trash is the desktop window's (Node's `trashItem` host request).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/files/trashItem"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostFilesTrashItemParams"
         }
       },
       "required": [

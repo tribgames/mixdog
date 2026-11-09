@@ -7480,7 +7480,8 @@
       },
       "origins": [
         "local",
-        "ssh"
+        "ssh",
+        "relay"
       ],
       "params": "ProjectFsEntryPathParams",
       "result": "JsonValue",
@@ -7772,6 +7773,46 @@
         "relay"
       ],
       "params": "ProjectFsLocalPageUrlParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "projectFs/previewFile",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "ProjectFsPreviewFileParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "projectFs/previewRange",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "ProjectFsPreviewRangeParams",
       "result": "JsonValue",
       "scope": {
         "kind": "none"
@@ -10957,6 +10998,12 @@
       "params": "HostLocalPageUrlParams",
       "requires": "host.files",
       "result": "String"
+    },
+    {
+      "method": "host/files/trashItem",
+      "params": "HostFilesTrashItemParams",
+      "requires": "host.files",
+      "result": "JsonValue"
     },
     {
       "method": "model/proxy/execute",

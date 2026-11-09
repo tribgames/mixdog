@@ -77,6 +77,12 @@ crate::server_request_definitions! {
         result: String,
         requires: Some("host.files"),
     },
+    /// The OS trash is the desktop window's (Node's `trashItem` host request).
+    HostFilesTrashItem => "host/files/trashItem" {
+        params: HostFilesTrashItemParams,
+        result: JsonValue,
+        requires: Some("host.files"),
+    },
     /// A server core's model call executed with this machine's accounts.
     ModelProxyExecute => "model/proxy/execute" {
         params: ModelProxyExecuteParams,

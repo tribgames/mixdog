@@ -39,6 +39,11 @@ pub enum Reason {
     Overloaded,
     Cancelled,
     Io,
+    /// Node's `Error` that carried a `code` of its own - a system error's `ENOENT`, `PROJECT_UNAVAILABLE` - with Node's text as the
+    /// message. Answered as a code-bearing `domainError`, so a client rebuilds the error Node threw.
+    Coded(&'static str),
+    /// Node's plain `Error`: a text and no code. Answered as a code-less `domainError`.
+    Plain,
 }
 
 impl Reason {
@@ -67,6 +72,8 @@ impl Reason {
             Self::Overloaded => "overloaded",
             Self::Cancelled => "cancelled",
             Self::Io => "io",
+            Self::Coded(code) => code,
+            Self::Plain => "plain",
         }
     }
 }
@@ -82,6 +89,14 @@ pub type WsResult<T> = Result<T, WsError>;
 impl WsError {
     pub fn new(reason: Reason, message: impl Into<String>) -> Self {
         Self { reason, message: message.into() }
+    }
+    /// Node's error with a `code` of its own (see [`Reason::Coded`]).
+    pub fn coded(code: &'static str, message: impl Into<String>) -> Self {
+        Self::new(Reason::Coded(code), message)
+    }
+    /// Node's plain `Error` with only a message (see [`Reason::Plain`]).
+    pub fn plain(message: impl Into<String>) -> Self {
+        Self::new(Reason::Plain, message)
     }
     pub fn invalid(message: impl Into<String>) -> Self {
         Self::new(Reason::InvalidParams, message)
