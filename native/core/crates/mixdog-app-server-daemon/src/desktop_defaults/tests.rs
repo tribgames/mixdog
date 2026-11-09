@@ -10,6 +10,8 @@ use mixdog_core_api::mock::MockStatePublisher;
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
 use mixdog_rt::LaneTokens;
+
+use crate::daemon_log::DaemonLog;
 use serde_json::Value;
 
 use super::*;
@@ -65,7 +67,7 @@ async fn a_failed_separation_leaves_the_config_reports_nodes_message_and_retries
         // The condition of the recording: the backup folder cannot be made.
         std::fs::write(data.join("backups"), "not a directory").unwrap();
         let (log, log_path) = log_in(root.path(), &tokens);
-        let outcome = separate(&config, &log, RECORDED_AT_MS).await;
+        let outcome = separate(&config, RECORDED_AT_MS).await;
 
         assert_eq!(std::fs::read_to_string(&file).unwrap(), case["afterFailure"].as_str().unwrap(), "{name}: the config is unchanged");
         // Node's `error.message`, the argument of its `defaults-separation-failed` record, with the recorded data folder put back.
@@ -76,7 +78,7 @@ async fn a_failed_separation_leaves_the_config_reports_nodes_message_and_retries
         assert_eq!(recorded_line["event"], "defaults-separation-failed");
         assert_eq!(recorded_line["message"], case["error"]["message"], "{name}: the recorded record carries the same message");
         log.flush().await;
-        assert!(std::fs::read_to_string(&log_path).unwrap().contains(&format!("defaults-separation-failed: {message}")), "{name}: the daemon log");
+        assert!(!log_path.exists(), "{name}: Node logged nothing besides the desktop diagnostic");
 
         // The next start: the obstacle gone, the marker still unset, so the pass runs.
         std::fs::remove_file(data.join("backups")).unwrap();
@@ -96,7 +98,7 @@ async fn a_separation_that_succeeds_reports_ok_and_logs_nothing() {
     std::fs::write(data.join("mixdog-config.json"), twin()["failures"][0]["inputText"].as_str().unwrap()).unwrap();
     let config = open(&data, &tokens).await;
     let (log, log_path) = log_in(root.path(), &tokens);
-    let outcome = separate(&config, &log, RECORDED_AT_MS).await;
+    let outcome = separate(&config, RECORDED_AT_MS).await;
     log.flush().await;
     assert_eq!(serde_json::to_value(&outcome).unwrap(), serde_json::json!({ "ok": true }));
     assert!(!log_path.exists());

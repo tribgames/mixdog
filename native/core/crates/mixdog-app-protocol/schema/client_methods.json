@@ -5153,11 +5153,15 @@
           "$ref": "#/definitions/CoreState"
         },
         "defaultsSeparation": {
-          "$ref": "#/definitions/DefaultsSeparation",
-          "default": {
-            "ok": true
-          },
-          "description": "Set once per core start, before any connection is served."
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DefaultsSeparation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Set once per core start, before any connection is served. Absent from a core that predates it; read that as `ok`."
         },
         "limits": {
           "$ref": "#/definitions/Limits"

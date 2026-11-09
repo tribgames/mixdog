@@ -156,8 +156,10 @@ impl Default for DefaultsSeparation {
 #[serde(rename_all = "camelCase")]
 pub struct InitializeResponse {
     /// Set once per core start, before any connection is served.
-    #[serde(default)]
-    pub defaults_separation: DefaultsSeparation,
+    /// Absent from a core that predates it; read that as `ok`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub defaults_separation: Option<DefaultsSeparation>,
     pub user_agent: String,
     pub platform_family: String,
     pub platform_os: String,

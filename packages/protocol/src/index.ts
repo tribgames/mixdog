@@ -1623,8 +1623,9 @@ export type InitializeParams = { clientInfo: ClientInfo, capabilities?: Initiali
 export type InitializeResponse = {
 /**
  * Set once per core start, before any connection is served.
+ * Absent from a core that predates it; read that as `ok`.
  */
-defaultsSeparation: DefaultsSeparation, userAgent: string, platformFamily: string, platformOs: string, serverVersion: string, serverBuild: string,
+defaultsSeparation?: DefaultsSeparation, userAgent: string, platformFamily: string, platformOs: string, serverVersion: string, serverBuild: string,
 /**
  * Changes on every core start; a different value means every held epoch is stale.
  */
