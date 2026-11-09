@@ -18,6 +18,7 @@ pub mod relay;
 pub mod signal;
 pub mod sources;
 pub mod track;
+pub mod viewer;
 
 #[cfg(test)]
 mod interop;

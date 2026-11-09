@@ -7,6 +7,7 @@ mod foreground;
 mod legacy_push;
 mod live_view_relay;
 mod live_view_signals;
+mod live_view_viewer;
 mod lr9_origin;
 mod native_push_kat;
 mod relay_interop;
