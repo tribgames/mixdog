@@ -1,0 +1,36 @@
+// Node b6f10295a src/runtime/agent/orchestrator/session/agent-room.mjs, recorded from the original test's run; replayed by call.
+import { readFileSync } from 'node:fs';
+import { replay } from './replay.mjs';
+
+const table = JSON.parse(readFileSync(new URL('./transcript-layout-stability.test.0.recorded.json', import.meta.url), 'utf8'));
+export const ROOM_INSTRUCTION_LIMIT = replay(table, "ROOM_INSTRUCTION_LIMIT");
+export const ROOM_LIMITS = replay(table, "ROOM_LIMITS");
+export const ROOM_MAX_MEMBERS = replay(table, "ROOM_MAX_MEMBERS");
+export const ROOM_MIN_MEMBERS = replay(table, "ROOM_MIN_MEMBERS");
+export const ROOM_ROW_SOURCE = replay(table, "ROOM_ROW_SOURCE");
+export const isPassReply = replay(table, "isPassReply");
+export const isRoomRowMessage = replay(table, "isRoomRowMessage");
+export const isRoomThreadSessionId = replay(table, "isRoomThreadSessionId");
+export const normalizeRoomConfig = replay(table, "normalizeRoomConfig");
+export const normalizeRoomRow = replay(table, "normalizeRoomRow");
+export const parseRoomAsk = replay(table, "parseRoomAsk");
+export const roomDataLabel = replay(table, "roomDataLabel");
+export const roomDataLines = replay(table, "roomDataLines");
+export const roomIdOfSession = replay(table, "roomIdOfSession");
+export const roomMemberNamed = replay(table, "roomMemberNamed");
+export const roomMemberOfSession = replay(table, "roomMemberOfSession");
+export const roomMemberSessionId = replay(table, "roomMemberSessionId");
+export const roomMentionOf = replay(table, "roomMentionOf");
+export const roomMessageBudget = replay(table, "roomMessageBudget");
+export const roomRowItem = replay(table, "roomRowItem");
+export const roomRowMessage = replay(table, "roomRowMessage");
+export const roomRowSender = replay(table, "roomRowSender");
+export const roomRowTargets = replay(table, "roomRowTargets");
+export const roomRowsOfItems = replay(table, "roomRowsOfItems");
+export const roomSessionId = replay(table, "roomSessionId");
+export const roomTurnPrompt = replay(table, "roomTurnPrompt");
+export const roomUsageLimit = replay(table, "roomUsageLimit");
+export const roomUserWaiting = replay(table, "roomUserWaiting");
+export const rowsSinceCursor = replay(table, "rowsSinceCursor");
+export const runRoomExchange = replay(table, "runRoomExchange");
+export const withoutPassMarker = replay(table, "withoutPassMarker");

@@ -1,0 +1,140 @@
+{
+ "constants": {},
+ "calls": {
+  "makeUsageRecord\u0000[{\"ts\":1790741400000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"claude-opus-5-5\",\"sessionId\":\"fast-session\",\"sourceType\":\"lead\",\"inputTokens\":100000,\"outputTokens\":300,\"durationMs\":2000}]": [
+   {
+    "result": {
+     "ts": 1790741400000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "claude-opus-5-5",
+     "kind": "oauth",
+     "sessionId": "fast-session",
+     "sourceType": "lead",
+     "input": 100000,
+     "output": 300,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "claude-opus-5-5",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 2000,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "85eb0615-a531-4c81-8c07-1803eda22c04"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790742000000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"claude-opus-5-5\",\"sessionId\":\"fast-session\",\"sourceType\":\"lead\",\"inputTokens\":100000,\"outputTokens\":600,\"durationMs\":2000,\"requestServiceTier\":\"fast\"}]": [
+   {
+    "result": {
+     "ts": 1790742000000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "claude-opus-5-5",
+     "kind": "oauth",
+     "sessionId": "fast-session",
+     "sourceType": "lead",
+     "input": 100000,
+     "output": 600,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "claude-opus-5-5",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "requestServiceTier": "fast",
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 2000,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "18fa09d1-8bb2-478b-9d9c-ede21eb92c31"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790742600000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"claude-sonnet-4-6-with-a-very-long-model-identifier\",\"sessionId\":\"fast-session\",\"sourceType\":\"lead\",\"inputTokens\":100000,\"outputTokens\":300,\"durationMs\":2000,\"requestServiceTier\":\"fast\"}]": [
+   {
+    "result": {
+     "ts": 1790742600000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "claude-sonnet-4-6-with-a-very-long-model-identifier",
+     "kind": "oauth",
+     "sessionId": "fast-session",
+     "sourceType": "lead",
+     "input": 100000,
+     "output": 300,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "claude-sonnet-4-6-with-a-very-long-model-identifier",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "requestServiceTier": "fast",
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 2000,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "733f4518-0d94-451d-b7f6-a2d97d71ee64"
+    },
+    "async": false
+   }
+  ]
+ },
+ "services": {},
+ "stubs": {
+  "UsageLedger": "class",
+  "makeUsageRecord": "identity"
+ },
+ "order": {
+  "makeUsageRecord": [
+   "makeUsageRecord\u0000[{\"ts\":1790741400000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"claude-opus-5-5\",\"sessionId\":\"fast-session\",\"sourceType\":\"lead\",\"inputTokens\":100000,\"outputTokens\":300,\"durationMs\":2000}]",
+   "makeUsageRecord\u0000[{\"ts\":1790742000000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"claude-opus-5-5\",\"sessionId\":\"fast-session\",\"sourceType\":\"lead\",\"inputTokens\":100000,\"outputTokens\":600,\"durationMs\":2000,\"requestServiceTier\":\"fast\"}]",
+   "makeUsageRecord\u0000[{\"ts\":1790742600000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"claude-sonnet-4-6-with-a-very-long-model-identifier\",\"sessionId\":\"fast-session\",\"sourceType\":\"lead\",\"inputTokens\":100000,\"outputTokens\":300,\"durationMs\":2000,\"requestServiceTier\":\"fast\"}]"
+  ]
+ },
+ "positional": [
+  "createUsageStatsApi.getUsageStats",
+  "createUsageStatsApi.getUsageRequests",
+  "createUsageStatsApi.getSessionUsage",
+  "createUsageStatsApi.getQuotaHistory"
+ ],
+ "opaque": []
+}

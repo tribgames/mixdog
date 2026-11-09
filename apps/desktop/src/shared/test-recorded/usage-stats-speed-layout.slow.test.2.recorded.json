@@ -1,0 +1,40 @@
+{
+ "constants": {},
+ "calls": {
+  "resolveUsageStatsPeriod\u0000[{\"view\":\"hour\",\"now\":1789268400000}]": [
+   {
+    "result": {
+     "view": "hour",
+     "anchor": null,
+     "fromMs": 1789182000000,
+     "toMs": 1789268400000,
+     "endMs": 1789268400000,
+     "startDay": "2026-09-12",
+     "endDay": "2026-09-13",
+     "days": 1,
+     "previousAnchor": null,
+     "nextAnchor": null,
+     "isCurrent": true
+    },
+    "async": false
+   }
+  ]
+ },
+ "services": {},
+ "stubs": {
+  "UsageLedger": "class",
+  "makeUsageRecord": "identity"
+ },
+ "order": {
+  "resolveUsageStatsPeriod": [
+   "resolveUsageStatsPeriod\u0000[{\"view\":\"hour\",\"now\":1789268400000}]"
+  ]
+ },
+ "positional": [
+  "createUsageStatsApi.getUsageStats",
+  "createUsageStatsApi.getUsageRequests",
+  "createUsageStatsApi.getSessionUsage",
+  "createUsageStatsApi.getQuotaHistory"
+ ],
+ "opaque": []
+}

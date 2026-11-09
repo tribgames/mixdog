@@ -1,0 +1,124 @@
+{
+ "constants": {
+  "SESSION_SUMMARY_INDEX_VERSION": 2
+ },
+ "calls": {
+  "_sessionSummary\u0000[{\"id\":\"sess_truncated_only\",\"cwd\":\"C:\\\\Project\\\\mixdog\",\"updatedAt\":1000,\"desktopSession\":{\"classification\":\"project\",\"projectPath\":\"C:\\\\Project\\\\mixdog\"},\"messages\":[{\"role\":\"system\",\"content\":\"rules\"},{\"role\":\"user\",\"content\":\"[truncated]\",\"meta\":{\"synthetic\":true}},{\"role\":\"assistant\",\"content\":\"[request interrupted by user]\"}]}]": [
+   {
+    "result": {
+     "id": "sess_truncated_only",
+     "updatedAt": 1000,
+     "lastUsedAt": 0,
+     "createdAt": 0,
+     "lastHeartbeatAt": 0,
+     "closed": false,
+     "status": "idle",
+     "owner": "user",
+     "agent": null,
+     "sessionMode": "coding",
+     "sourceType": null,
+     "sourceName": null,
+     "scopeKey": null,
+     "parentSessionId": null,
+     "ownerSessionId": null,
+     "visibility": "ordinary",
+     "clientHostPid": null,
+     "cwd": "C:\\Project\\mixdog",
+     "desktopSession": {
+      "classification": "project",
+      "projectPath": "C:\\Project\\mixdog"
+     },
+     "provider": null,
+     "model": null,
+     "presetName": null,
+     "effort": null,
+     "fast": false,
+     "modelParameters": null,
+     "agentTag": null,
+     "task_id": null,
+     "permission": null,
+     "permissionMode": null,
+     "toolPermission": null,
+     "schemaAllowedTools": null,
+     "taskType": null,
+     "messageCount": 2,
+     "compactCount": 0,
+     "realTurnCount": 0,
+     "title": "",
+     "preview": "",
+     "lastMessagePreview": "",
+     "lastMessageRoutine": null,
+     "generation": 0,
+     "storageMtimeMs": 0,
+     "storageSize": 0,
+     "detachedReason": null,
+     "importKey": null,
+     "inheritedFromSessionId": null
+    },
+    "async": false
+   }
+  ],
+  "_sessionSummary\u0000[{\"id\":\"sess_truncated_only\",\"cwd\":\"C:\\\\Project\\\\mixdog\",\"updatedAt\":1000,\"desktopSession\":{\"classification\":\"project\",\"projectPath\":\"C:\\\\Project\\\\mixdog\"},\"messages\":[{\"role\":\"system\",\"content\":\"rules\"},{\"role\":\"user\",\"content\":\"[truncated]\",\"meta\":{\"synthetic\":true}},{\"role\":\"assistant\",\"content\":\"[request interrupted by user]\"},{\"role\":\"user\",\"content\":\"Fix the login bug\"}]}]": [
+   {
+    "result": {
+     "id": "sess_truncated_only",
+     "updatedAt": 1000,
+     "lastUsedAt": 0,
+     "createdAt": 0,
+     "lastHeartbeatAt": 0,
+     "closed": false,
+     "status": "idle",
+     "owner": "user",
+     "agent": null,
+     "sessionMode": "coding",
+     "sourceType": null,
+     "sourceName": null,
+     "scopeKey": null,
+     "parentSessionId": null,
+     "ownerSessionId": null,
+     "visibility": "ordinary",
+     "clientHostPid": null,
+     "cwd": "C:\\Project\\mixdog",
+     "desktopSession": {
+      "classification": "project",
+      "projectPath": "C:\\Project\\mixdog"
+     },
+     "provider": null,
+     "model": null,
+     "presetName": null,
+     "effort": null,
+     "fast": false,
+     "modelParameters": null,
+     "agentTag": null,
+     "task_id": null,
+     "permission": null,
+     "permissionMode": null,
+     "toolPermission": null,
+     "schemaAllowedTools": null,
+     "taskType": null,
+     "messageCount": 3,
+     "compactCount": 0,
+     "realTurnCount": 1,
+     "title": "",
+     "preview": "Fix the login bug",
+     "lastMessagePreview": "Fix the login bug",
+     "lastMessageRoutine": null,
+     "generation": 0,
+     "storageMtimeMs": 0,
+     "storageSize": 0,
+     "detachedReason": null,
+     "importKey": null,
+     "inheritedFromSessionId": null
+    },
+    "async": false
+   }
+  ]
+ },
+ "order": {
+  "_sessionSummary": [
+   "_sessionSummary\u0000[{\"id\":\"sess_truncated_only\",\"cwd\":\"C:\\\\Project\\\\mixdog\",\"updatedAt\":1000,\"desktopSession\":{\"classification\":\"project\",\"projectPath\":\"C:\\\\Project\\\\mixdog\"},\"messages\":[{\"role\":\"system\",\"content\":\"rules\"},{\"role\":\"user\",\"content\":\"[truncated]\",\"meta\":{\"synthetic\":true}},{\"role\":\"assistant\",\"content\":\"[request interrupted by user]\"}]}]",
+   "_sessionSummary\u0000[{\"id\":\"sess_truncated_only\",\"cwd\":\"C:\\\\Project\\\\mixdog\",\"updatedAt\":1000,\"desktopSession\":{\"classification\":\"project\",\"projectPath\":\"C:\\\\Project\\\\mixdog\"},\"messages\":[{\"role\":\"system\",\"content\":\"rules\"},{\"role\":\"user\",\"content\":\"[truncated]\",\"meta\":{\"synthetic\":true}},{\"role\":\"assistant\",\"content\":\"[request interrupted by user]\"},{\"role\":\"user\",\"content\":\"Fix the login bug\"}]}]"
+  ]
+ },
+ "opaque": []
+}

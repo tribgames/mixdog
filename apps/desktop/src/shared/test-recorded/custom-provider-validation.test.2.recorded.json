@@ -1,0 +1,19 @@
+{
+ "constants": {
+  "ACCOUNT_PROVIDERS": [
+   "openai-oauth",
+   "anthropic-oauth",
+   "grok-oauth",
+   "muse-code-oauth",
+   "command-code-oauth",
+   "mimo-oauth",
+   "cursor-oauth",
+   "devin-oauth",
+   "antigravity-oauth",
+   "opencode-go-oauth"
+  ],
+  "MAX_ACCOUNTS": 20
+ },
+ "calls": {},
+ "opaque": []
+}

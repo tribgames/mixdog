@@ -1,0 +1,12 @@
+{
+ "constants": {},
+ "calls": {
+  "renderShellCompletionNotice\u0000[{\"jobId\":\"job_1790959235138_971b88\",\"status\":\"completed\",\"exitCode\":0,\"command\":\"sleep 1\"}]": [
+   {
+    "result": "<task-notification>\n<task-id>job_1790959235138_971b88</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0): sleep 1</summary>\n<result>\nRetrieve output with task read (task_id: job_1790959235138_971b88) only if it has not already been received.\n</result>\n</task-notification>",
+    "async": false
+   }
+  ]
+ },
+ "opaque": []
+}

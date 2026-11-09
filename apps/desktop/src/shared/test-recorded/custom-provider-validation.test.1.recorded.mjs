@@ -1,0 +1,30 @@
+// Node b6f10295a src/session-runtime/services/provider-admin.mjs, recorded from the original test's run; replayed by call.
+import { readFileSync } from 'node:fs';
+import { replay } from './replay.mjs';
+
+const table = JSON.parse(readFileSync(new URL('./custom-provider-validation.test.1.recorded.json', import.meta.url), 'utf8'));
+export const CUSTOM_API_KEY_MAX = replay(table, "CUSTOM_API_KEY_MAX");
+export const MODEL_PREFERENCE_CHANGES_MAX = replay(table, "MODEL_PREFERENCE_CHANGES_MAX");
+export const authenticateProvider = replay(table, "authenticateProvider");
+export const beginOAuthProviderLogin = replay(table, "beginOAuthProviderLogin");
+export const checkCustomProviderKeyEnv = replay(table, "checkCustomProviderKeyEnv");
+export const discoverCustomProviderModels = replay(table, "discoverCustomProviderModels");
+export const forgetProviderAuth = replay(table, "forgetProviderAuth");
+export const isCustomProviderConfig = replay(table, "isCustomProviderConfig");
+export const isKnownProvider = replay(table, "isKnownProvider");
+export const keychainIssueFor = replay(table, "keychainIssueFor");
+export const listProviderAccounts = replay(table, "listProviderAccounts");
+export const loginOAuthProvider = replay(table, "loginOAuthProvider");
+export const materializeProviderAccounts = replay(table, "materializeProviderAccounts");
+export const providerSetup = replay(table, "providerSetup");
+export const providerStatus = replay(table, "providerStatus");
+export const removeCustomProvider = replay(table, "removeCustomProvider");
+export const renderProviderStatus = replay(table, "renderProviderStatus");
+export const saveCustomProvider = replay(table, "saveCustomProvider");
+export const saveCustomProviderKey = replay(table, "saveCustomProviderKey");
+export const saveModelPreferences = replay(table, "saveModelPreferences");
+export const saveOpenAIUsageSessionKey = replay(table, "saveOpenAIUsageSessionKey");
+export const saveProviderApiKey = replay(table, "saveProviderApiKey");
+export const testCustomProvider = replay(table, "testCustomProvider");
+export const updateCustomProviderModel = replay(table, "updateCustomProviderModel");
+export const updateProviderAccounts = replay(table, "updateProviderAccounts");
