@@ -52,6 +52,8 @@ export function createViewManager(
     probe(): void;
     /** Nothing arrived since a call was sent and no probe is out (the silent-call probe's condition). */
     silentSince(since: number): boolean;
+    /** Resolves when the next request frame has left this page. */
+    nextRequestSent(): Promise<void>;
   }
 ): ViewManager {
   const open = new Set<string>();
@@ -126,9 +128,10 @@ export function createViewManager(
     new Promise<T>((resolve, reject) => {
       const id = ++syncId;
       inFlight.set(id, true);
-      const cancel = armCallWatch(inFlight, id, reject, options.probe, options.silentSince, timers);
+      const watch = armCallWatch(inFlight, id, reject, options.probe, options.silentSince, timers);
+      void options.nextRequestSent().then(watch.transmitted);
       const done = (): void => {
-        cancel();
+        watch.cancel();
         inFlight.delete(id);
       };
       run().then(

@@ -56,6 +56,8 @@ export interface PhoneBoot {
   wakeProbe(): void;
   /** Nothing has arrived since `since` and no probe is out. */
   silentSince(since: number): boolean;
+  /** Resolves when the next request frame has left this page. */
+  nextRequestSent(): Promise<void>;
 }
 
 const REGISTRATION_REFUSED = new Set([401, 403, 409]);
@@ -217,6 +219,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
       recycle: () => connected.link.retire(),
       probe: () => wake(),
       silentSince: (since) => connected.link.silentSince(since),
+      nextRequestSent: () => connected.link.nextRequestSent(),
     });
     lanes = createLaneFeeds(connected.client);
     for (const [lane, feeds] of declaredLanes) lanes.declare(lane, feeds);
@@ -304,6 +307,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     /** Node's wakeProbe: what an overdue or silent call asks of the connection. */
     wakeProbe: () => wake(),
     silentSince: (since: number): boolean => phone?.link.silentSince(since) ?? false,
+    nextRequestSent: (): Promise<void> => phone?.link.nextRequestSent() ?? Promise.resolve(),
     client: () => phone?.client,
     synced: async () => {
       await start();
