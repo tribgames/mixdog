@@ -245,9 +245,7 @@ impl RouteSession for SessionRouteAdapter {
     /// change does to the session, as one durable header change. `false` when the session is
     /// closed or gone.
     async fn update_route(&self, thread: &ThreadId, route: Route, cross_provider: bool) -> Result<bool, PortError> {
-        let Some((_, change)) = self.route_patch(thread, &route, cross_provider).await? else { return Ok(false) };
-        self.threads.patch_header(thread, change.set, change.unset).await?;
-        Ok(true)
+        Ok(self.write_route(thread, &route, cross_provider, |_, _| {}).await?.is_some())
     }
 
     async fn record_boundary(&self, thread: &ThreadId, field: &str, boundary: Value) -> Result<bool, PortError> {
@@ -338,22 +336,51 @@ impl SessionRouteAdapter {
     /// followed by the hop's fields, in the one header change. The route change leaves
     /// `wireRoute` null. The updated header; `None` when the session is closed or gone.
     pub(crate) async fn write_hop(&self, thread: &ThreadId, route: Route, hop: &mixdog_core_run::run_host::route_fallback::HopWrite) -> Result<Option<Header>, PortError> {
-        let Some((header, mut change)) = self.route_patch(thread, &route, true).await? else { return Ok(None) };
-        set(&mut change, "routeFallbacks", Value::Array(hop.chain.clone()));
-        if let Some(primary) = &hop.primary {
-            set(&mut change, "routeFallbackPrimary", primary.clone());
+        let hop_fields = |header: &Header, change: &mut HeaderChange| {
+            set(change, "routeFallbacks", Value::Array(hop.chain.clone()));
+            if let Some(primary) = &hop.primary {
+                set(change, "routeFallbackPrimary", primary.clone());
+            }
+            set(change, "routeFallbackIndex", json!(hop.index));
+            set(change, "routeFallbackFailures", Value::Array(hop.failures.clone()));
+            if hop.checkpoint_route_changed
+                && let Some(Value::Object(checkpoint)) = header.get("activeTurnCheckpoint")
+            {
+                let mut checkpoint = checkpoint.clone();
+                checkpoint.insert("routeChanged".into(), Value::Bool(true));
+                set(change, "activeTurnCheckpoint", Value::Object(checkpoint));
+            }
+        };
+        if self.write_route(thread, &route, true, hop_fields).await?.is_none() {
+            return Ok(None);
         }
-        set(&mut change, "routeFallbackIndex", json!(hop.index));
-        set(&mut change, "routeFallbackFailures", Value::Array(hop.failures.clone()));
-        if hop.checkpoint_route_changed
-            && let Some(Value::Object(checkpoint)) = header.get("activeTurnCheckpoint")
-        {
-            let mut checkpoint = checkpoint.clone();
-            checkpoint.insert("routeChanged".into(), Value::Bool(true));
-            set(&mut change, "activeTurnCheckpoint", Value::Object(checkpoint));
-        }
-        self.threads.patch_header(thread, change.set, change.unset).await?;
         self.threads.header(thread).await.map(Some)
+    }
+
+    /// `updateSessionRoute` as one read-modify-write: the change is computed from the acked header and lands only if every key it
+    /// writes still holds what it was computed from (Node computes on the live session, so a write that landed meanwhile - the
+    /// installation's compaction sync - is never overwritten by a stale copy of it). A moved header is read and computed again.
+    async fn write_route(
+        &self,
+        thread: &ThreadId,
+        route: &Route,
+        cross_provider: bool,
+        extra: impl Fn(&Header, &mut HeaderChange),
+    ) -> Result<Option<()>, PortError> {
+        loop {
+            let Some((header, mut change)) = self.route_patch(thread, route, cross_provider).await? else { return Ok(None) };
+            extra(&header, &mut change);
+            let expect: Map<String, Value> = change
+                .set
+                .keys()
+                .chain(change.unset.iter())
+                .filter(|key| key.as_str() != "updatedAt")
+                .map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null)))
+                .collect();
+            if self.threads.patch_header_if(thread, expect, change.set, change.unset).await?.is_none() {
+                return Ok(Some(()));
+            }
+        }
     }
 }
 
@@ -517,6 +544,46 @@ mod tests {
         let (seen, previous, cross) = change.0.lock().unwrap()[0].clone();
         assert_eq!((seen["model"].clone(), previous, cross), (json!("claude-x"), json!({ "provider": "openai", "model": "gpt-a" }), true));
         assert!(!adapter.update_route(&ThreadId::from("sess_gone"), Route::new(), false).await.expect("gone"));
+    }
+
+    /// `applyRouteContextWindow` spreads the session's own `compaction`: a route change on a session whose installation has
+    /// just synced the saved settings (`onModelChange`, `summaryMode`) keeps them, whichever write the change was computed before.
+    struct MergeCompaction {
+        threads: Arc<dyn ThreadState>,
+        thread: ThreadId,
+        landed: Mutex<bool>,
+    }
+    #[async_trait::async_trait]
+    impl RouteChange for MergeCompaction {
+        async fn route_change(&self, header: &Header, _: &Route, _: &Route, _: bool) -> HeaderChange {
+            // The installation's sync lands while the first change is being computed from the header read before it.
+            if !std::mem::replace(&mut *self.landed.lock().unwrap(), true) {
+                let synced = obj(json!({ "compaction": { "auto": true, "onModelChange": true, "summaryMode": "smart" } }));
+                self.threads.patch_header(&self.thread, synced, Vec::new()).await.expect("sync");
+            }
+            let mut compaction = header.get("compaction").and_then(Value::as_object).cloned().unwrap_or_default();
+            compaction.insert("boundaryTokens".into(), json!(128_000));
+            HeaderChange { set: obj(json!({ "compaction": compaction })), unset: Vec::new() }
+        }
+        fn environment_reset(&self, _: &Header) -> HeaderChange {
+            HeaderChange { set: Map::new(), unset: Vec::new() }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_route_update_keeps_the_compaction_the_installation_synced() {
+        use crate::session::thread_state::SessionThreads;
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let thread = ThreadId::from("sess_synced");
+        let header = obj(json!({ "provider": "openai", "model": "gpt-a" }));
+        directory.create_with_id(thread.clone(), header, json!({})).await.expect("create");
+        let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
+        let change = Arc::new(MergeCompaction { threads: threads.clone(), thread: thread.clone(), landed: Mutex::new(false) });
+        let adapter = SessionRouteAdapter::new(directory.clone(), threads.clone(), change, Arc::new(Quiet), Arc::new(Quiet), Arc::new(Quiet), rig.clock.clone());
+        assert!(adapter.update_route(&thread, obj(json!({ "provider": "anthropic", "model": "claude-x" })), true).await.expect("update"));
+        let stored = threads.header(&thread).await.expect("header");
+        assert_eq!(stored["compaction"], json!({ "auto": true, "onModelChange": true, "summaryMode": "smart", "boundaryTokens": 128_000 }));
     }
 
     struct NullWire;
