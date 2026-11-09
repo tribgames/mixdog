@@ -331,6 +331,8 @@ export function createRosterFeed<S>(options: {
         if (!page.nextCursor) break;
         cursor = page.nextCursor;
       }
+      // The read is over from here: a re-attachment announced after this point starts a read of its own, not this one's answer.
+      reading = null;
       for (const [id, row] of edges) apply(listed, id, row);
       for (const [id, flag] of pendingArchive) {
         const row = listed.get(id);

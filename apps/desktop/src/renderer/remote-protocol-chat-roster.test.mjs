@@ -18,11 +18,8 @@ globalThis.window ??= globalThis;
 
 const recorded = JSON.parse(readFileSync(new URL('./remote-protocol-chat-roster.recorded.json', import.meta.url), 'utf8'));
 const plain = (value) => JSON.parse(JSON.stringify(value));
-const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
-// The recording carries each row as the core sends it (`coreRows`: the stored row flattened, the overlays as fields of the row) and as
-// Node's roster held it (`roster`, `published`): the replay compares whole rows, every field Node's row had.
-const coreRow = (row) => row;
+// The recording carries each row as the core sends it (`coreRows`: the stored row flattened, the overlays as fields of the row), the core's`n// app-feed events of the step (`edges`, in order) and what Node's phone published for it (`published`, `roster`): the replay feeds the`n// recorded rows and edges and compares whole rows, every field Node's row had.
 
 test('the recording is an exact Node b6f10295a manifest', () => {
   assert.equal(recorded.manifest.exact, true);
@@ -33,6 +30,7 @@ test('the recording is an exact Node b6f10295a manifest', () => {
 function rig(pageSize = 2) {
   let listing = [];
   let gate = null;
+  let reached = null;
   const listeners = new Set();
   const stores = new Set();
   const requests = [];
@@ -40,8 +38,11 @@ function rig(pageSize = 2) {
     call: async (method, params) => {
       requests.push({ method, params });
       assert.equal(method, 'thread/list');
-      if (gate) await gate;
-      const rows = listing.map(coreRow);
+      if (gate) {
+        reached?.();
+        await gate;
+      }
+      const rows = listing;
       const from = params.cursor ? Number(params.cursor) : 0;
       const data = rows.slice(from, from + pageSize);
       return { data, ...(from + pageSize < rows.length ? { nextCursor: String(from + pageSize) } : {}) };
@@ -50,7 +51,14 @@ function rig(pageSize = 2) {
     store: { subscribe: (listener) => (stores.add(listener), () => stores.delete(listener)) },
   };
   const published = [];
-  const feed = createRosterFeed({ summaries: (rows) => summariesOfThreadRows(rows), publish: (rows) => published.push(plain(rows)) });
+  const waiting = [];
+  const feed = createRosterFeed({
+    summaries: (rows) => summariesOfThreadRows(rows),
+    publish: (rows) => {
+      published.push(plain(rows));
+      waiting.splice(0).forEach((resolve) => resolve());
+    },
+  });
   feed.attach(client);
   return {
     feed,
@@ -58,12 +66,19 @@ function rig(pageSize = 2) {
     published,
     requests,
     setListing: (rows) => (listing = rows),
+    /** Resolves at the feed's next publication (the completion of a list read). */
+    published_: () => new Promise((resolve) => waiting.push(resolve)),
+    /** Holds the listing; `arrived` resolves when a read has reached the hold. */
     hold() {
       let release;
       gate = new Promise((resolve) => (release = resolve));
-      return () => {
-        gate = null;
-        release();
+      const arrived = new Promise((resolve) => (reached = resolve));
+      return {
+        arrived,
+        release: () => {
+          gate = null;
+          release();
+        },
       };
     },
     edge: (method, params) => listeners.forEach((l) => l({ type: 'notification', notification: { method, params } })),
@@ -71,13 +86,14 @@ function rig(pageSize = 2) {
   };
 }
 
-/** The edges that take `before` to `after`, as the core announces them. */
-function edgesOf(before, after) {
-  const was = new Map(before.map((row) => [row.id, JSON.stringify(row)]));
-  return [
-    ...after.filter((row) => was.get(row.id) !== JSON.stringify(row)).map((row) => (was.has(row.id) ? ['thread/summary/updated', { thread: coreRow(row) }] : ['thread/started', { thread: coreRow(row) }])),
-    ...before.filter((row) => !after.some((r) => r.id === row.id)).map((row) => ['thread/deleted', { threadId: row.id }]),
-  ];
+/** The step's recorded app-feed events, in the order they were recorded. */
+const feedEdges = (s) => s.edges;
+/** The feed reads the list when the app feed first snapshots; resolves when that read has been published. */
+async function attached(r, rows) {
+  r.setListing(rows);
+  const done = r.published_();
+  r.store({ type: 'appSnapshot' });
+  await done;
 }
 
 const step = (name) => recorded.steps.find((s) => s.name === name);
@@ -85,9 +101,7 @@ const step = (name) => recorded.steps.find((s) => s.name === name);
 test('attach: the whole list is read, in pages, and published once as Node\'s baseline was', async () => {
   const s = step('attach-baseline');
   const r = rig();
-  r.setListing(s.coreRows);
-  r.store({ type: 'appSnapshot' });
-  await tick();
+  await attached(r, s.coreRows);
   assert.deepEqual(r.published, s.published);
   assert.ok(r.requests.length > 1 && r.requests.every((q) => q.params.limit === 1000), 'every page follows the cursor');
   assert.deepEqual(r.requests.slice(1).map((q) => q.params.cursor), ['2', '4'].slice(0, r.requests.length - 1));
@@ -96,41 +110,38 @@ test('attach: the whole list is read, in pages, and published once as Node\'s ba
 test('a pushed edge changes the list as Node\'s live roster push did', async () => {
   const [attach, live] = ['attach-baseline', 'live-push'].map(step);
   const r = rig();
-  r.setListing(attach.coreRows);
-  r.store({ type: 'appSnapshot' });
-  await tick();
+  await attached(r, attach.coreRows);
   r.published.length = 0;
-  for (const [method, params] of edgesOf(attach.coreRows, live.coreRows)) r.edge(method, params);
+  for (const { method, params } of feedEdges(live)) r.edge(method, params);
   assert.deepEqual(r.published, live.published);
 });
 
 test('an edge that changes nothing publishes nothing (Node skipped an unchanged roster)', async () => {
-  const attach = step('attach-baseline');
+  const [live, same] = ['live-push', 'live-push-unchanged'].map(step);
   const r = rig();
-  r.setListing(attach.coreRows);
-  r.store({ type: 'appSnapshot' });
-  await tick();
+  await attached(r, live.coreRows);
   r.published.length = 0;
-  r.edge('thread/summary/updated', { thread: coreRow(attach.coreRows[1]) });
-  assert.deepEqual(r.published, []);
+  for (const { method, params } of feedEdges(same)) r.edge(method, params);
+  assert.deepEqual(r.published, same.published);
+  assert.deepEqual(same.published, []);
 });
 
 test('restart: the app feed coming back re-reads the whole list, and rows gone while the core was away are gone', async () => {
   const [, live, same, changed] = ['attach-baseline', 'live-push', 'restart-same-roster', 'restart-roster-changed'].map(step);
   const r = rig();
-  r.setListing(live.coreRows);
-  r.store({ type: 'appSnapshot' });
-  await tick();
+  await attached(r, live.coreRows);
   r.published.length = 0;
   // The core restarts with the same rows: no edge is republished, the list is read again.
+  let done = r.published_();
   r.store({ type: 'subscription', feedId: 'app', state: 'restored' });
-  await tick();
+  await done;
   assert.deepEqual(r.published, same.published);
   // Restarts again after rows changed while it was away: no edge announces them.
   r.published.length = 0;
   r.setListing(changed.coreRows);
+  done = r.published_();
   r.store({ type: 'subscription', feedId: 'app', state: 'restored' });
-  await tick();
+  await done;
   assert.deepEqual(r.published, changed.published);
   assert.equal(changed.published[0].some((row) => row.id === 'sess_3'), false);
 });
@@ -138,20 +149,19 @@ test('restart: the app feed coming back re-reads the whole list, and rows gone w
 test('a change between re-subscribing and the list outranks the listing, as Node\'s pushed roster did', async () => {
   const [changed, between, after] = ['restart-roster-changed', 'change-between-subscribe-and-list', 'live-push-after-restart'].map(step);
   const r = rig();
-  r.setListing(changed.coreRows);
-  r.store({ type: 'appSnapshot' });
-  await tick();
+  await attached(r, changed.coreRows);
   r.published.length = 0;
-  const release = r.hold();
+  const { arrived, release } = r.hold();
+  const done = r.published_();
   r.store({ type: 'subscription', feedId: 'app', state: 'restored' });
-  await tick();
+  await arrived;
   // The listing is still being read (it will answer with the older rows) when the core announces the change.
-  for (const [method, params] of edgesOf(changed.coreRows, between.coreRows)) r.edge(method, params);
+  for (const { method, params } of feedEdges(between)) r.edge(method, params);
   release();
-  await tick();
+  await done;
   assert.deepEqual(r.published, between.published);
   r.published.length = 0;
-  for (const [method, params] of edgesOf(between.coreRows, after.coreRows)) r.edge(method, params);
+  for (const { method, params } of feedEdges(after)) r.edge(method, params);
   assert.deepEqual(r.published, after.published);
 });
 
@@ -159,33 +169,27 @@ test('the order is Node\'s byActivityThenId, ties and rows without activity incl
   const s = step('order-ties');
   const ids = (rows) => rows.map((row) => row.id);
   const listed = rig();
-  listed.setListing(s.coreRows);
-  listed.store({ type: 'appSnapshot' });
-  await tick();
+  await attached(listed, s.coreRows);
   assert.deepEqual(ids(listed.published[0]), s.order);
-  // Announced in the reverse of Node's order, one edge at a time, after an empty list.
+  // Announced in the reverse of Node's order, one recorded edge at a time, after an empty list.
   const announced = rig();
-  announced.setListing([]);
-  announced.store({ type: 'appSnapshot' });
-  await tick();
+  await attached(announced, []);
   announced.published.length = 0;
-  for (const row of [...s.coreRows].reverse()) announced.edge('thread/started', { thread: row });
+  for (const { method, params } of feedEdges(s)) announced.edge(method, params);
   assert.deepEqual(ids(announced.published.at(-1)), s.order);
 });
 
 test('a lost app feed is read again at the next snapshot', async () => {
   const attach = step('attach-baseline');
   const r = rig();
-  r.setListing(attach.coreRows);
-  r.store({ type: 'appSnapshot' });
-  await tick();
+  await attached(r, attach.coreRows);
   r.store({ type: 'subscription', feedId: 'app', state: 'lost' });
   r.published.length = 0;
+  const done = r.published_();
   r.store({ type: 'appSnapshot' });
-  await tick();
+  await done;
   assert.deepEqual(r.published, attach.published);
 });
-
 // ── PH-1: a wired chat call's requests carry that call's transmission claim ─────────────────────────────────────────────────────────
 /** Every request of four chat calls through the real router; `wire` may replace what the adapter is handed. */
 async function writtenThrough(wire = (adapter) => adapter) {

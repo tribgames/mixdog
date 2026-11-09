@@ -1,24 +1,31 @@
-// Records what a RUNNING mixdogd answers for the roster sessions of remote-protocol-chat-roster.recorded.json: it starts the daemon in an
-// isolated env (the real-turn harness's env and PostgreSQL seeding), builds the same sessions through the protocol (start, name, favorite,
-// archive, fork), subscribes to the app feed, and saves the core's `thread/list` rows and every `thread/summary/updated` it pushed.
-// Usage: node remote-protocol-chat-live.record.mjs <mixdogd.exe> <js-runtime-package-root>
+// Records what a RUNNING mixdogd answers for the roster scenario of remote-protocol-chat-roster.recorded.json: it starts the daemon in an
+// isolated env (the real-turn harness's env, PostgreSQL seeding, fake provider), builds the roster's sessions through the protocol (start,
+// name, favorite, read cursor, fork, answered turns), then archives, unarchives, re-archives and deletes, and after each action saves the core's
+// `thread/list` and every app-feed edge it pushed for it.
+//
+// Usage: node remote-protocol-chat-live.record.mjs <mixdogd.exe> <real-turn-harness dir>
+// The harness files this imports are pinned by sha256 in the recording's manifest. Nothing here waits for time: each step ends when the app
+// feed has delivered edges that fold to the core's own list (an event wait), and a hang ends the run through the harness deadline.
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, statSync, watch, existsSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 import { uuidv7 } from '../../../../packages/protocol-client/src/client.ts';
 
-const HARNESS = 'D:\\mixdog-build\\tmp\\real-turn-harness';
+const [bin, harness] = process.argv.slice(2);
 const here = dirname(fileURLToPath(import.meta.url));
-const root = 'D:\\mixdog-build\\pool\\w13-live';
-process.env.HARNESS_ENV_ROOT = join(HARNESS, 'run', 'env-w13-live');
-const { daemonEnv, isolatedPaths } = await import(`file:///${HARNESS.replace(/\\/g, '/')}/lib/env.mjs`);
-const { seedPgRuntime, killStrayPostgres } = await import(`file:///${HARNESS.replace(/\\/g, '/')}/lib/stage.mjs`);
-const { startFakeProvider } = await import(`file:///${HARNESS.replace(/\\/g, '/')}/lib/fake-provider.mjs`);
-const { launch } = await import(`file:///${HARNESS.replace(/\\/g, '/')}/lib/proc.mjs`);
+const lib = (name) => join(harness, 'lib', name);
+const PINNED = ['env.mjs', 'scenarios.mjs', 'stage.mjs', 'fake-provider.mjs', 'proc.mjs', 'deadline.mjs', 'pg-version.json'];
+const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
+process.env.HARNESS_ENV_ROOT = join(harness, 'run', 'env-ph2-chat-live');
+const load = (name) => import(pathToFileURL(lib(name)).href);
+const { daemonEnv, isolatedPaths } = await load('env.mjs');
+const { seedPgRuntime, killStrayPostgres } = await load('stage.mjs');
+const { startFakeProvider } = await load('fake-provider.mjs');
+const { launch } = await load('proc.mjs');
+const { createDeadline, latch } = await load('deadline.mjs');
 
-const [bin] = process.argv.slice(2);
 const paths = isolatedPaths();
 rmSync(paths.envRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 for (const d of [paths.dataDir, paths.runtimeRoot, paths.appData, paths.localAppData, paths.tmp, paths.workspace]) mkdirSync(d, { recursive: true });
@@ -27,33 +34,48 @@ for (const p of Object.values(projects)) mkdirSync(p, { recursive: true });
 seedPgRuntime(paths.dataDir);
 // thread/start needs a routable model, and a turn needs a provider that answers: the harness's fake OpenAI-compatible provider.
 const provider = await startFakeProvider({ workspace: paths.workspace });
-// a custom provider that is never called (no turn runs) is the harness's own config.
 writeFileSync(join(paths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { 'custom-harness': { type: 'custom', schemaVersion: 2, name: 'harness', protocol: 'openai-chat', baseURL: provider.baseURL, auth: 'none', enabled: true, modelOverrides: { 'harness-model': { manual: true } } } } } }));
 const route = { provider: 'custom-harness', model: 'harness-model' };
 
 const core = launch(bin, ['serve'], { env: daemonEnv(paths, { RUST_LOG: 'warn' }), cwd: paths.envRoot });
-let doc;
-for (let i = 0; i < 600 && !doc; i += 1) {
-  await new Promise((r) => setTimeout(r, 250));
+const deadline = createDeadline(240_000, () => core.tail());
+
+// The core publishes daemon.json when it serves: a directory watch is the readiness event.
+const daemonDoc = () => {
+  const file = join(paths.runtimeRoot, 'daemon.json');
+  if (!existsSync(file)) return null;
   try {
-    const d = JSON.parse(readFileSync(join(paths.runtimeRoot, 'daemon.json'), 'utf8'));
+    const d = JSON.parse(readFileSync(file, 'utf8'));
     if (d?.core?.state === 'blocked') throw new Error(`blocked ${JSON.stringify(d.core.blocked)}`);
-    if (d?.core?.state === 'serving' && d.core.rpc?.port) doc = d;
+    return d?.core?.state === 'serving' && d.core.rpc?.port ? d : null;
   } catch (e) {
     if (String(e.message).startsWith('blocked')) throw e;
+    return null;
   }
-}
-if (!doc) throw new Error(`the core never served:\n${core.tail()}`);
+};
+const served = latch();
+const watcher = watch(paths.runtimeRoot, () => {
+  try { const d = daemonDoc(); if (d) served.resolve(d); } catch (e) { served.reject(e); }
+});
+const early = daemonDoc();
+if (early) served.resolve(early);
+const doc = await deadline.race(served.promise, 'the core to serve');
+watcher.close();
 
 const socket = new WebSocket(`ws://127.0.0.1:${doc.core.rpc.port}/rpc`, { headers: { Authorization: `Bearer ${doc.endpoints.session.token}` }, perMessageDeflate: false });
 await new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
 const pending = new Map();
-const notes = [];
+const edges = [];
+const waiters = new Set();
 let nextId = 1;
+const EDGES = new Set(['thread/started', 'thread/summary/updated', 'thread/deleted', 'thread/archived', 'thread/unarchived']);
 socket.on('message', (data) => {
   const frame = JSON.parse(data.toString('utf8'));
   if (frame.id !== undefined && pending.has(frame.id)) { const p = pending.get(frame.id); pending.delete(frame.id); frame.error ? p.reject(new Error(JSON.stringify(frame.error))) : p.resolve(frame.result); }
-  else if (frame.method) notes.push({ method: frame.method, params: frame.params });
+  else if (frame.method) {
+    if (EDGES.has(frame.method)) edges.push({ method: frame.method, params: frame.params });
+    for (const check of [...waiters]) check();
+  }
 });
 const call = (method, params) => new Promise((resolve, reject) => {
   const id = nextId++;
@@ -62,49 +84,95 @@ const call = (method, params) => new Promise((resolve, reject) => {
 });
 // The core requires a lowercase UUIDv7 `opId`: the client library's own generator.
 const op = (method, params) => call(method, { ...params, opId: uuidv7(Date.now()) });
-const settle = () => new Promise((r) => setTimeout(r, 8000));
+/** Resolves when `ready()` holds, checked again at every notification the socket delivers. */
+const until = (ready, what) => {
+  const done = latch();
+  const check = () => { if (ready()) { waiters.delete(check); done.resolve(); } };
+  waiters.add(check);
+  check();
+  return deadline.race(done.promise, what);
+};
 
+// What the app feed has said, folded the way a listener folds it (an edge's thread is the list row plus provider, model and createdAt).
+const folded = () => {
+  const rows = new Map();
+  for (const { method, params } of edges) {
+    if (method === 'thread/deleted') rows.delete(params.threadId);
+    else if (method === 'thread/archived' || method === 'thread/unarchived') { const row = rows.get(params.threadId); if (row) rows.set(params.threadId, { ...row, archived: method === 'thread/archived' }); }
+    else { const { provider, model, createdAt, ...row } = params.thread; rows.set(row.id, row); }
+  }
+  return rows;
+};
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const steps = [];
+/** Ends a step: the core's list, then the wait until the feed's edges fold to exactly it. */
+async function step(name, action) {
+  const from = edges.length;
+  await action();
+  const listed = await call('thread/list', { limit: 1000 });
+  const want = new Map(listed.data.map((row) => [row.id, row]));
+  await until(() => {
+    const have = folded();
+    return have.size === want.size && [...want].every(([id, row]) => same(have.get(id), row));
+  }, `the app feed to fold to the core's list after ${name}`);
+  steps.push({ name, listed, edges: edges.slice(from) });
+}
+
+let out;
 try {
-  await call('initialize', { clientInfo: { name: 'w13-live', title: 'PH-2 live roster', version: '1.4.5', kind: 'tui' }, capabilities: {} });
+  await call('initialize', { clientInfo: { name: 'ph2-chat-live', title: 'PH-2 live roster', version: '1.4.5', kind: 'tui' }, capabilities: {} });
   socket.send(JSON.stringify({ method: 'initialized' }));
   await call('app/subscribe', {});
-  await settle();
-  // The roster's sessions: sess_0 / sess_1 / sess_2 (a fork of sess_0, favorite) / sess_3 (archived) / sess_4.
+  // The roster's sessions: sess_0 / sess_1 / sess_2 (a fork of sess_0, favorite) / sess_3 / sess_4.
   const made = {};
-  for (const [name, project] of [['sess_0', 'b'], ['sess_1', 'a'], ['sess_3', 'a'], ['sess_4', 'b']]) {
-    made[name] = (await op('thread/start', { kind: 'project', projectPath: projects[project], draft: { route } })).thread.id;
-    await op('thread/name/set', { threadId: made[name], title: `Title ${name.slice(-1)}` });
-  }
-  const fork = await op('thread/fork', { threadId: made.sess_0 });
-  made.sess_2 = fork.thread.id;
-  await op('thread/name/set', { threadId: made.sess_2, title: 'Title 2' });
-  await op('thread/metadata/update', { threadId: made.sess_2, favorite: true });
-  await op('thread/readState/update', { threadId: made.sess_1, messageCount: 0, consumedUnread: true });
+  await step('created', async () => {
+    for (const [name, project] of [['sess_0', 'b'], ['sess_1', 'a'], ['sess_3', 'a'], ['sess_4', 'b']]) {
+      made[name] = (await op('thread/start', { kind: 'project', projectPath: projects[project], draft: { route } })).thread.id;
+      await op('thread/name/set', { threadId: made[name], title: `Title ${name.slice(-1)}` });
+    }
+    const fork = await op('thread/fork', { threadId: made.sess_0 });
+    made.sess_2 = fork.thread.id;
+    await op('thread/name/set', { threadId: made.sess_2, title: 'Title 2' });
+    await op('thread/metadata/update', { threadId: made.sess_2, favorite: true });
+    await op('thread/readState/update', { threadId: made.sess_1, messageCount: 0, consumedUnread: true });
+  });
   // A row reaches the index writer (and so the app feed's edges) when a turn is written: one answered turn on sess_1 and sess_0.
-  for (const name of ['sess_1', 'sess_0']) {
-    await call('thread/resume', { threadId: made[name], window: { lastItems: 200 } });
-    const before = notes.filter((n) => n.method === 'turn/completed').length;
-    await op('turn/start', { threadId: made[name], input: { prompt: `hello ${name}`, options: { clientSubmissionId: `w13-live-${name}` } } });
-    for (let i = 0; i < 240 && notes.filter((n) => n.method === 'turn/completed').length === before; i += 1) await new Promise((r) => setTimeout(r, 250));
-  }
-  await op('thread/archive', { threadId: made.sess_3 });
-  await settle();
-  const listed = await call('thread/list', { limit: 1000 });
-  const archived = await call('thread/list', { limit: 1000, archived: true });
-  const out = {
+  await step('turns', async () => {
+    for (const name of ['sess_1', 'sess_0']) {
+      await call('thread/resume', { threadId: made[name], window: { lastItems: 200 } });
+      let completed = false;
+      const finished = latch();
+      const onTurn = (data) => { const f = JSON.parse(data.toString('utf8')); if (f.method === 'turn/completed' && f.params?.threadId === made[name]) { completed = true; finished.resolve(); } };
+      socket.on('message', onTurn);
+      await op('turn/start', { threadId: made[name], input: { prompt: `hello ${name}`, options: { clientSubmissionId: `ph2-chat-live-${name}` } } });
+      await deadline.race(completed ? Promise.resolve() : finished.promise, `the turn of ${name} to complete`);
+      socket.off('message', onTurn);
+    }
+  });
+  await step('archive', () => op('thread/archive', { threadId: made.sess_3 }));
+  await step('unarchive', () => op('thread/unarchive', { threadId: made.sess_3 }));
+  await step('archive-again', () => op('thread/archive', { threadId: made.sess_3 }));
+  await step('delete', async () => {
+    made.sess_5 = (await op('thread/start', { kind: 'project', projectPath: projects.a, draft: { route } })).thread.id;
+    await op('thread/name/set', { threadId: made.sess_5, title: 'Title 5' });
+    await op('thread/delete', { threadId: made.sess_5 });
+  });
+  out = {
     manifest: {
-      binary: bin, binarySha256: createHash('sha256').update(readFileSync(bin)).digest('hex'), binaryBuilt: statSync(bin).mtime.toISOString(),
+      binary: bin, binarySha256: sha256(bin), binaryBuilt: statSync(bin).mtime.toISOString(),
       server: (await call('server/info', {}).catch(() => null)) ?? null,
-      source: 'running mixdogd serve, isolated env (real-turn harness env.mjs / stage.mjs), driven over the WebSocket JSON-RPC protocol',
+      harness: Object.fromEntries(PINNED.map((name) => [`lib/${name}`, sha256(lib(name))])),
+      source: 'running mixdogd serve, isolated env (real-turn harness env.mjs / stage.mjs / fake-provider.mjs, pinned above), driven over the WebSocket JSON-RPC protocol',
     },
-    made, listed, archived, notes,
+    made, projects, steps,
   };
   writeFileSync(join(here, 'remote-protocol-chat-live.recorded.json'), JSON.stringify(out, null, 2));
-  console.log(`recorded ${listed.data?.length} listed, ${archived.data?.length} archived, ${notes.length} notifications`);
+  console.log(`recorded ${steps.length} steps, ${edges.length} app-feed edges, ${steps.at(-1).listed.data.length} rows listed at the end`);
 } finally {
+  deadline.clear();
   socket.close();
   core.kill();
-  await new Promise((r) => setTimeout(r, 1500));
+  await core.exited;
   killStrayPostgres(paths.dataDir);
 }
 process.exit(0);
