@@ -7095,7 +7095,8 @@
       },
       "origins": [
         "local",
-        "ssh"
+        "ssh",
+        "relay"
       ],
       "params": "ProjectTouchParams",
       "result": "JsonValue",
@@ -7183,7 +7184,8 @@
       },
       "origins": [
         "local",
-        "ssh"
+        "ssh",
+        "relay"
       ],
       "params": "ProjectDirectoryParams",
       "result": "JsonValue",

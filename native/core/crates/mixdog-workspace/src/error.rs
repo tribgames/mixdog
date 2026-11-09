@@ -11,6 +11,11 @@ pub enum Reason {
     NotFound,
     AlreadyExists,
     NotAFile,
+    /// Node's `canonicalDirectory` on a path that does not exist (`realpath` failed with `ENOENT`). The error's message is the
+    /// path as the caller gave it, which is all the OS error names; the client rebuilds Node's text from it.
+    PathMissing,
+    /// Node's `canonicalDirectory` on a path that is not a folder; the message is Node's text.
+    NotADirectory,
     /// An attachment the session's conversation does not name (Node's `not-linked`).
     NotLinked,
     /// Compare-and-set mismatch; `actual` is the current content.
@@ -44,6 +49,8 @@ impl Reason {
             Self::NotFound => "notFound",
             Self::AlreadyExists => "alreadyExists",
             Self::NotAFile => "notAFile",
+            Self::PathMissing => "pathMissing",
+            Self::NotADirectory => "notADirectory",
             Self::NotLinked => "notLinked",
             Self::PreconditionFailed { .. } => "preconditionFailed",
             Self::TooLarge => "tooLarge",

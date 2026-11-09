@@ -2535,12 +2535,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         mixdog_core_session::session::worktree::AdmissionGate::new(),
     );
     late_workspaces.bind(Arc::new(workspaces.clone())).map_err(|_| ComposeError::AlreadyBound("session workspaces"))?;
-    project_workspaces
-        .bind(Arc::new(crate::project_workspaces::SessionProjectWorkspaces::new(
-            Arc::new(mixdog_core_session::session::thread_settings::WorkspaceFolders::new(workspace.clone(), b.user_data_dir.clone(), session_lanes())),
-            worktrees.clone(),
-        )))
-        .map_err(|_| ComposeError::AlreadyBound("project workspaces"))?;
+    let resolver = Arc::new(crate::project_workspaces::SessionProjectWorkspaces::new(
+        Arc::new(mixdog_core_session::session::thread_settings::WorkspaceFolders::new(workspace.clone(), b.user_data_dir.clone(), session_lanes())),
+        worktrees.clone(),
+    ));
+    // `project/directory` and `project/touch` take a managed worktree path as Node's `projectScope` does: the one resolver.
+    workspace.set_managed_projects(resolver.clone());
+    project_workspaces.bind(resolver).map_err(|_| ComposeError::AlreadyBound("project workspaces"))?;
     late_turn_admission.bind(Arc::new(workspaces.clone())).map_err(ComposeError::AlreadyBound)?;
 
     // ---- the agent tool (flip-agent-worlds chain, landed at 51e73b496): `assemble(AgentParts{..})`, after the session workspaces (`AgentParts.spawn_admission`) ----

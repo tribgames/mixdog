@@ -2834,7 +2834,7 @@ crate::client_request_definitions! {
         scope: global("project"),
         class: C2,
         mutation: op(Project),
-        origins: [Local, Ssh],
+        origins: [Local, Ssh, Relay],
     },
     /// Rename (alias).
     ProjectUpdate => "project/update" {
@@ -2870,7 +2870,7 @@ crate::client_request_definitions! {
         scope: shared_read("project"),
         class: C1,
         mutation: none,
-        origins: [Local, Ssh],
+        origins: [Local, Ssh, Relay],
     },
     /// Today's `projectRecoveryDirectory`.
     ProjectRecoveryDirectory => "project/recoveryDirectory" {
