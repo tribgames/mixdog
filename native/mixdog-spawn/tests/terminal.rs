@@ -1112,26 +1112,15 @@ fn is_generated(id: &str) -> bool {
 /// (`record-terminal-ops.mjs`). The replay runs every recorded case on real tabs whose child is `scripted::profile()` over pipes: it
 /// prints the recorded script's lines, nothing else, so the text is Node's own. Each answer is compared whole with the recording:
 /// text, cursors (relative to the tab's base), flags, the tab list with every field. A recorded case that no arm consumes fails the
-/// test. The phone's size claim is the one thing not replayed: in Node a view's resize claims the size and a non-positive resize
-/// releases it (with a 30 s lease); that model is ported elsewhere, and its five cases are listed here until it lands.
+/// test. A view's resize claims the size and a non-positive resize releases it, as the five size-claim cases record.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn terminal_operation_failure_paths_equal_nodes_recording() {
     use mixdog_spawn::scripted;
     const S: &str = "session-terminal:S";
-    const NOT_REPLAYED: [&str; 5] = [
-        "a phone claims the size",
-        "attach while the phone owns the size",
-        "ensure while the phone owns the size",
-        "the phone releases it",
-        "attach after the release",
-    ];
     let recorded = fixture("../core/fixtures/terminal-ops/failure-paths.json");
     let rig = scripted_rig("failure-paths").await;
     let tabs = &*rig.tabs;
     let cases = recorded["cases"].as_array().unwrap();
-    for name in NOT_REPLAYED {
-        assert!(cases.iter().any(|case| case["name"] == name), "{name} is recorded");
-    }
     let script = &recorded["script"];
     let lines = |key: &str| -> Vec<String> { script[key].as_array().unwrap().iter().map(|line| line.as_str().unwrap().to_owned()).collect() };
     let say = |key: &str| {
@@ -1143,13 +1132,12 @@ async fn terminal_operation_failure_paths_equal_nodes_recording() {
     let cwd = serde_json::to_string(&rig.dir.display().to_string()).unwrap();
     let cwd = &cwd[1..cwd.len() - 1];
     let placed = |value: &Value| -> Value { serde_json::from_str(&value.to_string().replace(recorded["cwd"].as_str().unwrap(), cwd)).unwrap() };
-    let unmapped = |size_owner: &Option<SizeOwner>| size_owner.as_ref().map(|_| json!("<a size owner, which the replay does not model>"));
     let payload = |attached: Option<Attached>| match attached {
         None => Value::Null,
         Some(attached) => {
             let mut value = json!({ "id": attached.id, "replay": attached.replay });
-            if let Some(owner) = unmapped(&attached.size_owner) {
-                value["sizeOwner"] = owner;
+            if let Some(owner) = &attached.size_owner {
+                value["sizeOwner"] = json!({ "cols": owner.cols, "rows": owner.rows, "owner": owner.owner });
             }
             value
         }
@@ -1164,9 +1152,6 @@ async fn terminal_operation_failure_paths_equal_nodes_recording() {
     let mut seen = 0;
     for case in cases {
         let name = case["name"].as_str().unwrap();
-        if NOT_REPLAYED.contains(&name) {
-            continue;
-        }
         seen += 1;
         let args = case["args"].as_array().unwrap();
         // What the tab did before this case, in the recording's order.
@@ -1210,12 +1195,16 @@ async fn terminal_operation_failure_paths_equal_nodes_recording() {
                 tabs.write(&coerced(args.first()), args[1].as_str().unwrap());
                 Value::Null
             }
+            "termResize" => {
+                tabs.resize(&coerced(args.first()), args[1].as_u64().unwrap() as u32, args[2].as_u64().unwrap() as u32, args[3].as_str().unwrap());
+                Value::Null
+            }
             other => panic!("unmapped recorded operation {other} in case {name}"),
         };
         let want = if case.get("error").is_some_and(|error| !error.is_null()) { panic!("{name}: Node failed: {}", case["error"]) } else { placed(&case["result"]) };
         assert_eq!(got, want, "{name}");
     }
-    assert_eq!(seen, cases.len() - NOT_REPLAYED.len(), "every recorded case outside the size claim was replayed");
+    assert_eq!(seen, cases.len(), "every recorded case was replayed");
     tabs.dispose_all();
 }
 
