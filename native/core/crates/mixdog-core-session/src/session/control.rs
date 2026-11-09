@@ -137,6 +137,8 @@ pub(crate) struct ActiveRun {
     pub cancel: Cancel,
     /// Queue entries marked steer, waiting for the run's next model-call boundary.
     pub steers: Mutex<VecDeque<QueuedId>>,
+    /// The prompt that started the run: what a stop may hand back (`flags.activePromptRestore`).
+    pub prompt: Arc<super::stop::PromptState>,
 }
 
 /// Whether a thread, or the control start that becomes it, has not ended. Every end (a close of the thread's cell, an abandoned

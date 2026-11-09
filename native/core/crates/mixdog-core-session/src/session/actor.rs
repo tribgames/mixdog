@@ -126,6 +126,9 @@ use super::run::SteerInput;
 use super::run::within_priority;
 use super::completions;
 use super::pending;
+use mixdog_core_base::support::coded;
+use super::stop::Facts as PromptFacts;
+use super::stop::PromptState;
 use super::seams::EncodedRecord;
 use super::seams::Shown;
 use super::seams::RunOutcome;
@@ -422,8 +425,18 @@ pub(crate) enum Init {
     Open { fenced: Vec<String> },
 }
 
+/// The sender of a user prompt (`transcriptMeta.device`, `options.restorable`).
+#[derive(Clone, Debug, PartialEq)]
+struct Submitter {
+    device: String,
+    /// The composer may take the prompt back when the turn is stopped (Node's `options.restorable !== false`).
+    restorable: bool,
+}
+
 struct RunSlot {
     turn: TurnId,
+    /// The prompt the run started on: what a stop may hand back.
+    prompt: Arc<PromptState>,
     /// The provider of the route the turn started with (`routeMeta.provider`): a route change
     /// during the turn does not move the notices its end raises.
     provider: String,
@@ -481,6 +494,8 @@ struct FailedClose<'a> {
 
 /// What a finished turn's close reads of its run ([`SessionActor::close_done`]).
 struct DoneClose<'a> {
+    /// A stop handed the prompt back to a composer: a cancelled turn then shows no end (`reclaimed`, `turn.mjs:610`).
+    reclaimed: bool,
     /// `turnOutcome`: `done` or `cancelled`.
     status: &'static str,
     /// The turn's own `completionVerb`.
@@ -577,6 +592,9 @@ pub(crate) struct SessionActor {
     agent_done: Option<(oneshot::Sender<RunOutcome>, RunOutcome)>,
     /// A turn's input row facts are being read: it starts next, no other turn does.
     starting: bool,
+    /// Who sent the prompt the next run starts on: its device, and whether the composer may take it back. Set where the
+    /// prompt is admitted (`turn/start`, a queued entry that starts), read when the run's input row is built.
+    submitter: Option<Submitter>,
     /// A dequeued Goal entry waits on `shouldRunGoalContinuation`: no other turn starts.
     goal_checking: bool,
     /// When a thread nobody ever watched, quiet since, is unloaded (Node's `idleEvictMs` deadline
@@ -663,6 +681,17 @@ fn id(value: &str) -> Text<{ mixdog_store::schema::bounded::ID_MAX }> {
     Text::try_from(value).expect("core-made ids are short")
 }
 
+/// The code of a `turn/start` the core refuses without a turn or a queue entry (the empty prompt Node's `submitAsync` answers
+/// `false`). A client reads it as "not accepted".
+pub const SUBMIT_REFUSED: &str = "SUBMIT_REFUSED";
+
+/// `promptDisplayText` (`queue-helpers.mjs:89`), trimmed: the display text the options give when it is not blank, else the
+/// prompt's text parts.
+fn display_text(input: &TurnInput) -> String {
+    let given = input.options.as_ref().and_then(|options| options.display_text.as_deref()).filter(|text| !mixdog_js::js_trim(text).is_empty());
+    mixdog_js::js_trim(given.map_or_else(|| prompt_text(input), str::to_owned).as_str()).to_owned()
+}
+
 /// The prompt's text parts, as the user row shows them.
 fn prompt_text(input: &TurnInput) -> String {
     match &input.prompt {
@@ -679,7 +708,7 @@ fn prompt_text(input: &TurnInput) -> String {
 
 /// One queue entry taken back to the composer: what `restoreQueued` reads of it.
 #[derive(Clone, Debug, Default, PartialEq)]
-struct Taken {
+pub(super) struct Taken {
     id: String,
     /// The prompt's text (`entry.text`).
     text: String,
@@ -691,7 +720,7 @@ struct Taken {
 }
 
 impl Taken {
-    fn of(queued: &Queued) -> Self {
+    pub(super) fn of(queued: &Queued) -> Self {
         let text = serde_json::from_value::<PromptContent>(queued.entry["message"].clone())
             .map(|prompt| prompt_text(&TurnInput { prompt, options: None }))
             .unwrap_or_default();
@@ -710,7 +739,7 @@ impl Taken {
 }
 
 /// The entries `restoreQueued(_, selectedId)` takes: the one named, or every one without a name.
-fn restore_taken(queue: &[Queued], selected: Option<&str>) -> Vec<Queued> {
+pub(super) fn restore_taken(queue: &[Queued], selected: Option<&str>) -> Vec<Queued> {
     queue.iter().filter(|queued| selected.is_none_or(|qid| queued.qid == qid)).cloned().collect()
 }
 
@@ -743,7 +772,7 @@ fn merged_pasted(taken: &[Taken], field: impl Fn(&Taken) -> Option<&Value>) -> V
 /// entries' text joined with the composer's, each part only when it is not blank, the pasted maps
 /// merged as queued, and the `file` parts as `content`. The handle reads the attachment references
 /// into the maps and the parts (`restore_hydrate`), which is where `notice` comes from.
-fn restored_reply(taken: &[Taken], current_text: Option<&str>) -> Value {
+pub(super) fn restored_reply(taken: &[Taken], current_text: Option<&str>) -> Value {
     let present = |text: &&str| !mixdog_js::js_trim(text).is_empty();
     let queued_text = taken.iter().map(|entry| entry.text.as_str()).filter(present).collect::<Vec<_>>().join("\n");
     let combined = [queued_text.as_str(), current_text.unwrap_or("")].into_iter().filter(present).collect::<Vec<_>>().join("\n");
@@ -881,6 +910,7 @@ impl SessionActor {
             settling: false,
             agent_done: None,
             starting: false,
+            submitter: None,
             goal_checking: false,
             idle_evict_at: None,
             goal_deferred: false,
@@ -2237,6 +2267,8 @@ impl SessionActor {
                     });
                     return;
                 }
+                // A tool asks only after the turn produced output (`approveToolRequest` commits the prompt).
+                self.prompt_committed();
                 self.request_approval(turn, ask, reply);
             }
             Ctl::Abort { turn } => {
@@ -2365,6 +2397,12 @@ impl SessionActor {
             return;
         };
         self.cell.publish_run(None);
+        // A stop that handed the prompt back (`reclaimInFlightPrompt`): it leaves the prompt history, another device's
+        // composer is told, and the cancelled turn shows no end.
+        let reclaimed = slot.prompt.take_reclaim().filter(|_| matches!(outcome, RunOutcome::Interrupted));
+        if let Some(reclaim) = &reclaimed {
+            self.apply_reclaim(reclaim);
+        }
         // The display fields the turn waited to publish (`on_context_section`): a cancelled turn drops them.
         if let Some(held) = self.held_display.take()
             && !matches!(outcome, RunOutcome::Interrupted)
@@ -2449,7 +2487,7 @@ impl SessionActor {
                     RunOutcome::Failed(_) => None,
                 };
                 if let Some((status, result)) = ended {
-                    let done = DoneClose { status, verb: slot.verb, result, route_meta: &slot.route_meta, last: slot.last_model.as_ref(), started_at: slot.started_at, transcript: &slot.transcript, live: &mut slot.live };
+                    let done = DoneClose { reclaimed: reclaimed.is_some(), status, verb: slot.verb, result, route_meta: &slot.route_meta, last: slot.last_model.as_ref(), started_at: slot.started_at, transcript: &slot.transcript, live: &mut slot.live };
                     self.close_done(&turn, done);
                 }
                 self.settle_goal(settle);
@@ -2618,13 +2656,24 @@ impl SessionActor {
         let amend = failed.last.and_then(|last| self.amend_last_with(last, super::failure_record::failed_completion(&record, &facts)));
         self.show_live_then(turn.clone(), end, None, amend, vec![Effect::TurnClosed { turn: turn.clone(), settle }]);
     }
+    /// What a stop that handed the prompt back changes besides the turn's rows (`reclaimInFlightPrompt`): the text leaves
+    /// the prompt history, and when another device cancelled, the device that sent the prompt gets it through
+    /// `thread/promptRestore` (the canceller's reply never carries it).
+    fn apply_reclaim(&mut self, reclaim: &super::stop::Reclaim) {
+        self.accept_view(Change::PromptWithout(reclaim.text.clone()), Vec::new());
+        if let Some(device) = &reclaim.handoff {
+            let at = self.deps.clock.now_ms();
+            let restore = PromptRestore { id: format!("restore-{at}-{}", reclaim.ids.join(",")), ids: reclaim.ids.clone(), text: reclaim.text.clone(), device: device.clone(), at };
+            self.accept_view(Change::Section(Section::PromptRestore(Some(restore))), Vec::new());
+        }
+    }
+
     /// A finished or stopped turn's close (`publishTurnClose`): the turn's end is shown live, built from what the run
     /// showed (`turnDoneItem`, `turn.mjs:573`), unless a turn that finished normally did nothing (`isNoOpTurn`). The
     /// final reply's commit shows no end of its own ([`Self::submit_encode`]): history restores one from the reply's
     /// completion, which the live end replaces here. A `done` end takes the verb its reply's completion records
     /// (`pickDoneVerb`, stamped when the reply committed), else the turn's own; a `cancelled` end has no reply.
-    /// `reclaimed` (the stopped turn's prompt handed back to the composer, `abort.mjs:65`) suppresses the end in Node;
-    /// the core's `turn/interrupt` never hands a prompt back (`restorePrompt` is not acted on), so it is never set.
+    /// `reclaimed` (the stopped turn's prompt handed back to the composer, `abort.mjs:65`) suppresses the end, as in Node.
     fn close_done(&mut self, turn: &TurnId, done: DoneClose<'_>) {
         self.clear_active_tools();
         let now = self.deps.clock.now_ms();
@@ -2635,6 +2684,9 @@ impl SessionActor {
         }
         self.turns_closed += 1;
         self.publish_stats();
+        if done.reclaimed {
+            return;
+        }
         let reply = done.last.filter(|_| finished).and_then(|last| {
             let Slot::Inline(body) = &last.body else { return None };
             if body.get("role").and_then(Value::as_str) != Some("assistant") {
@@ -2815,6 +2867,11 @@ impl SessionActor {
                 .unwrap_or(PromptContent::Text(String::new())),
             options: serde_json::from_value(next.entry["options"].clone()).ok(),
         };
+        // A prompt a user queued is still the composer's to take back (`restorable`), from the device that sent it.
+        self.submitter = next.entry.get("restorable").and_then(Value::as_bool).map(|restorable| Submitter {
+            device: next.entry.pointer("/transcriptMeta/device").and_then(Value::as_str).unwrap_or_default().to_owned(),
+            restorable,
+        });
         self.start_run(input, None, None, None);
     }
 
@@ -3112,6 +3169,13 @@ impl SessionActor {
         self.accept_header(change);
     }
 
+    /// The run produced output: its prompt is no longer the user's to take back (`commitPromptRestore`).
+    fn prompt_committed(&self) {
+        if let Some(run) = &self.run {
+            run.prompt.commit();
+        }
+    }
+
     fn on_producer(&mut self, msg: ProducerMsg) {
         match msg {
             ProducerMsg::Section(Section::Context(context)) => self.on_context_section(context),
@@ -3122,6 +3186,7 @@ impl SessionActor {
                 }
                 if matches!(item, ThreadItem::ToolCall { .. }) {
                     self.visible_progress();
+                    self.prompt_committed();
                 }
                 let note = Note::new(
                     "item/started",
@@ -3138,6 +3203,10 @@ impl SessionActor {
                 self.visible_progress();
                 self.stream_heartbeat();
                 let now = self.deps.clock.now_ms();
+                // Whitespace is not output (`onTextDelta` marks the prompt committed only for text that trims to something).
+                if method == "item/agentMessage/delta" && !mixdog_js::js_trim(&text).is_empty() {
+                    self.prompt_committed();
+                }
                 if let Some(run) = self.run.as_mut() {
                     match method {
                         "item/agentMessage/delta" => run.live.text(&text, now),
@@ -3157,6 +3226,10 @@ impl SessionActor {
                 if !self.active(&turn) {
                     let _ = ack.send(Err(RunError::NotApplied));
                     return;
+                }
+                // The model's reply is output (`completeTurn`, `settleSegmentBeforeToolCall`).
+                if item.role.as_deref() == Some("assistant") {
+                    self.prompt_committed();
                 }
                 // The row's facts read the prompt-attachment store first (an io-lane job).
                 let body = std::mem::take(&mut item.body);
@@ -4012,6 +4085,19 @@ impl SessionActor {
         if user_prompt.is_some() && params.input.options.as_ref().is_some_and(|o| o.context.is_some() || o.attachment_sizes.is_some()) {
             return Err(invalid("input.options", "context and attachmentSizes are host-only options"));
         }
+        // `submission` (`submission.mjs:10`): a prompt that shows nothing is not a submission. Node answers `false`
+        // before the session is touched; the wire answers a refusal with this code.
+        if display_text(&params.input).is_empty() {
+            return Err(coded("session", SUBMIT_REFUSED, "The message is empty."));
+        }
+        // The device that sent a user prompt rides it (`transcriptMeta.device`, stamped by the host in Node).
+        let submitter = match req.ctx.caller {
+            Caller::Connection(connection) => Some(Submitter {
+                device: self.deps.devices.describe(connection).device,
+                restorable: params.input.options.as_ref().and_then(|options| options.kickoff) != Some(true),
+            }),
+            _ => None,
+        };
         if user_prompt.is_some() {
             // `cancelQuotaResumeOnUserInput`: new user input supersedes the stopped turn.
             self.quota_cancel_now();
@@ -4027,6 +4113,7 @@ impl SessionActor {
         if !self.turn_busy() {
             let value = json!({ "kind": "started" });
             let op_ref = self.op_ref(req, None)?;
+            self.submitter = submitter;
             return Ok(Plan {
                 kind: PlanKind::StartRun(params.input, op_ref),
                 value,
@@ -4071,6 +4158,13 @@ impl SessionActor {
         });
         if let Some(meta) = host_meta {
             entry["transcriptMeta"] = meta;
+        }
+        // The device and the composer's claim travel with the entry until it becomes a turn (`start_next_queued`).
+        if let Some(submitter) = &submitter {
+            if !submitter.device.is_empty() {
+                entry["transcriptMeta"]["device"] = json!(submitter.device);
+            }
+            entry["restorable"] = json!(submitter.restorable);
         }
         let record = Record::Queue(QueueRecord {
             qid: id(&qid),
@@ -4766,6 +4860,7 @@ impl SessionActor {
         if !read {
             // The lane refused the read: the turn does not start (its waiter hears the drop).
             self.starting = false;
+            self.submitter = None;
             self.retry_provenance = None;
             self.retry_prior = None;
         }
@@ -4774,6 +4869,7 @@ impl SessionActor {
     /// [`Self::start_run_with`] once the input row's facts are read.
     fn start_run_read(&mut self, start: InputStart, shown: Option<Goal>) {
         self.starting = false;
+        let submitter = self.submitter.take();
         // A delete closed the thread meanwhile: the turn never starts.
         if self.deleting {
             return;
@@ -4822,6 +4918,10 @@ impl SessionActor {
             .unwrap_or_default();
         if let Some(meta) = body.pointer_mut("/meta/transcript").and_then(Value::as_object_mut) {
             meta.entry("at").or_insert_with(|| json!(self.deps.clock.now_ms()));
+            // The device that sent the prompt rides its row (`transcriptMeta.device`).
+            if let Some(submitter) = submitter.as_ref().filter(|submitter| !submitter.device.is_empty()) {
+                meta.entry("device").or_insert_with(|| json!(submitter.device));
+            }
             meta.entry("attemptId").or_insert_with(|| json!(new_id()));
             for (key, value) in route {
                 meta.entry(key).or_insert(value);
@@ -4915,7 +5015,18 @@ impl SessionActor {
             None => agent,
         };
         let unattended = (agent.is_some() && !caller_watchdog) || super::goal_lane::automatic(&input_body);
+        // What a stop may hand back of this prompt (`promptRestoreFor`): only a user's, from the device that sent it.
+        let prompt_state = Arc::new(PromptState::new(PromptFacts {
+            text: display_text(&input),
+            ids: input.options.as_ref().and_then(|options| options.client_submission_id.clone()).filter(|id| !id.is_empty()).into_iter().collect(),
+            device: submitter.as_ref().map(|submitter| submitter.device.clone()).unwrap_or_default(),
+            restorable: submitter.as_ref().is_some_and(|submitter| submitter.restorable) && !wake,
+            committed: false,
+            entry: json!({ "message": input.prompt, "options": input.options }),
+            reclaim: None,
+        }));
         self.run = Some(RunSlot {
+            prompt: prompt_state.clone(),
             turn: turn.clone(),
             provider: self.acked.header.get("provider").and_then(Value::as_str).unwrap_or_default().to_owned(),
             route_meta: super::live_end::route_meta(self.acked.header.get("provider").and_then(Value::as_str).unwrap_or_default(), self.acked.header.get("model").and_then(Value::as_str).unwrap_or_default()),
@@ -4947,6 +5058,7 @@ impl SessionActor {
             turn: turn.clone(),
             cancel: cancel.clone(),
             steers: Default::default(),
+            prompt: prompt_state,
         })));
         self.accept_record(started, Class::Control, Display::None, Vec::new(), effects);
         // `onTurnStart`: the turn's id, start and the submissions it carries.
