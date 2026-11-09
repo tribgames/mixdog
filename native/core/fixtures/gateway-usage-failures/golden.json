@@ -1,0 +1,133 @@
+{
+  "note": "the store file after a real askSession turn against a fake provider; sessionId is masked, the clock is fixed",
+  "start": 1800000000000,
+  "usage": {
+    "inputTokens": 100,
+    "outputTokens": 20,
+    "cachedTokens": 40
+  },
+  "cases": [
+    {
+      "name": "completed",
+      "outcomes": [
+        {
+          "prompt": "hello",
+          "resolved": "answer"
+        }
+      ],
+      "sends": [
+        5
+      ],
+      "store": "\n{\"ts\":1800000000000,\"provider\":\"ask-session-turn-test\",\"model\":\"fake-model\",\"providerKind\":\"api\",\"routeKey\":\"ask-session-turn-test\\u0001fake-model\\u0001\\u0001\",\"routeSectionStartedAt\":1800000000000,\"responseModel\":\"fake-model\",\"serviceTier\":null,\"inputTokens\":100,\"outputTokens\":20,\"cacheReadTokens\":40,\"cacheWriteTokens\":0,\"promptTokens\":100,\"costUsd\":0,\"costSource\":\"none\",\"contextUsedPct\":7.1,\"durationMs\":0,\"requestKind\":\"chat\",\"effort\":null,\"sessionId\":\"<session>\",\"sourceType\":\"lead\",\"sourceName\":null,\"toolCount\":0,\"systemCount\":null,\"messageCount\":6,\"chatMessageCount\":null,\"cacheStrategy\":null,\"rawUsageKeys\":[],\"compact\":{\"contextWindow\":null,\"compactLimitTokens\":null,\"budgetWindow\":null,\"beforeTokens\":null,\"afterTokens\":9093,\"reserveTokens\":null,\"method\":null,\"compacted\":false}}\n"
+    },
+    {
+      "name": "provider failure",
+      "outcomes": [
+        {
+          "prompt": "will fail",
+          "rejected": "Error",
+          "message": "provider exploded"
+        }
+      ],
+      "sends": [
+        5
+      ],
+      "store": null
+    },
+    {
+      "name": "abort mid-stream by the turn abort",
+      "outcomes": [
+        {
+          "prompt": "will abort",
+          "rejected": "SessionClosedError",
+          "message": "Session \"<session>\" closed: abortSessionTurn (reason=user-cancel)"
+        }
+      ],
+      "sends": [
+        5
+      ],
+      "store": null
+    },
+    {
+      "name": "abort mid-stream by the caller signal",
+      "outcomes": [
+        {
+          "prompt": "will abort",
+          "rejected": "SessionClosedError",
+          "message": "Session \"<session>\" closed: aborted during call: user stop"
+        }
+      ],
+      "sends": [
+        5
+      ],
+      "store": null
+    },
+    {
+      "name": "provider failure after a completed tool iteration",
+      "outcomes": [
+        {
+          "prompt": "will fail late",
+          "rejected": "Error",
+          "message": "provider exploded"
+        }
+      ],
+      "sends": [
+        5,
+        7
+      ],
+      "store": null
+    },
+    {
+      "name": "a failed turn then a completed one",
+      "outcomes": [
+        {
+          "prompt": "will fail",
+          "rejected": "Error",
+          "message": "provider exploded"
+        },
+        {
+          "prompt": "after failure",
+          "resolved": "recovered"
+        }
+      ],
+      "sends": [
+        5,
+        6
+      ],
+      "store": "\n{\"ts\":1800000000000,\"provider\":\"ask-session-turn-test\",\"model\":\"fake-model\",\"providerKind\":\"api\",\"routeKey\":\"ask-session-turn-test\\u0001fake-model\\u0001\\u0001\",\"routeSectionStartedAt\":1800000000000,\"responseModel\":\"fake-model\",\"serviceTier\":null,\"inputTokens\":100,\"outputTokens\":20,\"cacheReadTokens\":40,\"cacheWriteTokens\":0,\"promptTokens\":100,\"costUsd\":0,\"costSource\":\"none\",\"contextUsedPct\":7.11,\"durationMs\":0,\"requestKind\":\"chat\",\"effort\":null,\"sessionId\":\"<session>\",\"sourceType\":\"lead\",\"sourceName\":null,\"toolCount\":0,\"systemCount\":null,\"messageCount\":7,\"chatMessageCount\":null,\"cacheStrategy\":null,\"rawUsageKeys\":[],\"compact\":{\"contextWindow\":null,\"compactLimitTokens\":null,\"budgetWindow\":null,\"beforeTokens\":null,\"afterTokens\":9103,\"reserveTokens\":null,\"method\":null,\"compacted\":false}}\n"
+    },
+    {
+      "name": "an abort then a completed turn",
+      "outcomes": [
+        {
+          "prompt": "will abort",
+          "rejected": "SessionClosedError",
+          "message": "Session \"<session>\" closed: abortSessionTurn (reason=user-cancel)"
+        },
+        {
+          "prompt": "after abort",
+          "resolved": "recovered"
+        }
+      ],
+      "sends": [
+        5,
+        5
+      ],
+      "store": "\n{\"ts\":1800000000000,\"provider\":\"ask-session-turn-test\",\"model\":\"fake-model\",\"providerKind\":\"api\",\"routeKey\":\"ask-session-turn-test\\u0001fake-model\\u0001\\u0001\",\"routeSectionStartedAt\":1800000000000,\"responseModel\":\"fake-model\",\"serviceTier\":null,\"inputTokens\":100,\"outputTokens\":20,\"cacheReadTokens\":40,\"cacheWriteTokens\":0,\"promptTokens\":100,\"costUsd\":0,\"costSource\":\"none\",\"contextUsedPct\":7.11,\"durationMs\":0,\"requestKind\":\"chat\",\"effort\":null,\"sessionId\":\"<session>\",\"sourceType\":\"lead\",\"sourceName\":null,\"toolCount\":0,\"systemCount\":null,\"messageCount\":6,\"chatMessageCount\":null,\"cacheStrategy\":null,\"rawUsageKeys\":[],\"compact\":{\"contextWindow\":null,\"compactLimitTokens\":null,\"budgetWindow\":null,\"beforeTokens\":null,\"afterTokens\":9095,\"reserveTokens\":null,\"method\":null,\"compacted\":false}}\n"
+    },
+    {
+      "name": "an abort the provider ignores until it has a result",
+      "outcomes": [
+        {
+          "prompt": "aborted but answered",
+          "rejected": "SessionClosedError",
+          "message": "Session \"<session>\" closed: abortSessionTurn (reason=user-cancel)"
+        }
+      ],
+      "sends": [
+        5
+      ],
+      "store": null
+    }
+  ]
+}
