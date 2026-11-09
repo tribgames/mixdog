@@ -1,0 +1,65 @@
+{
+ "recordedFrom": "b6f10295a2f698afc85332467192de28500bd146",
+ "scenarios": [
+  {
+   "name": "a readable config names the theme",
+   "theme": "nord"
+  },
+  {
+   "name": "a config with a byte order mark",
+   "theme": "nord"
+  },
+  {
+   "name": "a config without ui has no theme",
+   "theme": null
+  },
+  {
+   "name": "no config in a fresh data dir",
+   "theme": null
+  },
+  {
+   "name": "a malformed config in a fresh data dir",
+   "theme": null
+  },
+  {
+   "name": "a missing config in an initialized data dir is restored from the newest complete backup",
+   "theme": "dracula"
+  },
+  {
+   "name": "a malformed config in an initialized data dir is restored from the backup",
+   "theme": "dracula"
+  },
+  {
+   "name": "a malformed config in an initialized data dir with no backup",
+   "theme": null
+  },
+  {
+   "name": "the newest backup is a single-section remnant: the older complete one is used",
+   "theme": "gruvbox"
+  },
+  {
+   "name": "a backup of another incarnation of the data dir is not restored",
+   "theme": null
+  },
+  {
+   "name": "a backup that names another data dir is not restored",
+   "theme": null
+  },
+  {
+   "name": "an unscoped backup of the initialized data dir is used when its scope has none",
+   "theme": "kanagawa"
+  },
+  {
+   "name": "a legacy unscoped backup naming a marker-less data dir is restored",
+   "theme": "rosepine"
+  },
+  {
+   "name": "a legacy marker without a backup restores nothing",
+   "theme": null
+  },
+  {
+   "name": "a damaged init marker makes the read fail",
+   "theme": "THROW"
+  }
+ ]
+}

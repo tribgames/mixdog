@@ -21,9 +21,7 @@
  * The setting persists under `ui.theme` in mixdog-config.json; the core writes it
  * (`config/setTheme`), and boot reads the file directly.
  */
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
+export { readStoredThemeSetting } from './theme-config.mjs';
 
 import { THEME_REGISTRY, THEME_ORDER, THEME_ALIASES, DEFAULT_THEME_ID, basicPalette } from './themes/index.mjs';
 import { BLACK_CIRCLE, RESULT_GUTTER_GLYPH, RESULT_GUTTER_CONT_GLYPH, RIGHT_ARROW, LEFT_ARROW } from './figures.mjs';
@@ -119,21 +117,6 @@ function applyPalette(id) {
 export function setThemeSetting(id) {
   const entry = applyPalette(id);
   return { id: entry.id, label: entry.label, description: entry.description };
-}
-
-/**
- * The `ui.theme` stored in mixdog-config.json, read the way Node's boot read it: straight from the
- * file, so the splash paints in the chosen palette before the core has answered. A missing or
- * unreadable file yields null (the default palette stays).
- */
-export function readStoredThemeSetting() {
-  try {
-    const raw = readFileSync(join(resolvePluginData(), 'mixdog-config.json'), 'utf8').replace(/^\uFEFF/, '');
-    const ui = JSON.parse(raw)?.ui;
-    return ui && typeof ui === 'object' ? ui.theme : null;
-  } catch {
-    return null;
-  }
 }
 
 /**
