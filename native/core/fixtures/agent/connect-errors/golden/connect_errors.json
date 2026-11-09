@@ -2148,6 +2148,10 @@
         {
           "via": "AbortSignal.timeout",
           "ms": 30000
+        },
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
         }
       ],
       "fetchRejected": [
@@ -2157,9 +2161,36 @@
         }
       ],
       "thrown": {
-        "name": "TimeoutError",
-        "code": 23,
-        "message": "The operation was aborted due to timeout"
+        "name": "Error",
+        "code": null,
+        "message": "[openai-oauth] token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."
+      },
+      "page": {
+        "status": 500,
+        "body": "<!doctype html>\n<html lang=\"ko\">\n<head>\n  <meta charset=\"utf-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n  <meta name=\"color-scheme\" content=\"dark light\" />\n  <title>로그인 실패 / Sign-in failed · Mixdog</title>\n  <style>\n    :root { --bg: #f6f7f9; --fg: #0f172a; --muted: #475569; --card: #ffffff; --line: #d9dee6; --ok: #15803d; --bad: #b91c1c; --link: #1d4ed8; }\n    @media (prefers-color-scheme: dark) {\n      :root { --bg: #07080b; --fg: #f8fafc; --muted: #94a3b8; --card: #0f1116; --line: #232733; --ok: #4ade80; --bad: #f87171; --link: #93c5fd; }\n    }\n    * { box-sizing: border-box; }\n    body {\n      margin: 0;\n      min-height: 100vh;\n      display: flex;\n      align-items: center;\n      justify-content: center;\n      padding: 24px;\n      background: var(--bg);\n      color: var(--fg);\n      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Malgun Gothic\", \"Apple SD Gothic Neo\", \"Noto Sans KR\", Roboto, Arial, sans-serif;\n      text-align: center;\n    }\n    main {\n      width: 100%;\n      max-width: 520px;\n      padding: 40px 32px 32px;\n      background: var(--card);\n      border: 1px solid var(--line);\n      border-radius: 16px;\n      display: flex;\n      flex-direction: column;\n      align-items: center;\n    }\n    .logo { width: 72px; height: 72px; margin-bottom: 20px; }\n    .logo svg { width: 100%; height: 100%; display: block; }\n    h1, h2 { margin: 0 0 6px; line-height: 1.2; font-weight: 650; }\n    h1 { font-size: 28px; color: var(--bad); }\n    h2 { font-size: 16px; color: var(--muted); font-weight: 600; }\n    p { margin: 0; line-height: 1.7; color: var(--muted); font-size: 15px; }\n    section.secondary { margin-top: 18px; }\n    .reason {\n      margin-top: 20px;\n      width: 100%;\n      padding: 12px 14px;\n      border: 1px solid var(--line);\n      border-radius: 10px;\n      text-align: left;\n      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;\n      font-size: 13px;\n      color: var(--fg);\n      white-space: pre-wrap;\n      word-break: break-word;\n    }\n    .reason span { display: block; margin-bottom: 4px; color: var(--muted); font-family: inherit; font-size: 12px; }\n  </style>\n</head>\n<body>\n  <main>\n    <div class=\"logo\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"44 44 168 168\" aria-hidden=\"true\">\n  <defs>\n    <linearGradient id=\"titanium-a\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\">\n      <stop offset=\"0%\" stop-color=\"#ffffff\"/><stop offset=\"50%\" stop-color=\"#94a3b8\"/><stop offset=\"100%\" stop-color=\"#ffffff\"/>\n    </linearGradient>\n    <linearGradient id=\"titanium-b\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\">\n      <stop offset=\"0%\" stop-color=\"#cbd5e1\"/><stop offset=\"50%\" stop-color=\"#475569\"/><stop offset=\"100%\" stop-color=\"#cbd5e1\"/>\n    </linearGradient>\n    <linearGradient id=\"titanium-c\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\">\n      <stop offset=\"0%\" stop-color=\"#94a3b8\"/><stop offset=\"50%\" stop-color=\"#334155\"/><stop offset=\"100%\" stop-color=\"#94a3b8\"/>\n    </linearGradient>\n  </defs>\n  <g fill=\"none\" stroke-width=\"22\" stroke-linecap=\"round\">\n    <path d=\"M116.2 61A68 68 0 0 1 191.9 104.7\" stroke=\"url(#titanium-a)\"/>\n    <path d=\"M116.2 61A68 68 0 0 1 191.9 104.7\" transform=\"rotate(120 128 128)\" stroke=\"url(#titanium-b)\"/>\n    <path d=\"M116.2 61A68 68 0 0 1 191.9 104.7\" transform=\"rotate(240 128 128)\" stroke=\"url(#titanium-c)\"/>\n  </g>\n  <polygon points=\"128,112 133,123 144,128 133,133 128,144 123,133 112,128 123,123\" fill=\"#cbd5e1\"/>\n  <circle cx=\"128\" cy=\"128\" r=\"3.5\" fill=\"#07080b\"/>\n  <circle cx=\"128\" cy=\"128\" r=\"1.5\" fill=\"#ffffff\"/>\n</svg></div>\n    <section lang=\"ko\" class=\"primary\">\n      <h1>로그인 실패</h1>\n      <p>Mixdog로 돌아가 다시 시도해 주세요.</p>\n    </section>\n    <section lang=\"en\" class=\"secondary\">\n      <h2>Sign-in failed</h2>\n      <p>Return to Mixdog and try again.</p>\n    </section>\n    <div class=\"reason\"><span>사유 / Reason</span>OpenAI could not complete the token exchange.\n[openai-oauth] token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY.</div>\n  </main>\n</body>\n</html>"
+      }
+    },
+    "openaiCodeExchangeManual": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        },
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": null,
+        "message": "[openai-oauth] token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."
       }
     },
     "opencodeGoUsage": {

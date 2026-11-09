@@ -35,6 +35,7 @@
 //
 // `golden/connect_errors.json`: per case, the error's chain as the provider throws it, and per loop lap (one
 // `sendWithRecovery` call) the provider-level waits (attempts = waits + 1), the loop's own wait, and the verdict.
+import { get as httpGet } from 'node:http';
 import { createServer } from 'node:net';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -351,7 +352,6 @@ async function recordSites() {
   const stall = await load(`${orchestrator}/stall-policy.mjs`);
   const devinWire = await load(`${providers}/devin-wire-transport.mjs`);
   const modelCatalog = await load('src/runtime/shared/llm/model-catalog.mjs');
-  const openaiLogin = await load(`${providers}/openai-oauth-login.mjs`);
   const opencodeUsage = await load(`${providers}/opencode-go-usage.mjs`);
   const { GrokOAuthProvider } = await load(`${providers}/grok-oauth.mjs`);
   const { GeminiProvider } = await load(`${providers}/gemini.mjs`);
@@ -439,18 +439,30 @@ async function recordSites() {
     antigravityCodeExchange: () => antigravityLogin.exchangeAuthorizationCode({ code: 'abc', verifier: 'v' }),
     antigravityProject: () => antigravityLogin.discoverAccount('tok'),
     opencodeConsole: () => opencodeTokens.consoleRequest('https://opencode.ai/auth/device/token', { method: 'POST', body: {} }),
-    // The pasted-code path of the login: the exchange is not exported, `completeCode` runs it.
+    // The product's own login (`openai-oauth-tokens.mjs` `beginOAuthLogin`). Without a browser it first asks for a device code:
+    // the server has none (404), so it falls back to the browser login, whose callback server the user's browser reaches.
+    // The exchange then never answers; what the user sees is the page that callback gets and how the login settles.
     openaiCodeExchange: async () => {
-      const login = await openaiLogin
-        .createOpenAIOAuthLogin({
-          clientId: 'c',
-          originator: 'o',
-          extractAccountId: () => null,
-          identityFromTokens: () => null,
-          expiryFromAccessToken: () => 0,
-          saveTokens: async () => {},
-        })
-        .beginOAuthLogin({ openBrowser: false });
+      site.answer = (url) => (url.pathname === '/api/accounts/deviceauth/usercode' ? new Response('', { status: 404 }) : null);
+      const login = await openaiTokens.beginOAuthLogin({ openBrowser: false });
+      const state = new URL(login.url).searchParams.get('state');
+      // The product's `loginOAuth` awaits the settlement at once; so does this, before the browser's request is made.
+      const settled = login.waitForCallback;
+      settled.catch(() => {});
+      const page = await new Promise((resolveGet, rejectGet) => {
+        httpGet(`http://127.0.0.1:1455/auth/callback?code=abc&state=${state}`, (res) => {
+          let body = '';
+          res.on('data', (chunk) => (body += chunk));
+          res.on('end', () => resolveGet({ status: res.statusCode, body }));
+        }).on('error', rejectGet);
+      });
+      site.extra = { page };
+      return await settled;
+    },
+    // The same exchange reached by a pasted code (`completeCode`), as the desktop sign-in does.
+    openaiCodeExchangeManual: async () => {
+      site.answer = (url) => (url.pathname === '/api/accounts/deviceauth/usercode' ? new Response('', { status: 404 }) : null);
+      const login = await openaiTokens.beginOAuthLogin({ openBrowser: false });
       const settled = login.waitForCallback.catch(() => {});
       try {
         return await login.completeCode('abc');
@@ -541,6 +553,8 @@ async function recordSites() {
     };
     globalThis.fetch = async (input, init) => {
       const url = new URL(typeof input === 'string' ? input : input.url);
+      const answered = site.answer?.(url);
+      if (answered) return answered;
       try {
         return await realFetch(`http://127.0.0.1:${site.port}${url.pathname}${url.search}`, init);
       } catch (error) {
@@ -564,7 +578,7 @@ async function recordSites() {
     }
     process.stderr.write = realWrite;
     if (logged.length) entry.logged = logged;
-    Object.assign(entry, { armed: site.armed, fetchRejected: site.rejected });
+    Object.assign(entry, { armed: site.armed, fetchRejected: site.rejected }, site.extra);
     globalThis.fetch = realFetch;
     AbortSignal.timeout = realAbortTimeout;
     site = null;
