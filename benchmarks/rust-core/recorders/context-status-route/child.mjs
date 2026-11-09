@@ -100,17 +100,25 @@ try {
   await call('second', 'session.configure', 'setRoute', [route], controlOpen);
   await call('second', 'session.read', 'contextStatus', [{}], controlOpen);
 
-  // The second session's `compaction` after the sequence: the installation's sync came first (at `session.create`), then the
-  // seed turn, then the route change above. The route change saves asynchronously: the store is read after a settle.
-  await new Promise((done) => setTimeout(done, 2000));
-  const settled = readSessionLogSync(join(process.env.MIXDOG_DATA_DIR, 'sessions', `${out.ids.second}.log.jsonl`));
-  if (!settled?.valid) throw new Error('the second session has no readable log after the route change');
-  out.afterRoute = { compaction: sessionFromLog(settled).compaction };} catch (error) {
+} catch (error) {
   failure = error;
 }
 try {
   await attached?.close();
 } catch {}
 if (discovery) await client.shutdownDaemon(discovery, { waitForExit: true, timeoutMs: 30_000 }).catch(() => {});
+// The second session's `compaction` after the sequence: the installation's sync came first (at `session.create`), then the seed
+// turn, then the route change above. The route change saves through the store's debounced slot, which the daemon's exit drain
+// records before the process is gone (`pending-writes.mjs`, `takeAllPendingWrites`): the log is read after that, with no wait.
+if (!failure) {
+  try {
+    const { readSessionLogSync, sessionFromLog } = await import(pathToFileURL(join(nodeTree, 'src', 'runtime', 'agent', 'orchestrator', 'session', 'store', 'session-log-reader.mjs')).href);
+    const settled = readSessionLogSync(join(process.env.MIXDOG_DATA_DIR, 'sessions', `${out.ids.second}.log.jsonl`));
+    if (!settled?.valid) throw new Error('the second session has no readable log after the route change');
+    out.afterRoute = { compaction: sessionFromLog(settled).compaction };
+  } catch (error) {
+    failure = error;
+  }
+}
 process.stdout.write(`RESULT ${JSON.stringify(failure ? { failed: String(failure?.stack || failure) } : out)}\n`);
 process.exit(failure ? 1 : 0);
