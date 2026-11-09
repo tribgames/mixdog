@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Generates src/standalone/protocol-session/method-args.generated.mjs: for every session action routed by
+ * Generates packages/protocol-client/src/actions/method-args.generated.mjs: for every session action routed by
  * action-namespaces.mjs whose method exists in the generated protocol types, the order of its named params, so
  * today's positional action arguments can be sent as named params.
  *
@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TYPES = join(ROOT, 'packages', 'protocol', 'src', 'index.ts');
-const OUT = join(ROOT, 'src', 'standalone', 'protocol-session', 'method-args.generated.mjs');
+const OUT = join(ROOT, 'packages', 'protocol-client', 'src', 'actions', 'method-args.generated.mjs');
 
 const stripComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '');
 
@@ -61,7 +61,7 @@ export function methodArgs(source, methods) {
 
 export async function render() {
   const { ACTION_NAMESPACES } = await import(
-    pathToFileURL(join(ROOT, 'src', 'standalone', 'protocol-session', 'action-namespaces.mjs')).href
+    pathToFileURL(join(ROOT, 'packages', 'protocol-client', 'src', 'actions', 'action-namespaces.mjs')).href
   );
   const methods = Object.entries(ACTION_NAMESPACES).flatMap(([ns, actions]) => actions.map((a) => `${ns}/${a}`));
   const table = methodArgs(readFileSync(TYPES, 'utf8'), methods);

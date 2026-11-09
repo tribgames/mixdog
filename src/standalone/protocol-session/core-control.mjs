@@ -4,7 +4,7 @@ import http from 'node:http';
 import { join } from 'node:path';
 import { sleep as delay } from '../../runtime/shared/sleep.mjs';
 import { isPidAlive } from '../../runtime/shared/pid-liveness.mjs';
-import { CoreDiscoveryError, DISCOVERY_FILE, controlEndpoint, readCoreDiscovery } from './discovery.mjs';
+import { CoreDiscoveryError, DISCOVERY_FILE, controlEndpoint, readCoreDiscovery } from '../../tui/protocol-session/discovery.mjs';
 
 const REQUEST_TIMEOUT_MS = 3_000;
 const POLL_MS = 50;

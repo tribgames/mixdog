@@ -21,23 +21,13 @@ import { modelCatalogWorkerDefine } from './model-catalog-worker-source.mjs';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'src', 'tui');
 
-const sharedRuntimeExternalPlugin = {
-  name: 'mixdog-shared-runtime-external',
-  setup(build) {
-    build.onResolve({ filter: /^\.\.\/runtime\/shared\/process-(shutdown|lifecycle)\.mjs$/ }, (args) => ({
-      path: `../../runtime/shared/${args.path.slice('../runtime/shared/'.length)}`,
-      external: true,
-    }));
-  },
-};
-
 const sessionClientExternalPlugin = {
   name: 'mixdog-session-client-external',
   setup(build) {
-    build.onResolve({ filter: /^\.\.\/standalone\/protocol-session\/index\.mjs$/ }, () => ({
+    build.onResolve({ filter: /^\.\/protocol-session\/index\.mjs$/ }, () => ({
       // Keep this module outside the TUI bundle so its import.meta.url stays
-      // anchored in src/standalone, where packages/protocol-client is resolved from.
-      path: '../../standalone/protocol-session/index.mjs',
+      // anchored in src/tui/protocol-session, where packages/protocol-client is resolved from.
+      path: '../protocol-session/index.mjs',
       external: true,
     }));
   },
@@ -99,7 +89,7 @@ await build({
     '../../runtime/channels/lib/voice-runtime-fetcher.mjs',
     '../../runtime/channels/lib/whisper-server.mjs',
   ],
-  plugins: [sharedRuntimeExternalPlugin, sessionClientExternalPlugin, bundleInkPlugin],
+  plugins: [sessionClientExternalPlugin, bundleInkPlugin],
   logLevel: 'info',
 });
 
