@@ -19,6 +19,7 @@ use mixdog_core_api::mock::MockScopedFeeds;
 use mixdog_core_api::mock::MockStatePublisher;
 use mixdog_core_api::service::DomainService;
 use mixdog_core_api::state::SectionChange;
+use mixdog_core_api::state::StatePublisher;
 use mixdog_protocol::Origin;
 use mixdog_protocol::SectionName;
 use mixdog_spawn::ports::ListeningPort;
@@ -48,14 +49,52 @@ fn scoped() -> Arc<MockScopedFeeds> {
     Arc::new(MockScopedFeeds::new(MockLimits::default()))
 }
 
-async fn until(what: &str, mut ok: impl FnMut() -> bool) {
-    let waited = tokio::time::timeout(Duration::from_secs(10), async {
-        while !ok() {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await;
-    assert!(waited.is_ok(), "never happened: {what}");
+async fn until(_what: &str, mut ok: impl FnMut() -> bool) {
+    while !ok() {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+type Published = Vec<(SectionName, Option<String>, SectionChange)>;
+
+/// The section publisher the terminal tests read: every publication wakes the waiters, so a test
+/// waits for the publication its assertion reads, never for a count of ticks.
+#[derive(Default)]
+struct SectionLog {
+    inner: MockStatePublisher,
+    pushed: tokio::sync::Notify,
+}
+
+impl SectionLog {
+    fn published(&self) -> Published {
+        self.inner.published()
+    }
+
+    /// Returns once `ready` holds for what has been published. The deadline only turns a missing
+    /// publication into a failure that names it.
+    async fn wait_for(&self, what: &str, ready: impl Fn(&Published) -> bool) {
+        let waited = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let pushed = self.pushed.notified();
+                tokio::pin!(pushed);
+                // Registered before the check, so a publication between check and await still wakes it.
+                pushed.as_mut().enable();
+                if ready(&self.published()) {
+                    return;
+                }
+                pushed.await;
+            }
+        })
+        .await;
+        assert!(waited.is_ok(), "never published: {what}");
+    }
+}
+
+impl StatePublisher for SectionLog {
+    fn publish(&self, section: SectionName, key: Option<String>, change: SectionChange) {
+        self.inner.publish(section, key, change);
+        self.pushed.notify_waiters();
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -134,7 +173,7 @@ async fn process_stdin_input_and_pty_resize_reach_the_process() {
 async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause() {
     let manager = manager();
     let feeds = ProcessFeeds::new(manager.clone(), scoped());
-    let publisher = Arc::new(MockStatePublisher::default());
+    let publisher = Arc::new(SectionLog::default());
     let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
     let cwd = temp_dir().as_path().to_string_lossy().into_owned();
     let Reply::Value(ensured) = service
@@ -188,7 +227,7 @@ async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause(
         let owner = tabs.as_array()?.iter().find(|tab| tab["id"] == json!(id))?["sizeOwner"].clone();
         Some((owner["owner"].as_str()?.to_owned(), owner["cols"].as_u64()?, owner["rows"].as_u64()?))
     };
-    until("the owner in the tab list section", || owner_in_section().is_some()).await;
+    publisher.wait_for("the owner in the tab list section", |_| owner_in_section().is_some()).await;
     assert_eq!(owner_in_section(), first.clone().map(|c| (c, 100, 30)));
 
     // A resize that is not a claim is ignored while one stands.
@@ -213,20 +252,34 @@ async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause(
 async fn terminal_activity_lists_tabs_in_creation_order() {
     let manager = manager();
     let feeds = ProcessFeeds::new(manager.clone(), scoped());
-    let publisher = Arc::new(MockStatePublisher::default());
+    let publisher = Arc::new(SectionLog::default());
     let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
     let cwd = temp_dir().as_path().to_string_lossy().into_owned();
+    // Only a shell with the marker integration reports activity; the test picks one itself, so it
+    // does not depend on which shell the machine defaults to.
     let Reply::Value(profiles) = service.call(request("terminal/profiles", json!({}), 1)).await.unwrap() else {
         panic!("terminal/profiles answers with a value");
     };
-    let default = profiles.as_array().unwrap().iter().find(|p| p["default"] == json!(true)).unwrap()["path"].as_str().unwrap().to_lowercase();
-    if !default.contains("pwsh") && !default.contains("powershell") {
-        eprintln!("skipping: the default shell has no integration here");
-        return;
-    }
+    let integrated = profiles
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| {
+            let path = p["path"].as_str().unwrap().to_lowercase().replace('\\', "/");
+            let name = path.rsplit('/').next().unwrap().trim_end_matches(".exe");
+            // System32's bash.exe is the WSL launcher, which the integration leaves alone.
+            matches!(name, "pwsh" | "powershell" | "zsh") || (name == "bash" && !path.contains("/system32/"))
+        })
+        .expect("this machine has a shell with terminal integration (PowerShell, bash or zsh)")["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     // Created in reverse id order: a section sorted by id would list `term_a` first.
     for id in ["term_b", "term_a"] {
-        service.call(request("terminal/ensure", json!({ "tabId": id, "options": { "cwd": cwd } }), 1)).await.unwrap();
+        service
+            .call(request("terminal/ensure", json!({ "tabId": id, "options": { "cwd": cwd, "profile": integrated } }), 1))
+            .await
+            .unwrap();
     }
     let keys = || -> Vec<String> {
         publisher
@@ -242,7 +295,7 @@ async fn terminal_activity_lists_tabs_in_creation_order() {
             })
             .unwrap_or_default()
     };
-    until("both tabs have a known activity", || keys().len() == 2).await;
+    publisher.wait_for("both tabs have a known activity", |_| keys().len() == 2).await;
     assert_eq!(keys(), vec!["term_b".to_owned(), "term_a".to_owned()]);
     service.tabs().dispose_all();
 }
@@ -254,7 +307,7 @@ async fn terminal_ensure_opens_the_output_feed_without_an_attach() {
     let manager = manager();
     let made = scoped();
     let feeds = ProcessFeeds::new(manager.clone(), made.clone());
-    let publisher = Arc::new(MockStatePublisher::default());
+    let publisher = Arc::new(SectionLog::default());
     let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
     let cwd = temp_dir().as_path().to_string_lossy().into_owned();
     let Reply::Value(ensured) = service
@@ -274,7 +327,7 @@ async fn terminal_ensure_opens_the_output_feed_without_an_attach() {
 async fn terminal_ensure_names_a_fresh_tab_and_attach_answers_replay_or_not_running() {
     let manager = manager();
     let feeds = ProcessFeeds::new(manager.clone(), scoped());
-    let publisher = Arc::new(MockStatePublisher::default());
+    let publisher = Arc::new(SectionLog::default());
     let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
     let cwd = temp_dir().as_path().to_string_lossy().into_owned();
     // No tab id: the core spawns a new terminal and answers the id it generated.
@@ -342,7 +395,7 @@ async fn ports_are_sampled_only_while_a_connection_views_them() {
 async fn terminal_service_ensures_publishes_tabs_and_disposes() {
     let manager = manager();
     let feeds = ProcessFeeds::new(manager.clone(), scoped());
-    let publisher = Arc::new(MockStatePublisher::default());
+    let publisher = Arc::new(SectionLog::default());
     let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
 
     let Reply::Value(profiles) = service.call(request("terminal/profiles", json!({}), 1)).await.unwrap() else {
@@ -365,10 +418,9 @@ async fn terminal_service_ensures_publishes_tabs_and_disposes() {
         panic!("terminal/attach answers with a subscription");
     };
     assert_eq!(sub.feed.feed_id().to_string(), format!("process:{id}"));
-    until("the tab list section", || {
-        publisher.published().iter().any(|(s, _, _)| *s == SectionName::TerminalTabs)
-    })
-    .await;
+    publisher
+        .wait_for("the tab list section", |sections| sections.iter().any(|(s, _, _)| *s == SectionName::TerminalTabs))
+        .await;
 
     service.call(request("terminal/dispose", json!({ "tabId": id }), 1)).await.unwrap();
     // A tab that is not running is Node's `null` (termAttach), not an error.
