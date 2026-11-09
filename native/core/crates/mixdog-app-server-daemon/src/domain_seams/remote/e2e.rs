@@ -18,6 +18,13 @@ use mixdog_app_protocol::limits::Limits;
 use mixdog_app_server::AppServer;
 use mixdog_app_server::Outgoing;
 use mixdog_app_server_transport::ConnectionHub;
+use mixdog_app_server::HostMedia;
+use mixdog_core_api::CoreError;
+use mixdog_core_api::ConnectionNotifier;
+use mixdog_core_api::HostCapability;
+use mixdog_core_api::HostChannel;
+use mixdog_core_api::HostError;
+use mixdog_core_api::call::CallContext;
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::call::Reply;
 use mixdog_core_api::feed::FeedSource;
@@ -62,6 +69,8 @@ use super::register_local;
 use super::start_remote;
 use crate::connection_close::ConnectionOwner;
 use crate::connection_close::ConnectionOwners;
+use crate::live_view::LiveViewService;
+use crate::live_view::PairedScreenAccess;
 use common::Event;
 use common::LegEnd;
 use common::Phone;
@@ -76,7 +85,37 @@ const REDIAL: &str = include_str!("../../../../../fixtures/remote-relay-redial/g
 
 /// The core the server sees: the mock directory for threads, the production `ScreenSessions` for the phone's screen report, and the
 /// registry hooks `ComposedCore` runs when a connection starts (`register_local`) and ends (`ConnectionOwners`).
+/// The desktop as the live view meets it: it answers the host's display list and records what it was asked.
+struct Desktop {
+    asked: Mutex<Vec<String>>,
+}
+
+#[async_trait::async_trait]
+impl HostChannel for Desktop {
+    async fn request(&self, _capability: HostCapability, method: Method, _params: Value) -> Result<Value, HostError> {
+        self.asked.lock().unwrap().push(method.as_str().to_owned());
+        Ok(displays())
+    }
+
+    fn notify(&self, _capability: HostCapability, _method: Method, _params: Value) -> Result<(), CoreError> {
+        Ok(())
+    }
+}
+
+struct NoPushes;
+
+impl ConnectionNotifier for NoPushes {
+    fn notify(&self, _to: ConnectionId, _method: Method, _params: Value) -> Result<(), CoreError> {
+        Ok(())
+    }
+}
+
+fn displays() -> Value {
+    json!([{ "id": "display-1", "label": "Display 1", "primary": true, "width": 1920, "height": 1080 }])
+}
+
 struct Core {
+    live: Arc<LiveViewService>,
     mock: MockCore,
     screen: Arc<ScreenSessions>,
     registry: Arc<DeviceRegistry>,
@@ -102,6 +141,9 @@ impl CoreHandle for Core {
     }
 
     fn domain_for(&self, method: &str) -> Option<&dyn DomainService> {
+        if self.live.methods().contains(&method) {
+            return Some(self.live.as_ref());
+        }
         if self.screen.methods().contains(&method) {
             return Some(self.screen.as_ref());
         }
@@ -158,6 +200,7 @@ struct Harness {
     relay: Relay,
     identity: ServerIdentity,
     /// `thread/list` calls that reached the directory.
+    desktop: Arc<Desktop>,
     reads: Arc<AtomicUsize>,
     /// `turn/start` params that reached the thread.
     turns: Arc<Mutex<Vec<Value>>>,
@@ -220,7 +263,17 @@ impl Harness {
         let screen = Arc::new(ScreenSessions::new(remote.registry.clone()));
         let owners = ConnectionOwners::of(vec![screen.clone() as Arc<dyn ConnectionOwner>, remote.registry.clone()]);
         let (closed_tx, closed) = watch::channel(Vec::new());
-        let core = Arc::new(Core { mock, screen, registry: remote.registry.clone(), owners, closed: closed_tx });
+        // The live view as `compose_flip` registers it: the same access rule over the same registry.
+        let desktop = Arc::new(Desktop { asked: Mutex::default() });
+        let live = Arc::new(LiveViewService::new(
+            desktop.clone(),
+            Arc::new(NoPushes),
+            HostMedia::new(1 << 20),
+            remote.runtime.clone(),
+            tokens.media_thread,
+            Arc::new(PairedScreenAccess::new(phone_credential(remote.registry.clone()))),
+        ));
+        let core = Arc::new(Core { live, mock, screen, registry: remote.registry.clone(), owners, closed: closed_tx });
         let hub = ConnectionHub::new(Limits::default()).unwrap();
         let origins = hub.clone();
         let server = AppServer::new(core.clone(), Outgoing::new(), Arc::new(move |id| origins.origin_of(id)), crate::server::server_config(Limits::default(), Default::default())).unwrap();
@@ -233,7 +286,7 @@ impl Harness {
         relay.legs.recv().await.expect("the relay ended");
         remote.runtime.watch_connected().wait_for(|up| *up).await.expect("the runtime ended");
         remote.runtime.list_clients().await.unwrap();
-        Self { dir, core, registry: remote.registry, runtime: remote.runtime, published, relay, identity, reads, turns, closed }
+        Self { dir, core, registry: remote.registry, runtime: remote.runtime, published, relay, identity, desktop, reads, turns, closed }
     }
 
     /// The phone `id` of `credential` pairs and states who it is; the connection the core opened for it.
@@ -513,4 +566,42 @@ fn a_local_client_is_recorded_by_what_it_states_and_a_relay_or_claimed_phone_is_
     assert_eq!(kind(2), Some(("mixdog-cli".to_owned(), LinkKind::Local(LocalKind::Cli))));
     assert_eq!(kind(3), None, "a local client that says it is a phone is no paired phone");
     assert_eq!(kind(4), None, "a relay connection is recorded by the dialer that opened it");
+}
+
+const NOT_ALLOWED: &str = "Remote screen is not allowed for this device.";
+
+fn displays_request(connection: ConnectionId, origin: Origin) -> CoreRequest {
+    CoreRequest {
+        method: Method("browser/screenDisplays"),
+        params: json!({}),
+        op: None,
+        ctx: CallContext::connection(connection, origin, tokio_util::sync::CancellationToken::new()),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_paired_phone_gets_the_hosts_display_list_and_a_local_client_or_an_unpaired_device_gets_nodes_refusal() {
+    let h = Harness::start(true).await;
+    let (mut phone, connection) = h.connect("p1", CRED).await;
+
+    // Over the relay, as the phone asks: the paired device is allowed and the desktop's list comes back unchanged.
+    phone.send(&json!({ "id": 7, "method": "browser/screenDisplays", "params": {} }).to_string());
+    let answered = answer(&mut phone, 7).await;
+    assert_eq!(answered["result"], displays(), "{answered}");
+    assert_eq!(*h.desktop.asked.lock().unwrap(), ["host/screen/displays"]);
+
+    // A local client, whatever it says it is, holds no pairing: refused, and the desktop is not asked.
+    let named = ConnectionId(9001);
+    h.core.connection_opened(named, Origin::Local, "Pixel", ConnectionKind::Cli);
+    let refused = h.core.live.call(displays_request(named, Origin::Local)).await.unwrap_err();
+    assert!(matches!(&refused, CoreError::DomainError { message: Some(message), .. } if message.as_ref() == NOT_ALLOWED), "{refused:?}");
+
+    // The device is unpaired: its connection is gone and so is its access, at once.
+    h.runtime.revoke_client(CRED).await.unwrap();
+    assert_eq!(phone.closed().await, "device unpaired");
+    h.closed(connection).await;
+    let refused = h.core.live.call(displays_request(connection, Origin::Relay)).await.unwrap_err();
+    assert!(matches!(&refused, CoreError::DomainError { message: Some(message), .. } if message.as_ref() == NOT_ALLOWED), "{refused:?}");
+    assert_eq!(h.desktop.asked.lock().unwrap().len(), 1, "no refused request reached the desktop");
+    h.runtime.close().await;
 }

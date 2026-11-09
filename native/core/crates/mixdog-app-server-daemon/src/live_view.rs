@@ -80,17 +80,27 @@ use crate::connection_close::ConnectionOwner;
 
 const SESSION_PREFIX: &str = "browser:";
 
-/// Whether a connection may see this PC's screens. Node's `screenAccessPublisher` decides this from
-/// the grants the PC's owner made; no grant exists in the core yet, so [`NoScreenAccess`] refuses.
+/// Whether a connection may see this PC's screens.
 pub trait ScreenAccess: Send + Sync {
     fn allowed(&self, connection: ConnectionId) -> bool;
 }
 
-pub struct NoScreenAccess;
+/// Node's rule (`screen-access-publisher.ts` `allowed`; "pairing is the approval"): a connection is allowed exactly
+/// when it is a paired relay peer past its handshake and its pairing still stands. The core holds that as the credential
+/// a connection acts as (`phone_credential`): a local client has none, and a peer whose pairing ended loses it.
+pub struct PairedScreenAccess {
+    credential: Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync>,
+}
 
-impl ScreenAccess for NoScreenAccess {
-    fn allowed(&self, _connection: ConnectionId) -> bool {
-        false
+impl PairedScreenAccess {
+    pub fn new(credential: Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync>) -> Self {
+        Self { credential }
+    }
+}
+
+impl ScreenAccess for PairedScreenAccess {
+    fn allowed(&self, connection: ConnectionId) -> bool {
+        (self.credential)(connection).is_some()
     }
 }
 
@@ -870,7 +880,7 @@ mod tests {
         let (push_tx, mut pushes) = mpsc::unbounded_channel();
         let peers = Arc::new(Scripted::default());
         let media = HostMedia::new(1 << 20);
-        let service = LiveViewService::with_peers(desktop.clone(), Arc::new(Phones(push_tx)), media.clone(), runtime(dir), peers.clone(), Arc::new(NoScreenAccess));
+        let service = LiveViewService::with_peers(desktop.clone(), Arc::new(Phones(push_tx)), media.clone(), runtime(dir), peers.clone(), Arc::new(PairedScreenAccess::new(Arc::new(|_| None))));
         let session = "sess_1";
         for connection in [1, 2] {
             service.call(request(connection, "browser/stream", json!({ "sessionId": session, "on": true }))).await.unwrap();
