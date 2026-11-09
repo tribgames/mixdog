@@ -48,7 +48,7 @@ pub(super) fn recording() -> Value {
     serde_json::from_str(include_str!("../../../../../fixtures/model-lists/node-model-lists.json")).unwrap()
 }
 
-/// Node's recording of a default route naming an OAuth provider (model-lists-statusline): the reads after its statusline-usage warm-up.
+/// Node's recording of a default route naming an OAuth provider (model-lists-statusline): the reads after its statusline-usage warm-up, and the reads before it (the warm-up delayed).
 pub(super) fn statusline_recording() -> Value {
     serde_json::from_str(include_str!("../../../../../fixtures/model-lists-statusline/node-model-lists.json")).unwrap()
 }
