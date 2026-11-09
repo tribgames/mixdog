@@ -391,7 +391,13 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
                 if (finished || !channel) return;
                 if (isRequest) inflight.add(request?.id);
                 if (peer) await peer.send(request);
-                else ws.send(binaryFrames ? await channel.encryptBinary(request) : await channel.encryptJson(request));
+                else {
+                  const sealed = binaryFrames ? await channel.encryptBinary(request) : await channel.encryptJson(request);
+                  // The leg may have ended while the frame was sealing: it never reaches the relay, and its call is not told it left.
+                  if (finished) return;
+                  ws.send(sealed);
+                }
+                if (finished) return;
                 left?.();
               })
               .catch(() => fail(CLOSE_PROTOCOL_ERROR, 'frame failed'));

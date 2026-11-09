@@ -263,6 +263,7 @@ export interface ProtocolClient<S = Json> {
   /** Reads all pages of a blob (`blob/read`, page ≤ `server.limits.maxBlobPageBytes`). Rejects `blobNotFound`/`blobCorrupt` for this read only. */
   readBlob(ref: BlobRef, options?: Pick<CallOptions, 'sent'>): Promise<Uint8Array>;
   /** Uploads in raw chunks ≤ `server.limits.maxBlobPutChunkBytes` (`blob/put`, SPEC R1) and returns the ref to put into a request. */
+  /** `options.sent` is the claim of the upload's LAST chunk: the upload is one message, which has left once its last chunk has. */
   putBlob(bytes: Uint8Array, mediaType: string, options?: Pick<CallOptions, 'sent'>): Promise<BlobRef>;
 
   on(listener: (event: ClientEvent) => void): () => void;

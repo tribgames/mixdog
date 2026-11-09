@@ -49,6 +49,8 @@ if (args.has('oracle')) {
       void ctx.connect();
     },
     send: (payload) => void driver.ctx.transport.send(payload),
+    // The send's own completion: Node's call awaits it (remote-shim-calls.ts:148, :258).
+    sendTracked: (payload, done) => void driver.ctx.transport.send(payload).then(done),
   };
   const trace = await playOracle(world, driver, ORACLE_SCENARIOS[args.get('oracle')]);
   process.stdout.write(`\n@@TRACE@@${JSON.stringify(trace)}\n`);

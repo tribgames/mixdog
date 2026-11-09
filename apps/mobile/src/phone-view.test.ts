@@ -111,3 +111,32 @@ test('subscription events never open the gate: only the machine finishing a sync
   await gate;
   assert.equal(events.synced, 1);
 });
+
+test('each sync carries its own claim: a reconnect between a sync\'s claim and its write cannot hand its frame to the next sync', async () => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const { client, status, manager } = rig();
+  const claims: Array<(sent: Promise<void>) => void> = [];
+  const called: Array<() => void> = [];
+  const wrote = (n: number) => new Promise<void>((resolve) => (called[n] = resolve));
+  const first = wrote(0);
+  const second = wrote(1);
+  let lose!: (error: unknown) => void;
+  client.subscribeApp = async (options?: { sent?: (sent: Promise<void>) => void }) => {
+    claims.push(options!.sent!);
+    called[claims.length - 1]?.();
+    // The first sync's frame is still waiting to be written (the connection is being replaced) until its connection is lost.
+    if (claims.length === 1) await new Promise<void>((_, reject) => (lose = reject));
+  };
+  const gate = manager.synced();
+  void gate.catch(() => undefined);
+  mock.timers.tick(0);
+  await first;
+  status(RECONNECTING);
+  lose({ kind: 'connectionLost' });
+  status(READY);
+  mock.timers.tick(0);
+  await second;
+  assert.equal(claims.length, 2);
+  assert.notEqual(claims[0], claims[1], 'the second sync gets a claim of its own, not the first one\'s');
+  mock.timers.reset();
+});

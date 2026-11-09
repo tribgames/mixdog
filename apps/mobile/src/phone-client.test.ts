@@ -242,3 +242,77 @@ test('a close 4002 is the relay saying the PC is offline: reconnecting, never a 
   assert.equal(phone.client.status.state, 'reconnecting');
   await phone.client.close();
 });
+
+test('a frame still sealing when its socket ends never settles its claim; the next connection\'s frame settles its own', async () => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const legs = [relayPair(identity, false), relayPair(identity, false)];
+  let made = 0;
+  const served = [serve(legs[0].next, legs[0].send), serve(legs[1].next, legs[1].send)];
+  legs[0].start();
+  const phone = await connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => {
+      const leg = legs[made++];
+      if (made === 2) leg.start();
+      return leg.ws;
+    },
+    random: () => 0,
+    onConnection: () => undefined,
+  });
+  await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served[0]]);
+
+  // The next encryption on this page (the phone's frame; the test's far end is idle) waits until released: the frame is being sealed.
+  const subtle = globalThis.crypto.subtle;
+  const original = subtle.encrypt.bind(subtle);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let sealed: Promise<unknown> = Promise.resolve();
+  let holdNext = true;
+  let sealing!: () => void;
+  const sealStarted = new Promise<void>((resolve) => (sealing = resolve));
+  Object.defineProperty(subtle, 'encrypt', {
+    configurable: true,
+    writable: true,
+    value: (...args: Parameters<typeof original>) => {
+      if (!holdNext) return original(...args);
+      holdNext = false;
+      sealing();
+      return (sealed = gate.then(() => original(...args)));
+    },
+  });
+  try {
+    const states = new Promise<void>((resolve) => {
+      const off = phone.client.on((event) => {
+        if (event.type === 'status' && event.status.state === 'reconnecting') (off(), resolve());
+      });
+    });
+    // The claim receives a promise; wrapped, so resolving the test's own promise does not wait for it.
+    const dead = new Promise<{ sent: Promise<void> }>((resolve) => {
+      void phone.client.call('thread/list', {} as never, { sent: (sent) => resolve({ sent }) }).catch(() => undefined);
+    });
+    const deadFrame = (await dead).sent;
+    let deadSettled = false;
+    void deadFrame.then(() => (deadSettled = true));
+    // The frame is mid-seal, not merely queued: only then does the socket end.
+    await sealStarted;
+    legs[0].ws.onclose!({ code: 1006, reason: '' });
+    await states;
+    release();
+    await sealed;
+    // One macrotask: everything the sealing's continuation queued has run, so a settle that was going to happen has happened.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(deadSettled, false, 'the dead leg\'s frame never leaves, so its claim never settles');
+
+    await served[1];
+    const live = new Promise<{ sent: Promise<void> }>((resolve) => {
+      void phone.client.call('thread/list', {} as never, { sent: (sent) => resolve({ sent }) }).catch(() => undefined);
+    });
+    await (await live).sent;
+  } finally {
+    Object.defineProperty(subtle, 'encrypt', { configurable: true, writable: true, value: original });
+    await phone.client.close();
+  }
+});

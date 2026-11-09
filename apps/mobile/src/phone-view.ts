@@ -13,7 +13,7 @@ import type { ClientEvent, ProtocolClient, SessionFold, StoreChange } from '../.
 import { armCallWatch } from '../../desktop/src/renderer/remote-shim-call-watch.ts';
 import { remoteConnectionInterruptedError } from '../../desktop/src/renderer/remote-connection-state.ts';
 import { createViewSync } from './phone-view-sync.ts';
-import { firstFrame, scopeClient, type FrameClaim } from './phone-send-scope.ts';
+import { firstFrame, scopeClient } from './phone-send-scope.ts';
 
 /** Threads open per pane: the same window `thread/resume` is asked for everywhere on the phone. */
 export const VIEW_WINDOW = { lastItems: 50 } as const;
@@ -35,7 +35,7 @@ export interface ViewManager {
 }
 
 export function createViewManager(
-  raw: ViewClient,
+  client: ViewClient,
   options: {
     /** Threads of the last visit: opened with the first connection, whatever the panes name first. */
     restored: readonly string[];
@@ -98,27 +98,25 @@ export function createViewManager(
     });
   };
 
-  const attach = async (force: boolean): Promise<void> => {
+  /** `c` is the sync's own client: the frames it writes carry this sync's claim, whichever connection they end up on. */
+  const attach = async (force: boolean, c: ViewClient): Promise<void> => {
     const want = target();
     if (!appOpen || force) {
-      await client.subscribeApp();
+      await c.subscribeApp();
       appOpen = true;
     }
     for (const id of [...open]) {
       if (want.has(id)) continue;
       open.delete(id);
-      await client.unsubscribeThread(id);
+      await c.unsubscribeThread(id);
     }
     for (const id of want) {
       if (open.has(id) && !force) continue;
-      await client.resumeThread(id, VIEW_WINDOW);
+      await c.resumeThread(id, VIEW_WINDOW);
       open.add(id);
     }
   };
 
-  // The sync's request is the first frame the view writes while a sync runs; the view's client opens that claim around each of its methods.
-  let claimSync: FrameClaim = () => undefined;
-  const client = scopeClient(raw, (sent) => claimSync(sent));
   const inFlight = new Map<number, true>();
   let syncId = 0;
   const timers = {
@@ -126,25 +124,26 @@ export function createViewManager(
     clearTimeout: (handle: number) => clearTimeout(handle as unknown as ReturnType<typeof setTimeout>),
   };
   // The sync request is a call like any other: its deadline starts when it is sent, and an overdue one probes the connection before it times out.
-  const underDeadline = <T>(run: () => Promise<T>): Promise<T> =>
+  const underDeadline = <T>(run: (c: ViewClient) => Promise<T>): Promise<T> =>
     new Promise<T>((resolve, reject) => {
       const id = ++syncId;
       inFlight.set(id, true);
       const watch = armCallWatch(inFlight, id, reject, options.probe, options.silentSince, timers);
-      claimSync = firstFrame((sent) => void sent.then(watch.transmitted));
+      // This sync's own claim, carried by its own frames (the first one it writes): a reconnect between the claim and the write cannot hand the
+      // frame to another sync.
+      const own = scopeClient(client, firstFrame((sent) => void sent.then(watch.transmitted)));
       const done = (): void => {
-        claimSync = () => undefined;
         watch.cancel();
         inFlight.delete(id);
       };
-      run().then(
+      run(own).then(
         (value) => (done(), resolve(value)),
         (error: unknown) => (done(), reject(error))
       );
     });
   const sync = createViewSync({
     synchronize: () =>
-      underDeadline(async () => {
+      underDeadline(async (c) => {
       const force = refresh;
       const mine = connection;
       refresh = false;
@@ -153,7 +152,7 @@ export function createViewManager(
           reattach = false;
           await reattached();
         }
-        await attach(force);
+        await attach(force, c);
       } catch (error) {
         if (force && mine === connection) refresh = true;
         throw error;
