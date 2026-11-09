@@ -12616,6 +12616,11 @@
       ],
       "type": "object"
     },
+    "ScreenDisplaysParams": {
+      "additionalProperties": false,
+      "description": "Params of `browser/screenDisplays` (a granted phone's request, Node's `browserRemoteScreenDisplays`) and of `host/screen/displays` (core → host): none. Both answer `RemoteScreenDisplaySummary[]` (`apps/desktop/src/shared/remote-webrtc.ts`), unchanged.",
+      "type": "object"
+    },
     "SearchStartParams": {
       "description": "Params of `search/start`.",
       "properties": {
@@ -18311,6 +18316,12 @@
     "browser/command": {
       "params": {
         "$ref": "#/definitions/BrowserCommandParams"
+      },
+      "result": true
+    },
+    "browser/screenDisplays": {
+      "params": {
+        "$ref": "#/definitions/ScreenDisplaysParams"
       },
       "result": true
     },

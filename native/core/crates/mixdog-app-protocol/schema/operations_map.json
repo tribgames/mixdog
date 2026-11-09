@@ -1103,8 +1103,8 @@
       "list": "operations",
       "name": "browserRemoteWebrtcSignal",
       "target": {
-        "kind": "internal",
-        "target": "WebRTC runs in mixdog-remote (SPEC R36)"
+        "kind": "method",
+        "target": "browser/webrtcSignal"
       }
     },
     {
