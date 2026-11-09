@@ -107,6 +107,12 @@ pub struct ChangesRead {
     pub file: Option<String>,
 }
 
+/// Told when open reviews must read again (`noteTurnReviewChanged`, which `onTurnReviewChanged`
+/// listeners receive once per task): the sessions that have a review. Node's signal names none; its
+/// one consumer (the desktop's `turn-review-changed` event) rereads whichever session is open, so
+/// every session with a review is told.
+pub type ReviewChanged = std::sync::Arc<dyn Fn(&[String]) + Send + Sync>;
+
 /// The turn review as the rest of the core sees it.
 #[async_trait]
 pub trait TurnReviewApi: Send + Sync {
@@ -129,6 +135,10 @@ pub trait TurnReviewApi: Send + Sync {
     /// A boundary the review follows (`noteTurnWorktreeChange`): files a tool wrote, or `None`
     /// when anything may have changed (a shell, terminal or git command finished).
     fn note_change(&self, paths: Option<&[String]>);
+
+    /// `onTurnReviewChanged(listener)`: runs whenever a boundary stamped a worktree or a capture changed
+    /// what a review shows. A review that is not wired tells no one.
+    fn on_review_changed(&self, _listener: ReviewChanged) {}
 
     // ── turn lifecycle ─────────────────────────────────────────────────────
 

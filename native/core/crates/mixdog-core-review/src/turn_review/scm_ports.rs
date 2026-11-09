@@ -120,6 +120,10 @@ impl ReviewWorktrees for ScmWorktrees {
         self.shadow.note_change(paths);
     }
 
+    fn on_review_changed(&self, listener: Arc<dyn Fn() + Send + Sync>) {
+        self.shadow.on_review_changed(listener);
+    }
+
     fn canonical_path(&self, path: &str) -> String {
         canonical_path(path)
     }

@@ -210,6 +210,14 @@ impl ScmService {
         reviews: Arc<dyn TurnReviewApi>,
         worktrees: Arc<dyn ThreadWorktrees>,
     ) -> Arc<Self> {
+        // Node's one `onTurnReviewChanged` consumer forwards the signal as the data-less `turn-review-changed` event and the
+        // open session rereads its review: the `reviewDiff` section of every session with a review is the same tell.
+        let told = publisher.clone();
+        reviews.on_review_changed(Arc::new(move |threads| {
+            for thread in threads {
+                told.publish(SectionName::ReviewDiff, Some(thread.clone()), SectionChange::Set(Bytes::from_static(b"{}")));
+            }
+        }));
         Arc::new(Self {
             login: scm.github_login(),
             scm,
