@@ -586,9 +586,9 @@ export const SCENARIOS = {
     { op: 'hold-seal' },
     { op: 'read', name: 'readSettings', as: 'late' },
     { op: 'advance', ms: 9999 },
-    { op: 'mark', name: 'sealing-held-just-under-10s' },
+    { op: 'mark', name: 'sealing-held-9999ms' },
     { op: 'advance', ms: 1 },
-    { op: 'mark', name: 'overdue-probe-at-10s' },
+    { op: 'mark', name: 'sealing-held-10s' },
     { op: 'pong' },
     { op: 'advance', ms: 2000 },
     { op: 'release-seal' },
@@ -599,15 +599,64 @@ export const SCENARIOS = {
     { op: 'mark', name: 'silence-probe-5s-after-send' },
     { op: 'pong' },
     { op: 'advance', ms: 5000 },
-    { op: 'mark', name: 'overdue-probe-10s-after-send' },
+    { op: 'mark', name: 'quiet-10s-after-send' },
     { op: 'pong' },
     { op: 'advance', ms: 10000 },
-    { op: 'mark', name: 'second-overdue-probe' },
+    { op: 'mark', name: 'deadline-probe-20s-after-send' },
     { op: 'pong' },
     { op: 'advance', ms: 4999 },
     { op: 'mark', name: 'pending-just-under-25s-after-send' },
     { op: 'advance', ms: 1 },
     { op: 'mark', name: 'expired-25s-after-send' },
+  ],
+  // Two calls whose frames finish sealing at different times (A at 5 s, B at 12 s after the calls began): each call's deadline restart and
+  // silence probe follow its own frame leaving, not the first one's (Node: sendApplicationFrame is awaited per call, remote-shim-calls.ts:258-268).
+  // The reads are held on the PC so neither is answered; every ping is answered.
+  'calls-sent-at-different-times': [
+    { op: 'boot', reads: true },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'advance', ms: 10000 },
+    { op: 'hold', name: 'readSettings' },
+    { op: 'hold', name: 'viewerDevice' },
+    { op: 'hold-seal' },
+    { op: 'read', name: 'readSettings', as: 'a' },
+    { op: 'advance', ms: 3000 },
+    { op: 'read', name: 'viewerDevice', as: 'b' },
+    { op: 'advance', ms: 2000 },
+    { op: 'release-seal', count: 1 },
+    { op: 'mark', name: 'a-left-at-5s' },
+    { op: 'advance', ms: 4999 },
+    { op: 'mark', name: 'a-quiet-9999ms' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'a-silence-probe-10s' },
+    { op: 'pong' },
+    { op: 'advance', ms: 2000 },
+    { op: 'release-seal', count: 1 },
+    { op: 'mark', name: 'b-left-at-12s' },
+    { op: 'advance', ms: 4999 },
+    { op: 'mark', name: 'b-quiet-16999ms' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'b-silence-probe-17s' },
+    { op: 'pong' },
+    { op: 'advance', ms: 7999 },
+    { op: 'mark', name: 'a-quiet-24999ms' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'a-deadline-probe-25s' },
+    { op: 'pong' },
+    { op: 'advance', ms: 4999 },
+    { op: 'mark', name: 'a-pending-29999ms' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'a-expired-30s' },
+    { op: 'advance', ms: 1999 },
+    { op: 'mark', name: 'b-quiet-31999ms' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'b-deadline-probe-32s' },
+    { op: 'pong' },
+    { op: 'advance', ms: 4999 },
+    { op: 'mark', name: 'b-pending-36999ms' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'b-expired-37s' },
   ],
   // A call on the wire with nothing arriving for 5 s probes the leg (Node: remote-shim-calls.ts:264-268). Just under 5 s nothing is sent; at 5 s the
   // ping leaves; its pong answers it, and the call is answered afterwards.
@@ -944,7 +993,7 @@ export async function play(world, driver, ops) {
         world.holdSeal();
         break;
       case 'release-seal':
-        await world.releaseSeal();
+        await world.releaseSeal(op.count);
         break;
       case 'release':
         await world.release(op.name);

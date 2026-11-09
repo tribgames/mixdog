@@ -13,9 +13,11 @@ import { REPO_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, re
 import { createPhoneWorld, nodeDialect } from './lib/phone-world.mjs';
 import { SCENARIOS, play } from './lib/phone-scenarios.mjs';
 import { ORACLE_SCENARIOS, oracleDialect, playOracle } from './lib/transport-oracle.mjs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+const laneFixture = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-lifecycle', 'lane-pushes.json');
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const args = parseArgs();
 const tree = resolveTree(args);
@@ -53,6 +55,15 @@ if (args.has('oracle')) {
   process.exit(0);
 }
 
+if (args.has('lanes')) {
+  // The push lanes at Node: the real push-lane module (remote-relay-push-lanes.ts) and the real setRemoteLanes handler
+  // (remote-relay-client-calls.ts) over a fake client, recording which pushes a phone receives in each phase of its lane registration.
+  const { LANE_PHASES, recordNodeLanes } = await import('./lib/lane-pushes.mjs');
+  const trace = await recordNodeLanes(tree, LANE_PHASES);
+  process.stdout.write(`\n@@TRACE@@${JSON.stringify(trace)}\n`);
+  process.exit(0);
+}
+
 if (args.has('scenario')) {
   const name = args.get('scenario');
   const ops = SCENARIOS[name];
@@ -77,6 +88,13 @@ if (args.has('scenario')) {
   process.exit(0);
 }
 
+const coreFromLog = (path) => {
+  // PowerShell redirection writes UTF-16 with a byte-order mark.
+  const bytes = readFileSync(path);
+  const text = bytes[0] === 0xff && bytes[1] === 0xfe ? bytes.toString('utf16le') : bytes.toString('utf8');
+  const at = text.lastIndexOf('@@LANES@@');
+  return JSON.parse(text.slice(at + '@@LANES@@'.length).split('\n')[0]);
+};
 const runChild = (flag, name) => {
   const child = spawnSync(
     process.execPath,
@@ -108,6 +126,11 @@ for (const name of Object.keys(ORACLE_SCENARIOS)) {
   console.log(`${name}: ${transport[name].length} events`);
 }
 
+const lanes = runChild('lanes', 'matrix');
+// The core's side of the same matrix is recorded by the Rust test in recorders/core/lane_pushes.rs (see lib/lane-pushes.mjs for how it runs).
+const laneCore = existsSync(laneFixture) ? JSON.parse(readFileSync(laneFixture, 'utf8')).core : null;
+const laneCoreLog = args.get('core-log');
+
 // Next to the replay test that consumes it (apps/mobile), not under native/.
 const finalOut = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-lifecycle');
 const out = stageSet(finalOut);
@@ -118,6 +141,11 @@ writeJson(join(out, 'golden.json'), {
 writeJson(join(out, 'transport.json'), {
   note: 'Node MXT transport oracle: per scenario, the whole ordered trace of what the connector put on the wire and handed to the page (decoded controls, records, cleartext pings, sockets) under a scripted stimulus, with virtual times. See benchmarks/rust-core/recorders/lib/transport-oracle.mjs.',
   scenarios: transport,
+});
+writeJson(join(out, 'lane-pushes.json'), {
+  note: 'What a phone receives from lane pushes after it connects: Node (real push-lane module and setRemoteLanes handler) per registration phase, and the core (Rust test recorders/core/lane_pushes.rs) per feed phase. apps/desktop/src/renderer/remote-shim-lifecycle.slow.test.mjs compares them.',
+  node: lanes,
+  core: laneCoreLog ? coreFromLog(laneCoreLog) : laneCore,
 });
 writeSetManifest(out, {
   set: 'phone-lifecycle',
