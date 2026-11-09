@@ -153,8 +153,10 @@ async fn replay_all() {
         let mut error = None;
         for (run, after) in state["after"].as_array().expect("after").iter().enumerate() {
             let paths = WorkflowPaths { root: root.clone(), data: data.clone() };
+            // A recorded pinned clock (`new Date()` of the pass) names the backup folder the recorded clashes were laid against.
+            let clock = state["clock"].as_str().map(str::to_owned);
             let outcome = mixdog_core_base::support::on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| {
-                retire_seeded_copies(lane, &paths, &|| chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+                retire_seeded_copies(lane, &paths, &|| clock.clone().unwrap_or_else(|| chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)))
             })
             .await
             .expect("lane job");

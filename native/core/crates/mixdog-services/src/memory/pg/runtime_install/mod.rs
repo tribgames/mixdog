@@ -17,6 +17,8 @@ mod stage;
 mod tar;
 
 #[cfg(test)]
+mod quiet_log_tests;
+#[cfg(test)]
 mod tests;
 
 use std::path::{Path, PathBuf};

@@ -1,0 +1,34 @@
+{
+  "recordedOn": "win32-arm64(faked arch)",
+  "manifest": "{\n  \"schema_version\": 1,\n  \"generated_at\": \"2026-09-29T21:03:55.028Z\",\n  \"release_tag\": \"runtime-v0.4.1\",\n  \"pg\": {\n    \"major\": 16,\n    \"minor\": 4\n  },\n  \"pgvector\": {\n    \"version\": \"0.8.2\"\n  },\n  \"assets\": {\n    \"darwin-arm64\": {\n      \"url\": \"https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-darwin-arm64-pg16.4-pgvector0.8.2.tar.gz\",\n      \"sha256\": \"fc32456c841b3b48444c11c5e7c7175fd25119b90058bb98f38a43fc9c73e0e1\",\n      \"size\": 23429982\n    },\n    \"darwin-x64\": {\n      \"url\": \"https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-darwin-x64-pg16.4-pgvector0.8.2.tar.gz\",\n      \"sha256\": \"15e36fc986772cb048ee96ed0f8292217b6d8b3ae13b6ed6083c31459a10233e\",\n      \"size\": 23713039\n    },\n    \"linux-arm64\": {\n      \"url\": \"https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-linux-arm64-pg16.4-pgvector0.8.2.tar.gz\",\n      \"sha256\": \"942c0ae30e6c0ba4f3a54fc43eb33918cd0e87f758784e8d21679d50a76a7a52\",\n      \"size\": 22913680\n    },\n    \"linux-x64\": {\n      \"url\": \"https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-linux-x64-pg16.4-pgvector0.8.2.tar.gz\",\n      \"sha256\": \"2a8bf2a2e64e91c5964d783b6aee3d064eee7df14b94a2f05bf8eb519d11b310\",\n      \"size\": 23309220\n    },\n    \"win32-x64\": {\n      \"url\": \"https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-win32-x64-pg16.4-pgvector0.8.2.tar.gz\",\n      \"sha256\": \"4f66bf83fcd9ba6e9cf4d843437ea2c605f7952cc0b499896b99e1ef9eefac4c\",\n      \"size\": 22885626\n    }\n  }\n}\n",
+  "seed": [
+    {
+      "path": "runtime/active-version",
+      "text": "pg16.4+pgvector-0.8.2-4f66bf83fcd9"
+    },
+    {
+      "path": "runtime/runtime-pg16.4+pgvector-0.8.2-4f66bf83fcd9/.version-sha256",
+      "text": "4f66bf83fcd9ba6e9cf4d843437ea2c605f7952cc0b499896b99e1ef9eefac4c"
+    },
+    {
+      "path": "runtime/runtime-pg16.4+pgvector-0.8.2-4f66bf83fcd9/bin/postgres.exe",
+      "text": "x"
+    }
+  ],
+  "runs": {
+    "standalone": {
+      "stderr": "",
+      "result": {
+        "runtimeDir": "runtime/runtime-pg16.4+pgvector-0.8.2-4f66bf83fcd9",
+        "version": "pg16.4+pgvector-0.8.2"
+      }
+    },
+    "bare": {
+      "stderr": "[runtime-fetcher] win32-arm64 has no native runtime; using win32-x64 under emulation\n",
+      "result": {
+        "runtimeDir": "runtime/runtime-pg16.4+pgvector-0.8.2-4f66bf83fcd9",
+        "version": "pg16.4+pgvector-0.8.2"
+      }
+    }
+  }
+}
