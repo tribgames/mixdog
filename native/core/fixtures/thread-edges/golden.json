@@ -29,12 +29,16 @@
           "roster": [
             {
               "id": "s_new",
-              "title": "First prompt",
               "preview": "",
+              "title": "First prompt",
               "updatedAt": 1100,
+              "activityAt": 1100,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             }
           ],
           "published": true
@@ -57,12 +61,16 @@
           "roster": [
             {
               "id": "s_base",
-              "title": "Base",
               "preview": "",
+              "title": "Base",
               "updatedAt": 1000,
+              "activityAt": 1000,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             }
           ],
           "published": true
@@ -81,22 +89,30 @@
           "roster": [
             {
               "id": "s_base",
+              "preview": "",
               "title": "Base",
-              "preview": "",
               "updatedAt": 1000,
-              "messageCount": 0,
-              "cwd": "C:/w",
-              "classification": "project"
-            },
-            {
-              "id": "s_fork",
-              "title": "Base (fork)",
-              "preview": "",
-              "updatedAt": 1200,
+              "activityAt": 1000,
               "messageCount": 0,
               "cwd": "C:/w",
               "classification": "project",
-              "inheritedFromSessionId": "s_base"
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_fork",
+              "preview": "",
+              "title": "Base (fork)",
+              "updatedAt": 1200,
+              "activityAt": 1200,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "inheritedFromSessionId": "s_base",
+              "compactCount": 0
             }
           ],
           "published": true
@@ -119,12 +135,16 @@
           "roster": [
             {
               "id": "s_old",
-              "title": "Old",
               "preview": "",
+              "title": "Old",
               "updatedAt": 1000,
+              "activityAt": 1000,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             }
           ],
           "published": true
@@ -142,23 +162,31 @@
           },
           "roster": [
             {
-              "id": "s_heir",
-              "title": "Heir",
+              "id": "s_old",
               "preview": "",
-              "updatedAt": 1300,
+              "title": "Old",
+              "updatedAt": 1000,
+              "activityAt": 1000,
               "messageCount": 0,
               "cwd": "C:/w",
               "classification": "project",
-              "inheritedFromSessionId": "s_old"
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             },
             {
-              "id": "s_old",
-              "title": "Old",
+              "id": "s_heir",
               "preview": "",
-              "updatedAt": 1000,
+              "title": "Heir",
+              "updatedAt": 1300,
+              "activityAt": 1300,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "inheritedFromSessionId": "s_old",
+              "compactCount": 0
             }
           ],
           "published": true
@@ -176,23 +204,31 @@
           },
           "roster": [
             {
-              "id": "s_heir",
-              "title": "Heir",
+              "id": "s_old",
               "preview": "",
-              "updatedAt": 1300,
+              "title": "Old",
+              "updatedAt": 1000,
+              "activityAt": 1000,
               "messageCount": 0,
               "cwd": "C:/w",
               "classification": "project",
-              "inheritedFromSessionId": "s_old"
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             },
             {
-              "id": "s_old",
-              "title": "Old",
+              "id": "s_heir",
               "preview": "",
-              "updatedAt": 1000,
+              "title": "Heir",
+              "updatedAt": 1300,
+              "activityAt": 1300,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "inheritedFromSessionId": "s_old",
+              "compactCount": 0
             }
           ],
           "published": false
@@ -236,12 +272,18 @@
           "roster": [
             {
               "id": "s_sch",
-              "title": "Nightly",
               "preview": "",
+              "title": "Nightly",
               "updatedAt": 1500,
+              "activityAt": 1500,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "sourceType": "schedule",
+              "sourceName": "nightly",
+              "createdAt": 500,
+              "compactCount": 0
             }
           ],
           "published": true
@@ -266,12 +308,18 @@
           "roster": [
             {
               "id": "s_web",
-              "title": "Hook",
               "preview": "",
+              "title": "Hook",
               "updatedAt": 1600,
+              "activityAt": 1600,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "sourceType": "webhook",
+              "sourceName": "hook",
+              "createdAt": 500,
+              "compactCount": 0
             }
           ],
           "published": true
@@ -297,12 +345,17 @@
           "roster": [
             {
               "id": "s_ag",
-              "title": "Worker",
+              "agentSession": true,
               "preview": "",
+              "title": "Worker",
               "updatedAt": 1700,
+              "activityAt": 1700,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             }
           ],
           "published": true
@@ -373,12 +426,16 @@
           "roster": [
             {
               "id": "s_u",
+              "preview": "",
               "title": "Before",
-              "preview": "",
               "updatedAt": 1800,
+              "activityAt": 1800,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             }
           ],
           "published": true
@@ -396,12 +453,16 @@
           "roster": [
             {
               "id": "s_u",
-              "title": "After",
               "preview": "",
+              "title": "After",
               "updatedAt": 1900,
+              "activityAt": 1900,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             }
           ],
           "published": true
@@ -419,12 +480,16 @@
           "roster": [
             {
               "id": "s_u",
-              "title": "After",
               "preview": "",
+              "title": "After",
               "updatedAt": 1900,
+              "activityAt": 1900,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             }
           ],
           "published": false
@@ -447,12 +512,16 @@
           "roster": [
             {
               "id": "s_gone",
-              "title": "Here",
               "preview": "",
+              "title": "Here",
               "updatedAt": 2000,
+              "activityAt": 2000,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             }
           ],
           "published": true
@@ -487,12 +556,16 @@
           "roster": [
             {
               "id": "s_x",
-              "title": "X",
               "preview": "",
+              "title": "X",
               "updatedAt": 2200,
+              "activityAt": 2200,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             }
           ],
           "published": true
@@ -510,21 +583,29 @@
           "roster": [
             {
               "id": "s_x",
-              "title": "X",
               "preview": "",
+              "title": "X",
               "updatedAt": 2200,
+              "activityAt": 2200,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             },
             {
               "id": "s_y",
-              "title": "Y",
               "preview": "",
+              "title": "Y",
               "updatedAt": 2300,
+              "activityAt": 2300,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             }
           ],
           "published": true
@@ -542,21 +623,29 @@
           "roster": [
             {
               "id": "s_x",
-              "title": "X2",
               "preview": "",
+              "title": "X2",
               "updatedAt": 2400,
+              "activityAt": 2400,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             },
             {
               "id": "s_y",
-              "title": "Y",
               "preview": "",
+              "title": "Y",
               "updatedAt": 2300,
+              "activityAt": 2300,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             }
           ],
           "published": true
@@ -594,12 +683,16 @@
           "roster": [
             {
               "id": "s_r",
-              "title": "---",
               "preview": "",
+              "title": "---",
               "updatedAt": 2600,
+              "activityAt": 2600,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             }
           ],
           "published": true
@@ -619,12 +712,16 @@
           "roster": [
             {
               "id": "s_r",
-              "title": "---",
               "preview": "",
+              "title": "---",
               "updatedAt": 2700,
+              "activityAt": 2700,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             }
           ],
           "published": true
@@ -649,12 +746,16 @@
           "roster": [
             {
               "id": "s_n",
-              "title": "---",
               "preview": "",
+              "title": "---",
               "updatedAt": 2800,
+              "activityAt": 2800,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             }
           ],
           "published": true
@@ -674,12 +775,16 @@
           "roster": [
             {
               "id": "s_n",
-              "title": "---",
               "preview": "",
+              "title": "---",
               "updatedAt": 2900,
+              "activityAt": 2900,
               "messageCount": 0,
               "cwd": "C:/w",
-              "classification": "project"
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
             }
           ],
           "published": true
@@ -1082,6 +1187,42 @@
     },
     {
       "row": {
+        "id": "g_compacted_preview",
+        "title": "",
+        "preview": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: Recover this task #3\n[2026-03-01 10:01] a: done",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_compacted_preview_media_only",
+        "title": "",
+        "preview": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: shot.png 640x480 displayed at 320x240",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": true
+    },
+    {
+      "row": {
+        "id": "g_compacted_preview_no_user",
+        "title": "",
+        "preview": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:01] a: nothing asked",
+        "cwd": "C:/w",
+        "updatedAt": 1000,
+        "createdAt": 500,
+        "messageCount": 0
+      },
+      "kept": false
+    },
+    {
+      "row": {
         "id": "g_legacy_in_task_workspace",
         "title": "A title",
         "preview": "",
@@ -1131,6 +1272,80 @@
       },
       "taskWorkspace": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
       "kept": false
+    }
+  ],
+  "compacted": [
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: Recover this task #3\n[2026-03-01 10:01] a: done",
+      "title": "Recover this task"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: shot.png 640x480 displayed at 320x240",
+      "title": "[Image]"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:01] a: nothing asked",
+      "title": ""
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:05] u: Later ask #9\n[2026-03-01 10:00] u: Earliest ask #2\n[2026-03-01 10:00] u: Same time, later id #5",
+      "title": "Earliest ask"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: First line\nsecond line of the ask\n[2026-03-01 10:01] a: reply",
+      "title": "First line second line of the…"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: Ask above a marker\n</prior-compacted-context>\nnot part of the ask",
+      "title": "Ask above a marker"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: Ask above a context line\n[context compacted at 10:02]\ntail\n[2026-03-01 10:03] u: Second ask",
+      "title": "Ask above a context line"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: Ask above a session id\nsession_id=abc\n[2026-03-01 10:03] u: Second ask",
+      "title": "Ask above a session id"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: shot.png 640x480 displayed at 320x240\n[2026-03-01 10:02] u: A worded ask later",
+      "title": "A worded ask later"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: shot.png 640x480\nthe text after the image\nmore",
+      "title": "the text after the image"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] U: Upper case kind #1",
+      "title": "Upper case kind"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\r\n[2026-03-01 10:00] u: CRLF ask #1\r\nwrapped\r\n[2026-03-01 10:01] a: x",
+      "title": "CRLF ask wrapped"
+    },
+    {
+      "input": "  a previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: Leading blanks and lower case",
+      "title": "Leading blanks and lower case"
+    },
+    {
+      "input": "before\n<prior-compacted-context>\n[2026-03-01 10:00] u: Inside the marked context",
+      "title": "Inside the marked context"
+    },
+    {
+      "input": "A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: ---",
+      "title": ""
+    },
+    {
+      "input": "[2026-03-01 10:00] u: not a handoff at all",
+      "title": ""
+    },
+    {
+      "input": "plain preview text",
+      "title": ""
+    },
+    {
+      "input": "",
+      "title": ""
     }
   ]
 }

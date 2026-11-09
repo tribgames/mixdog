@@ -18,6 +18,8 @@ const tree = resolveTree(args);
 const { _sessionSummary } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/store-summary-index.mjs');
 const { isLeadVisibleRow } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/store-summary-catalog.mjs');
 const { desktopSessionSummaries } = await importFrom(tree, 'apps/desktop/src/main/desktop-state.ts');
+const { canonicalJson } = await importFrom(tree, 'apps/desktop/src/shared/remote-view-resume.ts');
+const { compactedSessionTitle } = await importFrom(tree, 'apps/desktop/src/shared/session-title.mjs');
 
 const rec = (id, extra) => ({ id, updatedAt: 1000, createdAt: 500, cwd: 'C:/w', messages: [], ...extra });
 // The writes of each trigger, in order. `draft` rows are held back until titled (pendingCatalogSessionIds).
@@ -55,17 +57,17 @@ const rosterOf = (records) => {
   // `names[id]`: what `renameSession` stored beside the header's user title (the session metadata, whatever the session's state).
   const names = {};
   for (const record of records.values()) if (record.titleSource === 'user') names[record.id] = record.title;
-  return desktopSessionSummaries(rows, {}, names)
-    .map((row) => ({ id: row.id, title: row.title, preview: row.preview, updatedAt: row.updatedAt, messageCount: row.messageCount, cwd: row.cwd, classification: row.classification, ...(row.inheritedFromSessionId ? { inheritedFromSessionId: row.inheritedFromSessionId } : {}) }))
-    .sort((a, b) => (a.id < b.id ? -1 : 1));
+  // The complete rows, in the order Node holds them: the value the channel compares and pushes.
+  return desktopSessionSummaries(rows, {}, names);
 };
 const recorded = triggers.map(({ name, writes }) => {
   const records = new Map();
-  let last = JSON.stringify([]);
+  let last = canonicalJson([]);
   const steps = writes.map((record) => {
     records.set(record.id, record);
     const roster = rosterOf(records);
-    const json = JSON.stringify(roster);
+    // CatalogChannel.publish (session-host-publication.ts:129-142) skips a value whose canonical JSON equals the last one.
+    const json = canonicalJson(roster);
     const published = json !== last;
     last = json;
     return { id: record.id, record, roster, published };
@@ -101,6 +103,32 @@ const gateRows = [
   row('sess_home_bob', { title: '', messageCount: 0 }),
   row('g_other_one_message', { title: '', messageCount: 1 }),
 ];
+const HANDOFF = 'A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: Recover this task #3\n[2026-03-01 10:01] a: done';
+const MEDIA_ONLY = 'A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: shot.png 640x480 displayed at 320x240';
+const NO_USER = 'A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:01] a: nothing asked';
+// compactedSessionTitle on handoffs of every shape the digest takes: the earliest real user entry, by time, then id, then line.
+const compactedInputs = [
+  HANDOFF,
+  MEDIA_ONLY,
+  NO_USER,
+  'A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:05] u: Later ask #9\n[2026-03-01 10:00] u: Earliest ask #2\n[2026-03-01 10:00] u: Same time, later id #5',
+  'A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: First line\nsecond line of the ask\n[2026-03-01 10:01] a: reply',
+  'A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: Ask above a marker\n</prior-compacted-context>\nnot part of the ask',
+  'A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: Ask above a context line\n[context compacted at 10:02]\ntail\n[2026-03-01 10:03] u: Second ask',
+  'A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: Ask above a session id\nsession_id=abc\n[2026-03-01 10:03] u: Second ask',
+  'A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: shot.png 640x480 displayed at 320x240\n[2026-03-01 10:02] u: A worded ask later',
+  'A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: shot.png 640x480\nthe text after the image\nmore',
+  'A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] U: Upper case kind #1',
+  'A previous model worked on this task and produced the compacted handoff summary below.\r\n[2026-03-01 10:00] u: CRLF ask #1\r\nwrapped\r\n[2026-03-01 10:01] a: x',
+  '  a previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: Leading blanks and lower case',
+  'before\n\x3cprior-compacted-context>\n[2026-03-01 10:00] u: Inside the marked context',
+  'A previous model worked on this task and produced the compacted handoff summary below.\n[2026-03-01 10:00] u: ---',
+  '[2026-03-01 10:00] u: not a handoff at all',
+  'plain preview text',
+  '',
+];
+const compacted = compactedInputs.map((input) => ({ input, title: compactedSessionTitle(input, '') }));
+
 // The roster's other inputs: the names users gave (`names`, written by `renameSession`) and the host's task workspace.
 const TASK_WORKSPACE = 'C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified';
 const gateCases = [
@@ -110,6 +138,11 @@ const gateCases = [
   { row: row('g_meaningless_title_renamed', { title: '---' }), names: { g_meaningless_title_renamed: '---' } },
   { row: row('g_renamed_untitled', { title: '', preview: '' }), names: { g_renamed_untitled: 'Mine' } },
   { row: row('g_renamed_blank', { title: '' }), names: { g_renamed_blank: '   ' } },
+  // a compact handoff as the preview: Node titles the row from the user prompt inside it (compactedSessionTitle), which the
+  // generated title of the same text (a synthetic handoff) never gives
+  { row: row('g_compacted_preview', { title: '', preview: HANDOFF }) },
+  { row: row('g_compacted_preview_media_only', { title: '', preview: MEDIA_ONLY }) },
+  { row: row('g_compacted_preview_no_user', { title: '', preview: NO_USER }) },
   // a legacy row (no stored classification) in the task workspace is a task, elsewhere a project: kept either way
   { row: row('g_legacy_in_task_workspace', { cwd: TASK_WORKSPACE.toLowerCase().replaceAll('\\', '/') + '/' }), taskWorkspace: TASK_WORKSPACE },
   { row: row('g_legacy_in_task_workspace_untitled', { title: '', cwd: TASK_WORKSPACE }), taskWorkspace: TASK_WORKSPACE },
@@ -125,7 +158,7 @@ const gate = gateCases.map(({ row: r, names, taskWorkspace }) => ({
 
 const finalOut = join(FIXTURES_ROOT, 'thread-edges');
 const out = stageSet(finalOut);
-writeJson(join(out, 'golden.json'), { note: 'the roster Node pushed after each catalog write of each trigger (header-only records); gate: the roster gate on list rows', triggers: recorded, gate });
+writeJson(join(out, 'golden.json'), { note: 'the roster Node pushed after each catalog write of each trigger (header-only records); gate: the roster gate on list rows', triggers: recorded, gate, compacted });
 writeSetManifest(out, {
   set: 'thread-edges',
   recorder: 'benchmarks/rust-core/recorders/record-thread-edges.mjs',
