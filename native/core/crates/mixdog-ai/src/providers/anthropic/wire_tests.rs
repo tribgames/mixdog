@@ -109,7 +109,7 @@ pub(crate) fn seen_of_recorded(request: &Value) -> Seen {
         method: request["method"].as_str().expect("method").to_owned(),
         url: request["url"].as_str().expect("url").to_owned(),
         headers: request["headers"].as_object().expect("headers").iter().map(|(k, v)| (k.to_lowercase(), v.as_str().expect("header").to_owned())).collect(),
-        body: request["body"].as_str().unwrap_or_default().to_owned(),
+        body: request["body"].as_str().expect("body").to_owned(),
     }
 }
 

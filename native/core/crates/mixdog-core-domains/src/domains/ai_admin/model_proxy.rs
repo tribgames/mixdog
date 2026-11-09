@@ -402,6 +402,7 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
         E::ReturnedCalls(calls) => w::ProxyEvent::ReturnedCalls { calls: calls.iter().map(tool_call_out).collect() },
         E::ThinkingBlocks(value) => w::ProxyEvent::ThinkingBlocks { value: value.clone() },
         E::ProviderState(state) => w::ProxyEvent::ProviderState { state: state.to_json() },
+        E::Notice { message, warn } => w::ProxyEvent::Notice { message: message.clone(), warn: *warn },
         E::Completed { stop, pricing_model, request_ms } => w::ProxyEvent::Completed {
             pricing_model: pricing_model.clone(),
             request_ms: *request_ms,
@@ -458,6 +459,7 @@ pub fn event_in(e: w::ProxyEvent) -> Result<Incoming, String> {
         w::ProxyEvent::ReturnedCalls { calls } => E::ReturnedCalls(calls.into_iter().map(tool_call_in).collect()),
         w::ProxyEvent::ThinkingBlocks { value } => E::ThinkingBlocks(value),
         w::ProxyEvent::ProviderState { state } => E::ProviderState(serde_json::from_value(state).map_err(|e| format!("invalid providerState: {e}"))?),
+        w::ProxyEvent::Notice { message, warn } => E::Notice { message, warn },
         w::ProxyEvent::Completed { stop, pricing_model, request_ms } => E::Completed {
             pricing_model,
             request_ms,

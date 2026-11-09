@@ -181,11 +181,12 @@ fn variant_name(event: &p::StreamEvent) -> &'static str {
         E::ReturnedCalls(_) => "ReturnedCalls",
         E::ThinkingBlocks(_) => "ThinkingBlocks",
         E::ProviderState(_) => "ProviderState",
+        E::Notice { .. } => "Notice",
         E::Completed { .. } => "Completed",
     }
 }
 
-const STREAM_EVENT_VARIANTS: [&str; 19] = [
+const STREAM_EVENT_VARIANTS: [&str; 20] = [
     "ItemStart",
     "TextDelta",
     "ReasoningDelta",
@@ -204,6 +205,7 @@ const STREAM_EVENT_VARIANTS: [&str; 19] = [
     "ReturnedCalls",
     "ThinkingBlocks",
     "ProviderState",
+    "Notice",
     "Completed",
 ];
 
@@ -238,6 +240,7 @@ fn every_stream_event_survives_the_wire() {
         p::StreamEvent::ReturnedCalls(Vec::new()),
         p::StreamEvent::ThinkingBlocks(json!([{ "type": "thinking", "signature": "s" }])),
         p::StreamEvent::ProviderState(state),
+        p::StreamEvent::Notice { message: "m".into(), warn: true },
         p::StreamEvent::Completed { stop: Some(p::StopReason::ToolUse), pricing_model: None, request_ms: None },
     ];
     let mut seen: Vec<&str> = events.iter().map(variant_name).collect();

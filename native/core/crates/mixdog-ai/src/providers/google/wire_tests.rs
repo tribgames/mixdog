@@ -30,6 +30,7 @@ use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::provider::WireRequest;
 use serde_json::Value;
+use serde_json::json;
 
 use super::cache::layer::CacheRuntime;
 use super::cache::policy::Tuning;
@@ -183,10 +184,13 @@ async fn every_recorded_send_puts_the_requests_node_sent_on_the_wire() {
                 options: options_of(&send["opts"]),
             };
             let mut state = request.options.provider_state.clone();
+            let mut notices = Vec::new();
             let mut stream = adapter.attempt(Arc::new(request)).await.unwrap_or_else(|e| panic!("{id} #{n}: {}", e.message));
             while let Some(item) = stream.next().await {
-                if let StreamEvent::ProviderState(next) = item.unwrap_or_else(|e| panic!("{id} #{n}: {}", e.message)) {
-                    state = Some(next);
+                match item.unwrap_or_else(|e| panic!("{id} #{n}: {}", e.message)) {
+                    StreamEvent::ProviderState(next) => state = Some(next),
+                    StreamEvent::Notice { message, warn } => notices.push(json!({ "tone": if warn { "warn" } else { "info" }, "message": message })),
+                    _ => {}
                 }
             }
             drop(stream);
@@ -198,9 +202,19 @@ async fn every_recorded_send_puts_the_requests_node_sent_on_the_wire() {
                 continue;
             }
             for (i, (got, want)) in sent.iter().zip(wanted).enumerate() {
-                if let Some(why) = mismatch(&seen_of_recorded(want), &seen_of_sent(got)) {
+                // A request Node sent with no body (the cache delete) is a request with an empty body here.
+                let mut want = want.clone();
+                if want["body"].is_null() {
+                    want["body"] = json!("");
+                }
+                if let Some(why) = mismatch(&seen_of_recorded(&want), &seen_of_sent(got)) {
                     differences.push(format!("{id} #{n} request {i}: {why}"));
                 }
+            }
+            // What `onStageChange` got from Node as a notice is what the stream carries (the run loop shows each as a
+            // transcript notice of that tone).
+            if Value::Array(notices.clone()) != send["notices"] {
+                differences.push(format!("{id} #{n}: notices: Node {} / Rust {}", send["notices"], Value::Array(notices)));
             }
             let left = state.as_ref().map_or(Value::Null, ProviderState::to_json);
             if left != send["providerStateAfter"] {
