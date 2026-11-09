@@ -201,6 +201,9 @@ impl ChannelRuntime {
                     }
                     if busy_aware && runtime.busy.get().is_some_and(|busy| busy().is_some()) {
                         woke.await;
+                        // `wake()` re-arms the parked job as `arm(key, 0, run)` (`warmup/timer-arm.mjs:19-27`):
+                        // a zero-delay timer, so the whole callback runs again on its own tick, not inline.
+                        tokio::time::sleep(std::time::Duration::ZERO).await;
                         continue;
                     }
                     break;
