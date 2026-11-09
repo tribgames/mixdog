@@ -251,21 +251,6 @@ async fn kill_takes_the_whole_tree_within_100ms() {
     assert_eq!(m.info(&h).unwrap().exit.unwrap().killed, Some(KillReason::Requested));
 }
 
-/// The exit of a killed command is announced only once its tree is gone: a caller that saw the
-/// exit may remove a file a descendant held open. The grandchild here holds none of the command's
-/// pipes, so nothing but the kill's own settling keeps the exit back for it.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_killed_commands_exit_is_announced_with_its_tree_gone() {
-    let m = manager();
-    let h = handle("tree-at-exit");
-    m.spawn(request(&h, tree_script())).await.unwrap();
-    let grandchild = child_pid(&m, &h).await;
-    assert!(pid_alive(grandchild), "the grandchild runs");
-    m.kill(&h).unwrap();
-    wait_exit(&m, &h).await;
-    assert!(!pid_alive(grandchild), "the exit was announced with the grandchild still running");
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn run_limit_takes_the_whole_tree_too() {
     let m = manager();

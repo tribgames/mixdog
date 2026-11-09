@@ -73,7 +73,7 @@ impl ReviewGit for ScmGit {
             mixdog_scm::error::ScmFailure::OutputTooLarge { .. } => OUTPUT_OVERFLOW.to_owned(),
             // `run-child.mjs`: `${command} ${args.join(' ')} timed out after ${timeoutMs}ms`.
             mixdog_scm::error::ScmFailure::TimedOut => {
-                format!("{} {} timed out after {}ms", super::git_command::git_command(), args.join(" "), timeout.as_millis())
+                format!("{} {} timed out after {}ms", mixdog_scm::git_launch::git_command(), args.join(" "), timeout.as_millis())
             }
             other => other.to_string(),
         })?;

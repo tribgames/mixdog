@@ -11,11 +11,15 @@ use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 
+use mixdog_rt::MaintenanceIo;
+
 use crate::error::ScmFailure;
 use crate::error::scrub_credentials;
 use crate::exec::Exec;
 use crate::exec::ExecOutput;
 use crate::exec::ExecSpec;
+use crate::git_launch;
+use crate::repo::on_lane;
 
 /// Read-only git children that back UI reads are cut off here: such a read is shared by every
 /// caller that asks meanwhile, so one wedged child would hold them all. Writes are unbounded.
@@ -60,15 +64,12 @@ impl RunOptions {
 #[derive(Clone)]
 pub struct Git {
     exec: Arc<Exec>,
-    program: String,
+    lane: MaintenanceIo,
 }
 
 impl Git {
-    pub fn new(exec: Arc<Exec>) -> Self {
-        Self {
-            exec,
-            program: "git".into(),
-        }
+    pub fn new(exec: Arc<Exec>, lane: MaintenanceIo) -> Self {
+        Self { exec, lane }
     }
 
     pub fn exec(&self) -> &Arc<Exec> {
@@ -84,7 +85,7 @@ impl Git {
         args: &[&str],
         options: &RunOptions,
     ) -> Result<ExecOutput, ScmFailure> {
-        let mut spec = ExecSpec::new(&self.program, cwd);
+        let mut spec = ExecSpec::new("git", cwd);
         spec.args = args.iter().map(|arg| (*arg).to_owned()).collect();
         spec.env_set = vec![
             ("GIT_TERMINAL_PROMPT".into(), "0".into()),
@@ -114,9 +115,39 @@ impl Git {
         spec.stdin = options.input.clone();
         spec.time_limit = options.time_limit.or(options.read_limit.then_some(GIT_READ_LIMIT));
         spec.max_output = options.max_output.unwrap_or(RUN_MAX_BYTES);
-        let mut output = self.exec.run(spec, cancel).await?;
+        let mut output = match self.start(spec.clone(), cancel).await {
+            // `startGit`: the resolved binary is gone (an uninstalled or moved Git): once more
+            // with a fresh resolution, where bare `git` would find whatever PATH holds now.
+            Err(ScmFailure::Unavailable { capability }) if git_launch::forget_missing(&capability) => {
+                self.start(spec, cancel).await?
+            }
+            other => other?,
+        };
         output.stderr = scrub_credentials(&output.stderr_text()).into_bytes();
         Ok(output)
+    }
+
+    /// Runs `spec` with the program PATH's `git` resolves to and the environment its launcher
+    /// would have built (`git-launch.mjs`), on top of the environment `spec` already asks for.
+    async fn start(&self, mut spec: ExecSpec, cancel: &CancellationToken) -> Result<ExecOutput, ScmFailure> {
+        if cfg!(windows) {
+            let mut base = git_launch::process_env();
+            base.retain(|(key, _)| !spec.env_remove.iter().any(|name| name.eq_ignore_ascii_case(key)));
+            for (name, value) in &spec.env_set {
+                match base.iter_mut().find(|(key, _)| key.eq_ignore_ascii_case(name)) {
+                    Some(entry) => entry.1 = value.clone(),
+                    None => base.push((name.clone(), value.clone())),
+                }
+            }
+            let launch = on_lane(self.lane, cancel, move || git_launch::launch_for(&base)).await?;
+            spec.program = launch.program;
+            // Variables the caller set stay as the caller set them; the launcher's go first.
+            let mut env = launch.env;
+            env.retain(|(key, _)| !spec.env_set.iter().any(|(name, _)| name.eq_ignore_ascii_case(key)));
+            env.append(&mut spec.env_set);
+            spec.env_set = env;
+        }
+        self.exec.run(spec, cancel).await
     }
 
     /// stdout of a command that must exit 0; a failure carries the scrubbed stderr.
@@ -333,7 +364,7 @@ mod tests {
     use crate::testing::TestProcesses;
 
     fn git() -> Git {
-        Git::new(Arc::new(Exec::new(TestProcesses::shared())))
+        Git::new(Arc::new(Exec::new(TestProcesses::shared())), mixdog_rt::testing::tokens().maintenance_io)
     }
 
     #[tokio::test]
@@ -362,10 +393,8 @@ mod tests {
     #[tokio::test]
     async fn missing_program_is_unavailable_by_spawn_kind() {
         let dir = tempfile::tempdir().unwrap();
-        let mut git = git();
-        git.program = "mixdog-no-such-program".into();
-        let error = git
-            .run(&CancellationToken::new(), dir.path(), &["x"])
+        let error = Exec::new(TestProcesses::shared())
+            .run(ExecSpec::new("mixdog-no-such-program", dir.path()), &CancellationToken::new())
             .await
             .unwrap_err();
         assert!(matches!(error, ScmFailure::Unavailable { .. }));

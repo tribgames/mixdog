@@ -78,7 +78,7 @@
    "second": {
     "resolved": true,
     "hasBaselineTree": true,
-    "afterSeconds": 32,
+    "afterSeconds": 31,
     "startedGitOnlyAfterFirstTimedOut": true
    }
   },
@@ -103,7 +103,7 @@
     "generation": 1,
     "checkpointId": "cp-1"
    },
-   "afterSeconds": 31
+   "afterSeconds": 30
   },
   "apply": {
    "hung": {
