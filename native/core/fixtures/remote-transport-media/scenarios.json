@@ -1,0 +1,2991 @@
+{
+  "domain": "remote-transport-media",
+  "recorder": "benchmarks/rust-core/recorders/record-transport-media.mjs",
+  "convention": "media key = 32 bytes of 0x07; download leases by asset id (see the recorder); a media frame is logged as what it decrypts to",
+  "scenarios": [
+    {
+      "name": "a download streams its meta frame, every segment and the end",
+      "options": {},
+      "steps": [
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "r1",
+            "assetId": "aaaaaaaa-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "r1",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "r1",
+                "status": 200
+              }
+            },
+            {
+              "e": "send",
+              "stream": "r1",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "r1",
+                "frame": {
+                  "kind": "meta",
+                  "expectedStart": 0,
+                  "meta": {
+                    "size": 200000,
+                    "mime": "video/mp4",
+                    "start": 0,
+                    "end": 199999,
+                    "version": "v1"
+                  }
+                }
+              }
+            },
+            {
+              "e": "send",
+              "stream": "r1",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "r1",
+                "frame": {
+                  "kind": "segment",
+                  "offset": 0,
+                  "size": 200000,
+                  "length": 65536,
+                  "sha256": "4b640d85ab3ba30fd02c9fc9db4a8928f416322ad27022ea58a65aaee68a4df2"
+                }
+              }
+            },
+            {
+              "e": "send",
+              "stream": "r1",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "r1",
+                "frame": {
+                  "kind": "segment",
+                  "offset": 65536,
+                  "size": 200000,
+                  "length": 65536,
+                  "sha256": "fe89f108b4028dc360cbe69ce0ccbe4d9bc8af0123f731304b77327fd495a1f6"
+                }
+              }
+            },
+            {
+              "e": "send",
+              "stream": "r1",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "r1",
+                "frame": {
+                  "kind": "segment",
+                  "offset": 131072,
+                  "size": 200000,
+                  "length": 65536,
+                  "sha256": "9f659266f8d678719fd7ac525722d312d41a69366fc5aa3345532e161369afe2"
+                }
+              }
+            },
+            {
+              "e": "send",
+              "stream": "r1",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "r1",
+                "frame": {
+                  "kind": "segment",
+                  "offset": 196608,
+                  "size": 200000,
+                  "length": 3392,
+                  "sha256": "746efae068d4bc5861df3a36ad79f178e53859a8aa2b26dd5e00382b8cc59716"
+                }
+              }
+            },
+            {
+              "e": "send",
+              "stream": "r1",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "r1"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "r2",
+            "assetId": "aaaaaaaa-0002",
+            "variant": "download",
+            "range": "bytes=70000-",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "r2",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "r2",
+                "status": 416
+              }
+            },
+            {
+              "e": "send",
+              "stream": "r2",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "r2"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "r3",
+            "assetId": "aaaaaaaa-0002",
+            "variant": "download",
+            "range": "bytes=-100",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "r3",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "r3",
+                "status": 200
+              }
+            },
+            {
+              "e": "send",
+              "stream": "r3",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "r3",
+                "frame": {
+                  "kind": "meta",
+                  "expectedStart": 65536,
+                  "meta": {
+                    "size": 70000,
+                    "mime": "image/png",
+                    "start": 65536,
+                    "end": 69999
+                  }
+                }
+              }
+            },
+            {
+              "e": "send",
+              "stream": "r3",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "r3",
+                "frame": {
+                  "kind": "segment",
+                  "offset": 65536,
+                  "size": 70000,
+                  "length": 4464,
+                  "sha256": "91537847f1e2552d0e2ccad2120d7028665f78edbdcb74c36ee14d324b453b0e"
+                }
+              }
+            },
+            {
+              "e": "send",
+              "stream": "r3",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "r3"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "r4",
+            "assetId": "aaaaaaaa-0003",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "r4",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "r4",
+                "status": 200
+              }
+            },
+            {
+              "e": "send",
+              "stream": "r4",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "r4",
+                "frame": {
+                  "kind": "meta",
+                  "expectedStart": 0,
+                  "meta": {
+                    "size": 0,
+                    "mime": "text/plain",
+                    "start": 0,
+                    "end": -1
+                  }
+                }
+              }
+            },
+            {
+              "e": "send",
+              "stream": "r4",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "r4"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "r5",
+            "assetId": "aaaaaaaa-0001",
+            "variant": "download",
+            "range": "bytes=100000-100010",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "r5",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "r5",
+                "status": 200
+              }
+            },
+            {
+              "e": "send",
+              "stream": "r5",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "r5",
+                "frame": {
+                  "kind": "meta",
+                  "expectedStart": 65536,
+                  "meta": {
+                    "size": 200000,
+                    "mime": "video/mp4",
+                    "start": 65536,
+                    "end": 131071,
+                    "version": "v1"
+                  }
+                }
+              }
+            },
+            {
+              "e": "send",
+              "stream": "r5",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "r5",
+                "frame": {
+                  "kind": "segment",
+                  "offset": 65536,
+                  "size": 200000,
+                  "length": 65536,
+                  "sha256": "fe89f108b4028dc360cbe69ce0ccbe4d9bc8af0123f731304b77327fd495a1f6"
+                }
+              }
+            },
+            {
+              "e": "send",
+              "stream": "r5",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "r5"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "requests the lane answers with a status",
+      "options": {},
+      "steps": [
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "s1",
+            "assetId": "aaaaaaaa-0099",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "s1",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "s1",
+                "status": 404
+              }
+            },
+            {
+              "e": "send",
+              "stream": "s1",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "s1"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "s2",
+            "assetId": "aaaaaaaa-0001",
+            "variant": "download",
+            "range": "",
+            "enc": ""
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "s3",
+            "assetId": "aaaaaaaa-0001",
+            "variant": "download",
+            "range": "bytes=999999-",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "s3",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "s3",
+                "status": 416
+              }
+            },
+            {
+              "e": "send",
+              "stream": "s3",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "s3"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "s4",
+            "assetId": "aaaaaaaa-0001",
+            "variant": "weird",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "s4",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "s4",
+                "status": 404
+              }
+            },
+            {
+              "e": "send",
+              "stream": "s4",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "s4"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "s5",
+            "assetId": "bbbbbbbb-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "s5",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "s5",
+                "status": 412
+              }
+            },
+            {
+              "e": "send",
+              "stream": "s5",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "s5"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "s6",
+            "assetId": "bbbbbbbb-0002",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "s6",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "s6",
+                "status": 404
+              }
+            },
+            {
+              "e": "send",
+              "stream": "s6",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "s6"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "s7",
+            "assetId": "bbbbbbbb-0003",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "s7",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "s7",
+                "status": 500
+              }
+            },
+            {
+              "e": "send",
+              "stream": "s7",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "s7"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "s8",
+            "assetId": "aaaaaaaa-0001",
+            "variant": "original",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "s8",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "s8",
+                "status": 404
+              }
+            },
+            {
+              "e": "send",
+              "stream": "s8",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "s8"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "s9",
+            "assetId": "aaaaaaaa-0001",
+            "variant": "download",
+            "range": "bytes=5-1",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "s9",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "s9",
+                "status": 416
+              }
+            },
+            {
+              "e": "send",
+              "stream": "s9",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "s9"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a file that fails after the head ends with an error",
+      "options": {},
+      "steps": [
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "f1",
+            "assetId": "bbbbbbbb-0004",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "f1",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "f1",
+                "status": 200
+              }
+            },
+            {
+              "e": "send",
+              "stream": "f1",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "f1",
+                "frame": {
+                  "kind": "meta",
+                  "expectedStart": 0,
+                  "meta": {
+                    "size": 200000,
+                    "mime": "x/y",
+                    "start": 0,
+                    "end": 199999
+                  }
+                }
+              }
+            },
+            {
+              "e": "send",
+              "stream": "f1",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "f1",
+                "frame": {
+                  "kind": "segment",
+                  "offset": 0,
+                  "size": 200000,
+                  "length": 65536,
+                  "sha256": "4b640d85ab3ba30fd02c9fc9db4a8928f416322ad27022ea58a65aaee68a4df2"
+                }
+              }
+            },
+            {
+              "e": "send",
+              "stream": "f1",
+              "message": {
+                "type": "transport-media",
+                "op": "error",
+                "id": "f1"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a session with no media key is refused",
+      "options": {
+        "mediaKey": false
+      },
+      "steps": [
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "k1",
+            "assetId": "aaaaaaaa-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "k1",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "k1",
+                "status": 403
+              }
+            },
+            {
+              "e": "send",
+              "stream": "k1",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "k1"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a lease is answered only to the device it was minted for",
+      "options": {
+        "device": "dev-2"
+      },
+      "steps": [
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "d1",
+            "assetId": "aaaaaaaa-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "d1",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "d1",
+                "status": 404
+              }
+            },
+            {
+              "e": "send",
+              "stream": "d1",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "d1"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a session with no device refuses a download",
+      "options": {
+        "device": null
+      },
+      "steps": [
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "d1",
+            "assetId": "aaaaaaaa-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "d1",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "d1",
+                "status": 404
+              }
+            },
+            {
+              "e": "send",
+              "stream": "d1",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "d1"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "the pump waits for room and for each send to be taken",
+      "options": {
+        "room": false,
+        "send": "held"
+      },
+      "steps": [
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "w1",
+            "assetId": "aaaaaaaa-0002",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "room",
+          "stream": null,
+          "value": true,
+          "effects": [],
+          "results": []
+        },
+        {
+          "op": "writable",
+          "effects": [
+            {
+              "e": "send",
+              "stream": "w1",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "w1",
+                "status": 200
+              }
+            }
+          ],
+          "results": []
+        },
+        {
+          "op": "release-send",
+          "result": true,
+          "count": 1,
+          "effects": [
+            {
+              "e": "send",
+              "stream": "w1",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "w1",
+                "frame": {
+                  "kind": "meta",
+                  "expectedStart": 0,
+                  "meta": {
+                    "size": 70000,
+                    "mime": "image/png",
+                    "start": 0,
+                    "end": 69999
+                  }
+                }
+              }
+            }
+          ],
+          "results": []
+        },
+        {
+          "op": "release-send",
+          "result": true,
+          "count": 1,
+          "effects": [
+            {
+              "e": "send",
+              "stream": "w1",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "w1",
+                "frame": {
+                  "kind": "segment",
+                  "offset": 0,
+                  "size": 70000,
+                  "length": 65536,
+                  "sha256": "4b640d85ab3ba30fd02c9fc9db4a8928f416322ad27022ea58a65aaee68a4df2"
+                }
+              }
+            }
+          ],
+          "results": []
+        },
+        {
+          "op": "room",
+          "stream": "w1",
+          "value": false,
+          "effects": [],
+          "results": []
+        },
+        {
+          "op": "release-send",
+          "result": true,
+          "count": 1,
+          "effects": [],
+          "results": []
+        },
+        {
+          "op": "writable",
+          "effects": [],
+          "results": []
+        },
+        {
+          "op": "room",
+          "stream": "w1",
+          "value": true,
+          "effects": [],
+          "results": []
+        },
+        {
+          "op": "writable",
+          "effects": [
+            {
+              "e": "send",
+              "stream": "w1",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "w1",
+                "frame": {
+                  "kind": "segment",
+                  "offset": 65536,
+                  "size": 70000,
+                  "length": 4464,
+                  "sha256": "91537847f1e2552d0e2ccad2120d7028665f78edbdcb74c36ee14d324b453b0e"
+                }
+              }
+            }
+          ],
+          "results": []
+        },
+        {
+          "op": "release-send",
+          "result": true,
+          "count": 3,
+          "effects": [
+            {
+              "e": "send",
+              "stream": "w1",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "w1"
+              }
+            }
+          ],
+          "results": []
+        }
+      ]
+    },
+    {
+      "name": "a send refused before sealing is retried when room returns",
+      "options": {},
+      "steps": [
+        {
+          "op": "queue-send",
+          "values": [
+            false
+          ],
+          "effects": [],
+          "results": []
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "t1",
+            "assetId": "aaaaaaaa-0003",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "t1",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "t1",
+                "status": 200
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "writable",
+          "effects": [
+            {
+              "e": "send",
+              "stream": "t1",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "t1",
+                "status": 200
+              }
+            },
+            {
+              "e": "send",
+              "stream": "t1",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "t1",
+                "frame": {
+                  "kind": "meta",
+                  "expectedStart": 0,
+                  "meta": {
+                    "size": 0,
+                    "mime": "text/plain",
+                    "start": 0,
+                    "end": -1
+                  }
+                }
+              }
+            },
+            {
+              "e": "send",
+              "stream": "t1",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "t1"
+              }
+            }
+          ],
+          "results": []
+        },
+        {
+          "op": "queue-send",
+          "values": [
+            false,
+            false
+          ],
+          "effects": [],
+          "results": []
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "t2",
+            "assetId": "aaaaaaaa-0003",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "t2",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "t2",
+                "status": 200
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "writable",
+          "effects": [
+            {
+              "e": "send",
+              "stream": "t2",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "t2",
+                "status": 200
+              }
+            }
+          ],
+          "results": []
+        },
+        {
+          "op": "writable",
+          "effects": [
+            {
+              "e": "send",
+              "stream": "t2",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "t2",
+                "status": 200
+              }
+            },
+            {
+              "e": "send",
+              "stream": "t2",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "t2",
+                "frame": {
+                  "kind": "meta",
+                  "expectedStart": 0,
+                  "meta": {
+                    "size": 0,
+                    "mime": "text/plain",
+                    "start": 0,
+                    "end": -1
+                  }
+                }
+              }
+            },
+            {
+              "e": "send",
+              "stream": "t2",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "t2"
+              }
+            }
+          ],
+          "results": []
+        }
+      ]
+    },
+    {
+      "name": "a session that ended aborts the stream",
+      "options": {},
+      "steps": [
+        {
+          "op": "queue-send",
+          "values": [
+            true,
+            "reject"
+          ],
+          "effects": [],
+          "results": []
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "e1",
+            "assetId": "aaaaaaaa-0002",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "e1",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "e1",
+                "status": 200
+              }
+            },
+            {
+              "e": "send",
+              "stream": "e1",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "e1",
+                "frame": {
+                  "kind": "meta",
+                  "expectedStart": 0,
+                  "meta": {
+                    "size": 70000,
+                    "mime": "image/png",
+                    "start": 0,
+                    "end": 69999
+                  }
+                }
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "e2",
+            "assetId": "aaaaaaaa-0003",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "e2",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "e2",
+                "status": 200
+              }
+            },
+            {
+              "e": "send",
+              "stream": "e2",
+              "message": {
+                "type": "transport-media",
+                "op": "chunk",
+                "id": "e2",
+                "frame": {
+                  "kind": "meta",
+                  "expectedStart": 0,
+                  "meta": {
+                    "size": 0,
+                    "mime": "text/plain",
+                    "start": 0,
+                    "end": -1
+                  }
+                }
+              }
+            },
+            {
+              "e": "send",
+              "stream": "e2",
+              "message": {
+                "type": "transport-media",
+                "op": "end",
+                "id": "e2"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a cancel stops a stream; a repeated id is ignored",
+      "options": {
+        "send": "held"
+      },
+      "steps": [
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "c1",
+            "assetId": "aaaaaaaa-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "c1",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "c1",
+                "status": 200
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "c1",
+            "assetId": "aaaaaaaa-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "cancel",
+            "id": "c1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "release-send",
+          "result": true,
+          "count": 1,
+          "effects": [],
+          "results": []
+        },
+        {
+          "op": "release-send",
+          "result": true,
+          "count": 1,
+          "effects": [],
+          "results": []
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "c1",
+            "assetId": "aaaaaaaa-0003",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "c1",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "c1",
+                "status": 200
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "cancel",
+            "id": "nobody"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "the 33rd stream is refused, a cancel takes a queued refusal back, the 65th ends the session",
+      "options": {
+        "send": "held"
+      },
+      "steps": [
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m1",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m2",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m3",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m4",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m5",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m6",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m7",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m8",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m9",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m10",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m11",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m12",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m13",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m14",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m15",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m16",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m17",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m18",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m19",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m20",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m21",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m22",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m23",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m24",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m25",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m26",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m27",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m28",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m29",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m30",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m31",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m32",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m33",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": null,
+              "message": {
+                "type": "transport-media",
+                "op": "error",
+                "id": "m33"
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m34",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "cancel",
+            "id": "m34"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m35",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "release-send",
+          "result": true,
+          "count": 1,
+          "effects": [
+            {
+              "e": "send",
+              "stream": null,
+              "message": {
+                "type": "transport-media",
+                "op": "error",
+                "id": "m35"
+              }
+            }
+          ],
+          "results": []
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m36",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m37",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m38",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m39",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m40",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m41",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m42",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m43",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m44",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m45",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m46",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m47",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m48",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m49",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m50",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m51",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m52",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m53",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m54",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m55",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m56",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m57",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m58",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m59",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m60",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m61",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m62",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m63",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m64",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m65",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m66",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m67",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "protocol-error",
+              "detail": "media streams"
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m68",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "m69",
+            "assetId": "dddddddd-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "messages that are not for the adapter, and malformed ones",
+      "options": {},
+      "steps": [
+        {
+          "op": "receive",
+          "payload": {
+            "id": 1,
+            "method": "x"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": false
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": null,
+          "effects": [],
+          "results": [
+            {
+              "receive": false
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "head",
+            "id": "x1",
+            "status": 200
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "x2"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "nope",
+            "id": "x3"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "cancel"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "cancel",
+            "id": "x4"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "closing the session stops every pump and unsubscribes",
+      "options": {
+        "send": "held"
+      },
+      "steps": [
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "z1",
+            "assetId": "aaaaaaaa-0001",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [
+            {
+              "e": "send",
+              "stream": "z1",
+              "message": {
+                "type": "transport-media",
+                "op": "head",
+                "id": "z1",
+                "status": 200
+              }
+            }
+          ],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "close",
+          "effects": [],
+          "results": []
+        },
+        {
+          "op": "release-send",
+          "result": true,
+          "count": 2,
+          "effects": [],
+          "results": []
+        },
+        {
+          "op": "receive",
+          "payload": {
+            "type": "transport-media",
+            "op": "request",
+            "id": "z2",
+            "assetId": "aaaaaaaa-0002",
+            "variant": "download",
+            "range": "",
+            "enc": "e2ee1"
+          },
+          "effects": [],
+          "results": [
+            {
+              "receive": true
+            }
+          ]
+        },
+        {
+          "op": "close",
+          "effects": [],
+          "results": []
+        },
+        {
+          "op": "writable",
+          "effects": [],
+          "results": []
+        }
+      ]
+    }
+  ]
+}
