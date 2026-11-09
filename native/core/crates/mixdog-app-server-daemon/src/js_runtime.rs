@@ -233,6 +233,17 @@ mod tests {
         assert!(matches!(resolve(&exe, None), Err(JsRuntimeError::NotInstalled { .. })));
     }
 
+    /// Node reads `<STANDALONE_ROOT>/defaults/shipped-history.json` with `STANDALONE_ROOT` = `<package>/src`; the boot retirement
+    /// (`compose_flip::real_core`) roots its pass at `package_root.join("src")`, so on a plain (dev / server) install the history is read
+    /// from this very file.
+    #[test]
+    fn the_retirement_reads_the_history_node_reads_in_a_plain_install() {
+        let root = tempfile::tempdir().unwrap();
+        let js = fixture(root.path());
+        let history = js.package_root.join("src").join("defaults").join("shipped-history.json");
+        assert_eq!(std::fs::read(history).unwrap(), std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../src/defaults/shipped-history.json")).unwrap());
+    }
+
     #[test]
     fn the_fixture_install_resolves() {
         let root = tempfile::tempdir().unwrap();
