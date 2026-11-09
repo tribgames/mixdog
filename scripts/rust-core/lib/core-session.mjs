@@ -178,6 +178,20 @@ export async function attachCore({ runtimeRoot, clientName = 'k1-ci', timeoutMs 
   return { discovery: doc, client, call: (method, params) => client.call(method, params), close: () => client.close() };
 }
 
+/** `promise`, or a rejection saying what `what` did not finish within `ms` (a deadline, not a wait). */
+export function within(promise, ms, what) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} did not finish within ${ms} ms`)), ms);
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
+/** Ends the process this module started, by its own handle only (never a name or pattern), and waits for its exit. */
+async function endChild(child, exited, ms = 15_000) {
+  if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  await within(exited, ms, `the killed core (pid ${child.pid}) exiting`);
+}
 /**
  * Starts `bin serve` on the profile under `root` and connects to it.
  * @param {object} options
@@ -215,23 +229,34 @@ export async function startCore({ bin, root, config, prepare, extraEnv = {}, rea
       pid: child.pid,
       tail: () => tail.join('\n') || '(no output)',
       call: (method, params) => client.call(method, params),
-      /** `POST /mgmt/stop` (the core's own stop, as `mixdogd ctl stop --when-idle --reason quit`), then waits for the exit. */
-      async stop() {
-        await client.close();
-        client = null;
-        const response = await fetch(`http://127.0.0.1:${doc.core.control.port}/mgmt/stop`, {
-          method: 'POST',
-          headers: { authorization: `Bearer ${doc.endpoints.session.token}`, 'content-type': 'application/json' },
-          body: JSON.stringify({ mode: 'whenIdle', reason: 'quit' }),
-        });
-        if (!response.ok) throw new Error(`/mgmt/stop answered ${response.status}: ${await response.text()}`);
-        return exited;
-      },
-    };
+      /**
+       * `POST /mgmt/stop` (the core's own stop, as `mixdogd ctl stop --when-idle --reason quit`), then the exit.
+       * Every step has a deadline (`timeoutMs`); on any failure the child this call started is ended by its own
+       * handle and the failure is thrown with the core's output tail. A clean answer is the `{ code, signal }` of the exit.
+       */
+      async stop({ timeoutMs = 15_000 } = {}) {
+        try {
+          if (client) {
+            const closing = client;
+            client = null;
+            await within(closing.close(), timeoutMs, 'closing the protocol connection');
+          }
+          const response = await fetch(`http://127.0.0.1:${doc.core.control.port}/mgmt/stop`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${doc.endpoints.session.token}`, 'content-type': 'application/json' },
+            body: JSON.stringify({ mode: 'whenIdle', reason: 'quit' }),
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          if (!response.ok) throw new Error(`/mgmt/stop answered ${response.status}: ${await response.text()}`);
+          return await within(exited, timeoutMs, 'the core exiting after /mgmt/stop');
+        } catch (error) {
+          await endChild(child, exited);
+          throw new Error(`stopping the core failed: ${error.message}\n${tail.join('\n') || '(no output)'}`, { cause: error });
+        }
+      },    };
   } catch (error) {
-    await client?.close().catch(() => {});
-    // Only the process this call started: its own handle, never a name or pattern.
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    await within(client?.close() ?? Promise.resolve(), 15_000, 'closing the protocol connection').catch(() => {});
+    await endChild(child, exited);
     throw error;
   }
 }

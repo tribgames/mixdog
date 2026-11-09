@@ -876,6 +876,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: "1.99.1"
+      # scripts/rust-core/lib/core-session.mjs imports `ws`; a clean runner has no node_modules.
+      - name: Install
+        run: npm ci --prefer-offline --no-audit --no-fund
       - name: Check the lanes still name real tests
         run: node --test scripts/rust-core/k1-lanes.test.mjs
       - name: Run the lanes
@@ -886,12 +889,36 @@ jobs:
         env:
           CARGO_BUILD_JOBS: "3"
         run: |
-          cargo build --locked --manifest-path native/core/Cargo.toml -p mixdog-cli --bin mixdogd
-          node scripts/rust-core/smoke-mixdogd.mjs --mixdogd native/core/target/debug/mixdogd
+          # The shipped profile: boot-smoke's 5000 ms budget is for the build users run, and a debug mixdogd boots in 10-15 s.
+          cargo build --release --locked --manifest-path native/core/Cargo.toml -p mixdog-cli --bin mixdogd
+          node scripts/rust-core/smoke-mixdogd.mjs --mixdogd native/core/target/release/mixdogd
+      - name: Check that a stop past its deadline ends the core it started
+        env:
+          MIXDOGD_BIN: native/core/target/release/mixdogd
+        run: node --test scripts/rust-core/core-session.test.mjs
+
+  # The Node step "Verify advisory file locks on Windows" (desktop-tests) ran the advisory-lock suites on a Windows
+  # runner; Windows file locking is its own implementation, so its Rust replacement runs there too.
+  rust-core-windows:
+    needs: changes
+    timeout-minutes: 60
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: "1.99.1"
+      - name: Advisory file locks (replaces the Windows advisory-lock suites)
+        env:
+          CARGO_BUILD_JOBS: "3"
+        run: node scripts/rust-core/k1-lanes.mjs advisory-lock
 
   complete:
     if: always()
-    needs: [changes, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, relay, patch, graph, browser-import, secure-desktop, shipped-history, mobile-scripts, rust-core]
+    needs: [changes, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, relay, patch, graph, browser-import, secure-desktop, shipped-history, mobile-scripts, rust-core, rust-core-windows]
     timeout-minutes: 5
     runs-on: ubuntu-22.04
     steps:
@@ -912,6 +939,7 @@ jobs:
           SHIPPED_HISTORY: ${{ needs.shipped-history.result }}
           MOBILE_SCRIPTS: ${{ needs.mobile-scripts.result }}
           RUST_CORE: ${{ needs.rust-core.result }}
+          RUST_CORE_WINDOWS: ${{ needs.rust-core-windows.result }}
         run: |
           [[ "$CHANGES" == success ]]
           [[ "$RUNTIME" == success || "$RUNTIME" == skipped ]]
@@ -928,3 +956,4 @@ jobs:
           [[ "$SHIPPED_HISTORY" == success || "$SHIPPED_HISTORY" == skipped ]]
           [[ "$MOBILE_SCRIPTS" == success || "$MOBILE_SCRIPTS" == skipped ]]
           [[ "$RUST_CORE" == success || "$RUST_CORE" == skipped ]]
+          [[ "$RUST_CORE_WINDOWS" == success || "$RUST_CORE_WINDOWS" == skipped ]]
