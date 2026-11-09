@@ -18,11 +18,12 @@
  * `themeVersion` lets modules that cache derived values (chalk colorizers,
  * parsed RGB tuples) invalidate when the active theme changes.
  *
- * The setting persists under `ui.theme` in mixdog-config.json. The config
- * module is imported lazily through a dist-aware dynamic specifier (esbuild
- * leaves dynamic-import strings alone), so this color module stays free of a
- * static keychain/config dependency.
+ * The setting persists under `ui.theme` in mixdog-config.json; the core writes it
+ * (`config/setTheme`), and boot reads the file directly.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 
 import { THEME_REGISTRY, THEME_ORDER, THEME_ALIASES, DEFAULT_THEME_ID, basicPalette } from './themes/index.mjs';
 import { BLACK_CIRCLE, RESULT_GUTTER_GLYPH, RESULT_GUTTER_CONT_GLYPH, RIGHT_ARROW, LEFT_ARROW } from './figures.mjs';
@@ -121,7 +122,22 @@ export function setThemeSetting(id) {
 }
 
 /**
- * Apply the theme id the core stores (`config/getTheme`) at boot. Unknown/missing values leave the
+ * The `ui.theme` stored in mixdog-config.json, read the way Node's boot read it: straight from the
+ * file, so the splash paints in the chosen palette before the core has answered. A missing or
+ * unreadable file yields null (the default palette stays).
+ */
+export function readStoredThemeSetting() {
+  try {
+    const raw = readFileSync(join(resolvePluginData(), 'mixdog-config.json'), 'utf8').replace(/^\uFEFF/, '');
+    const ui = JSON.parse(raw)?.ui;
+    return ui && typeof ui === 'object' ? ui.theme : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Apply a stored theme id (`readStoredThemeSetting`) at boot. Unknown/missing values leave the
  * default in place; returns the resolved active id.
  */
 export function applyStoredThemeSetting(stored) {

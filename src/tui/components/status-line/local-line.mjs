@@ -107,7 +107,7 @@ function localOldestWorkerStartMs(agentWorkers = [], agentJobs = []) {
 // The thread's background-shell strip (`shellJobs` of the session state, published by the core):
 // the running count, the jobs held with an unconfirmed termination, and the oldest start for the
 // elapsed label (the strip carries no label of its own).
-function shellStripStatus(shellJobs, now) {
+export function shellStripStatus(shellJobs, now) {
   const jobs = Array.isArray(shellJobs?.jobs) ? shellJobs.jobs : [];
   const unconfirmed = jobs.filter((job) => job?.terminationUnconfirmed === true).length;
   let oldest = Infinity;
