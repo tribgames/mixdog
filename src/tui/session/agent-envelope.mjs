@@ -6,7 +6,7 @@
  */
 import { isBackgroundErrorOnlyBody } from '../../../packages/protocol-client/src/rows/err-text.mjs';
 import { textBetweenTag } from '../../../packages/protocol-client/src/rows/tool-result-summary.mjs';
-import { parseTaskNotification, taskNotificationHasBody } from '../../../packages/protocol-client/src/rows/task-notification-envelope.mjs';
+import { parseTaskNotification, taskNotificationHasBody } from '../../runtime/shared/task-notification-envelope.mjs';
 
 // The terminal status words that mark an agent/background result as an error.
 // The near-variants further down (isErrorToolStatus, the shell result branch)

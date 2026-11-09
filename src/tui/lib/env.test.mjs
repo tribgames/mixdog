@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { envNonNegativeInt, envPositiveInt } from './env.mjs';
-import { nonNegativeInt, positiveInt } from './numbers.mjs';
+import { nonNegativeInt, positiveInt } from '../../runtime/shared/numbers.mjs';
 
 function withEnv(name, value, run) {
   const previous = process.env[name];

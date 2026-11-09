@@ -7,7 +7,7 @@
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
 import { formatToolSurface } from '../../../packages/protocol-client/src/rows/tool-surface.mjs';
-import { clean } from '../../../packages/protocol-client/src/rows/clean.mjs';
+import { clean } from '../../runtime/shared/clean.mjs';
 import { projectNameFromPath } from '../session/labels.mjs';
 import { promptHistoryKey } from '../prompt-history-store.mjs';
 import { providerRowUsable } from './provider-usable.mjs';

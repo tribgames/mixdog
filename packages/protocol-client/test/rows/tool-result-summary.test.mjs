@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { parseLineDelta, summarizeToolResult } from '../../src/rows/tool-result-summary.mjs';
 import { formatAggregateDetail } from '../../src/rows/tool-surface.mjs';
-import { renderAgentCompletionEnvelope, renderShellCompletionEnvelope } from '../../src/rows/task-notification-envelope.mjs';
+import { renderAgentCompletionEnvelope, renderShellCompletionEnvelope } from '../../../../src/runtime/shared/task-notification-envelope.mjs';
 
 test('ask_user summaries cover picks, and a composer reply compactly', () => {
   assert.equal(
