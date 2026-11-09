@@ -37,8 +37,10 @@ impl Watchdog {
         on_stale: impl FnOnce() + Send + 'static,
     ) -> Option<Self> {
         (unattended && policy.active()).then(|| {
+            // Fixed when armed, not when the task is first polled, so the first sweep is one period after arming however the task is scheduled.
+            let first = tokio::time::Instant::now() + SWEEP;
             Self(mixdog_rt::spawn("agent-progress-watchdog", TaskClass::Control, async move {
-                let mut sweep = tokio::time::interval_at(tokio::time::Instant::now() + SWEEP, SWEEP);
+                let mut sweep = tokio::time::interval_at(first, SWEEP);
                 loop {
                     sweep.tick().await;
                     if signal.is_aborted() {
@@ -120,11 +122,12 @@ mod tests {
         }
     }
 
-    /// Waits, second by second, for every watchdog still running (`signals` are theirs; one that has aborted has ended) to have
-    /// swept. The test is parked on the sweeps, so the paused clock auto-advances to each sweep's own deadline and no further.
+    /// Moves the paused clock one second at a time, by explicit advance, and after each second waits for every watchdog still
+    /// running (`signals` are theirs; one that has aborted has ended) to have swept.
     async fn run_for(seconds: u64, sweeps: &Sweeps, signals: &[&Cancel]) {
         for _ in 0..seconds {
             let want = sweeps.seen() + signals.iter().filter(|signal| !signal.is_aborted()).count() as u64;
+            tokio::time::advance(Duration::from_secs(1)).await;
             mixdog_core_session::session::testing::eventually_on(&[&sweeps.woke], || (sweeps.seen() >= want).then_some(())).await;
         }
     }
