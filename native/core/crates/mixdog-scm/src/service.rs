@@ -42,6 +42,7 @@ use mixdog_core_api::state::SectionChange;
 use mixdog_core_api::turn_review::ChangesRead;
 use mixdog_core_api::turn_review::ReviewError;
 use mixdog_core_api::turn_review::ReviewRead;
+use mixdog_core_api::turn_review::ReviewUnsubscribe;
 use mixdog_core_api::turn_review::TurnReviewApi;
 use mixdog_core_api::DomainService;
 use mixdog_protocol::FeedId;
@@ -117,6 +118,14 @@ pub struct ScmService {
     flows: Mutex<HashMap<LoginFlowId, Arc<Flow>>>,
     flow_seq: AtomicU64,
     watches: Mutex<HashMap<String, Arc<GitWatch>>>,
+    /// The review listener's unsubscribe: the service's `stopTurnReviewPush`.
+    stop_review_push: ReviewUnsubscribe,
+}
+
+impl Drop for ScmService {
+    fn drop(&mut self) {
+        let _ = (self.stop_review_push)();
+    }
 }
 
 fn invalid(error: serde_json::Error) -> CoreError {
@@ -217,7 +226,7 @@ impl ScmService {
         // every open client answers by rereading the review of the session it shows (`use-turn-review-reads.ts`): the same tell is
         // the `reviewDiff` section of every thread a client holds open, whether or not the thread has a review or a turn.
         let told = publisher.clone();
-        reviews.on_review_changed(Arc::new(move || {
+        let stop_review_push = reviews.on_review_changed(Arc::new(move || {
             for thread in told.open_keys(SectionName::ReviewDiff) {
                 told.publish(SectionName::ReviewDiff, Some(thread), SectionChange::Set(Bytes::from_static(REVIEW_REREAD)));
             }
@@ -233,6 +242,7 @@ impl ScmService {
             flows: Mutex::new(HashMap::new()),
             flow_seq: AtomicU64::new(0),
             watches: Mutex::new(HashMap::new()),
+            stop_review_push,
         })
     }
 

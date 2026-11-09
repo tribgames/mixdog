@@ -111,6 +111,10 @@ pub struct ChangesRead {
 /// listeners receive once per task). Node's signal names no session.
 pub type ReviewChanged = std::sync::Arc<dyn Fn() + Send + Sync>;
 
+/// What `onTurnReviewChanged` returns (`() => set.delete(fn)`): drops the listener's registration and answers whether there was
+/// one to drop.
+pub type ReviewUnsubscribe = std::sync::Arc<dyn Fn() -> bool + Send + Sync>;
+
 /// The turn review as the rest of the core sees it.
 #[async_trait]
 pub trait TurnReviewApi: Send + Sync {
@@ -136,7 +140,9 @@ pub trait TurnReviewApi: Send + Sync {
 
     /// `onTurnReviewChanged(listener)`: runs whenever a boundary stamped a worktree or a capture changed
     /// what a review shows. A review that is not wired tells no one.
-    fn on_review_changed(&self, _listener: ReviewChanged) {}
+    fn on_review_changed(&self, _listener: ReviewChanged) -> ReviewUnsubscribe {
+        std::sync::Arc::new(|| false)
+    }
 
     // ── turn lifecycle ─────────────────────────────────────────────────────
 

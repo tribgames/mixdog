@@ -7,6 +7,7 @@ use mixdog_core_api::turn_review::ChangesRead;
 use mixdog_core_api::turn_review::Reply;
 use mixdog_core_api::turn_review::ReviewChanged;
 use mixdog_core_api::turn_review::ReviewError;
+use mixdog_core_api::turn_review::ReviewUnsubscribe;
 use mixdog_core_api::turn_review::ReviewRead;
 use mixdog_core_api::turn_review::TurnOpen;
 use mixdog_core_api::turn_review::TurnReviewApi;
@@ -45,8 +46,8 @@ impl TurnReviewApi for TurnReview {
         self.inner.worktrees.note_change(paths);
     }
 
-    fn on_review_changed(&self, listener: ReviewChanged) {
-        self.inner.worktrees.on_review_changed(listener);
+    fn on_review_changed(&self, listener: ReviewChanged) -> ReviewUnsubscribe {
+        self.inner.worktrees.on_review_changed(listener)
     }
 
     async fn begin_turn(&self, worktree: &str, session_id: &str, open: TurnOpen) -> Option<TurnToken> {

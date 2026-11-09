@@ -2,15 +2,17 @@
 // When Node tells a client to read the review again, and what the client then reads (`noteTurnReviewChanged`,
 // turn-worktree-snapshot.mjs lines 175, 197, 1416, turn-boundary-signal.mjs).
 //
-//   node benchmarks/rust-core/recorders/record-turn-review-signal.mjs --tree <tree of b6f10295a with node_modules> --patch-bin <mixdog-patch binary>
-// Output: native/core/fixtures/turn-review-signal/scenarios.json
+//   node --import <file URL of <tree>/apps/desktop/scripts/test-env.mjs> --import <file URL of <tree>/apps/desktop/scripts/test-tsx.mjs> \
+//     benchmarks/rust-core/recorders/record-turn-review-signal.mjs --tree <tree of b6f10295a with node_modules> --patch-bin <mixdog-patch binary>
+// (the two preloads are the desktop package's own test setup: the desktop service is TypeScript.)
+// Output: native/core/fixtures/turn-review-signal/scenarios.json (the turn scenarios) and listeners.json (the listener registry)
 //
 // Every trigger runs through the entry point the product uses: the edit and apply_patch tools (their cache invalidation reaches
 // `runtime-review-api.mjs`'s listener), the git command tool through `executeTool` (its `finally` notes the settle), the turn
 // begin/complete of the turn snapshot, and Undo/Reapply. The desktop's one consumer is modelled as it is wired
 // (`desktop-service.ts:1058` forwards each delivery as the data-less `turn-review-changed` event; `use-turn-review-reads.ts:292-306`
-// rereads the review of the session its window shows): every scenario session has such a client, and for each delivery the recording
-// holds the notification and each client's whole reread answer. Rereads that raise further deliveries are followed in order. After an
+// rereads the review of the session its window shows): the notification is the message the real `createDesktopService` emits, and
+// every scenario session has a client whose whole reread answer is recorded for each delivery. Rereads that raise further deliveries are followed in order. After an
 // action the microtask queue is drained with `await null`, the signal's own dispatch being a microtask.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -38,10 +40,18 @@ const { executeTool } = await importFrom(tree, 'src/runtime/agent/orchestrator/s
 // Importing it registers the two wirings under test (a command settling, a cache invalidation) exactly as the runtime does.
 await importFrom(tree, 'src/session-runtime/runtime-review-api.mjs');
 
-// The desktop service's listener: one global event per delivery.
-let deliveries = 0;
-boundary.onTurnReviewChanged(() => {
-  deliveries += 1;
+// The desktop service itself (`createDesktopService`, as its own tests boot it): its `emit` is what the window receives, so a
+// notification is recorded as the service sent it, not as the recorder describes it.
+const { createDesktopService } = await importFrom(tree, 'apps/desktop/src/main/desktop-service.ts');
+const { viewSyncHost } = await importFrom(tree, 'apps/desktop/src/main/test-support/view-sync-host.mjs');
+const host = await viewSyncHost();
+let sent = [];
+const service = await createDesktopService({
+  options: host.options,
+  runtime: { ...host.runtime, loadConfig: async () => ({ readConfig: () => ({}) }) },
+  emit: (message) => {
+    sent.push(message);
+  },
 });
 
 const T = (text) => ({ text });
@@ -139,20 +149,21 @@ async function runScenario(scenario) {
     }
   };
   for (const [index, op] of scenario.ops.entries()) {
-    deliveries = 0;
+    sent = [];
     const result = await run(op);
     await null;
-    // Each delivery is one notification; every client rereads after it, and a reread may raise the next delivery.
+    // Each delivery is one notification the service sent; every client rereads after it, and a reread may raise the next one.
     const seen = [];
     let handled = 0;
-    while (handled < deliveries) {
+    while (handled < sent.length) {
+      const notification = sent[handled];
       handled += 1;
       const rereads = [];
       for (const client of [...clients.values()].sort((a, b) => a.session.localeCompare(b.session))) {
         rereads.push({ session: client.session, answer: tokenize(JSON.parse(JSON.stringify(await reread(client)))) });
         await null;
       }
-      seen.push({ notification: { event: 'turn-review-changed', payload: null }, rereads });
+      seen.push({ notification, rereads });
     }
     results.push({ op: index, ...result, deliveries: seen });
   }
@@ -235,15 +246,154 @@ const scenarios = [
 
 const recorded = [];
 for (const scenario of scenarios) recorded.push(await runScenario(scenario));
+// The service's own listener goes (`stopTurnReviewPush`), so the listener scenarios see only the listeners they register.
+await service.dispose();
+await host.close();
+
+// The listener registry itself (`onTurnReviewChanged` / `noteTurnReviewChanged`), on Node's real module. Listeners are named
+// functions; one function registered twice is one `Set` entry. What a listener does when called is data:
+// `{do:'unsubscribe', handle}`, `{do:'subscribe', fn, handle}`, `{do:'signal'}`, `{do:'throw'}`. Ops run with no `await` between
+// them (a signal's delivery is a microtask, so it cannot run inside the run of ops); `drain` yields until nothing is queued.
+// Per op the recording holds the listeners that ran during it, in order, and what an unsubscribe answered.
+const registry = () => globalThis[Symbol.for('mixdog.turnBoundarySignal.v1')];
+async function runListeners(scenario) {
+  const calls = [];
+  const handles = new Map();
+  const fns = new Map();
+  const subscribe = (name, handle) => handles.set(handle, boundary.onTurnReviewChanged(fns.get(name)));
+  for (const [name, { does }] of Object.entries(scenario.fns)) {
+    fns.set(name, () => {
+      calls.push(name);
+      for (const action of does) {
+        if (action.do === 'unsubscribe') handles.get(action.handle)();
+        else if (action.do === 'subscribe') subscribe(action.fn, action.handle);
+        else if (action.do === 'signal') boundary.noteTurnReviewChanged();
+        else if (action.do === 'throw') throw new Error(`${name} threw`);
+        else throw new Error(`unknown action ${action.do}`);
+      }
+    });
+  }
+  const results = [];
+  for (const [index, op] of scenario.ops.entries()) {
+    calls.length = 0;
+    let answered;
+    if (op.op === 'subscribe') subscribe(op.fn, op.handle);
+    else if (op.op === 'unsubscribe') answered = handles.get(op.handle)();
+    else if (op.op === 'signal') boundary.noteTurnReviewChanged();
+    else if (op.op === 'drain') {
+      do await null;
+      while (registry().reviewQueued);
+    } else throw new Error(`unknown op ${op.op}`);
+    results.push({ op: index, calls: [...calls], ...(answered === undefined ? {} : { answered }) });
+  }
+  // Leave nothing registered for the next scenario.
+  for (const handle of handles.values()) handle();
+  return { name: scenario.name, fns: scenario.fns, ops: scenario.ops, results };
+}
+const none = { does: [] };
+const listenerScenarios = [
+  {
+    name: 'subscribe, signal bursts, unsubscribe and a second unsubscribe',
+    fns: { a: none, b: none },
+    ops: [
+      { op: 'signal' },
+      { op: 'drain' },
+      { op: 'subscribe', fn: 'a', handle: 'ha' },
+      { op: 'subscribe', fn: 'b', handle: 'hb' },
+      { op: 'signal' },
+      { op: 'signal' },
+      { op: 'drain' },
+      { op: 'unsubscribe', handle: 'ha' },
+      { op: 'unsubscribe', handle: 'ha' },
+      { op: 'signal' },
+      { op: 'drain' },
+      { op: 'subscribe', fn: 'a', handle: 'ha' },
+      { op: 'signal' },
+      { op: 'unsubscribe', handle: 'hb' },
+      { op: 'drain' },
+    ],
+  },
+  {
+    name: 'one function registered twice, and an old unsubscribe after it registered again',
+    fns: { a: none, b: none },
+    ops: [
+      { op: 'subscribe', fn: 'a', handle: 'h1' },
+      { op: 'subscribe', fn: 'a', handle: 'h2' },
+      { op: 'subscribe', fn: 'b', handle: 'hb' },
+      { op: 'signal' },
+      { op: 'drain' },
+      { op: 'unsubscribe', handle: 'h1' },
+      { op: 'signal' },
+      { op: 'drain' },
+      { op: 'unsubscribe', handle: 'h2' },
+      { op: 'subscribe', fn: 'a', handle: 'h3' },
+      { op: 'unsubscribe', handle: 'h1' },
+      { op: 'signal' },
+      { op: 'drain' },
+    ],
+  },
+  {
+    name: 'listeners removed, added and re-added during a delivery',
+    fns: {
+      first: { does: [{ do: 'unsubscribe', handle: 'second' }, { do: 'subscribe', fn: 'added', handle: 'added' }] },
+      second: none,
+      third: { does: [{ do: 'unsubscribe', handle: 'third' }] },
+      added: none,
+      x: none,
+      // Removes `x`, which already ran, and registers it again: it goes to the end, and runs again in this delivery.
+      mover: { does: [{ do: 'unsubscribe', handle: 'x' }, { do: 'subscribe', fn: 'x', handle: 'x' }, { do: 'unsubscribe', handle: 'once' }] },
+      once: none,
+    },
+    ops: [
+      { op: 'subscribe', fn: 'first', handle: 'first' },
+      { op: 'subscribe', fn: 'second', handle: 'second' },
+      { op: 'subscribe', fn: 'third', handle: 'third' },
+      { op: 'subscribe', fn: 'x', handle: 'x' },
+      { op: 'subscribe', fn: 'mover', handle: 'mover' },
+      { op: 'subscribe', fn: 'once', handle: 'once' },
+      { op: 'signal' },
+      { op: 'drain' },
+      { op: 'signal' },
+      { op: 'drain' },
+    ],
+  },
+  {
+    name: 'a listener removed between the signal and its delivery, a late one, and a listener that throws or signals',
+    fns: {
+      a: none,
+      boom: { does: [{ do: 'throw' }] },
+      // Runs once, and raises a signal of its own: delivered by the next round, after this one ends.
+      echo: { does: [{ do: 'unsubscribe', handle: 'hecho' }, { do: 'signal' }] },
+      late: none,
+    },
+    ops: [
+      { op: 'subscribe', fn: 'a', handle: 'ha' },
+      { op: 'subscribe', fn: 'boom', handle: 'hboom' },
+      { op: 'subscribe', fn: 'echo', handle: 'hecho' },
+      { op: 'signal' },
+      { op: 'unsubscribe', handle: 'ha' },
+      { op: 'subscribe', fn: 'late', handle: 'hlate' },
+      { op: 'signal' },
+      { op: 'drain' },
+      { op: 'unsubscribe', handle: 'hecho' },
+      { op: 'signal' },
+      { op: 'drain' },
+    ],
+  },
+];
+const listeners = [];
+for (const scenario of listenerScenarios) listeners.push(await runListeners(scenario));
 
 const finalOut = join(FIXTURES_ROOT, 'turn-review-signal');
 const out = stageSet(finalOut);
 writeText(join(out, 'scenarios.json'), `${JSON.stringify(recorded, null, 1)}\n`);
+writeText(join(out, 'listeners.json'), `${JSON.stringify(listeners, null, 1)}\n`);
 writeSetManifest(out, {
   set: 'turn-review-signal',
   recorder: 'benchmarks/rust-core/recorders/record-turn-review-signal.mjs',
-  command: 'node benchmarks/rust-core/recorders/record-turn-review-signal.mjs --tree <tree> --patch-bin <mixdog-patch built from this checkout>',
-  extra: { scenarios: recorded.length, patchBinarySha256: sha256(readFileSync(patchBin)) },
+  command:
+    'node --import <tree>/apps/desktop/scripts/test-env.mjs --import <tree>/apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-turn-review-signal.mjs --tree <tree> --patch-bin <mixdog-patch built from this checkout>',
+  extra: { scenarios: recorded.length, listenerScenarios: listeners.length, patchBinarySha256: sha256(readFileSync(patchBin)) },
   identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146'),
 });
 commitStage(out, finalOut);
