@@ -225,6 +225,8 @@ pub struct CatalogRow {
     pub agent_tag: Option<crate::worker::TagKeys>,
     /// The header's delete mark (`summary::is_deleted`); a row once deleted stays deleted.
     pub deleted: bool,
+    /// The header's `title` when its `titleSource` is `user`.
+    pub user_name: Option<String>,
 }
 
 /// FORMAT.md §8.2 `fold(x)`: Unicode default lowercase, no normalization.
@@ -269,6 +271,8 @@ pub struct StoredRow {
     pub summary: String,
     pub archived: bool,
     pub deleted: bool,
+    /// The name the user gave the session (`titleSource: user`), as Node's desktop kept it in `names`.
+    pub user_name: Option<String>,
 }
 
 /// A catalog row write that changed the row: what the index held before it (`None`: no row) and what it holds now.
@@ -400,10 +404,10 @@ INSERT INTO sessions (id, dirty, status, damage, deleted, base_session, log_id, 
     activity, created_at, updated_at, closed, archived_at, cwd, visibility, owner_session_id,
     parent_session_id, agent, source_type, classification, archived, title_kind, id_key,
     title_fold, preview_fold, cwd_fold, project_fold, id_fold, model_fold, source_fold, summary,
-    title, worker, worker_tag, worker_owner, worker_host_pid, agent_tag, agent_owner)
+    title, worker, worker_tag, worker_owner, worker_host_pid, agent_tag, agent_owner, user_name)
 VALUES (?1, ?2, 'ok', NULL, ?36, ?3, ?4, 0, 0, 0, 0, 0, 0, 0,
     ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19,
-    ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?29, ?30, ?31, ?32, ?33, ?34, ?35)
+    ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?37)
 ON CONFLICT(id) DO UPDATE SET
     dirty = CASE WHEN ?28 THEN dirty ELSE excluded.dirty END,
     deleted = max(deleted, excluded.deleted),
@@ -420,7 +424,7 @@ ON CONFLICT(id) DO UPDATE SET
     summary = excluded.summary, title = excluded.title, worker = excluded.worker,
     worker_tag = excluded.worker_tag, worker_owner = excluded.worker_owner,
     worker_host_pid = excluded.worker_host_pid, agent_tag = excluded.agent_tag,
-    agent_owner = excluded.agent_owner";
+    agent_owner = excluded.agent_owner, user_name = excluded.user_name";
 
 /// Writes the catalog row of `head` with the message state projected so far; the bytes
 /// of the list row.
@@ -444,14 +448,14 @@ fn upsert_edge(
     let stats = crate::message_index::read_stats(tx, &head.session, with_incoming)?.into_stats(&head.session);
     let row = crate::summary::catalog_row(head, &stats, now_ms());
     let before = if watch {
-        tx.prepare_cached("SELECT summary, archived, deleted FROM sessions WHERE id = ?1")?
-            .query_row([&row.id], |r| Ok(StoredRow { summary: r.get(0)?, archived: r.get(1)?, deleted: r.get(2)? }))
+        tx.prepare_cached("SELECT summary, archived, deleted, user_name FROM sessions WHERE id = ?1")?
+            .query_row([&row.id], |r| Ok(StoredRow { summary: r.get(0)?, archived: r.get(1)?, deleted: r.get(2)?, user_name: r.get(3)? }))
             .optional()?
     } else {
         None
     };
     write_row(tx, &row, dirty, labels)?;
-    let after = StoredRow { summary: row.summary.clone(), archived: row.archived, deleted: row.deleted };
+    let after = StoredRow { summary: row.summary.clone(), archived: row.archived, deleted: row.deleted, user_name: row.user_name.clone() };
     let edge = (watch && before.as_ref() != Some(&after)).then(|| RowEdge { id: row.id.clone(), before, after });
     Ok((row.summary.len(), edge))
 }
@@ -495,6 +499,7 @@ fn write_row(tx: &Transaction<'_>, row: &CatalogRow, dirty: DirtyMark, labels: &
         row.agent_tag.as_ref().map(|t| &t.tag),
         row.agent_tag.as_ref().map(|t| &t.owner),
         row.deleted,
+        row.user_name,
     ])?;
     Ok(())
 }

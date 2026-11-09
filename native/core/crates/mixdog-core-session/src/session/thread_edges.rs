@@ -35,17 +35,17 @@ const SUMMARY_UPDATED: &str = "thread/summary/updated";
 const DELETED: &str = "thread/deleted";
 
 /// The list row of a stored row when it is listed: the catalog's lead gate, then the roster's own (Node's second gate).
-fn listed(row: &StoredRow, name: Option<&str>) -> Option<LeadRow> {
+fn listed(row: &StoredRow) -> Option<LeadRow> {
     if row.deleted {
         return None;
     }
     let Ok(Value::Object(map)) = serde_json::from_str::<Value>(&row.summary) else { return None };
-    (is_lead_visible_row(&map) && roster_row(&map, name)).then_some(LeadRow { row: map, archived: row.archived })
+    (is_lead_visible_row(&map) && roster_row(&map, row.user_name.as_deref())).then_some(LeadRow { row: map, archived: row.archived })
 }
 
 /// Whether `desktopSessionSummaries` (`desktop-state.ts:144-246`) keeps the row. `name` is the name the user gave the session
 /// (Node's `names[id]`, which `renameSession` writes beside the runtime title, `session-host-lifecycle.ts:225-230`): here the
-/// loaded session's header title when `titleSource` is `user` (`name_set`). The host's task workspace, its other input, decides a
+/// header title when `titleSource` is `user` (`thread/name/set`), kept in the index with every session's row. The host's task workspace, its other input, decides a
 /// legacy row's classification only, and a legacy row with a folder has a project path whichever it is, so it never changes
 /// whether the row is kept (recorded cases `g_legacy_in_task_workspace*`).
 pub(super) fn roster_row(row: &serde_json::Map<String, Value>, name: Option<&str>) -> bool {
@@ -100,11 +100,9 @@ impl ThreadEdgePublisher {
 
     pub async fn publish(&self, edge: RowEdge) {
         let id = ThreadId::from(edge.id.clone());
-        // The name the user gave is known for a loaded session, which is where a rename happens; the row before the write is
-        // judged without it, so a rename that makes a meaningless title count is a start.
-        let name = self.list.user_name(&id);
-        let before = edge.before.as_ref().and_then(|row| listed(row, None));
-        match (before, listed(&edge.after, name.as_deref())) {
+        // Each side is judged with the name the user had given at its own write (the index keeps it with the row), as Node's
+        // summaries read `names` as of each roster: a rename that makes a meaningless title count is a start.
+        match (edge.before.as_ref().and_then(listed), listed(&edge.after)) {
             (None, Some(now)) => self.send(&id, &now, |thread| (STARTED, ThreadStartedParams { thread })).await,
             (Some(was), Some(now)) => {
                 let (was, shown) = (summary_of_list_row(&id, &Value::Object(was.row), now.archived), summary_of_list_row(&id, &Value::Object(now.row.clone()), now.archived));

@@ -156,7 +156,20 @@ async fn the_composed_task_publishes_each_config_change_and_invalidation_once() 
         let [mutation, read] = pair else { panic!("a mutation and the read after it") };
         let what = format!("{} {}", mutation["action"], mutation["args"]);
         let told = feed.invalidations();
+        let providers_before = rig.config.agent().get("providers").cloned();
         let invalidated = apply(&rig, &mut sync, &mut applied, mutation).await;
+        // Node's signal per mutation (`login.mjs`): `setModelPreferences` of a built-in provider reloads the config and nothing
+        // else (`:94-98`, the config signal without a `providers` change when the favorite is the only change); every other
+        // mutation ends in `afterCredentialChange` (`refresh.mjs:48-51`: the config applied, then `invalidateProviderCaches`), so
+        // a stored `providers` change is followed by its invalidation, and the feed waits for it.
+        let providers_changed = rig.config.agent().get("providers").cloned() != providers_before;
+        match mutation["action"].as_str().unwrap() {
+            "setModelPreferences" => assert!(!invalidated, "{what}: config signal only"),
+            _ => assert!(invalidated, "{what}: ends in the invalidation"),
+        }
+        if providers_changed {
+            assert!(invalidated, "{what}: a providers change is always followed by its invalidation");
+        }
         // The signal each of Node's mutations ended in, checked before any publication is awaited: a stored change that is only
         // reloaded (the model preferences) tells the feed nothing, the others invalidate once. A wiring that lost the invalidation
         // fails here and not by waiting for a publication that cannot come.

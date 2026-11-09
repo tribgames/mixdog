@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 23055,
+      "bytes": 26489,
       "path": "golden.json",
-      "sha256": "d4972380149911c81ab96e97d4b97ec545d4f882b22bf25e15ff18a55a7b4951"
+      "sha256": "75f017ecee95725ce11893bfc9690b11c0596592d039c130cad599402d998092"
     }
   ],
   "gateRows": 31,
@@ -28,6 +28,6 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-thread-edges.mjs",
   "set": "thread-edges",
-  "totalBytes": 23055,
-  "triggers": 11
+  "totalBytes": 26489,
+  "triggers": 14
 }

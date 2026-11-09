@@ -355,6 +355,7 @@ pub fn catalog_row(head: &CatalogHead, stats: &MessageStats, now: f64) -> Catalo
         worker: crate::worker::WorkerKeys::of(h),
         agent_tag: crate::worker::TagKeys::of(&head.session, h),
         deleted: is_deleted(h),
+        user_name: if get(h, "titleSource").and_then(Value::as_str) == Some("user") { str_field("title") } else { None },
     }
 }
 

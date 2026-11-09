@@ -12,7 +12,21 @@
 //!   the saved settings at read time): the rows are read again when they were loaded;
 //! - a load adopting its rows, which is the first value of the section.
 //!
-//! Node has no timer here and does not coalesce: `invalidateProviderCaches` drops the caches synchronously
+//! Node's signals, at `b6f10295a`, and what each does to the catalog a reader gets (none has a timer):
+//! - the readiness invalidation: `invalidateProviderCaches` drops the caches synchronously (`provider-readiness.mjs:68-80`);
+//!   `adoptCredentials` follows it with a warm load (`provider-auth/refresh.mjs:38-43`, `provider-models.mjs:194-`), and the next
+//!   read starts one shared load (`provider-models.mjs:145-157`, readers `:189-190`) that every concurrent reader joins: Node
+//!   coalesces concurrent reads into one load, not wakes;
+//! - a config change that changes `providers`: every such mutation ends in `afterCredentialChange` (`refresh.mjs:48-51`, called at
+//!   `login.mjs:66,77,83,88,104`), the config applied and then the invalidation above: the rows move at the invalidation;
+//! - a config change that leaves `providers` alone: `setModelPreferences` of a built-in provider only reloads the config
+//!   (`login.mjs:94-98`) and the rows are hydrated with the saved settings at read time (`provider-models.mjs:166,187,191`);
+//! - a catalog load adopting its rows (`provider-models.mjs:107-124`): the first value.
+//! The recording (`scenarios-model-catalog.json`) holds a case for each: a hidden model, a provider saved and one removed (the
+//! providers change that waits for its invalidation), a favorite (the config alone), and the first read (the load), each followed
+//! by Node's read, repeated once to record the mutation that leaves the rows alone.
+//!
+//! Node does not coalesce wakes: `invalidateProviderCaches` drops the caches synchronously
 //! (`provider-readiness.mjs:68-80`), and the next read starts one shared load that every concurrent reader joins
 //! (`provider-models.mjs:145-157`, readers `:189-190`). The feed reads the same way: a wake is a `Notify` permit, so wakes that
 //! arrive while a read runs are one more read, and the rows themselves are the shared load. Rows equal to the published ones
