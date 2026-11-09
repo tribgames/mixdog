@@ -20,12 +20,18 @@ impl Paths {
     /// the home and there is none.
     pub fn resolve(package_root: &Path, env: &dyn Fn(&str) -> Option<OsString>, home: Option<PathBuf>) -> Option<Paths> {
         let set = |name: &str| env(name).filter(|v| !v.is_empty()).map(PathBuf::from);
-        let plugin_root = set("MIXDOG_ROOT").unwrap_or_else(|| package_root.join("src"));
+        let plugin_root = Self::plugin_root_of(package_root, env);
         let data_dir = match set("MIXDOG_DATA_DIR") {
             Some(dir) => dir,
             None => set("MIXDOG_HOME").or_else(|| home.map(|h| h.join(".mixdog")))?.join("data"),
         };
         Some(Paths { plugin_root, data_dir })
+    }
+
+    /// `mixdogRoot()` = `MIXDOG_ROOT || packagedRoot()`: the root of the shipped files, which a packaged desktop points at the
+    /// unpacked tree (`resources/runtime.asar.unpacked/node_modules/mixdog/src`).
+    pub fn plugin_root_of(package_root: &Path, env: &dyn Fn(&str) -> Option<OsString>) -> PathBuf {
+        env("MIXDOG_ROOT").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| package_root.join("src"))
     }
 
     /// [`Paths::resolve`] over the process environment and `std::env::home_dir`, which reads what

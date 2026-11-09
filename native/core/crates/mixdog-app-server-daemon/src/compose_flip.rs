@@ -308,6 +308,13 @@ impl Real {
     }
 }
 
+/// Where the boot retirement reads the shipped files (`defaults/shipped-history.json`, skills, agents, ...): the one root every reader of
+/// the shipped files uses, `MIXDOG_ROOT` or else `<package>/src`. A packaged desktop sets `MIXDOG_ROOT` to the unpacked tree, as the
+/// archive itself cannot be read as files.
+pub(crate) fn retirement_paths(package_root: &std::path::Path, data_dir: &std::path::Path, env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> mixdog_core_config::workflow::WorkflowPaths {
+    mixdog_core_config::workflow::WorkflowPaths { root: mixdog_store::paths::Paths::plugin_root_of(package_root, env), data: data_dir.to_path_buf() }
+}
+
 pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // ---- 1. state, config ---------------------------------------------------------------------
     // The app feed has ONE section state: the composed one (`ComposedCore::sections()`, which `serving::start` takes too); a second would split the sections.
@@ -316,7 +323,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // Node's `prepareStandaloneEnvironment` (once per process and data dir, at the first runtime start, before any config load) retires the user's untouched copies of
     // shipped skills, workflows, agents, output styles and orchestration modes into `backups/`, so the shipped versions apply again.
     {
-        let paths = mixdog_core_config::workflow::WorkflowPaths { root: b.package_root.join("src"), data: b.data_dir.clone() };
+        let paths = retirement_paths(&b.package_root, &b.data_dir, &|name| (b.env)(name).map(std::ffi::OsString::from));
         mixdog_core_base::support::on_lane(b.tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
             mixdog_core_config::workflow::retire::retire_seeded_copies(lane, &paths, &|| chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
         })
@@ -1095,7 +1102,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let channel_settings: Arc<dyn mixdog_services::channels::ChannelSettings> = Arc::new(crate::domain_seams::channel_stack::ConfigChannelSettings::new(config.clone()));
     let relay_url_env = (b.env)("MIXDOG_RELAY_URL");
     let public_base: Arc<dyn mixdog_services::channels::PublicBase> = Arc::new(crate::domain_seams::channel_stack::HookIdentityBase::new(b.tokens.durability_io, b.data_dir.clone(), relay_url_env.clone()));
-    let channel_agent_runtime: Arc<dyn mixdog_services::channels::AgentRuntime> = Arc::new(crate::domain_seams::channel_stack::RegistryAgentRuntime::new(config.clone(), registry.clone(), b.catalog.clone()));
+    let channel_agent_runtime: Arc<dyn mixdog_services::channels::AgentRuntime> = Arc::new(crate::domain_seams::channel_stack::RegistryAgentRuntime::new(config.clone(), registry.clone()));
     // The webhook event rules (`config.events`): the queue under `<data>/events`, the pipeline, and the sink that hands a fired event to the Lead as a `webhook` channel notification.
     // The Lead `webhook` channel injection (flip-channel-router-1): `injectAndRecord` + the daemon's channel router over the late directory. A webhook has no target session, as in Node's
     // daemon (`getSessionId: () => null`), so the sink is not pinned.
@@ -1448,7 +1455,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         pg_runtime,
         embedder: b.models.embeddings.clone(),
         embedding_provider: config.full().get("embedding").and_then(|e| e.get("provider")).and_then(serde_json::Value::as_str).map(str::to_owned),
-        flags: mixdog_services::memory::runtime::RuntimeFlags::default(),
+        flags: mixdog_services::memory::runtime::RuntimeFlags::from_env(&*b.env),
         progress: None,
         sensitive: sensitive.clone(),
         lane: b.tokens.durability_io,

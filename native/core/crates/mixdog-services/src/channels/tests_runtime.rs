@@ -75,8 +75,6 @@ impl AutomationServices for FakeServices {
 #[derive(Default)]
 struct FakeAgent {
     inits: AtomicUsize,
-    reloads: AtomicUsize,
-    reload_fails: Mutex<bool>,
 }
 
 #[async_trait]
@@ -84,10 +82,6 @@ impl AgentRuntime for FakeAgent {
     async fn init_providers(&self) -> Result<(), String> {
         self.inits.fetch_add(1, Ordering::SeqCst);
         Ok(())
-    }
-    async fn reload(&self) -> Result<(), String> {
-        self.reloads.fetch_add(1, Ordering::SeqCst);
-        if *self.reload_fails.lock().unwrap() { Err("no registry".into()) } else { Ok(()) }
     }
 }
 
@@ -517,21 +511,15 @@ async fn the_bridge_tools_start_and_stop_the_runtime_and_count_as_running_work()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn reload_config_rearms_the_scheduler_and_reports_the_agent_reload() {
+async fn reload_config_rearms_the_scheduler_and_leaves_the_agent_runtime_alone() {
     let e = env().await;
     let tools = ToolDispatch::new(e.runtime.clone(), e.work.clone(), Box::new(|| false));
     e.runtime.start_automation().await.unwrap();
     e.schedules.upsert(&sched("late")).await.unwrap();
     assert!(e.runtime.scheduler().status().is_empty());
     let reloaded = tools.handle_tool_call("reload_config", &json!({})).await;
-    assert_eq!(
-        reloaded["content"][0]["text"],
-        "config reloaded — schedules, webhooks, events, agent providers/presets/maintenance re-registered"
-    );
+    assert_eq!(reloaded["content"][0]["text"], "config reloaded — schedules, webhooks, events re-registered");
     assert_eq!(e.runtime.scheduler().status().len(), 1, "a schedule saved after the start is armed by the reload");
-    *e.agent.reload_fails.lock().unwrap() = true;
-    let partial = tools.handle_tool_call("reload_config", &json!({})).await;
-    assert_eq!(partial["content"][0]["text"], "config reloaded — schedules, webhooks, events re-registered");
     e.runtime.stop_owned_runtime("test").await.unwrap();
 }
 
@@ -636,8 +624,7 @@ async fn a_bridge_call_runs_once_per_op_and_a_reused_op_with_another_payload_con
     let first = ask(&svc, "channel/call", json!({"name": "reload_config", "args": {}})).await.unwrap();
     let retried = ask(&svc, "channel/call", json!({"name": "reload_config", "args": {}})).await.unwrap();
     assert_eq!(first, retried);
-    assert_eq!(first["content"][0]["text"], "config reloaded — schedules, webhooks, events, agent providers/presets/maintenance re-registered");
-    assert_eq!(e.agent.reloads.load(Ordering::SeqCst), 1, "the retry did not reload again");
+    assert_eq!(first["content"][0]["text"], "config reloaded — schedules, webhooks, events re-registered");
     let conflict = ask(&svc, "channel/call", json!({"name": "reload_config", "args": {"x": 1}})).await.unwrap_err();
     assert_eq!(conflict, CoreError::DomainError { domain: "channel".into(), code: Some("ECALLIDCONFLICT".into()), message: None, detail: None });
     // A tool the core does not host answers as the worker's dispatch does for any unknown name.
