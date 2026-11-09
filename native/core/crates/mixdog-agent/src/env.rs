@@ -620,6 +620,13 @@ pub trait ToolGate: Send + Sync {
         None
     }
 
+    /// The last refusal a call meets, after its hooks and approval and before the tool runs
+    /// (`prepareDeferredToolCallThrough`): a deferred tool the session may not run in its tool mode.
+    fn deferred_call_denial(&self, call: &GateCall) -> Option<String> {
+        let _ = call;
+        None
+    }
+
     /// An approved ask may carry the user's edit of the call.
     fn apply_approval(
         &self,
@@ -970,6 +977,12 @@ impl ToolGate for PolicyGate {
         self.surface_for(schema)
             .refusal_for_call(&call.name, call.schema_name.as_deref(), &call.args)
             .map(|error| error.message_for_model)
+    }
+
+    fn deferred_call_denial(&self, call: &GateCall) -> Option<String> {
+        let surface = self.session.surface();
+        let annotations = self.tools.resolve(surface.mcp_scope.as_deref(), &call.name).map(|tool| tool.spec().annotations.clone()).unwrap_or_default();
+        surface.deferred_call_refusal(&call.name, &annotations)
     }
 }
 

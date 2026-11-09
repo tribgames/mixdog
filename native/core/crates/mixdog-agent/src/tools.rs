@@ -85,6 +85,14 @@ pub struct ToolSet {
     builtin: Arc<Vec<String>>,
     /// The set is a delegated agent's: a tool with an agent text (`Tool::agent_spec`) shows that.
     agent: bool,
+    /// Where a call to a tool the surface does not offer is looked up (see [`ToolSet::with_registry`]).
+    registry: Option<Registry>,
+}
+
+#[derive(Clone)]
+struct Registry {
+    resolver: Arc<dyn mixdog_tools::policy::ToolResolver>,
+    scope: Option<String>,
 }
 
 impl ToolSet {
@@ -107,7 +115,18 @@ impl ToolSet {
             index: Arc::new(index),
             builtin: Arc::new(builtin),
             agent: false,
+            registry: None,
         }
+    }
+
+    /// A call to a tool the surface does not offer (a deferred tool of a bridge session, reached by
+    /// `call_tool` or called by its name) runs the tool the registry knows under that name, as
+    /// Node's executor dispatches by registry, not by what the request carried. The surface's own
+    /// refusals (allowlist, denied tools, read-only) are the gate's and come before this.
+    #[must_use]
+    pub fn with_registry(mut self, resolver: Arc<dyn mixdog_tools::policy::ToolResolver>, scope: Option<String>) -> Self {
+        self.registry = Some(Registry { resolver, scope });
+        self
     }
 
     /// The set a delegated agent's session is sent (`bindAgentOwner`).
@@ -117,8 +136,29 @@ impl ToolSet {
         self
     }
 
+    /// A tool of the surface.
     pub fn get(&self, name: &str) -> Option<&Arc<dyn Tool>> {
         self.index.get(name).map(|i| &self.tools[*i])
+    }
+
+    /// The tool a call runs: one of the surface, else the registry's.
+    pub fn resolve(&self, name: &str) -> Option<Arc<dyn Tool>> {
+        self.get(name).cloned().or_else(|| self.registry.as_ref().and_then(|r| r.resolver.resolve(r.scope.as_deref(), name)))
+    }
+
+    /// What a call to `call_tool` stands for, when the surface carries a projecting tool under that
+    /// name (a bridge session): the call of its target, or the text the call is answered with.
+    pub(crate) fn project(&self, thread: &mixdog_protocol::ThreadId, call: &ToolCall) -> Projection {
+        if call.name != "call_tool" {
+            return Projection::Plain;
+        }
+        let Some(projection) = self.get("call_tool").and_then(|tool| tool.projection()) else {
+            return Projection::Plain;
+        };
+        match projection.project(thread, &call.arguments) {
+            Ok((name, arguments)) => Projection::Target(ToolCall { id: call.id.clone(), name, arguments, native_type: None }),
+            Err(text) => Projection::Refused(text),
+        }
     }
 
     pub fn builtin_names(&self) -> Vec<&str> {
@@ -134,7 +174,7 @@ impl ToolSet {
     }
 
     pub(crate) fn read_only(&self, name: &str) -> bool {
-        self.get(name)
+        self.resolve(name)
             .is_some_and(|t| t.spec().annotations.read_only_hint == Some(true))
     }
 
@@ -168,8 +208,18 @@ impl ToolSet {
     /// (`isToolCallDedupEligible`): the tool declares `readOnlyHint`, and the
     /// loaders (`load_tool`, `tool_search`) are read-only but must run to report state.
     pub(crate) fn dedup_eligible(&self, name: &str) -> bool {
-        !matches!(name, "load_tool" | "tool_search") && self.get(name).is_some_and(|tool| tool.spec().annotations.read_only_hint == Some(true))
+        !matches!(name, "load_tool" | "tool_search") && self.read_only(name)
     }
+}
+
+/// What a call is, once a projecting tool has had its say ([`ToolSet::project`]).
+pub(crate) enum Projection {
+    /// The call is its own: nothing projects it.
+    Plain,
+    /// The call of the tool a wire `call_tool` names, under the wire call's id.
+    Target(ToolCall),
+    /// The wire call names no tool: it is answered with this text and nothing runs.
+    Refused(String),
 }
 
 /// How long a tool call may run, from its spec.
@@ -682,6 +732,9 @@ pub async fn run_nested(
     {
         mcp.refresh().await;
     }
+    if let Some(text) = pipeline.gate.deferred_call_denial(&target) {
+        return Err(refused(text));
+    }
     let Some(tool) = tools.resolve(scope, &target.name) else {
         return Err(refused(crate::text::unknown_tool_message(&target.name, &[])));
     };
@@ -814,9 +867,18 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
     {
         return cancelled();
     }
-    let Some(tool) = env.tools.get(&target.name).cloned() else {
+    if let Some(text) = env.gate.deferred_call_denial(&target) {
+        return Executed::returned(&call.id, text);
+    }
+    let Some(tool) = env.tools.resolve(&target.name) else {
         let names = env.tools.builtin_names();
-        return Executed::returned(&call.id, crate::text::unknown_tool_message(&target.name, &names));
+        let text = crate::text::unknown_tool_message(&target.name, &names);
+        // The executor returns this text, so PostToolUse sees it like any other result (`applyAfterToolHook`).
+        let updated = match &env.hooks {
+            Some(hooks) => hooked(&env.cancel, hooks.after_tool(&GateCall { name: target.name.clone(), args: target.args.clone(), schema_name: target.schema_name.clone() }, &text)).await.flatten(),
+            None => None,
+        };
+        return Executed::returned(&call.id, updated.unwrap_or(text));
     };
     let spec = env.tools.spec_of(&tool);
     let timeout = env.tool_env.deadline_of.as_ref().and_then(|f| f(spec));
