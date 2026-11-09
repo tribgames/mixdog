@@ -262,3 +262,165 @@ export function createChatApi(
 }
 
 export type ChatApi = ReturnType<typeof createChatApi>;
+
+// ── The phone's thread list (decisions.md, "Phone thread list after a core restart") ─────────────────────────────────────────────────
+// Node's view sync subscribed to the catalog, then listed it, and a roster pushed during that read outranked the listing
+// (view-synchronizer.ts readCatalog); the phone replaced its list with that baseline on every attach, a restarted desktop's included.
+// The core republishes no thread edge after a restart and rejects an old-epoch replay, so after the app feed is re-subscribed the
+// list is read again, in full, and the edges that arrived meanwhile are laid over it: an edge outranks the listing, as the push did.
+
+type ThreadRow = Record<string, unknown>;
+
+/** The part of `ProtocolClient` the roster reads. */
+export interface RosterClient {
+  call(method: string, params: unknown): Promise<unknown>;
+  on(listener: (event: { type: string; notification?: { method: string; params?: unknown } }) => void): () => void;
+  readonly store: {
+    subscribe(listener: (change: { type: string; feedId?: string; state?: string }) => void): () => void;
+  };
+}
+
+const PAGE_LIMIT = 1000; // the core's largest `thread/list` page (thread_list.rs MAX_PAGE_LIMIT)
+const idOf = (row: ThreadRow): string => String(row.id ?? '');
+// The catalog's order (thread_edges.rs place_of): newest activity first, then the id.
+const activityOf = (row: ThreadRow): number => Number(row.activityAt ?? row.updatedAt) || 0;
+const inCatalogOrder = (a: ThreadRow, b: ThreadRow): number =>
+  activityOf(b) - activityOf(a) || (idOf(a) < idOf(b) ? -1 : idOf(a) > idOf(b) ? 1 : 0);
+
+export function createRosterFeed<S>(options: {
+  /** The sidebar projection of core rows (`summariesOfThreadRows`, main/protocol/thread-rows.ts). */
+  summaries(rows: ThreadRow[]): S[];
+  /** `ctx.sessionsCatalog`: what `subscribeSessions` listeners hear. */
+  publish(rows: S[]): void;
+}) {
+  let held = new Map<string, ThreadRow>();
+  let known = false;
+  let reading: Promise<S[]> | null = null;
+  // Edges since the read began (or, before any read, since the feed attached): they outrank the listing.
+  const edges = new Map<string, ThreadRow | null>();
+  const project = (rows: Iterable<ThreadRow>): S[] => options.summaries([...rows].sort(inCatalogOrder));
+
+  const apply = (target: Map<string, ThreadRow>, id: string, row: ThreadRow | null): void => {
+    if (row) target.set(id, row);
+    else target.delete(id);
+  };
+
+  /** `client` is the caller's own (a phone call's request carries that call's claim). */
+  const list = (client: Pick<RosterClient, 'call'>): Promise<S[]> => {
+    if (reading) return reading;
+    const read = (async () => {
+      const listed = new Map<string, ThreadRow>();
+      for (let cursor: string | undefined; ; ) {
+        const page = (await client.call('thread/list', { limit: PAGE_LIMIT, ...(cursor ? { cursor } : {}) })) as {
+          data?: ThreadRow[];
+          nextCursor?: string;
+        };
+        for (const row of page.data ?? []) listed.set(idOf(row), row);
+        if (!page.nextCursor) break;
+        cursor = page.nextCursor;
+      }
+      for (const [id, row] of edges) apply(listed, id, row);
+      edges.clear();
+      held = listed;
+      known = true;
+      const rows = project(held.values());
+      options.publish(rows);
+      return rows;
+    })();
+    reading = read;
+    const done = (): void => {
+      if (reading === read) reading = null;
+    };
+    read.then(done, done);
+    return read;
+  };
+
+  const onEdge = (method: string, params: Record<string, unknown>): void => {
+    const thread = params.thread as ThreadRow | undefined;
+    const id = method === 'thread/deleted' ? String(params.threadId ?? '') : thread ? idOf(thread) : '';
+    if (!id) return;
+    const row = method === 'thread/deleted' ? null : (thread as ThreadRow);
+    if (reading || !known) {
+      edges.set(id, row);
+      return;
+    }
+    const was = held.get(id);
+    if (JSON.stringify(was) === JSON.stringify(row)) return; // CatalogChannel.publish skipped an unchanged roster
+    apply(held, id, row);
+    options.publish(project(held.values()));
+  };
+
+  return {
+    list,
+    /** Watches one connection's client; `listFor` is the read after its app feed is back (no caller's claim is involved). */
+    attach(client: RosterClient): () => void {
+      const offEvents = client.on((event) => {
+        const n = event.notification;
+        if (event.type === 'notification' && n && (n.method === 'thread/started' || n.method === 'thread/summary/updated' || n.method === 'thread/deleted')) {
+          onEdge(n.method, (n.params ?? {}) as Record<string, unknown>);
+        }
+      });
+      const offStore = client.store.subscribe((change) => {
+        // ppSnapshot names no feed (it is the app feed's own); a subscription change names it.
+        if (change.type === 'subscription' && change.feedId !== 'app') return;
+        if (change.type === 'subscription' && change.state === 'lost') known = false;
+        // The re-attachment of a reconnect, or the first snapshot of an attach: list again, as Node's baseline was.
+        else if ((change.type === 'subscription' && change.state === 'restored') || (change.type === 'appSnapshot' && !known)) {
+          void list(client).catch(() => undefined); // a connection that ends mid-read is read again by the next reconnect
+        }
+      });
+      return () => {
+        offEvents();
+        offStore();
+      };
+    },
+  };
+}
+
+// ── The adapter the phone's switch point loads ───────────────────────────────────────────────────────────────────────────────────────
+import type { PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
+
+const CHAT_CALLS = [
+  'abortSession', 'agentRoomAction', 'answerApprovalNotification', 'cancelQuotaResume', 'continueSessionInModel', 'deleteSession',
+  'getQuotaAutoResume', 'getTaskWorkspace', 'inheritSession', 'listProviderModels', 'markSessionRead', 'openAgentHome',
+  'prefetchSession', 'provideSecretInput', 'readCapabilities', 'readTranscriptHistory', 'readTranscriptItem', 'releaseShellJob',
+  'renameSession', 'resetAgentHome', 'resolveToolApprovalForSession', 'scheduleQuotaResume', 'searchSessionContent', 'setModelRoute',
+  'setQuotaAutoResume', 'setSessionArchived', 'setSessionFavorite', 'setSessionProject', 'startProject', 'startProjectTask',
+  'startTask', 'stopShellJob', 'submitFeedback', 'submitNewTask', 'submitToSession', 'viewerDevice', 'setFast',
+] as const satisfies ReadonlyArray<keyof ChatApi>;
+
+/** `sharedFor` and the api are made PER CALL from `host.client()`: that client carries this call's transmission claim
+ *  (phone-send-scope.ts), so a request written through anything built from it is claimed; one captured at start would not be. */
+export function createChatAdapter(options: {
+  sharedFor(client: ChatClient): ChatShared;
+  approvalNotifications?: ChatApprovalNotifications;
+  roster: { summaries(rows: ThreadRow[]): unknown[] };
+}): PhoneProtocolAdapter {
+  let feed: ReturnType<typeof createRosterFeed> | undefined;
+  const feedFor = (host: PhoneProtocolHost) =>
+    (feed ??= createRosterFeed({ summaries: options.roster.summaries, publish: (rows) => host.ctx.sessionsCatalog.publish(rows as never) }));
+  const api = (host: PhoneProtocolHost) => {
+    const client = host.client() as unknown as ChatClient;
+    return createChatApi(client, options.sharedFor(client), { approvalNotifications: options.approvalNotifications });
+  };
+  const calls: Record<string, (params: unknown[], host: PhoneProtocolHost) => unknown> = {};
+  for (const name of CHAT_CALLS) {
+    calls[name] = (params, host) => (api(host)[name] as (...args: unknown[]) => unknown)(...params);
+  }
+  calls.listSessions = (_params, host) => feedFor(host).list(host.client() as unknown as RosterClient);
+  return {
+    group: 'chat',
+    calls,
+    install(host) {
+      let off: (() => void) | undefined;
+      let stopped = false;
+      void host.ctx.phone.start().then(() => {
+        if (!stopped) off = feedFor(host).attach(host.client() as unknown as RosterClient);
+      });
+      return () => {
+        stopped = true;
+        off?.();
+      };
+    },
+  };
+}
