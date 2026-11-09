@@ -229,10 +229,18 @@ struct RecordingHome {
     inner: Arc<ProcessHeldHome>,
     rows: Mutex<Vec<Value>>,
     ids: AtomicU64,
-    /// The scenario's home thread never persists a row: the delivery is recorded and never completes.
-    stall: AtomicBool,
+    /// How the scenario's home thread is slow (the recorder's `stallDelivery`): `all` and `pending` never persist the rows they name,
+    /// `pending-until-release` persists a pending row once the script releases it.
+    stall: Mutex<String>,
     /// One permit per delivery recorded: the replay waits on the delivery as the recorder does.
     delivered: tokio::sync::Semaphore,
+    /// The rows persisted, in the order their deliveries completed.
+    persisted: Mutex<Vec<Value>>,
+    /// Deliveries waiting for the script's `release`, and the permits that release them.
+    waiting_release: std::sync::atomic::AtomicUsize,
+    release: tokio::sync::Semaphore,
+    /// One permit per released delivery that completed.
+    completed: tokio::sync::Semaphore,
 }
 
 #[async_trait]
@@ -246,8 +254,19 @@ impl HeldHome for RecordingHome {
     async fn deliver(&self, agent_id: &str, held: &HeldRequest) -> Result<(), String> {
         self.rows.lock().unwrap().push(json!({ "agentId": agent_id, "held": serde_json::to_value(held).map_err(|e| e.to_string())? }));
         self.delivered.add_permits(1);
-        if self.stall.load(Ordering::SeqCst) {
+        let stall = self.stall.lock().unwrap().clone();
+        let pending = held.status == mixdog_protocol::HeldRequestStatus::Pending;
+        let released = stall == "pending-until-release" && pending;
+        if stall == "all" || (pending && stall == "pending") {
             std::future::pending::<()>().await;
+        }
+        if released {
+            self.waiting_release.fetch_add(1, Ordering::SeqCst);
+            self.release.acquire().await.unwrap().forget();
+        }
+        self.persisted.lock().unwrap().push(json!({ "agentId": agent_id, "id": held.id, "status": serde_json::to_value(held.status).map_err(|e| e.to_string())? }));
+        if released {
+            self.completed.add_permits(1);
         }
         Ok(())
     }
@@ -334,6 +353,12 @@ struct Scene {
 
 impl Scene {
     fn new(now: i64) -> Self {
+        let ui_attached = Arc::new(AtomicBool::new(false));
+        Self::over(now, ui_attached.clone(), Arc::new(Surfaces(ui_attached)))
+    }
+
+    /// The scene over `surfaces`: the answer of "is an approval UI attached to this thread" (`ui_attached` is only the script's flag for `Surfaces`).
+    fn over(now: i64, ui_attached: Arc<AtomicBool>, surfaces: Arc<dyn ApprovalSurfaces>) -> Self {
         let tokens = mixdog_rt::testing::tokens();
         let dir = tempfile::tempdir().expect("a data directory");
         let now = Arc::new(AtomicI64::new(now));
@@ -343,7 +368,6 @@ impl Scene {
         };
         let grants = FileGrantStore::with_clock(dir.path().join("human-gate"), tokens.interactive_io, tokens.durability_io, clock.clone());
         let runs = UnattendedRunRegistry::new(Arc::new(NoStamps));
-        let ui_attached = Arc::new(AtomicBool::new(false));
         let (tx, waiting) = mpsc::unbounded_channel();
         let pushes = Arc::new(Mutex::new(Vec::new()));
         let notifier: crate::held_home_draft::HeldNotifier = {
@@ -353,8 +377,8 @@ impl Scene {
                 let _ = tx.send(push.clone());
             })
         };
-        let inner = ProcessHeldHome::new(runs.clone(), Arc::new(Surfaces(ui_attached.clone())), tokens.interactive_io, dir.path().to_owned(), notifier, grants.clone());
-        let home = Arc::new(RecordingHome { inner, rows: Mutex::new(Vec::new()), ids: AtomicU64::new(0), stall: AtomicBool::new(false), delivered: tokio::sync::Semaphore::new(0) });
+        let inner = ProcessHeldHome::new(runs.clone(), surfaces, tokens.interactive_io, dir.path().to_owned(), notifier, grants.clone());
+        let home = Arc::new(RecordingHome { inner, rows: Mutex::new(Vec::new()), ids: AtomicU64::new(0), stall: Mutex::default(), delivered: tokio::sync::Semaphore::new(0), persisted: Mutex::default(), waiting_release: Default::default(), release: tokio::sync::Semaphore::new(0), completed: tokio::sync::Semaphore::new(0) });
         let held = HeldRequests::new(home.clone(), clock);
         let hook = Arc::new(Mutex::new(None));
         let policy = Arc::new(ToolPolicy::new(grants.clone(), Arc::new(Connectors)).with_hook(Arc::new(Hook(hook.clone()))));
@@ -403,6 +427,7 @@ fn push_json(push: &HeldPush) -> Value {
 /// What the scenario produced since the last step: the rows posted, the pushes, the asks the card saw.
 struct Seen {
     rows: usize,
+    persisted: usize,
     pushes: usize,
     asks: usize,
 }
@@ -420,12 +445,14 @@ impl Seen {
                 json!({ "name": field("name"), "kind": field("kind"), "reason": field("reason"), "remember": field("remember") })
             })
             .collect();
+        let persisted = scene.home.persisted.lock().unwrap();
         let out = json!({
             "deliveries": rows[self.rows..],
+            "persisted": persisted[self.persisted..],
             "pushes": pushes[self.pushes..].iter().map(push_json).collect::<Vec<_>>(),
             "uiAsks": ui,
         });
-        (self.rows, self.pushes, self.asks) = (rows.len(), pushes.len(), asked.len());
+        (self.rows, self.persisted, self.pushes, self.asks) = (rows.len(), persisted.len(), pushes.len(), asked.len());
         out
     }
 }
@@ -437,10 +464,10 @@ fn merged(mut step: Value, seen: Value) -> Value {
 
 async fn replay(scenario: &Value) -> Value {
     let mut scene = Scene::new(scenario["now"].as_i64().expect("now"));
-    scene.home.stall.store(scenario["stallDelivery"] == true, Ordering::SeqCst);
+    *scene.home.stall.lock().unwrap() = scenario["stallDelivery"].as_str().unwrap_or_default().to_owned();
     let sessions = serde_json::from_str::<Value>(GOLDEN).unwrap()["sessions"].clone();
     let session_of = |name: &Value| sessions[name.as_str().unwrap()].as_str().expect("a recorded session").to_owned();
-    let mut seen = Seen { rows: 0, pushes: 0, asks: 0 };
+    let mut seen = Seen { rows: 0, persisted: 0, pushes: 0, asks: 0 };
     let mut marks = Vec::new();
     let mut asks: std::collections::HashMap<String, (tokio::task::JoinHandle<Value>, String)> = std::collections::HashMap::new();
     let mut trace = Vec::new();
@@ -547,18 +574,31 @@ async fn replay(scenario: &Value) -> Value {
             "advance" => {
                 let ms = op["ms"].as_u64().unwrap();
                 scene.now.fetch_add(ms as i64, Ordering::SeqCst);
-                // Paused time: a timer of the held layer due within `ms` would fire inside `advance`. Node's `fired` counts timer callbacks; here the
-                // timer's own callback is a held call it answers, and a probe timer due at the same instant is awaited so that every timer
-                // due by then, and what each woke, has run (all are woken together by the one `advance`, before any task polls).
-                let probe = tokio::spawn(tokio::time::sleep(Duration::from_millis(ms)));
+                // What the elapsed time did to the requests is the next `facts` step's recorded state; the timers are counted at the end.
                 tokio::time::advance(Duration::from_millis(ms)).await;
-                probe.await.expect("the probe timer fires");
-                let fired = asks.values().filter(|(task, _)| task.is_finished()).count();
-                trace.push(json!({ "op": "advance", "ms": ms, "now": scene.now.load(Ordering::SeqCst), "fired": fired }));
+                // The paused clock only moves on when every task is idle, so the probe returns after everything the elapsed time woke has run to its next wait. The probe is the harness's own timer.
+                tokio::time::sleep(Duration::from_millis(1)).await;
+                trace.push(json!({ "op": "advance", "ms": ms, "now": scene.now.load(Ordering::SeqCst) }));
+            }
+            "release" => {
+                let releasing = scene.home.waiting_release.swap(0, Ordering::SeqCst);
+                scene.home.release.add_permits(releasing);
+                scene.home.completed.acquire_many(releasing as u32).await.unwrap().forget();
+                let seen_now = seen.take(&scene);
+                trace.push(merged(json!({ "op": "release", "released": releasing }), seen_now));
             }
             other => panic!("unknown op {other}"),
         }
     }
+    // Tokio exposes no count of registered timers, so the held layer's timers are observed by what they would do: the runtime goes idle
+    // with the requests still waiting and the paused clock jumps to the earliest timer there is, so a timer of the layer (an expiry)
+    // would run before this far-off harness sleep (which is not counted) and answer or drop a request. That change in the requests is
+    // counted here as `timer_effects`; Node's own count of registered timers is compared to it below, and the recorded state of the
+    // asks and the pending list is compared separately, step by step, in the trace.
+    let (finished, waiting) = (|| asks.values().filter(|(task, _)| task.is_finished()).count(), || scene.held.pending().len());
+    let (finished_before, waiting_before) = (finished(), waiting());
+    tokio::time::sleep(Duration::from_secs(100 * 365 * 86_400)).await;
+    let timer_effects = (finished() - finished_before) + waiting_before.abs_diff(waiting());
     drop(marks);
     let audit: Vec<Value> = scene
         .grants
@@ -579,17 +619,18 @@ async fn replay(scenario: &Value) -> Value {
         .into_iter()
         .map(|g| json!({ "id": g.id, "agentId": g.agent_id, "action": g.action.render(), "mode": g.mode.as_str(), "device": g.device, "at": g.at_ms }))
         .collect();
-    json!({ "trace": trace, "audit": audit, "grants": grants })
+    json!({ "trace": trace, "audit": audit, "grants": grants, "timerEffects": timer_effects })
 }
 
 #[tokio::test(start_paused = true)]
 async fn every_run_node_holds_is_held_and_every_run_it_does_not_hold_is_not() {
     let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
     let scenarios = golden["scenarios"].as_array().expect("scenarios");
-    assert_eq!(scenarios.len(), 15, "the recorded scenario list");
+    assert_eq!(scenarios.len(), 17, "the recorded scenario list");
     for scenario in scenarios {
-        assert_eq!(scenario["timers"]["registered"], 0, "Node's gate registered no timer: {}", scenario["name"]);
         let got = replay(scenario).await;
+        assert_eq!(scenario["timers"]["registered"], 0, "Node registers no timer: {}", scenario["name"]);
+        assert_eq!(got["timerEffects"], 0, "the held layer's timers did nothing to the requests: {}", scenario["name"]);
         let want = json!({ "trace": scenario["trace"], "audit": scenario["audit"], "grants": scenario["grants"] });
         for part in ["audit", "grants"] {
             assert_eq!(got[part], want[part], "{} {part}", scenario["name"]);
@@ -599,5 +640,159 @@ async fn every_run_node_holds_is_held_and_every_run_it_does_not_hold_is_not() {
             assert_eq!(g, w, "{} step {index}", scenario["name"]);
         }
         assert_eq!(got_trace.len(), want_trace.len(), "{}", scenario["name"]);
+    }
+}
+
+/// A connection of the real app server over the mock core, as the transport would hand it in.
+struct Client {
+    handle: mixdog_app_server::ConnectionHandle,
+    wire: Arc<mixdog_core_api::mock::MockConnection>,
+}
+
+impl Client {
+    fn request(&self, id: i64, method: &str, params: Value) {
+        let message = serde_json::from_value(json!({ "id": id, "method": method, "params": params })).expect("a request");
+        let _ = self.handle.on_message(message);
+    }
+
+    /// Waits until the response of request `id` is written; it must be a result.
+    async fn response(&self, id: i64) {
+        for _ in 0..5_000 {
+            for written in self.wire.drain() {
+                let frame: Value = serde_json::from_slice(&written.frame).unwrap_or(Value::Null);
+                if frame["id"] == json!(id) {
+                    assert!(frame.get("result").is_some(), "request {id} failed: {frame}");
+                    return;
+                }
+            }
+            tokio::task::yield_now().await;
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        panic!("no response to {id}");
+    }
+}
+
+/// What a client of the case is: its kind, whether it declared `approvalsInbox`, and the threads it watches (`thread/resume`).
+struct Attendee {
+    kind: &'static str,
+    inbox: bool,
+    watches: &'static [&'static str],
+}
+
+/// One way the member's session is run, and what a human can see of it.
+struct Surface {
+    name: &'static str,
+    /// The thread's header, or none when the thread is not loaded.
+    header: Option<Value>,
+    attendees: &'static [Attendee],
+    /// Whether the ask is shown on the surface's own card (an approval UI is attached) rather than held.
+    attended: bool,
+}
+
+const DESKTOP_ON_MEMBER: Attendee = Attendee { kind: "desktop", inbox: false, watches: &["MEMBER"] };
+
+/// The approval predicate over the real pieces the composition builds it from (the session directory's header and lineage, the app
+/// server's connections and their subscriptions: `ThreadApprovalSurfaces` over `Outgoing`), driven through the composed gate: a room
+/// member's ask is held exactly when `Surface::attended` says no card can show it. Each case is a way Node runs, or does not run, a
+/// turn with a `toolApprovalHook` (`ask-turn-execute.mjs:284-288`: the hook is set by the client turn that can answer):
+///  - a desktop, a phone or a terminal client shows the card of the thread it watches: attended;
+///  - an inbox client (`approvalsInbox`) answers every thread: attended;
+///  - a client that is connected but not watching the thread, one watching another thread, no client, and a thread that is not loaded
+///    have no card to show: held;
+///  - a headless session (`approvalMode: "implicit"`, `headless-exec.mjs:422`) never has a hook, whoever watches it: held.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_member_is_held_exactly_when_no_client_can_show_its_card() {
+    use mixdog_core_api::ids::ConnectionId;
+    use mixdog_core_api::mock::MockConnection;
+    use mixdog_core_api::mock::MockCore;
+    use mixdog_core_api::mock::MockLimits;
+
+    let member = serde_json::from_str::<Value>(GOLDEN).unwrap()["sessions"]["room"].as_str().expect("the recorded room member session").to_owned();
+    let cases = [
+        Surface { name: "a desktop watching the member's thread", header: Some(json!({})), attendees: &[DESKTOP_ON_MEMBER], attended: true },
+        Surface { name: "a phone watching the member's thread", header: Some(json!({})), attendees: &[Attendee { kind: "phone", inbox: false, watches: &["MEMBER"] }], attended: true },
+        Surface { name: "a terminal watching the member's thread", header: Some(json!({})), attendees: &[Attendee { kind: "tui", inbox: false, watches: &["MEMBER"] }], attended: true },
+        Surface { name: "an inbox client watching nothing", header: Some(json!({})), attendees: &[Attendee { kind: "phone", inbox: true, watches: &[] }], attended: true },
+        Surface { name: "a client connected and watching nothing", header: Some(json!({})), attendees: &[Attendee { kind: "desktop", inbox: false, watches: &[] }], attended: false },
+        Surface { name: "a client watching another thread", header: Some(json!({})), attendees: &[Attendee { kind: "desktop", inbox: false, watches: &["OTHER"] }], attended: false },
+        Surface { name: "no client at all", header: Some(json!({})), attendees: &[], attended: false },
+        Surface { name: "a thread that is not loaded", header: None, attendees: &[DESKTOP_ON_MEMBER], attended: false },
+        Surface { name: "a headless session with a desktop watching it", header: Some(json!({ "approvalMode": "implicit" })), attendees: &[DESKTOP_ON_MEMBER], attended: false },
+        Surface { name: "a headless session with an inbox client", header: Some(json!({ "approvalMode": "implicit" })), attendees: &[Attendee { kind: "phone", inbox: true, watches: &[] }], attended: false },
+    ];
+    for case in cases {
+        let tokens = mixdog_rt::testing::tokens();
+        let _ = tokens;
+        let rig = mixdog_core_session::session::testing::Rig::new();
+        let directory = Arc::new(mixdog_core_session::session::SessionDirectory::new(rig.deps()));
+        if let Some(header) = &case.header {
+            directory.create_with_id(ThreadId::from(member.as_str()), header.as_object().cloned().unwrap(), json!({})).await.expect("the thread");
+        }
+        let core = Arc::new(MockCore::new(&[], MockLimits::default()));
+        let outgoing = mixdog_app_server::Outgoing::new();
+        let server = mixdog_app_server::AppServer::new(
+            core.clone(),
+            outgoing.clone(),
+            Arc::new(|_| Some(mixdog_protocol::Origin::Local)),
+            crate::server::server_config(mixdog_app_protocol::limits::Limits::default(), Default::default()),
+        )
+        .expect("the default limits are valid");
+        for id in [member.as_str(), "sess_other"] {
+            let thread = core.directory().insert(ThreadId::from(id));
+            let feed: Arc<dyn mixdog_core_api::FeedSource> = thread.feed().clone();
+            thread.set_handler(Arc::new(move |_| {
+                Ok(mixdog_core_api::Reply::Subscribe(mixdog_core_api::Subscribe {
+                    result: json!({}),
+                    feed: feed.clone(),
+                    window: mixdog_core_api::feed::Window::LastItems(10),
+                    resume_from: None,
+                }))
+            }));
+        }
+        let mut clients = Vec::new();
+        for (index, attendee) in case.attendees.iter().enumerate() {
+            let id = index as u64 + 1;
+            let wire = Arc::new(MockConnection::new(ConnectionId(id), MockLimits::default()));
+            let client = Client { handle: server.open(ConnectionId(id), wire.clone()), wire };
+            client.request(
+                0,
+                "initialize",
+                json!({
+                    "clientInfo": { "name": "test", "version": env!("CARGO_PKG_VERSION"), "kind": attendee.kind },
+                    "capabilities": { "approvalsInbox": attendee.inbox },
+                }),
+            );
+            client.response(0).await;
+            for (n, watched) in attendee.watches.iter().enumerate() {
+                let thread = if *watched == "MEMBER" { member.as_str() } else { "sess_other" };
+                client.request(n as i64 + 1, "thread/resume", json!({ "threadId": thread, "window": { "lastItems": 10 } }));
+                client.response(n as i64 + 1).await;
+            }
+            clients.push(client);
+        }
+        let surfaces: Arc<dyn ApprovalSurfaces> = Arc::new(mixdog_core_session::session::approval_surfaces::ThreadApprovalSurfaces::new(directory.clone(), outgoing.clone()));
+        let mut scene = Scene::over(1_800_000_000_000, Arc::new(AtomicBool::new(false)), surfaces);
+        // The surface's card (the thread's own gate) approves; a held ask is never shown on it.
+        *scene.card.answer.lock().unwrap() = Some(ApprovalResolution::Decided {
+            decision: ToolApprovalDecision { approved: true, reason: None, answers: None, reply: None, response: Some(HumanGateResponse::Approve), edited_args: None, remember: None, scope: None },
+            device: "Pixel".into(),
+            connection_kind: ConnectionKind::Desktop,
+            at: 0,
+        });
+        *scene.hook.lock().unwrap() = Some(HookDecision { action: HookAction::Ask, reason: Some("needs approval".into()), name: None, args: None });
+        let gate = scene.gate(&member);
+        let call = GateCall::new("shell".to_owned(), json!({ "command": "echo hi" }));
+        let mut task = tokio::spawn(async move { present(&call, gate.check_call("call_a", &call).await) });
+        let held = tokio::select! {
+            settled = &mut task => { settled.expect("the call settles"); false }
+            push = scene.waiting.recv() => { push.expect("a push"); true }
+        };
+        assert_eq!(held, !case.attended, "{}: held", case.name);
+        assert_eq!(scene.card.asked.lock().unwrap().len(), usize::from(case.attended), "{}: asks on the card", case.name);
+        assert_eq!(scene.held.pending().len(), usize::from(!case.attended), "{}: pending", case.name);
+        if held {
+            task.abort();
+        }
+        drop(clients);
     }
 }

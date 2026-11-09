@@ -82,6 +82,8 @@ windows-sys = { workspace = true, features = [
 # The mock seams and the inline lane backend are test fixtures only; the daemon runs on `mixdog_rt::exec`.
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
+# The real session directory (`held_runs_tests`: the approval predicate over real threads and connections).
+mixdog-core-session = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util", "net"] }
 # The scripted relay of `domain_seams/remote/e2e.rs` (shared with mixdog-remote's integration tests).
