@@ -197,11 +197,15 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
       this.receiver = new Transport.RemoteTransportReceiver();
       this.assembler = new Transport.RemoteTransportMessageAssembler(new Transport.RemoteTransportAssemblyPool());
       this.fragment = 0;
+      /** Records the PC has sealed on this leg, and the requests it was asked (each is answered with one). */
+      this.sent = 0;
+      this.requests = [];
     }
     async send(payload) {
       for (const part of Transport.splitRemoteTransportPayload(payload, ++this.fragment)) {
         const box = await this.leg.server.encryptBinary(part);
         this.sender.push(box);
+        this.sent += 1;
         for (const raw of [Transport.encodeRemoteTransportRecord(box)].flat(Infinity)) this.leg.ws.onmessage({ data: raw.slice().buffer });
       }
     }
@@ -215,8 +219,7 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
       if (message.kind === 'control') {
         const control = Transport.readRemoteTransportControl(await leg.server.openControl(message.box, E2EE.RELAY_E2EE_RELAY_LANE), 'client');
         if (!control) return;
-        // Acks answer however many records the two dialects make the PC send; every other control is the phone's own timing.
-        if (control.t !== 'ack') log({ ev: 'xcontrol', kind: control.t });
+        log({ ev: 'xcontrol', kind: control.t === 'ack' ? `ack(through=${control.through},sent=${this.sent})` : control.t });
         if (control.t === 'ping') await this.control({ v: 1, t: 'pong', id: control.id });
         return;
       }
@@ -226,6 +229,7 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
         this.receiver.commit(next.sequence, 0);
         const result = this.assembler.accept(value, 0);
         if (result.state === 'complete') {
+          if (result.payload.id !== undefined) this.requests.push(result.payload.method);
           leg.dialect.onFrame(leg, result.payload, log);
           log({ ev: 'core' });
         }
@@ -373,6 +377,15 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
     core() {
       const leg = [...legs.values()].at(-1);
       return leg ? leg.core : null;
+    },
+    /** Records the PC sealed on the newest leg's transport session (0 off the transport). */
+    pcRecords() {
+      const leg = [...legs.values()].at(-1);
+      return leg?.desk ? leg.desk.sent : 0;
+    },
+    pcRequests() {
+      const leg = [...legs.values()].at(-1);
+      return leg?.desk ? [...leg.desk.requests] : [];
     },
     pongTo: (ws) => legs.get(ws).clear({ pong: 1 }),
     stray: (ws) => legs.get(ws).toPhone(dialect.stray),

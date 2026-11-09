@@ -20,6 +20,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -40,6 +42,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [
@@ -68,6 +72,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [
@@ -107,6 +113,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -133,6 +141,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": null
       },
       {
@@ -151,6 +161,8 @@
         "pairingInvalid": [],
         "reconnected": 1,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -177,6 +189,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": null
       }
     ],
@@ -199,6 +213,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -238,6 +254,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": null,
         "maxRedialDelayMs": 60000,
         "redialDelaysMs": [
@@ -277,6 +295,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -302,6 +322,8 @@
         ],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": null
       }
     ],
@@ -323,6 +345,8 @@
         ],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": null
       }
     ],
@@ -345,6 +369,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -363,6 +389,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -383,6 +411,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -403,6 +433,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -421,6 +453,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -448,6 +482,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -477,6 +513,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -495,6 +533,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": false,
           "screen": [],
@@ -515,6 +555,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -533,6 +575,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -560,6 +604,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -589,6 +635,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -615,6 +663,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -644,6 +694,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -662,6 +714,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": false,
           "screen": [],
@@ -680,6 +734,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": false,
           "screen": [],
@@ -706,6 +762,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": false,
           "screen": [],
@@ -724,6 +782,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": false,
           "screen": [],
@@ -751,6 +811,8 @@
         "pairingInvalid": [],
         "reconnected": 1,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -780,6 +842,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -807,6 +871,8 @@
         "calls": [
           "interrupted"
         ],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -825,6 +891,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -854,6 +922,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -878,6 +948,8 @@
         "calls": [
           "interrupted"
         ],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -903,6 +975,8 @@
         "pairingInvalid": [],
         "reconnected": 1,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -921,6 +995,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -950,6 +1026,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -983,6 +1061,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": null,
         "maxRedialDelayMs": 60000,
         "redialDelaysMs": [
@@ -1011,6 +1091,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": null
       },
       {
@@ -1029,6 +1111,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": null,
         "maxRedialDelayMs": 1000,
         "redialDelaysMs": [
@@ -1057,6 +1141,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1088,6 +1174,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": null,
         "maxRedialDelayMs": 16000,
         "redialDelaysMs": [
@@ -1119,6 +1207,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": null,
         "maxRedialDelayMs": 32000,
         "redialDelaysMs": [
@@ -1150,6 +1240,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1175,6 +1267,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1204,6 +1298,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1233,6 +1329,8 @@
         "pairingInvalid": [],
         "reconnected": 1,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1262,6 +1360,8 @@
         "pairingInvalid": [],
         "reconnected": 1,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1291,6 +1391,8 @@
         "pairingInvalid": [],
         "reconnected": 1,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1317,6 +1419,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": null
       }
     ],
@@ -1339,6 +1443,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1365,6 +1471,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": false,
           "screen": [],
@@ -1383,6 +1491,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": false,
           "screen": [],
@@ -1407,6 +1517,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": false,
           "screen": [],
@@ -1432,6 +1544,8 @@
         "pairingInvalid": [],
         "reconnected": 1,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1461,6 +1575,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1481,6 +1597,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1506,6 +1624,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1524,6 +1644,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1553,6 +1675,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1583,6 +1707,8 @@
         "calls": [
           "interrupted"
         ],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1608,6 +1734,8 @@
         "pairingInvalid": [],
         "reconnected": 1,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1637,6 +1765,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1663,6 +1793,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": null
       },
       {
@@ -1681,6 +1813,8 @@
         "pairingInvalid": [],
         "reconnected": 1,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1710,6 +1844,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1736,6 +1872,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1765,6 +1903,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1794,6 +1934,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": null
       },
       {
@@ -1812,6 +1954,8 @@
         "pairingInvalid": [],
         "reconnected": 1,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1838,6 +1982,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": null,
           "screen": [],
@@ -1863,6 +2009,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": null,
           "screen": [],
@@ -1892,6 +2040,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1916,6 +2066,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1934,6 +2086,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1958,6 +2112,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -1987,6 +2143,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -2011,6 +2169,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -2035,6 +2195,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -2053,6 +2215,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -2081,6 +2245,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -2106,6 +2272,8 @@
         "pairingInvalid": [],
         "reconnected": 1,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
@@ -2130,11 +2298,26 @@
         ],
         "offline": false,
         "wire": [
-          "socket@0"
+          "socket@0",
+          "x:ack(through=2,sent=5)@0",
+          "x:ack(through=4,sent=6)@0",
+          "x:ack(through=6,sent=6)@0",
+          "x:ack(through=8,sent=9)@0"
         ],
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 9,
+        "pcRequests": [
+          "readSettings",
+          "readHostDisplayPreferences",
+          "readActivityRailPins",
+          "viewerDevice",
+          "synchronizeViews",
+          "getSnapshot",
+          "listProjects",
+          "setRemoteLanes"
+        ],
         "core": {
           "foreground": true,
           "screen": [],
@@ -2153,6 +2336,17 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 9,
+        "pcRequests": [
+          "readSettings",
+          "readHostDisplayPreferences",
+          "readActivityRailPins",
+          "viewerDevice",
+          "synchronizeViews",
+          "getSnapshot",
+          "listProjects",
+          "setRemoteLanes"
+        ],
         "core": {
           "foreground": true,
           "screen": [
@@ -2170,6 +2364,7 @@
         "banner": [],
         "offline": false,
         "wire": [
+          "x:ack(through=9,sent=9)@25",
           "x:ping@1025",
           "x:ping@1100",
           "x:ping@1225",
@@ -2181,6 +2376,17 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 9,
+        "pcRequests": [
+          "readSettings",
+          "readHostDisplayPreferences",
+          "readActivityRailPins",
+          "viewerDevice",
+          "synchronizeViews",
+          "getSnapshot",
+          "listProjects",
+          "setRemoteLanes"
+        ],
         "core": {
           "foreground": true,
           "screen": [
@@ -2197,10 +2403,23 @@
         "states": [],
         "banner": [],
         "offline": false,
-        "wire": [],
+        "wire": [
+          "x:ack(through=11,sent=11)@0"
+        ],
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 12,
+        "pcRequests": [
+          "readSettings",
+          "readHostDisplayPreferences",
+          "readActivityRailPins",
+          "viewerDevice",
+          "synchronizeViews",
+          "getSnapshot",
+          "listProjects",
+          "setRemoteLanes"
+        ],
         "core": {
           "foreground": false,
           "screen": [],
@@ -2224,11 +2443,26 @@
           "ping@0",
           "x:ping@0",
           "resync@0",
+          "x:ack(through=13,sent=13)@0",
+          "x:ack(through=14,sent=14)@25",
           "x:ping@3350"
         ],
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 14,
+        "pcRequests": [
+          "readSettings",
+          "readHostDisplayPreferences",
+          "readActivityRailPins",
+          "viewerDevice",
+          "synchronizeViews",
+          "getSnapshot",
+          "listProjects",
+          "setRemoteLanes",
+          "synchronizeViews",
+          "setRemoteLanes"
+        ],
         "core": {
           "foreground": true,
           "screen": [
@@ -2255,11 +2489,26 @@
         ],
         "offline": false,
         "wire": [
-          "socket@0"
+          "socket@0",
+          "x:ack(through=2,sent=5)@0",
+          "x:ack(through=4,sent=6)@0",
+          "x:ack(through=6,sent=6)@0",
+          "x:ack(through=8,sent=9)@0"
         ],
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 9,
+        "pcRequests": [
+          "readSettings",
+          "readHostDisplayPreferences",
+          "readActivityRailPins",
+          "viewerDevice",
+          "synchronizeViews",
+          "getSnapshot",
+          "listProjects",
+          "setRemoteLanes"
+        ],
         "core": {
           "foreground": true,
           "screen": [],
@@ -2286,6 +2535,17 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 9,
+        "pcRequests": [
+          "readSettings",
+          "readHostDisplayPreferences",
+          "readActivityRailPins",
+          "viewerDevice",
+          "synchronizeViews",
+          "getSnapshot",
+          "listProjects",
+          "setRemoteLanes"
+        ],
         "core": {
           "foreground": false,
           "screen": [],
@@ -2308,11 +2568,17 @@
         ],
         "offline": false,
         "wire": [
-          "socket@0"
+          "socket@0",
+          "x:ack(through=2,sent=2)@0"
         ],
         "pairingInvalid": [],
         "reconnected": 1,
         "calls": [],
+        "pcRecords": 3,
+        "pcRequests": [
+          "synchronizeViews",
+          "setRemoteLanes"
+        ],
         "core": {
           "foreground": true,
           "screen": [],
@@ -2341,6 +2607,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": null,
           "screen": [],
@@ -2367,6 +2635,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": null
       },
       {
@@ -2385,6 +2655,8 @@
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
+        "pcRecords": 0,
+        "pcRequests": [],
         "core": {
           "foreground": true,
           "screen": [],
