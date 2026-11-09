@@ -2596,13 +2596,13 @@
           "socket@0"
         ],
         "requests": [
-          "getSnapshot@0",
-          "listProjects@0",
-          "readActivityRailPins@0",
-          "readHostDisplayPreferences@0",
           "readSettings@0",
+          "readHostDisplayPreferences@0",
+          "readActivityRailPins@0",
+          "viewerDevice@0",
           "synchronizeViews@0",
-          "viewerDevice@0"
+          "getSnapshot@0",
+          "listProjects@0"
         ],
         "settled": [],
         "pairingInvalid": [],
@@ -2719,13 +2719,13 @@
           "socket@0"
         ],
         "requests": [
-          "getSnapshot@0",
-          "listProjects@0",
-          "readActivityRailPins@0",
-          "readHostDisplayPreferences@0",
           "readSettings@0",
+          "readHostDisplayPreferences@0",
+          "readActivityRailPins@0",
+          "viewerDevice@0",
           "synchronizeViews@0",
-          "viewerDevice@0"
+          "getSnapshot@0",
+          "listProjects@0"
         ],
         "settled": [],
         "pairingInvalid": [],
@@ -2888,13 +2888,13 @@
           "socket@0"
         ],
         "requests": [
-          "getSnapshot@0",
-          "listProjects@0",
-          "readActivityRailPins@0",
-          "readHostDisplayPreferences@0",
           "readSettings@0",
+          "readHostDisplayPreferences@0",
+          "readActivityRailPins@0",
+          "viewerDevice@0",
           "synchronizeViews@0",
-          "viewerDevice@0"
+          "getSnapshot@0",
+          "listProjects@0"
         ],
         "settled": [],
         "pairingInvalid": [],
@@ -2971,8 +2971,8 @@
         "offline": false,
         "wire": [],
         "requests": [
-          "readSettings@0",
-          "synchronizeViews@0"
+          "synchronizeViews@0",
+          "readSettings@0"
         ],
         "settled": [
           "while-down:ok={\"settings\":\"S\"}@0"
@@ -3036,13 +3036,13 @@
           "socket@0"
         ],
         "requests": [
-          "getSnapshot@0",
-          "listProjects@0",
-          "readActivityRailPins@0",
-          "readHostDisplayPreferences@0",
           "readSettings@0",
+          "readHostDisplayPreferences@0",
+          "readActivityRailPins@0",
+          "viewerDevice@0",
           "synchronizeViews@0",
-          "viewerDevice@0"
+          "getSnapshot@0",
+          "listProjects@0"
         ],
         "settled": [],
         "pairingInvalid": [],
@@ -3210,13 +3210,13 @@
           "socket@0"
         ],
         "requests": [
-          "getSnapshot@0",
-          "listProjects@0",
-          "readActivityRailPins@0",
-          "readHostDisplayPreferences@0",
           "readSettings@0",
+          "readHostDisplayPreferences@0",
+          "readActivityRailPins@0",
+          "viewerDevice@0",
           "synchronizeViews@0",
-          "viewerDevice@0"
+          "getSnapshot@0",
+          "listProjects@0"
         ],
         "settled": [],
         "pairingInvalid": [],
@@ -3397,13 +3397,13 @@
           "socket@0"
         ],
         "requests": [
-          "getSnapshot@0",
-          "listProjects@0",
-          "readActivityRailPins@0",
-          "readHostDisplayPreferences@0",
           "readSettings@0",
+          "readHostDisplayPreferences@0",
+          "readActivityRailPins@0",
+          "viewerDevice@0",
           "synchronizeViews@0",
-          "viewerDevice@0"
+          "getSnapshot@0",
+          "listProjects@0"
         ],
         "settled": [],
         "pairingInvalid": [],
@@ -3485,8 +3485,8 @@
           "readSettings@0"
         ],
         "settled": [
-          "gated:ok={\"settings\":\"S\"}@0",
-          "view:ok=true@0"
+          "view:ok=true@0",
+          "gated:ok={\"settings\":\"S\"}@0"
         ],
         "pairingInvalid": [],
         "reconnected": 0,
@@ -3523,13 +3523,13 @@
           "socket@0"
         ],
         "requests": [
-          "getSnapshot@0",
-          "listProjects@0",
-          "readActivityRailPins@0",
-          "readHostDisplayPreferences@0",
           "readSettings@0",
+          "readHostDisplayPreferences@0",
+          "readActivityRailPins@0",
+          "viewerDevice@0",
           "synchronizeViews@0",
-          "viewerDevice@0"
+          "getSnapshot@0",
+          "listProjects@0"
         ],
         "settled": [],
         "pairingInvalid": [],
@@ -3586,8 +3586,8 @@
           "synchronizeViews@0"
         ],
         "settled": [
-          "gated:err(MIXDOG_REMOTE_CONNECTION_INTERRUPTED)@1000",
-          "view:err(MIXDOG_REMOTE_CONNECTION_INTERRUPTED)@1000"
+          "view:err(MIXDOG_REMOTE_CONNECTION_INTERRUPTED)@1000",
+          "gated:err(MIXDOG_REMOTE_CONNECTION_INTERRUPTED)@1000"
         ],
         "pairingInvalid": [],
         "reconnected": 0,
@@ -3613,13 +3613,13 @@
           "socket@0"
         ],
         "requests": [
-          "getSnapshot@0",
-          "listProjects@0",
-          "readActivityRailPins@0",
-          "readHostDisplayPreferences@0",
           "readSettings@0",
+          "readHostDisplayPreferences@0",
+          "readActivityRailPins@0",
+          "viewerDevice@0",
           "synchronizeViews@0",
-          "viewerDevice@0"
+          "getSnapshot@0",
+          "listProjects@0"
         ],
         "settled": [],
         "pairingInvalid": [],
@@ -3743,13 +3743,13 @@
           "socket@0"
         ],
         "requests": [
-          "getSnapshot@0",
-          "listProjects@0",
-          "readActivityRailPins@0",
-          "readHostDisplayPreferences@0",
           "readSettings@0",
+          "readHostDisplayPreferences@0",
+          "readActivityRailPins@0",
+          "viewerDevice@0",
           "synchronizeViews@0",
-          "viewerDevice@0"
+          "getSnapshot@0",
+          "listProjects@0"
         ],
         "settled": [],
         "pairingInvalid": [],
@@ -3834,8 +3834,8 @@
         "offline": false,
         "wire": [],
         "requests": [
-          "readSettings@1",
-          "synchronizeViews@1"
+          "synchronizeViews@1",
+          "readSettings@1"
         ],
         "settled": [
           "gated:ok={\"settings\":\"S\"}@1"
@@ -3895,13 +3895,13 @@
           "socket@0"
         ],
         "requests": [
-          "getSnapshot@0",
-          "listProjects@0",
-          "readActivityRailPins@0",
-          "readHostDisplayPreferences@0",
           "readSettings@0",
+          "readHostDisplayPreferences@0",
+          "readActivityRailPins@0",
+          "viewerDevice@0",
           "synchronizeViews@0",
-          "viewerDevice@0"
+          "getSnapshot@0",
+          "listProjects@0"
         ],
         "settled": [],
         "pairingInvalid": [],
@@ -4116,6 +4116,127 @@
         }
       }
     ],
+    "call-held-by-sync-past-deadline": [
+      {
+        "name": "boot-window-expired",
+        "states": [
+          "connecting",
+          "syncing"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "requests": [
+          "readSettings@0",
+          "readHostDisplayPreferences@0",
+          "readActivityRailPins@0",
+          "viewerDevice@0",
+          "synchronizeViews@0"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "notices": [],
+        "calls": [],
+        "core": {
+          "foreground": null,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "held-past-25s",
+        "states": [
+          "syncing"
+        ],
+        "banner": [
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "ping@10000",
+          "resync@15250"
+        ],
+        "requests": [
+          "synchronizeViews@15250"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "notices": [],
+        "calls": [],
+        "core": {
+          "foreground": null,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 1
+        }
+      },
+      {
+        "name": "sync-landed",
+        "states": [
+          "connected"
+        ],
+        "banner": [
+          false
+        ],
+        "offline": false,
+        "wire": [],
+        "requests": [
+          "getSnapshot@0",
+          "listProjects@0",
+          "viewerDevice@0"
+        ],
+        "settled": [
+          "late-read:ok={\"viewer\":\"V\"}@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 1
+        }
+      },
+      {
+        "name": "call-answered",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "wire": [],
+        "requests": [],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "notices": [],
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 1
+        }
+      }
+    ],
     "first-connection-drops-mid-sync": [
       {
         "name": "first-sync-held",
@@ -4132,11 +4253,11 @@
           "socket@0"
         ],
         "requests": [
-          "readActivityRailPins@0",
-          "readHostDisplayPreferences@0",
           "readSettings@0",
-          "synchronizeViews@0",
-          "viewerDevice@0"
+          "readHostDisplayPreferences@0",
+          "readActivityRailPins@0",
+          "viewerDevice@0",
+          "synchronizeViews@0"
         ],
         "settled": [],
         "pairingInvalid": [],
@@ -4245,11 +4366,11 @@
           "socket@0"
         ],
         "requests": [
-          "readActivityRailPins@0",
-          "readHostDisplayPreferences@0",
           "readSettings@0",
-          "synchronizeViews@0",
-          "viewerDevice@0"
+          "readHostDisplayPreferences@0",
+          "readActivityRailPins@0",
+          "viewerDevice@0",
+          "synchronizeViews@0"
         ],
         "settled": [],
         "pairingInvalid": [],
@@ -4273,10 +4394,10 @@
         "wire": [],
         "requests": [],
         "settled": [
-          "display:ok={\"display\":\"D\"}@0",
-          "pins:ok=[\"pin-1\"]@0",
           "settings:ok={\"settings\":\"S\"}@0",
-          "viewer:ok={\"viewer\":\"V\"}@0"
+          "viewer:ok={\"viewer\":\"V\"}@0",
+          "display:ok={\"display\":\"D\"}@0",
+          "pins:ok=[\"pin-1\"]@0"
         ],
         "pairingInvalid": [],
         "reconnected": 0,
@@ -4327,8 +4448,8 @@
           "listProjects@0"
         ],
         "settled": [
-          "projects:ok=[{\"id\":\"project-1\"}]@0",
-          "snapshot:ok={\"snapshot\":\"N\"}@0"
+          "snapshot:ok={\"snapshot\":\"N\"}@0",
+          "projects:ok=[{\"id\":\"project-1\"}]@0"
         ],
         "pairingInvalid": [],
         "reconnected": 0,
@@ -4363,13 +4484,13 @@
           "socket@0"
         ],
         "requests": [
-          "getSnapshot@0",
-          "listProjects@0",
-          "readActivityRailPins@0",
-          "readHostDisplayPreferences@0",
           "readSettings@0",
+          "readHostDisplayPreferences@0",
+          "readActivityRailPins@0",
+          "viewerDevice@0",
           "synchronizeViews@0",
-          "viewerDevice@0"
+          "getSnapshot@0",
+          "listProjects@0"
         ],
         "settled": [],
         "pairingInvalid": [],
@@ -4448,11 +4569,11 @@
           "socket@0"
         ],
         "requests": [
-          "readActivityRailPins@0",
-          "readHostDisplayPreferences@0",
           "readSettings@0",
-          "synchronizeViews@0",
-          "viewerDevice@0"
+          "readHostDisplayPreferences@0",
+          "readActivityRailPins@0",
+          "viewerDevice@0",
+          "synchronizeViews@0"
         ],
         "settled": [],
         "pairingInvalid": [],
@@ -4516,13 +4637,13 @@
           "socket@0"
         ],
         "requests": [
-          "getSnapshot@0",
-          "listProjects@0",
-          "readActivityRailPins@0",
-          "readHostDisplayPreferences@0",
           "readSettings@0",
+          "readHostDisplayPreferences@0",
+          "readActivityRailPins@0",
+          "viewerDevice@0",
           "synchronizeViews@0",
-          "viewerDevice@0"
+          "getSnapshot@0",
+          "listProjects@0"
         ],
         "settled": [],
         "pairingInvalid": [],
@@ -4592,14 +4713,14 @@
         "wire": [],
         "requests": [
           "readHostDisplayPreferences@0",
-          "readSettings@0",
-          "viewerDevice@0"
+          "viewerDevice@0",
+          "readSettings@0"
         ],
         "settled": [
-          "display-2:ok={\"display\":\"D\"}@0",
           "settings-1:ok={\"settings\":\"S\"}@0",
-          "settings-2:ok={\"settings\":\"S\"}@0",
-          "viewer:ok={\"viewer\":\"V\"}@0"
+          "display-2:ok={\"display\":\"D\"}@0",
+          "viewer:ok={\"viewer\":\"V\"}@0",
+          "settings-2:ok={\"settings\":\"S\"}@0"
         ],
         "pairingInvalid": [],
         "reconnected": 0,

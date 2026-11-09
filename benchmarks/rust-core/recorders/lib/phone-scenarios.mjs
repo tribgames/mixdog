@@ -575,6 +575,29 @@ export const SCENARIOS = {
     { op: 'advance', ms: 0 },
     { op: 'mark', name: 'served' },
   ],
+  // A call made while the first sync is held waits for it (Node: send() awaits the connection and viewSync.ready() before invoke arms the 25 s
+  // deadline, remote-shim-calls.ts:298-303, :239). Held for 26 s it neither times out nor is sent; when the sync lands it is sent and answered.
+  'call-held-by-sync-past-deadline': [
+    { op: 'boot', reads: true, hold: ['synchronizeViews'] },
+    { op: 'accept' },
+    { op: 'await-request', name: 'synchronizeViews' },
+    { op: 'advance', ms: 0 },
+    { op: 'advance', ms: 10000 },
+    { op: 'mark', name: 'boot-window-expired' },
+    { op: 'read', name: 'viewerDevice', as: 'late-read' },
+    { op: 'advance', ms: 10000 },
+    { op: 'pong' },
+    { op: 'advance', ms: 10000 },
+    { op: 'pong' },
+    { op: 'advance', ms: 10000 },
+    { op: 'pong' },
+    { op: 'mark', name: 'held-past-25s' },
+    { op: 'release', name: 'synchronizeViews' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'sync-landed' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'call-answered' },
+  ],
   // The first connection dies during its first sync: Node recorded the connection at once (remote-shim-socket.ts:188, :218, :221), so the
   // replacement is a reconnection and tells the page so -- 'mixdog:remote-reconnected' -- after it syncs, never before (remote-shim-sync.ts:83-91).
   'first-connection-drops-mid-sync': [
@@ -713,8 +736,8 @@ export async function play(world, driver, ops) {
         .map((e) => `${e.ev === 'xcontrol' ? `x:${e.kind}` : e.ev}${e.ev === 'close' ? `(${e.code},${e.reason})` : ''}@${e.at - since}`),
       ...(traceReads
         ? {
-            requests: slice.filter((e) => e.ev === 'request').map((e) => `${e.name}@${e.at - since}`).sort(),
-            settled: slice.filter((e) => e.ev === 'settled').map((e) => `${e.as}:${e.ok ? `ok=${JSON.stringify(e.value)}` : `err(${e.code})`}@${e.at - since}`).sort(),
+            requests: slice.filter((e) => e.ev === 'request').map((e) => `${e.name}@${e.at - since}`),
+            settled: slice.filter((e) => e.ev === 'settled').map((e) => `${e.as}:${e.ok ? `ok=${JSON.stringify(e.value)}` : `err(${e.code})`}@${e.at - since}`),
           }
         : {}),
       pairingInvalid: slice.filter((e) => e.ev === 'pairing-invalid').map((e) => e.message),

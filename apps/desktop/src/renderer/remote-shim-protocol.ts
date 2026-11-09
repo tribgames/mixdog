@@ -104,17 +104,20 @@ export function createProtocolRouter(
       const handler = calls.get(method);
       if (!handler) return Promise.reject(new UnclaimedNodeMethodError(method));
       return new Promise<T>((resolve, reject) => {
-        const id = nextId++;
-        waiting.set(id, true);
-        // The deadline of this call alone; an overdue call first probes the connection.
-        const cancel = armRemoteCallDeadline(waiting, id, reject, link.probe);
-        const settle = (): void => {
-          cancel();
-          waiting.delete(id);
-        };
+        // Node's send(): the call waits for the connection and the view sync first (remote-shim-calls.ts:298-303), and its deadline starts only
+        // when it is handed on (invoke, :239). A call held by the gate cannot time out, so one that timed out was always run.
+        let settle = (): void => undefined;
         (async () => {
           if (!gated || UNGATED_CALLS.has(method)) await link.started();
           else await link.synced();
+          const id = nextId++;
+          waiting.set(id, true);
+          // The deadline of this call alone; an overdue call first probes the connection.
+          const cancel = armRemoteCallDeadline(waiting, id, reject, link.probe);
+          settle = (): void => {
+            cancel();
+            waiting.delete(id);
+          };
           return handler(params, link.host);
         })().then(
           (value) => {
@@ -154,14 +157,13 @@ export function createProtocolRouter(
       setTimeout(() => bootReads.clear(), BOOT_READ_WINDOW_MS);
     },
     fire(method: string, params: unknown[]): void {
-      const handler = fires.get(method);
-      if (handler) {
-        handler(params, link.host);
-        return;
-      }
-      const call = calls.get(method);
-      if (!call) throw new UnclaimedNodeMethodError(method);
-      void Promise.resolve(call(params, link.host)).catch(() => undefined);
+      const handler = fires.get(method) ?? calls.get(method);
+      if (!handler) throw new UnclaimedNodeMethodError(method);
+      // Node's fire(): it waits for the connection, not for the sync (remote-shim-calls.ts:354-359), and a failure is nobody's to hear.
+      void link
+        .started()
+        .then(() => handler(params, link.host))
+        .catch(() => undefined);
     },
     install(): void {
       for (const adapter of adapters) adapter.install?.(link.host);
