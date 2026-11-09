@@ -22,12 +22,12 @@ window.HTMLElement.prototype.scrollIntoView = () => {};
 const { default: React, act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { renderToStaticMarkup } = await import('react-dom/server');
-const { roomSessionId } = await import('../../../../src/runtime/agent/orchestrator/session/agent-room.mjs');
+const { roomSessionId } = await import('../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs');
 const { isAgentChatSession, isDeletedBotSession, publishAgentModeSessions } = await import('./agent-chat-mode.ts');
 const { agentChatPlace, routineGroupOf } = await import('./agent-chat-place.ts');
 const { AgentChatRow, AgentRoutineBody, AgentRoutineCard } = await import('./agent-chat-row.tsx');
 const { routineLoginRequiredText } = await import(
-  '../../../../src/runtime/agent/orchestrator/session/routine-result.mjs'
+  '../shared/core-src/runtime/agent/orchestrator/session/routine-result.mjs'
 );
 const { useConversationRowRenderer } = await import('./use-conversation-row-renderer.ts');
 const { transcriptRowVariant } = await import('./transcript-list-estimates.ts');
@@ -2661,7 +2661,7 @@ test('work handed to a session: one block of lines under the turn’s reply, its
 
 test('a bot message shows its name and its words, never the envelope or LEAD, in a coding transcript and in a bot chat', async (t) => {
   const render = rowHarness(t);
-  const { wrapAgentMessage } = await import('../../../../src/runtime/shared/agent-message-envelope.mjs');
+  const { wrapAgentMessage } = await import('../shared/core-src/runtime/shared/agent-message-envelope.mjs');
   const text = wrapAgentMessage('Please check the build', { name: 'Marketer', agentId: 'agent-m1' });
   const row = {
     _tag: 'UserMessage',

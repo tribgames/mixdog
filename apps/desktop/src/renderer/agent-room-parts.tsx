@@ -1,7 +1,7 @@
 // Group-room pieces every room surface shares: who the members are (name and
 // face from the contacts), the tiled room face, and one member's face.
 import { useMemo } from 'react';
-import { agentAvatar } from '../../../../src/runtime/shared/agent-avatar.mjs';
+import { agentAvatar } from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 import { contactAgentRows } from '../shared/agent-contacts';
 import { AgentAvatar } from './agent-avatar';
 import type { AvatarMotionState } from './avatar-motion';

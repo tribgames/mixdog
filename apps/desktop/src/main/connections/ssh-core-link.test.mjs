@@ -171,14 +171,7 @@ function serverConnection(t, core, ssh) {
   const connection = createDesktopConnection(
     { id: 'srv', kind: 'ssh', name: 'Box', target: 'root@127.0.0.1:2223' },
     {
-      moduleUrl: () => {
-        throw new Error('the Node service is not reached by a server');
-      },
-      environmentReady: () => Promise.resolve(),
       sessionOptions: () => ({ userDataPath: '', packaged: false, resourcesPath: '', appPath: '', appVersion: '0.0.0', rendererDir: '' }),
-      loadModelProxyRuntime: async () => {
-        throw new Error('unused');
-      },
       appVersion: '1.4.6',
       createProtocol: (_identity, connector) =>
         createProtocolConnection({
@@ -211,7 +204,6 @@ test('a server connection bootstraps, tunnels, reaches the core\'s ready state a
   await connection.start();
   assert.equal(ssh.calls.length, 1, 'one probe: the equal, serving core is attached to as it is');
   assert.equal(connection.protocol.status, 'ready');
-  assert.equal(connection.transport(), null, 'no Node service leg is started for a server');
   assert.equal(connection.link.view().state.status, 'connected');
   assert.deepEqual(events, ['ready:1']);
   // The first snapshot reaches the connection's sections.

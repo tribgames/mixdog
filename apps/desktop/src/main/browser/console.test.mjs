@@ -12,7 +12,7 @@ import { BrowserConsoleLedger } from './console.ts';
 import { BrowserGuestStateStore } from './guest-state.ts';
 import { formatConsoleArguments, formatConsoleSource } from './console-format.ts';
 import { BrowserNetworkLedger } from './network.ts';
-import { validateBrowserToolArgs } from '../../../../../src/runtime/browser-bridge/action-schema.mjs';
+import { validateBrowserToolArgs } from '../../shared/core-src/runtime/browser-bridge/action-schema.mjs';
 
 test('new console errors are reported once while recent errors stay available', () => {
   const ledger = new BrowserConsoleLedger();

@@ -8,7 +8,6 @@ import test from 'node:test';
 
 import { ACTION_OVERRIDES, OVERRIDE_THREAD_SOURCE } from '../../../../../packages/protocol-client/src/actions/action-overrides.mjs';
 import { METHOD_ARGS } from '../../../../../packages/protocol-client/src/actions/method-args.generated.mjs';
-import { createInheritance } from '../../../../../src/session-runtime/lifecycle/inheritance.mjs';
 import { DESKTOP_CAPABILITIES } from '../../shared/contract-capabilities.ts';
 import { createDesktopConnection } from '../connections/desktop-connection.ts';
 import { DesktopServiceClient } from '../desktop-service-client.ts';
@@ -44,14 +43,10 @@ const HANDLER_REQUIRES_THREAD = [
 ];
 const NOT_ROUTED = [
   ...NOTIFIED,
-  'taskControl',
-  'selectTools',
   'listPresets',
   'getWebSearchRoute',
   'listAgents',
   'listWorkflows',
-  'listThemes',
-  'listConnectors',
   'listProviders',
   'getProviderSetup',
   'getProviderAccounts',
@@ -531,8 +526,6 @@ test("a connection with a core endpoint routes its client's capabilities through
   const connection = createDesktopConnection(
     { id: 'local', kind: 'local', name: 'PC' },
     {
-      moduleUrl: () => 'file:///unused.mjs',
-      environmentReady: () => Promise.resolve(),
       sessionOptions: () => ({
         userDataPath: '',
         packaged: false,
@@ -541,9 +534,6 @@ test("a connection with a core endpoint routes its client's capabilities through
         appVersion: '0.0.0',
         rendererDir: '',
       }),
-      loadModelProxyRuntime: async () => {
-        throw new Error('unused');
-      },
       appVersion: '0.0.0',
       createProtocol: () => protocol,
     }
@@ -739,23 +729,9 @@ test('the project-branch capabilities Node resolved through the registry send th
 });
 
 // `inheritFrom` of a source session the core does not have: the core answers `threadNotFound`, the window shows what Node's own
-// `inheritFrom` throws (run here, over an empty heir and a manager that holds no session).
+// `inheritFrom` threw (recorded from Node b6f10295a over an empty heir and a manager that holds no session).
 test('inheritFrom of a missing session is refused with the text Node throws', async () => {
-  const node = createInheritance(
-    {
-      getSession: () => ({ id: 'heir-1', messages: [] }),
-      getRoute: () => ({}),
-      mgr: { getSession: () => null },
-      createCurrentSession: async () => {},
-      invalidateContextStatusCache: () => {},
-      getReservedSessionId: () => '',
-    },
-    { compactConversation: async () => null, saveSession: () => {} }
-  );
-  const thrown = await node.inheritFrom('src-1', { compact: false }).then(
-    () => assert.fail('Node inherits from a session that is not there'),
-    (error) => error.message
-  );
+  const thrown = 'inheritFrom: session src-1 was not found';
   const missing = Object.assign(new Error('rpc'), {
     detail: { kind: 'rpc', code: -32600, data: { reason: 'threadNotFound', threadId: 'src-1' } },
   });

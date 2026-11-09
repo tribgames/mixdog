@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import { t } from './i18n';
 import { scrimDismiss } from './scrim-dismiss';
 // @ts-expect-error Shared runtime module is plain ESM.
-import { safeErrorDetails } from '../../../../src/runtime/shared/error-presentation.mjs';
+import { safeErrorDetails } from '../shared/core-src/runtime/shared/error-presentation.mjs';
 
 import type { DesktopRendererFailureDiagnostic } from '../shared/contract';
 import { ProgressSpinner, WindowLoadingMark } from './ProgressSpinner';

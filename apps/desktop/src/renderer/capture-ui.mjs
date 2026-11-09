@@ -8,7 +8,7 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import electronPath from 'electron';
-import { killProcessTreesSync, spawnTreeKill } from '../../../../src/runtime/agent/orchestrator/mcp/child-tree.mjs';
+import { killProcessTreesSync, spawnTreeKill } from '../shared/core-src/runtime/agent/orchestrator/mcp/child-tree.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const captureEntry = join(here, '../../out/main/capture-window.js');

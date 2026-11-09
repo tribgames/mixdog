@@ -4,7 +4,7 @@
 // Display only: Stop is the ordinary session abort the user asks for.
 import type React from 'react';
 import { useCallback, useRef, useSyncExternalStore } from 'react';
-import type { QuietProgressParts } from '../../../../src/runtime/shared/quiet-progress.mjs';
+import type { QuietProgressParts } from '../shared/core-src/runtime/shared/quiet-progress.mjs';
 import { t } from './i18n';
 import { showDesktopToast } from './notifications';
 import { defaultSessionLaneStore } from './session-lane-store';

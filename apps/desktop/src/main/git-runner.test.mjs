@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import test from 'node:test';
 
-import { gitCommand } from '../../../../src/runtime/shared/git-launch.mjs';
-import { runProcessOffThread } from '../../../../src/runtime/shared/process-runner.mjs';
+import { gitCommand } from '../shared/core-src/runtime/shared/git-launch.mjs';
+import { runProcessOffThread } from '../shared/core-src/runtime/shared/process-runner.mjs';
 import {
   GIT_READ_TIMEOUT_MS,
   isGitTimeout,
@@ -17,7 +17,7 @@ import {
   setGitProcessRunner,
   streamNulRecords,
 } from './git-runner.ts';
-import * as slowSpan from '../../../../src/runtime/shared/slow-span.mjs';
+import * as slowSpan from '../shared/core-src/runtime/shared/slow-span.mjs';
 import { setPhaseRecorder } from './phase-recorder.ts';
 import { gitReview } from './git-history.ts';
 import { GIT_STATUS_UNTRACKED_LIMIT, gitStatus } from './git-status.ts';

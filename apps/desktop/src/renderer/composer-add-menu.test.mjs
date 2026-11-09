@@ -26,7 +26,7 @@ dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({
 const { default: React, act, useRef } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { ComposerAddMenu } = await import('./ComposerAddMenu.tsx');
-const { agentAvatar } = await import('../../../../src/runtime/shared/agent-avatar.mjs');
+const { agentAvatar } = await import('../shared/core-src/runtime/shared/agent-avatar.mjs');
 
 test('add menu selects without submitting, supports keyboard dismissal, and starts a goal only on confirmation', async () => {
   const selected = [];

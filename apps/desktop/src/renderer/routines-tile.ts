@@ -6,8 +6,8 @@
 import {
   agentIdOfHomeSession,
   isAgentHomeSessionId,
-} from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
-import { roomIdOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { SessionSidePanelView } from './session-side-surface-policy';
 import type { WorkbenchSideViewGroup } from './workbench-side-view-layout';
 

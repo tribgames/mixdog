@@ -22,7 +22,7 @@ import {
   isReservedMentionName,
   mentionedSkillNames,
   skillMentions,
-} from '../../../../src/runtime/shared/skill-mentions.mjs';
+} from '../shared/core-src/runtime/shared/skill-mentions.mjs';
 
 export type ComposerSkillCatalog = {
   /** The user's available custom skills: the `$` palette and the + menu. */

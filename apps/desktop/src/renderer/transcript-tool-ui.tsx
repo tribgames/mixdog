@@ -86,13 +86,13 @@ import {
   type ToolCardModel,
 } from './transcript-tool-model';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { classifyToolCategory, formatToolSurface } from '../../../../src/runtime/shared/tool-surface.mjs';
+import { classifyToolCategory, formatToolSurface } from '../shared/core-src/runtime/shared/tool-surface.mjs';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { formatElapsed as formatCardElapsed } from '../../../../src/runtime/shared/time-format.mjs';
+import { formatElapsed as formatCardElapsed } from '../shared/core-src/runtime/shared/time-format.mjs';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { deriveToolCardModel, deriveToolOutcomeTone, splitLineDeltaTokens } from '../../../../src/runtime/shared/tool-card-model.mjs';
+import { deriveToolCardModel, deriveToolOutcomeTone, splitLineDeltaTokens } from '../shared/core-src/runtime/shared/tool-card-model.mjs';
 
 interface DetailLinePart {
   text: string;

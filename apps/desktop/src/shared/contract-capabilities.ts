@@ -66,7 +66,6 @@ export const DESKTOP_CAPABILITIES = [
   'isSetupRequestActive',
   'completeSetupRequest',
   'agentControl',
-  'taskControl',
   // /stop: `listStoppableShellJobs()` → `{ jobs: [{ taskId, command }] }` of this
   // session's background shells; `stopShellJobs()` → `{ stopped, stopping }`.
   'listStoppableShellJobs',
@@ -77,7 +76,6 @@ export const DESKTOP_CAPABILITIES = [
   'releaseShellJob',
   'goalControl',
   'toolsStatus',
-  'selectTools',
   'getSystemShell',
   'setSystemShell',
   'mcpStatus',
@@ -148,7 +146,6 @@ export const DESKTOP_CAPABILITIES = [
   'getOrchestrationMode',
   'getConfiguredOrchestrationMode',
   'setOrchestrationMode',
-  'listThemes',
   'getTheme',
   'setTheme',
   'transcribeAudio',
@@ -166,7 +163,6 @@ export const DESKTOP_CAPABILITIES = [
   'archivedAgentIdentities',
   'getAgentAvatarImage',
   'getAgentConnectors',
-  'listConnectors',
   'listConnectorTools',
   'setAgentConnectors',
   // Connector switches ("사용할 커넥터"): `[{ id, enabled }]` per installed
@@ -340,7 +336,6 @@ export const DESKTOP_READ_CAPABILITIES = [
   'getAgentAlwaysAllowedTools',
   'getAgentConnectorTools',
   'getAgentPermissions',
-  'listConnectors',
   'listConnectorTools',
   'getLeadPersona',
   'getLeadAgentBody',
@@ -349,7 +344,6 @@ export const DESKTOP_READ_CAPABILITIES = [
   'getBotOrder',
   'getOutputStyle',
   'listOutputStyles',
-  'listThemes',
   'getTheme',
   'listProviders',
   'listProviderModels',

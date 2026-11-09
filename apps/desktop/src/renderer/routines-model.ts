@@ -1,7 +1,7 @@
 // The Routines tile's rows: the schedules and webhooks one agent owns, in the
 // display shapes channel-admin serves (`owner`, run stamps).
-import { MIXY_AGENT_ID } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
-import { ROUTINE_LIMITS } from '../../../../src/runtime/shared/routine-limits.mjs';
+import { MIXY_AGENT_ID } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { ROUTINE_LIMITS } from '../shared/core-src/runtime/shared/routine-limits.mjs';
 import type { RecordValue } from './desktop-types';
 
 export interface RoutineRow extends RoutineHealth {

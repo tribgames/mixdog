@@ -5,7 +5,7 @@ import type { DesktopModelOption } from '../shared/contract';
 import { useAutoEffortShown } from './auto-effort-store';
 import { t } from './i18n';
 // @ts-expect-error Shared runtime ESM intentionally has no separate declaration file.
-import { canonicalModelDisplay } from '../../../../src/ui/model-display.mjs';
+import { canonicalModelDisplay } from '../shared/core-src/ui/model-display.mjs';
 
 const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   anthropic: 'Anthropic API',

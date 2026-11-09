@@ -3,7 +3,7 @@
 // bot from the runtime (`archivedAgentIdentities`) when the session catalog
 // first marks its home as deleted (agent-chat-mode.ts).
 import { useSyncExternalStore } from 'react';
-import { type AgentAvatarValue, agentAvatar } from '../../../../src/runtime/shared/agent-avatar.mjs';
+import { type AgentAvatarValue, agentAvatar } from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 
 export interface ArchivedBotIdentity {
   name: string;

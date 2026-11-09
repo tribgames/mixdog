@@ -465,10 +465,8 @@ test("this PC's window comes back while a server window stays open", async () =>
   await assert.rejects(failing({ id: 'local' }), /renderer failed/);
 });
 
-test("a server connection has no Node service leg; this PC's still has one", async () => {
+test('every connection is served by its core connection alone', async () => {
   const deps = {
-    moduleUrl: () => 'file:///daemon.cjs',
-    environmentReady: () => Promise.resolve(),
     sessionOptions: () => ({
       userDataPath: 'C:\\profile',
       packaged: false,
@@ -477,9 +475,6 @@ test("a server connection has no Node service leg; this PC's still has one", asy
       appVersion: '0.0.0',
       rendererDir: '',
     }),
-    loadModelProxyRuntime: async () => {
-      throw new Error('unused');
-    },
     appVersion: '0.0.0',
     createProtocol: () => fakeProtocol(),
     localProtocol: () => fakeProtocol(),
@@ -490,12 +485,10 @@ test("a server connection has no Node service leg; this PC's still has one", asy
   );
   const local = createDesktopConnection({ id: 'local', kind: 'local', name: 'PC' }, deps);
   try {
-    assert.equal(server.client.options.connect, undefined, 'the server is served by its core connection alone');
     assert.equal(typeof server.client.options.serviceLane?.call, 'function');
-    assert.equal(server.transport(), null);
+    assert.equal(typeof local.client.options.serviceLane?.call, 'function');
     assert.equal(server.remote.config.tunnelReadyTimeoutMs, REMOTE_TUNNEL_READY_TIMEOUT_MS);
-    assert.equal(typeof local.client.options.connect, 'function');
-    assert.equal(local.client.options.serviceLane, undefined);
+    assert.equal(local.remote, null);
   } finally {
     await Promise.all([server.dispose(), local.dispose()]);
   }
@@ -522,8 +515,6 @@ test('a server connection hands onProgress to its RemoteSession and detaches cle
   const connection = createDesktopConnection(
     { id: 'srv-4', kind: 'ssh', name: 'Box', target: 'root@127.0.0.1:2223' },
     {
-      moduleUrl: () => 'file:///daemon.cjs',
-      environmentReady: () => Promise.resolve(),
       sessionOptions: () => ({
         userDataPath: 'C:\\profile',
         packaged: false,
@@ -532,9 +523,6 @@ test('a server connection hands onProgress to its RemoteSession and detaches cle
         appVersion: '0.0.0',
         rendererDir: '',
       }),
-      loadModelProxyRuntime: async () => {
-        throw new Error('unused');
-      },
       appVersion: '0.0.0',
       createProtocol: () => fakeProtocol(),
       localProtocol: () => fakeProtocol(),

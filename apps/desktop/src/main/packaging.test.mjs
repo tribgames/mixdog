@@ -135,9 +135,11 @@ test('Windows Crashpad starts locally, before the single-instance lock', async (
   assert.match(main.slice(reporter, lock), /uploadToServer:\s*false/);
 });
 
-test('production desktop attaches through the packaged daemon, unpacked from the archive', async () => {
-  assert.match(await text('./index.ts'), /daemon\.cjs/);
-  assert.match(await text('../../electron-builder.yml'), /asarUnpack:[\s\S]*out\/main\/daemon\.cjs/);
+test('production desktop starts the packaged mixdogd and tells it where its resources are', async () => {
+  const main = await text('./index.ts');
+  assert.match(main, /coreBinaryPath\(app\.isPackaged, process\.resourcesPath\)/);
+  assert.match(main, /coreEnvironment\(app\.isPackaged, process\.resourcesPath\)/);
+  assert.doesNotMatch(main, /daemon\.cjs|MIXDOG_SUPERVISOR_BIN/);
 });
 
 test('FastDirect staging ships the PTY package unpacked beside the archive', async () => {

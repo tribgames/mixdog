@@ -8,7 +8,7 @@ import { Bot } from 'lucide-react';
 import { RailPinIcon } from './RailPinIcon';
 import type React from 'react';
 import { Fragment, useEffect } from 'react';
-import { AGENT_PANE_VISIBLE_MS } from '../../../../src/runtime/shared/agent-reap-state.mjs';
+import { AGENT_PANE_VISIBLE_MS } from '../shared/core-src/runtime/shared/agent-reap-state.mjs';
 import type { RetainChoice } from './bot-order-store';
 import { desktopAgentActivityState, hasPendingDesktopAgentWork } from '../shared/agent-activity';
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';

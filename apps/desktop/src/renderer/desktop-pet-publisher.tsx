@@ -4,7 +4,7 @@
 // the tab spinner and the status line: the lane snapshot (busy, spinner,
 // command status, pending approval) and the session attention index.
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
-import { agentHomeSessionId, MIXY_AGENT_ID } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { agentHomeSessionId, MIXY_AGENT_ID } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import type { DesktopApi } from '../shared/contract';
 import {
   DESKTOP_PET_MAX_LAYERS,

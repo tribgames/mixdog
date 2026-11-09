@@ -6,7 +6,7 @@
 // met the expired sign-in (routine-result.mjs) offers both (agent-chat-row.tsx).
 // Sign-ins are shared by every session, so signing in from the thread's pane
 // is enough for the routine's next run.
-import { routineLoginRequiredSite } from '../../../../src/runtime/agent/orchestrator/session/routine-result.mjs';
+import { routineLoginRequiredSite } from '../shared/core-src/runtime/agent/orchestrator/session/routine-result.mjs';
 import { requestBrowserImport, requestBrowserPage, revealBrowserPane } from './browser-page-request';
 import { t } from './i18n';
 

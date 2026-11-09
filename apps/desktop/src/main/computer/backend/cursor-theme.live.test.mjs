@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { MIXDOG_HOST_CSHARP } from './native-source.ts';
-import { TREE_KILL_SCRIPT } from '../../../../../../src/runtime/agent/orchestrator/mcp/child-tree.mjs';
+import { TREE_KILL_SCRIPT } from '../../../shared/core-src/runtime/agent/orchestrator/mcp/child-tree.mjs';
 
 test('real Windows cursor changes and restores after normal completion and worker-tree termination', {
   skip:

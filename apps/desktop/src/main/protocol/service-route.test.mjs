@@ -333,23 +333,13 @@ test('an aborted request is not sent, and a domainError is mapped like the capab
   await assert.rejects(failing.service.call('listProjects', []), (error) => error.code === 'X');
 });
 
-test('a client with a service lane never starts the Node service and calls the lane', async () => {
+test('a client calls its service lane', async () => {
   const { calls, service } = lane();
-  let connected = 0;
-  const client = new DesktopServiceClient({
-    connect: () => {
-      connected += 1;
-      throw new Error('Node transport must not start');
-    },
-    sessionOptions: () => ({}),
-    serviceLane: service,
-  });
+  const client = new DesktopServiceClient({ serviceLane: service });
   await client.listProjects();
   await client.markSessionRead('t1', 3);
   assert.equal(await client.getSnapshot(), null);
   await client.startTask();
-  await assert.rejects(client.getQuotaAutoResume(), (error) => error.code === 'unknownMethod');
-  assert.equal(connected, 0);
   assert.deepEqual(
     calls.map(({ method }) => method),
     ['project/list', 'thread/readState/update', 'thread/start']
@@ -359,10 +349,6 @@ test('a client with a service lane never starts the Node service and calls the l
 test('invokeDesktopOperation and notifyDesktopOperation use the operation lane when the client has one', async () => {
   const seen = [];
   const client = new DesktopServiceClient({
-    connect: () => {
-      throw new Error('Node transport must not start');
-    },
-    sessionOptions: () => ({}),
     operationLane: {
       invoke: async (name, args) => {
         seen.push([name, args]);
@@ -409,10 +395,6 @@ test('a client with a capability lane sends an approval decision through it, and
   const { calls, notified, service } = lane();
   const decided = [];
   const client = new DesktopServiceClient({
-    connect: () => {
-      throw new Error('Node transport must not start');
-    },
-    sessionOptions: () => ({}),
     serviceLane: service,
     capabilityLane: { resolveToolApproval: async (...args) => (decided.push(args), true) },
   });

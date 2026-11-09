@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import {
   roomMemberSessionId,
   roomSessionId,
-} from '../../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+} from '../../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import {
   decideBrowserApproval,
   endBrowserApprovalSession,

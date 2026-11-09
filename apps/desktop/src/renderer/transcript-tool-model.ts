@@ -65,12 +65,12 @@ import {
   type ToolActivityStructuredRow,
 } from './transcript-tool-result';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { formatToolSurface } from '../../../../src/runtime/shared/tool-surface.mjs';
+import { formatToolSurface } from '../shared/core-src/runtime/shared/tool-surface.mjs';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { agentActionTitle, agentResponseTitle, deriveToolCardModel, resultTerminalStatus } from '../../../../src/runtime/shared/tool-card-model.mjs';
+import { agentActionTitle, agentResponseTitle, deriveToolCardModel, resultTerminalStatus } from '../shared/core-src/runtime/shared/tool-card-model.mjs';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { readRowsForDisplay } from '../../../../src/runtime/shared/read-row-numbers.mjs';
+import { readRowsForDisplay } from '../shared/core-src/runtime/shared/read-row-numbers.mjs';
 
 export * from './transcript-tool-core';
 export * from './transcript-tool-format';

@@ -12,7 +12,7 @@ import {
   gmailAddress,
   gmailAppPasswordServerInput,
   type ConnectorCatalogEntry,
-} from '../../../../src/runtime/shared/connector-catalog.mjs';
+} from '../shared/core-src/runtime/shared/connector-catalog.mjs';
 import type { DesktopCapability } from '../shared/contract';
 import { isSshConnectionWindow } from './desktop-connection';
 import { errorMessage } from './editor-pane-session-errors';

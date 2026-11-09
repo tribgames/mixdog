@@ -1,4 +1,4 @@
-import { stripInjectedBlocks } from '../../../../src/runtime/shared/injected-display-text.mjs';
+import { stripInjectedBlocks } from './core-src/runtime/shared/injected-display-text.mjs';
 
 const DEFAULT_SESSION_TITLE = 'Untitled session';
 

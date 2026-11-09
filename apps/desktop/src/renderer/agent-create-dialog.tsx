@@ -8,8 +8,8 @@
 import { Star, X } from 'lucide-react';
 import { type FormEvent, useId, useMemo, useState } from 'react';
 import type { DesktopModelOption, DesktopModelSelection } from '../shared/contract';
-import type { AgentAvatarState } from '../../../../src/runtime/shared/agent-avatar.mjs';
-import { BOT_AGENT_KIND } from '../../../../src/runtime/shared/agent-route-config.mjs';
+import type { AgentAvatarState } from '../shared/core-src/runtime/shared/agent-avatar.mjs';
+import { BOT_AGENT_KIND } from '../shared/core-src/runtime/shared/agent-route-config.mjs';
 import {
   type AvatarImages,
   MascotAvatar,

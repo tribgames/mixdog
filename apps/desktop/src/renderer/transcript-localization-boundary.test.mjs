@@ -7,7 +7,7 @@ import i18n, { SUPPORTED_UI_LANGUAGES } from './i18n';
 import { CompletionStatus } from './transcript-status';
 import { localizeErrorCopy } from './error-notice-copy';
 import { desktopToolActivityItemPresentation } from './transcript-tool-model';
-import { TOOL_RESULT_UI_KEYS } from '../../../../src/runtime/shared/tool-result-summary.mjs';
+import { TOOL_RESULT_UI_KEYS } from '../shared/core-src/runtime/shared/tool-result-summary.mjs';
 import { installTestDom } from './test-support/test-dom.mjs';
 
 test('runtime details and errors keep custom words while app-authored status copy translates in every language', async () => {

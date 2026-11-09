@@ -6,7 +6,7 @@
 // the chat.
 import { type ReactNode, useState } from 'react';
 
-import { agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import type { DesktopApi } from '../shared/contract';
 import { t } from './i18n';
 import { InitialSurface } from './InitialSurface';

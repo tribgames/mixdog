@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { SLASH_COMMANDS as tuiSlashCommands } from '../../../../src/tui/app/slash-commands.mjs';
+import { SLASH_COMMANDS as tuiSlashCommands } from '../shared/core-src/tui/app/slash-commands.mjs';
 import { DESKTOP_ONLY_COMMANDS, assertSlashInventoryMatches } from '../../scripts/slash-inventory.mjs';
 import { SLASH_COMMANDS as desktopSlashCommands } from './slash-commands.ts';
 

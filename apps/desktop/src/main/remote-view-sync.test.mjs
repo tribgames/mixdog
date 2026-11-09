@@ -18,7 +18,7 @@ import {
 } from '../shared/remote-e2ee.ts';
 import { createViewResumeRequest, readViewResumeGrant, readViewResumeRequest } from '../shared/remote-view-resume.ts';
 import { markCompactPayload } from '../renderer/remote-compact-frames.ts';
-import { waitForQuiet, waitUntil } from '../../../../src/runtime/shared/wait-until.test-support.mjs';
+import { waitForQuiet, waitUntil } from '../shared/core-src/runtime/shared/wait-until.test-support.mjs';
 
 const IDS = ['lead', 'side'];
 const plain = (value) => JSON.parse(JSON.stringify(value));

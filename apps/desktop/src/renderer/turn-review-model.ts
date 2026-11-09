@@ -25,7 +25,7 @@ import {
 } from './turn-review-cache';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { classifyToolCategory, parseLineDelta, parseToolArgs, summarizeToolResult } from '../../../../src/runtime/shared/tool-surface.mjs';
+import { classifyToolCategory, parseLineDelta, parseToolArgs, summarizeToolResult } from '../shared/core-src/runtime/shared/tool-surface.mjs';
 
 // "Review Changes": the headline is one authoritative turn-start → current
 // worktree diff. Exact worker apply_patch diffs remain attribution metadata and

@@ -1,7 +1,7 @@
 /** The window's Back/Forward history (issue #289): session visits and editor
  *  locations in visit order. One linear stack per window, in memory only; a
  *  new visit truncates forward history. */
-import { isAgentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { isAgentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import type { WorkspaceSelection } from './navigation';
 
 export interface EditorNavigationLocation {

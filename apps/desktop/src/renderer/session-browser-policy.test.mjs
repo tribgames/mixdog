@@ -8,8 +8,8 @@ import {
   surfaceRevealTarget,
   surfaceSessionName,
 } from './session-browser-policy.ts';
-import { agentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
-import { roomMemberSessionId, roomSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { agentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { roomMemberSessionId, roomSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 
 test('a child, task or room-member session reveals in the owner conversation on screen, never a guessed pane', () => {
   const home = agentHomeSessionId('watcher');

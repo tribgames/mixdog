@@ -8,7 +8,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
-import { isAgentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { isAgentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { isOtherDevice, sessionUsesMultipleDevices } from '../shared/session-devices';
 import type { DesktopPromptContent, DesktopSubmitOptions, ToolApprovalDecision } from '../shared/contract';
 import { ApprovalCard, approvalRecordLabel, publishHeldSettlements } from './ApprovalCard';
