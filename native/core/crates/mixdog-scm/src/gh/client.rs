@@ -73,7 +73,17 @@ pub async fn run_text(
     cwd: &Path,
     cancel: &CancellationToken,
 ) -> Result<String, ScmFailure> {
-    let output = runner.raw(command, cwd, cancel).await?;
+    let output = match runner.raw(command, cwd, cancel).await {
+        Ok(output) => output,
+        // client.mjs: the one text a missing `gh` has for every pull-request and API call.
+        Err(ScmFailure::Unavailable { .. }) => {
+            return Err(ScmFailure::Command {
+                domain: GITHUB_DOMAIN,
+                text: "GitHub CLI is not installed. Open Extensions → Plugin → Git & GitHub to install and connect it.".into(),
+            });
+        }
+        Err(other) => return Err(other),
+    };
     if output.success() {
         return Ok(output.stdout);
     }
@@ -194,7 +204,7 @@ impl GhRunner for ProcessGh {
             Err(ScmFailure::Unavailable { .. }) => Err(ScmFailure::Unavailable {
                 capability: "gh".into(),
             }),
-            Err(ScmFailure::TimedOut) => Err(ScmFailure::Command {
+            Err(ScmFailure::TimedOut { .. }) => Err(ScmFailure::Command {
                 domain: GITHUB_DOMAIN,
                 text: format!("GitHub CLI did not answer within {} seconds.{uncertain}", RUN_LIMIT.as_secs()),
             }),

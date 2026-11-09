@@ -28,10 +28,10 @@ use crate::service::ScmService;
 use crate::service::ThreadWorktrees;
 use crate::testing::TestProcesses;
 
-type Log = Arc<Mutex<Vec<Value>>>;
+pub(crate) type Log = Arc<Mutex<Vec<Value>>>;
 
 /// A review that answers `{ "read": name, ... }` and logs what it was asked.
-struct Reviews(Log);
+pub(crate) struct Reviews(pub(crate) Log);
 
 impl Reviews {
     fn answer(&self, call: Value) -> tr::Reply {
@@ -95,7 +95,7 @@ impl tr::TurnReviewApi for Reviews {
     }
 }
 
-struct Open;
+pub(crate) struct Open;
 
 #[async_trait]
 impl FeatureGate for Open {
@@ -105,7 +105,7 @@ impl FeatureGate for Open {
 }
 
 /// `t1` runs in `/work/t1`; any other thread has no header.
-struct Cwds;
+pub(crate) struct Cwds;
 
 #[async_trait]
 impl ThreadWorktrees for Cwds {

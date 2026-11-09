@@ -79,7 +79,10 @@ impl Scm {
 
     /// The signed-in account, straight from the GitHub API through `gh`.
     pub async fn gh_account(&self, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
-        let output = self.github.output(&home_dir(), cancel, &["api", "user"]).await?;
+        let output = match self.github.output(&home_dir(), cancel, &["api", "user"]).await {
+            Err(ScmFailure::Unavailable { .. }) => return Err(ScmFailure::git("GitHub CLI is not installed.")),
+            other => other?,
+        };
         if !output.success() {
             let detail = if output.stderr.trim().is_empty() { &output.stdout } else { &output.stderr };
             let detail = detail.trim();
@@ -114,7 +117,7 @@ impl Scm {
         let home = home_dir();
         let status = self.gh_status(cancel, false).await?;
         if status["installed"] != true {
-            return Err(ScmFailure::Unavailable { capability: "gh".into() });
+            return Err(ScmFailure::git("GitHub CLI is not installed."));
         }
         let base = ["auth", "logout", "--hostname", HOSTNAME];
         let mut result = self.github.output(&home, cancel, &base).await?;
