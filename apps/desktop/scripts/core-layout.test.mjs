@@ -131,6 +131,19 @@ function makeTreeWithoutOrt() {
   return modules;
 }
 
+test('src/defaults/shipped-history.json is a core read, mirrored as a real file, and a tree without it is refused', async () => {
+  assert.ok(CORE_READS.files.includes('src/defaults/shipped-history.json'));
+  const top = makeTempDirSync('core-layout-history');
+  const staging = join(top, 'staging/node_modules');
+  modulesTree(staging, 'linux', 'x64');
+  const destination = join(top, 'unpacked');
+  await mirrorCoreRuntime({ modulesDir: staging, destination, platform: 'linux', arch: 'x64', ortBinarySource: join(staging, 'onnxruntime-node', ortBinaryDir('linux', 'x64')) });
+  const history = join(destination, 'mixdog/src/defaults/shipped-history.json');
+  assert.ok(existsSync(history), 'the mirror holds the file as a real file');
+  rmSync(history);
+  assert.throws(() => verifyCoreTree({ modulesDir: destination, platform: 'linux', arch: 'x64' }), /missing file src\/defaults\/shipped-history\.json/);
+});
+
 test('the remote trim keeps only the target platform binary directory', () => {
   const modules = makeTempDirSync('core-layout-trim');
   const pkg = join(modules, 'onnxruntime-node');

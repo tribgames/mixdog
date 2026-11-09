@@ -69,7 +69,9 @@ export function verifyStagedResources({ resources, platform, arch, deleted = par
   const archived = existsSync(join(resources, 'runtime.asar'))
     ? new Set(listPackage(join(resources, 'runtime.asar'), { isPack: false }).map((entry) => entry.replaceAll('\\', '/')))
     : new Set();
-  const asarOnly = CORE_READS.dirs.filter((dir) => !existsSync(join(mixdogRoot, '..', dir)) && archived.has(`/node_modules/${PACKAGE_DIR}/${dir}`));
+  const asarOnly = [...CORE_READS.files, ...CORE_READS.dirs].filter(
+    (entry) => !existsSync(join(mixdogRoot, '..', entry)) && archived.has(`/node_modules/${PACKAGE_DIR}/${entry}`)
+  );
   if (asarOnly.length) throw new Error(`the core's resources ${asarOnly.join(', ')} are only inside runtime.asar; MIXDOG_ROOT (${mixdogRoot}) needs real files`);
   verifyCoreInstall({ manifestDir: join(resources, 'core'), kind: 'desktop', platform, arch });
 
