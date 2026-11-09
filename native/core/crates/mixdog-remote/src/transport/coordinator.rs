@@ -141,7 +141,8 @@ pub trait Host {
     /// An authenticated `close{reason:'suspended'}` arrived: the leg is in the background.
     fn suspended(&mut self);
     /// The ICE/TURN set for a new peer.
-    fn resolve_ice(&mut self) -> Settle<Result<Value, ()>>;
+    /// connection_id names the attempt the set is for; a host that answers later reports it back.
+    fn resolve_ice(&mut self, connection_id: &str) -> Settle<Result<Value, ()>>;
     /// Whether a peer host is attached; absent, the session stays on the relay.
     fn peer_host_attached(&mut self) -> bool;
     /// Creates the offering peer of one session. `Err`: the host cannot run one now.
@@ -402,7 +403,7 @@ pub struct Coordinator<C: StreamChannel, H: Host> {
     session_id: String,
     channel: C,
     host: H,
-    media: Option<Box<dyn MediaAdapter>>,
+    media: Option<Box<dyn MediaAdapter + Send>>,
     label: String,
     sender: Sender,
     receiver: Receiver,
@@ -542,7 +543,7 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
         }
     }
 
-    pub fn set_media(&mut self, media: Box<dyn MediaAdapter>) {
+    pub fn set_media(&mut self, media: Box<dyn MediaAdapter + Send>) {
         self.media = Some(media);
     }
 
@@ -1034,7 +1035,7 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
             relayed: false,
             ice_servers: Vec::new(),
         });
-        if let Settle::Now(result) = self.host.resolve_ice() {
+        if let Settle::Now(result) = self.host.resolve_ice(&connection_id) {
             self.jobs.push_back(Job::IceResolved { connection_id, result });
         }
     }

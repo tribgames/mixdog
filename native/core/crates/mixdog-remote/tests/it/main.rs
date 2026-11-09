@@ -15,6 +15,7 @@ mod relay_redial;
 mod remote_modules;
 mod transport_coordinator;
 mod transport_media;
+mod transport_session;
 mod transport_signals;
 mod transport_vectors;
 mod web_push_kat;

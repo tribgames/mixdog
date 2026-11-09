@@ -9,7 +9,6 @@
 //! canonical JSON. The phone's inputs are the recorded bytes.
 
 use std::cell::Cell;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -139,7 +138,20 @@ struct Shared {
     minted: u8,
 }
 
-type Log = Rc<RefCell<Shared>>;
+/// The shared state behind a lock, so the stand-ins can ride in a Send coordinator.
+struct Guarded(std::sync::Mutex<Shared>);
+
+impl Guarded {
+    fn borrow(&self) -> std::sync::MutexGuard<'_, Shared> {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn borrow_mut(&self) -> std::sync::MutexGuard<'_, Shared> {
+        self.borrow()
+    }
+}
+
+type Log = std::sync::Arc<Guarded>;
 
 struct ChannelFake {
     log: Log,
@@ -279,7 +291,7 @@ impl Host for HostFake {
         self.log.borrow_mut().effects.push(json!({ "e": "suspended" }));
     }
 
-    fn resolve_ice(&mut self) -> Settle<Result<Value, ()>> {
+    fn resolve_ice(&mut self, _connection_id: &str) -> Settle<Result<Value, ()>> {
         self.log.borrow_mut().effects.push(json!({ "e": "ice" }));
         let mode = self.log.borrow().options["ice"].as_str().map(str::to_owned);
         Settle::Now(match mode.as_deref() {
@@ -530,7 +542,7 @@ fn the_coordinator_does_what_node_did_over_every_recorded_scenario() {
     for scenario in scenarios {
         let name = scenario["name"].as_str().expect("name");
         let now = Rc::new(Cell::new(scenario["start"].as_u64().expect("start")));
-        let log: Log = Rc::new(RefCell::new(Shared {
+        let log: Log = std::sync::Arc::new(Guarded(std::sync::Mutex::new(Shared {
             effects: Vec::new(),
             results: Vec::new(),
             options: scenario["options"].clone(),
@@ -544,7 +556,7 @@ fn the_coordinator_does_what_node_did_over_every_recorded_scenario() {
             peers: Vec::new(),
             creates: 0,
             minted: 0,
-        }));
+        })));
         let channel = ChannelFake { log: log.clone(), encrypt_sequence: 0, control_sequence: 0, lanes: HashMap::new() };
         let host = HostFake { log: log.clone(), now: now.clone() };
         let mut coordinator = Coordinator::new(scenario["sessionId"].as_str().expect("session"), channel, host, AssemblyPool::default());
