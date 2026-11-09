@@ -253,7 +253,9 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
             let list = prompt_list(&handle);
             list[..list.len().saturating_sub(ahead)].iter().rev().cloned().collect()
         };
-        eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (shown().len() == node_shown.len()).then_some(())).await;
+        // Paused time: the deadline is virtual, it only fires when no step can make the rows arrive, so a missing row fails here.
+        let arrived = tokio::time::timeout(std::time::Duration::from_secs(60), eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (shown().len() == node_shown.len()).then_some(()))).await;
+        assert!(arrived.is_ok(), "{name}: rows never arrived: {:?}, Node: {node_shown:?}", shown());
         assert_eq!(shown(), node_shown, "{name}: rows");
     }
 }
