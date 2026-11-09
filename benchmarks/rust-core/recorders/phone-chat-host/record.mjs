@@ -125,20 +125,20 @@ const startCases = [
   ['startProject-empty', 'startProject', ['   '], {}, {}],
   ['startProject-number', 'startProject', [7], {}, {}],
   ['startProject-touch-throws', 'startProject', ['<ROOT>/proj'], { touchThrows: true }, { dirs: ['proj'] }],
-  ['startProjectTask-registered', 'startProjectTask', ['<ROOT>/proj'], { projects: [proj] }, { dirs: ['proj'] }],
-  ['startProjectTask-unregistered', 'startProjectTask', ['<ROOT>/proj'], {}, { dirs: ['proj'] }],
-  ['startProjectTask-vanished', 'startProjectTask', ['<ROOT>/proj'], { projects: [proj] }, {}],
-  ['startProjectTask-registered-file', 'startProjectTask', ['<ROOT>/proj'], { projects: [proj] }, { files: ['proj'] }],
-  ['startProjectTask-touch-throws', 'startProjectTask', ['<ROOT>/proj'], { projects: [proj], touchThrows: true }, { dirs: ['proj'] }],
-  ['startProjectTask-empty', 'startProjectTask', [''], {}, {}],
+  ['startProjectTask:registered', 'startProjectTask', ['<ROOT>/proj'], { projects: [proj] }, { dirs: ['proj'] }],
+  ['startProjectTask:unregistered', 'startProjectTask', ['<ROOT>/proj'], {}, { dirs: ['proj'] }],
+  ['startProjectTask:vanished', 'startProjectTask', ['<ROOT>/proj'], { projects: [proj] }, {}],
+  ['startProjectTask:registered-file', 'startProjectTask', ['<ROOT>/proj'], { projects: [proj] }, { files: ['proj'] }],
+  ['startProjectTask:touch-throws', 'startProjectTask', ['<ROOT>/proj'], { projects: [proj], touchThrows: true }, { dirs: ['proj'] }],
+  ['startProjectTask:empty', 'startProjectTask', [''], {}, {}],
 ];
 const worktree = (state = 'ready') => (root) => [{ path: join(root, 'wt'), projectPath: join(root, 'proj'), state }];
 startCases.push(
-  ['startProjectTask-worktree', 'startProjectTask', ['<ROOT>/wt'], { projects: [proj], worktrees: worktree() }, { dirs: ['proj', 'wt'] }],
-  ['startProjectTask-worktree-subfolder', 'startProjectTask', ['<ROOT>/wt/sub'], { projects: [proj], worktrees: worktree() }, { dirs: ['proj', 'wt/sub'] }],
-  ['startProjectTask-worktree-not-ready', 'startProjectTask', ['<ROOT>/wt'], { projects: [proj], worktrees: worktree('deleting') }, { dirs: ['proj', 'wt'] }],
-  ['startProjectTask-worktree-owner-unregistered', 'startProjectTask', ['<ROOT>/wt'], { projects: [], worktrees: worktree() }, { dirs: ['proj', 'wt'] }],
-  ['startProjectTask-worktree-owner-vanished', 'startProjectTask', ['<ROOT>/wt'], { projects: [proj], worktrees: worktree() }, { dirs: ['wt'] }],
+  ['startProjectTask:worktree', 'startProjectTask', ['<ROOT>/wt'], { projects: [proj], worktrees: worktree() }, { dirs: ['proj', 'wt'] }],
+  ['startProjectTask:worktree-subfolder', 'startProjectTask', ['<ROOT>/wt/sub'], { projects: [proj], worktrees: worktree() }, { dirs: ['proj', 'wt/sub'] }],
+  ['startProjectTask:worktree-not-ready', 'startProjectTask', ['<ROOT>/wt'], { projects: [proj], worktrees: worktree('deleting') }, { dirs: ['proj', 'wt'] }],
+  ['startProjectTask:worktree-owner-unregistered', 'startProjectTask', ['<ROOT>/wt'], { projects: [], worktrees: worktree() }, { dirs: ['proj', 'wt'] }],
+  ['startProjectTask:worktree-owner-vanished', 'startProjectTask', ['<ROOT>/wt'], { projects: [proj], worktrees: worktree() }, { dirs: ['wt'] }],
 );
 for (const [name, call, args, options, prepare] of startCases) {
   const setup = { projects: options.projects ?? [], hidden: options.hidden ?? [], worktrees: Boolean(options.worktrees), touchThrows: Boolean(options.touchThrows), dirs: prepare.dirs ?? [], files: prepare.files ?? [] };
@@ -164,7 +164,7 @@ for (const [name, remoteSession] of [
   ['enabled-number-id', { enabled: true, sessionId: 5 }],
   ['enabled-string-flag', { enabled: 'true', sessionId: 'sess_remote_1' }],
 ]) {
-  await record('remote', `startTask-remote-${name}`, { remoteSession: remoteSession ?? null }, 'startTask', [], { daemon: { list: { sessions: [], ...(remoteSession ? { remoteSession } : {}) } } }, async ({ host, remote }) => {
+  await record('remote', `startTask:remote-${name}`, { remoteSession: remoteSession ?? null }, 'startTask', [], { daemon: { list: { sessions: [], ...(remoteSession ? { remoteSession } : {}) } } }, async ({ host, remote }) => {
     await host.listSessions();
     return remote.startTask([]);
   });

@@ -530,7 +530,7 @@
     },
     {
       "group": "start",
-      "name": "startProjectTask-registered",
+      "name": "startProjectTask:registered",
       "setup": {
         "projects": [
           {
@@ -596,7 +596,7 @@
     },
     {
       "group": "start",
-      "name": "startProjectTask-unregistered",
+      "name": "startProjectTask:unregistered",
       "setup": {
         "projects": [],
         "hidden": [],
@@ -624,7 +624,7 @@
     },
     {
       "group": "start",
-      "name": "startProjectTask-vanished",
+      "name": "startProjectTask:vanished",
       "setup": {
         "projects": [
           {
@@ -657,7 +657,7 @@
     },
     {
       "group": "start",
-      "name": "startProjectTask-registered-file",
+      "name": "startProjectTask:registered-file",
       "setup": {
         "projects": [
           {
@@ -691,7 +691,7 @@
     },
     {
       "group": "start",
-      "name": "startProjectTask-touch-throws",
+      "name": "startProjectTask:touch-throws",
       "setup": {
         "projects": [
           {
@@ -757,7 +757,7 @@
     },
     {
       "group": "start",
-      "name": "startProjectTask-empty",
+      "name": "startProjectTask:empty",
       "setup": {
         "projects": [],
         "hidden": [],
@@ -783,7 +783,7 @@
     },
     {
       "group": "start",
-      "name": "startProjectTask-worktree",
+      "name": "startProjectTask:worktree",
       "setup": {
         "projects": [
           {
@@ -850,7 +850,7 @@
     },
     {
       "group": "start",
-      "name": "startProjectTask-worktree-subfolder",
+      "name": "startProjectTask:worktree-subfolder",
       "setup": {
         "projects": [
           {
@@ -917,7 +917,7 @@
     },
     {
       "group": "start",
-      "name": "startProjectTask-worktree-not-ready",
+      "name": "startProjectTask:worktree-not-ready",
       "setup": {
         "projects": [
           {
@@ -952,7 +952,7 @@
     },
     {
       "group": "start",
-      "name": "startProjectTask-worktree-owner-unregistered",
+      "name": "startProjectTask:worktree-owner-unregistered",
       "setup": {
         "projects": [],
         "hidden": [],
@@ -981,7 +981,7 @@
     },
     {
       "group": "start",
-      "name": "startProjectTask-worktree-owner-vanished",
+      "name": "startProjectTask:worktree-owner-vanished",
       "setup": {
         "projects": [
           {
@@ -1016,7 +1016,7 @@
     },
     {
       "group": "remote",
-      "name": "startTask-remote-off",
+      "name": "startTask:remote-off",
       "setup": {
         "remoteSession": null
       },
@@ -1066,7 +1066,7 @@
     },
     {
       "group": "remote",
-      "name": "startTask-remote-enabled",
+      "name": "startTask:remote-enabled",
       "setup": {
         "remoteSession": {
           "enabled": true,
@@ -1119,7 +1119,7 @@
     },
     {
       "group": "remote",
-      "name": "startTask-remote-enabled-padded-hyphen",
+      "name": "startTask:remote-enabled-padded-hyphen",
       "setup": {
         "remoteSession": {
           "enabled": true,
@@ -1172,7 +1172,7 @@
     },
     {
       "group": "remote",
-      "name": "startTask-remote-disabled-with-id",
+      "name": "startTask:remote-disabled-with-id",
       "setup": {
         "remoteSession": {
           "enabled": false,
@@ -1225,7 +1225,7 @@
     },
     {
       "group": "remote",
-      "name": "startTask-remote-enabled-no-id",
+      "name": "startTask:remote-enabled-no-id",
       "setup": {
         "remoteSession": {
           "enabled": true
@@ -1277,7 +1277,7 @@
     },
     {
       "group": "remote",
-      "name": "startTask-remote-enabled-empty-id",
+      "name": "startTask:remote-enabled-empty-id",
       "setup": {
         "remoteSession": {
           "enabled": true,
@@ -1330,7 +1330,7 @@
     },
     {
       "group": "remote",
-      "name": "startTask-remote-enabled-bad-chars",
+      "name": "startTask:remote-enabled-bad-chars",
       "setup": {
         "remoteSession": {
           "enabled": true,
@@ -1383,7 +1383,7 @@
     },
     {
       "group": "remote",
-      "name": "startTask-remote-enabled-too-long",
+      "name": "startTask:remote-enabled-too-long",
       "setup": {
         "remoteSession": {
           "enabled": true,
@@ -1436,7 +1436,7 @@
     },
     {
       "group": "remote",
-      "name": "startTask-remote-enabled-number-id",
+      "name": "startTask:remote-enabled-number-id",
       "setup": {
         "remoteSession": {
           "enabled": true,
@@ -1489,7 +1489,7 @@
     },
     {
       "group": "remote",
-      "name": "startTask-remote-enabled-string-flag",
+      "name": "startTask:remote-enabled-string-flag",
       "setup": {
         "remoteSession": {
           "enabled": "true",

@@ -1185,7 +1185,7 @@ async fn recorded_start_calls_resolve_the_folder_node_did() {
             env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
         }
         if setup["worktrees"] == true {
-            let ready = name != "startProjectTask-worktree-not-ready";
+            let ready = name != "startProjectTask:worktree-not-ready";
             let folder = canonical(&base.join("wt")).unwrap().to_string_lossy().into_owned();
             env.service.set_managed_projects(Arc::new(Worktrees(env.state.clone(), vec![(folder, at("<ROOT>/proj"), ready)])));
         }
