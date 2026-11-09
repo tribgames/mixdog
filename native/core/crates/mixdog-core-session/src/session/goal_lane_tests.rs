@@ -29,7 +29,6 @@ use super::actor::Inbox;
 use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::testing::lock;
-use super::tests::eventually;
 use super::tests::eventually_on;
 use super::tests::idle;
 use super::tests::start_thread;
@@ -57,6 +56,8 @@ struct Spy {
     hold: Mutex<Option<Arc<tokio::sync::Notify>>>,
     /// Per continuation call in order: `Some(run)` replaces the runtime's `run`.
     runs: Mutex<std::collections::VecDeque<Option<bool>>>,
+    /// Wakes after each continuation call and reminder reset.
+    called: tokio::sync::Notify,
 }
 
 impl Spy {
@@ -68,6 +69,7 @@ impl Spy {
             pinned: Mutex::new(None),
             hold: Mutex::new(None),
             runs: Mutex::default(),
+            called: tokio::sync::Notify::new(),
         })
     }
     fn resets(&self) -> usize {
@@ -105,6 +107,7 @@ impl GoalTurnHooks for Spy {
 impl GoalContinuationHooks for Spy {
     async fn continuation(&self, thread: &ThreadId, input: ContinuationInput) -> GoalResult<Continuation> {
         lock(&self.inputs).push(input.clone());
+        self.called.notify_waiters();
         let mut decision = GoalContinuationHooks::continuation(&self.inner, thread, input).await?;
         if let Some(Some(run)) = lock(&self.runs).pop_front() {
             decision.run = run;
@@ -113,6 +116,7 @@ impl GoalContinuationHooks for Spy {
     }
     fn reset_continuation_rules(&self, thread: &ThreadId) -> GoalResult<()> {
         *lock(&self.resets) += 1;
+        self.called.notify_waiters();
         GoalContinuationHooks::reset_continuation_rules(&self.inner, thread)
     }
 }
@@ -248,7 +252,7 @@ async fn a_continuation_carries_the_todo_list_and_waits_on_background_work() {
     let directory = directory(&rig, &spy);
     let handle = start_thread(&directory).await;
     turn(&handle, "start", "op-1").await;
-    eventually(|| (lock(&spy.inputs).len() >= 1 && idle(&handle)).then_some(())).await;
+    eventually_on(&[&spy.called, &handle.cell.stepped], || (lock(&spy.inputs).len() >= 1 && idle(&handle)).then_some(())).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(lock(&seen).len(), 1, "the session waits on background work: no continuation turn");
     let first = lock(&spy.inputs)[0].clone();
@@ -258,7 +262,7 @@ async fn a_continuation_carries_the_todo_list_and_waits_on_background_work() {
 
     rig.work.0.store(false, std::sync::atomic::Ordering::SeqCst);
     turn(&handle, "again", "op-2").await;
-    eventually(|| (lock(&seen).len() >= 3).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (lock(&seen).len() >= 3).then_some(())).await;
     let inputs = lock(&seen).clone();
     let prompt = inputs[2]["content"].as_str().unwrap_or_default().to_owned();
     assert_eq!(inputs[2]["meta"]["source"], "goal-continuation");
@@ -279,10 +283,10 @@ async fn a_deadline_warning_is_queued_behind_a_turn_and_marks_the_reminder_when_
     let handle = start_thread(&directory).await;
     changed(&spy, &handle, goal("g1", "active", 0, 600_000)).await;
     turn(&handle, "work", "op-1").await;
-    eventually(|| (!idle(&handle)).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
 
     changed(&spy, &handle, goal("g1", "active", 1, 300_000)).await;
-    let entries = eventually(|| Some(queued_entries(&rig, &handle)).filter(|entries| !entries.is_empty())).await;
+    let entries = eventually_on(&[&handle.cell.stepped], || Some(queued_entries(&rig, &handle)).filter(|entries| !entries.is_empty())).await;
     assert_eq!(entries.len(), 1);
     let warning = &entries[0];
     assert_eq!((warning["mode"].clone(), warning["priority"].clone(), warning["goalId"].clone()), (json!("prompt"), json!("next"), json!("g1")));
@@ -295,9 +299,9 @@ async fn a_deadline_warning_is_queued_behind_a_turn_and_marks_the_reminder_when_
     // The script never drains steers, so the warning queued behind the turn runs as a turn of its
     // own: both turns have ended once two runs finished, and the thread is idle for good after.
     tokio::time::timeout(Duration::from_secs(60), finished.wait_for(|count| *count == 2)).await.expect("both turns end").expect("the script is alive");
-    eventually(|| (idle(&handle) && handle.cell.view.load_full().state.queued.as_ref().is_none_or(Vec::is_empty)).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.view.load_full().state.queued.as_ref().is_none_or(Vec::is_empty)).then_some(())).await;
     changed(&spy, &handle, goal("g1", "active", 2, 120_000)).await;
-    eventually(|| (spy.resets() == 1).then_some(())).await;
+    eventually_on(&[&spy.called, &handle.cell.stepped], || (spy.resets() == 1).then_some(())).await;
     assert_eq!(*finished.borrow(), 2, "no further turn ran");
     assert_eq!(queued_entries(&rig, &handle).iter().filter(|e| e["mode"] == "prompt").count(), 1, "revision 1 was delivered once");
     assert_eq!(spy.resets(), 1, "an idle thread marks the reminder once");
@@ -315,10 +319,10 @@ async fn the_deadline_closeout_is_queued_when_the_goal_reaches_its_duration() {
     let handle = start_thread(&directory).await;
     changed(&spy, &handle, goal("g1", "active", 0, 60_000)).await;
     turn(&handle, "work", "op-1").await;
-    eventually(|| (!idle(&handle)).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
 
     changed(&spy, &handle, goal("g1", "duration_reached", 0, 0)).await;
-    let entries = eventually(|| Some(queued_entries(&rig, &handle)).filter(|entries| !entries.is_empty())).await;
+    let entries = eventually_on(&[&handle.cell.stepped], || Some(queued_entries(&rig, &handle)).filter(|entries| !entries.is_empty())).await;
     let closeout = &entries[0];
     assert_eq!((closeout["mode"].clone(), closeout["priority"].clone(), closeout["goalId"].clone()), (json!("goal-closeout"), json!("next"), json!("g1")));
     assert_eq!(closeout["abortDiscardOnAbort"], json!(true));
@@ -328,7 +332,7 @@ async fn the_deadline_closeout_is_queued_when_the_goal_reaches_its_duration() {
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(queued_entries(&rig, &handle).len(), 1, "the closeout is queued once");
     gate.notify_one();
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
 }
 
 /// A user prompt that removes a queued closeout of a Goal at its duration marks the reminder
@@ -342,17 +346,17 @@ async fn a_user_prompt_dropping_the_closeout_marks_the_reminder() {
     let handle = start_thread(&directory).await;
     changed(&spy, &handle, goal("g1", "active", 0, 60_000)).await;
     turn(&handle, "work", "op-1").await;
-    eventually(|| (!idle(&handle)).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
     changed(&spy, &handle, goal("g1", "duration_reached", 0, 0)).await;
     // Acked, not just recorded: the actor's projection is what a user prompt reads.
-    eventually(|| handle.cell.view.load_full().state.queued.as_ref().filter(|queued| !queued.is_empty()).map(|_| ())).await;
+    eventually_on(&[&handle.cell.stepped], || handle.cell.view.load_full().state.queued.as_ref().filter(|queued| !queued.is_empty()).map(|_| ())).await;
     assert_eq!(spy.resets(), 0);
 
     turn(&handle, "more", "op-2").await;
-    eventually(|| (spy.resets() == 1).then_some(())).await;
+    eventually_on(&[&spy.called, &handle.cell.stepped], || (spy.resets() == 1).then_some(())).await;
     gate.notify_one();
     gate.notify_one();
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
 }
 
 /// Holds the first run open until released and keeps every run's input row.
@@ -394,18 +398,18 @@ async fn a_queued_closeout_runs_only_while_its_goal_is_at_its_duration() {
         let handle = start_thread(&directory).await;
         changed(&spy, &handle, goal("g1", "active", 0, 60_000)).await;
         turn(&handle, "work", "op-1").await;
-        eventually(|| (!idle(&handle)).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
         changed(&spy, &handle, goal("g1", "duration_reached", 0, 0)).await;
-        eventually(|| handle.cell.view.load_full().state.queued.as_ref().filter(|queued| !queued.is_empty()).map(|_| ())).await;
+        eventually_on(&[&handle.cell.stepped], || handle.cell.view.load_full().state.queued.as_ref().filter(|queued| !queued.is_empty()).map(|_| ())).await;
         if !still_due {
             // The runtime's Goal moved on without the lane hearing it yet.
             *lock(&spy.pinned) = Some(goal("g1", "active", 0, 60_000));
         }
         gate.notify_one();
         if still_due {
-            eventually(|| (sources(&seen) == ["user", "goal-closeout"]).then_some(())).await;
+            eventually_on(&[&handle.cell.stepped], || (sources(&seen) == ["user", "goal-closeout"]).then_some(())).await;
         }
-        eventually(|| (idle(&handle) && handle.cell.view.load_full().state.queued.as_ref().is_none_or(|queued| queued.is_empty())).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.view.load_full().state.queued.as_ref().is_none_or(|queued| queued.is_empty())).then_some(())).await;
         tokio::time::sleep(Duration::from_millis(150)).await;
         let expected: &[&str] = if still_due { &["user", "goal-closeout"] } else { &["user"] };
         assert_eq!(sources(&seen), expected, "still due: {still_due}");
@@ -425,7 +429,7 @@ async fn a_queued_continuation_runs_only_if_the_runtime_still_decides_to_run() {
     let directory = directory(&rig, &spy);
     let handle = start_thread(&directory).await;
     spy.inner.goal_control(&handle.id, json!({ "action": "create", "objective": "Ship the feature" })).await.expect("create");
-    eventually(|| (lock(&spy.inputs).len() >= 2).then_some(())).await;
+    eventually_on(&[&spy.called, &handle.cell.stepped], || (lock(&spy.inputs).len() >= 2).then_some(())).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(lock(&seen).is_empty(), "the refused continuation never ran: {:?}", sources(&seen));
     assert_eq!(lock(&spy.inputs).len(), 2, "the dropped entry is not rescheduled");
@@ -447,10 +451,10 @@ async fn a_deadline_warning_during_the_settlement_marks_the_reminder() {
     let hold = Arc::new(tokio::sync::Notify::new());
     *lock(&spy.hold) = Some(hold.clone());
     turn(&handle, "work", "op-1").await;
-    eventually(|| (lock(&seen).len() == 1 && idle(&handle)).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (lock(&seen).len() == 1 && idle(&handle)).then_some(())).await;
 
     changed(&spy, &handle, goal("g1", "active", 1, 300_000)).await;
-    let pending = eventually(|| handle.cell.header.load().get("pendingGoalReminder").cloned()).await;
+    let pending = eventually_on(&[&handle.cell.stepped], || handle.cell.header.load().get("pendingGoalReminder").cloned()).await;
     assert_eq!(pending["reason"], "deadline-soon");
     assert_eq!(spy.resets(), 1);
     assert!(queued_entries(&rig, &handle).is_empty(), "a settling turn takes no queued warning");
@@ -477,10 +481,10 @@ async fn a_goal_reminder_marks_the_sessions_pending_reminder() {
     handle.request(request("thread/goal/set", json!({ "threadId": handle.id, "opId": "g-1", "goal": "Ship the feature" }), "g-1")).await.expect("set");
     let pending = |handle: &SessionHandle| handle.cell.header.load().get("pendingGoalReminder").cloned();
     control(json!({ "threadId": handle.id, "opId": "g-2", "action": "edit", "args": { "objective": "Ship it" } }), "g-2").await;
-    let first = eventually(|| pending(&handle)).await;
+    let first = eventually_on(&[&handle.cell.stepped], || pending(&handle)).await;
     assert_eq!(first, json!({ "version": 1, "type": "goal_state", "revision": 1, "reason": "objective-updated" }));
     control(json!({ "threadId": handle.id, "opId": "g-3", "action": "edit", "args": { "objective": "Ship it now" } }), "g-3").await;
-    eventually(|| pending(&handle).filter(|p| p["revision"] == 2)).await;
+    eventually_on(&[&handle.cell.stepped], || pending(&handle).filter(|p| p["revision"] == 2)).await;
     let header = handle.cell.header.load();
     assert_eq!(header.get("goalReminderRevision"), Some(&json!(2)));
     assert!(header.get("updatedAt").and_then(Value::as_i64).is_some());
@@ -553,15 +557,15 @@ async fn a_queued_closeout_is_steered_only_while_its_goal_is_at_its_duration() {
         let handle = start_thread(&directory).await;
         changed(&spy, &handle, goal("g1", "active", 0, 60_000)).await;
         turn(&handle, "work", "op-1").await;
-        eventually(|| (!idle(&handle)).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
         changed(&spy, &handle, goal("g1", "duration_reached", 0, 0)).await;
-        eventually(|| handle.cell.view.load_full().state.queued.as_ref().filter(|queued| !queued.is_empty()).map(|_| ())).await;
+        eventually_on(&[&handle.cell.stepped], || handle.cell.view.load_full().state.queued.as_ref().filter(|queued| !queued.is_empty()).map(|_| ())).await;
         if !still_due {
             // The runtime's Goal moved on without the lane hearing it yet.
             *lock(&spy.pinned) = Some(goal("g1", "active", 0, 60_000));
         }
         gate.notify_one();
-        eventually(|| idle(&handle).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
         let taken = lock(&taken).clone();
         if still_due {
             assert_eq!(taken.len(), 1, "{taken:?}");
@@ -570,7 +574,7 @@ async fn a_queued_closeout_is_steered_only_while_its_goal_is_at_its_duration() {
             assert!(taken.is_empty(), "a closeout its Goal no longer wants is never steered: {taken:?}");
         }
         // The dequeue is acked (durable) a moment after the turn ends.
-        eventually(|| handle.cell.view.load_full().state.queued.as_ref().is_none_or(Vec::is_empty).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || handle.cell.view.load_full().state.queued.as_ref().is_none_or(Vec::is_empty).then_some(())).await;
     }
 }
 
@@ -586,9 +590,9 @@ async fn a_kept_closeout_takes_the_goals_text_in_place() {
     let handle = start_thread(&directory).await;
     changed(&spy, &handle, goal("g1", "active", 0, 60_000)).await;
     turn(&handle, "work", "op-1").await;
-    eventually(|| (!idle(&handle)).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
     changed(&spy, &handle, goal("g1", "duration_reached", 0, 0)).await;
-    let first = eventually(|| Some(queued_entries(&rig, &handle)).filter(|entries| !entries.is_empty())).await;
+    let first = eventually_on(&[&handle.cell.stepped], || Some(queued_entries(&rig, &handle)).filter(|entries| !entries.is_empty())).await;
 
     let mut edited = goal("g1", "duration_reached", 0, 0);
     edited.insert("objective".into(), json!("Ship it faster"));
@@ -603,7 +607,7 @@ async fn a_kept_closeout_takes_the_goals_text_in_place() {
             })
             .collect::<Vec<_>>()
     };
-    let updates = eventually(|| Some(updates()).filter(|updates| !updates.is_empty())).await;
+    let updates = eventually_on(&[&handle.cell.stepped], || Some(updates()).filter(|updates| !updates.is_empty())).await;
     assert_eq!(updates.len(), 1);
     let Some(Slot::Inline(entry)) = &updates[0].entry else { panic!("{:?}", updates[0]) };
     assert!(entry["message"].as_str().unwrap().contains("Ship it faster"), "{entry}");
@@ -612,7 +616,7 @@ async fn a_kept_closeout_takes_the_goals_text_in_place() {
     let dequeued = rig.store.records(&handle.id).into_iter().filter(|(_, r)| matches!(r, Record::Queue(q) if q.action == QueueAction::Dequeue)).count();
     assert_eq!(dequeued, 0);
     gate.notify_one();
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
 }
 
 /// `suppressDisplay`: a hidden Goal notice a turn takes in paints no row, where a user prompt
@@ -656,15 +660,15 @@ async fn a_suppressed_entry_a_turn_takes_in_paints_no_row() {
         let handle = start_thread(&directory).await;
         changed(&spy, &handle, goal("g1", "active", 0, 600_000)).await;
         turn(&handle, "work", "op-1").await;
-        eventually(|| (!idle(&handle)).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
         if hidden {
             changed(&spy, &handle, goal("g1", "active", 1, 300_000)).await;
         } else {
             turn(&handle, "steer me", "op-2").await;
         }
-        eventually(|| handle.cell.view.load_full().state.queued.as_ref().filter(|queued| !queued.is_empty()).map(|_| ())).await;
+        eventually_on(&[&handle.cell.stepped], || handle.cell.view.load_full().state.queued.as_ref().filter(|queued| !queued.is_empty()).map(|_| ())).await;
         gate.notify_one();
-        eventually(|| idle(&handle).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
         assert_eq!(*lock(&steered), 1, "the turn took the entry in");
         handle.cell.view.load_full().items.len()
     }
@@ -702,14 +706,14 @@ async fn the_goal_route_serves_goal_control() {
     let Err(CoreError::DomainError { message: Some(message), .. }) = refused else { panic!("a refusal: {refused:?}") };
     assert!(!message.is_empty());
 
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let gate = holding(&rig);
     turn(&handle, "work", "op-1").await;
-    eventually(|| (!idle(&handle)).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
     let paused = value(ask("thread/goal/control", json!({ "threadId": handle.id, "opId": "g-4", "action": "pause" }), "g-4").await);
     assert_eq!(paused["action"], "pause", "{paused}");
     gate.notify_one();
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let cleared = value(ask("thread/goal/clear", json!({ "threadId": handle.id, "opId": "g-5" }), "g-5").await);
     assert_eq!((cleared["action"].clone(), cleared["message"].clone()), (json!("clear"), json!("Goal cleared")), "{cleared}");
 }

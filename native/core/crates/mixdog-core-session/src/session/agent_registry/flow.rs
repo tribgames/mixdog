@@ -706,7 +706,7 @@ mod tests {
     /// result unchanged, until it stops observing; a session not hosted here reports nothing.
     #[tokio::test(start_paused = true)]
     async fn an_observer_hears_each_turn_and_its_final_result() {
-        use crate::session::tests::eventually;
+        use crate::session::tests::eventually_on;
         use crate::session::tests::idle;
         use crate::session::tests::start_thread;
         use crate::session::tests::turn;
@@ -727,12 +727,12 @@ mod tests {
         let heard = Arc::new(Heard::default());
         let stop = directory.observe_session_turns(handle.id.as_str(), heard.clone()).expect("hosted here");
         turn(&handle, "go", "op-1").await;
-        eventually(|| (heard.0.lock().unwrap().len() == 2).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || (heard.0.lock().unwrap().len() == 2).then_some(())).await;
         assert_eq!(*heard.0.lock().unwrap(), ["start true", "settled true done/2"]);
-        eventually(|| idle(&handle).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
         stop();
         turn(&handle, "again", "op-2").await;
-        eventually(|| idle(&handle).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
         assert_eq!(heard.0.lock().unwrap().len(), 2, "no longer observed");
         assert!(directory.observe_session_turns("sess_elsewhere", heard).is_none());
     }
@@ -755,7 +755,7 @@ mod tests {
                 matches!(record, mixdog_store::schema::record::Record::Queue(q) if q.qid.as_str().starts_with("completion_"))
             })
         };
-        crate::session::tests::eventually(|| queued().then_some(())).await;
+        crate::session::tests::eventually_on(&[&directory.handle(&worker).expect("loaded").cell.stepped], || queued().then_some(())).await;
         let owner = ThreadId::from("sess_owner");
         assert!(completions.notify("sess_owner", envelope, &meta), "the live owner takes it");
         let owner_queued = rig.store.records(&owner).iter().any(|(_, record)| matches!(record, mixdog_store::schema::record::Record::Queue(_)));
@@ -767,7 +767,7 @@ mod tests {
     /// durable but adds no row; one queued without a listener shows its row when taken in.
     #[tokio::test(start_paused = true)]
     async fn a_shown_completions_turn_row_adds_no_second_row() {
-        use crate::session::tests::eventually;
+        use crate::session::tests::eventually_on;
         use crate::session::tests::idle;
         use crate::session::tests::start_thread;
         use mixdog_store::schema::record::Record;
@@ -780,7 +780,7 @@ mod tests {
             records.iter().filter(|(_, r)| matches!(r, Record::Item(item) if item.role.as_ref().is_some_and(|r| r.as_str() == "user"))).count()
         };
         directory.finished(&handle.id, "agent", "t1", "completed", ENVELOPE.to_owned()).await;
-        eventually(|| (rows(&rig.store.records(&handle.id)) == 1 && idle(&handle)).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || (rows(&rig.store.records(&handle.id)) == 1 && idle(&handle)).then_some(())).await;
         let items = handle.cell.view.load_full().items.clone();
         assert_eq!(items.len(), 1, "the card alone: {items:?}");
         assert!(matches!(items[0].as_ref(), ThreadItemKind::ToolCall { .. }));
@@ -790,15 +790,15 @@ mod tests {
         let other = ENVELOPE.replace("t1", "t2");
         let meta = json!({ "execution_surface": "agent", "execution_id": "t2", "status": "completed" });
         assert!(completions.enqueue_completion(handle.id.as_str(), &other, &meta));
-        eventually(|| (rows(&rig.store.records(&handle.id)) == 2 && idle(&handle)).then_some(())).await;
-        eventually(|| (handle.cell.view.load_full().items.len() == 2).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || (rows(&rig.store.records(&handle.id)) == 2 && idle(&handle)).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || (handle.cell.view.load_full().items.len() == 2).then_some(())).await;
     }
 
     /// The live owner's cards (`execution-delivery.mjs`): a failed bodyless preview shows a card,
     /// a successful one does not, and the body that follows shows its own card.
     #[tokio::test(start_paused = true)]
     async fn the_live_owner_shows_the_cards_node_shows() {
-        use crate::session::tests::eventually;
+        use crate::session::tests::eventually_on;
         use crate::session::tests::start_thread;
         use mixdog_tools::exec::TaskNotifier;
 
@@ -824,7 +824,7 @@ mod tests {
         };
         assert!(completions.notify(handle.id.as_str(), &preview("completed"), &preview_meta("completed")));
         assert!(completions.notify(handle.id.as_str(), &preview("failed"), &preview_meta("failed")));
-        eventually(|| (cards() == 1).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || (cards() == 1).then_some(())).await;
         let has_body = || {
             handle.cell.view.load_full().items.iter().any(|item| match item.as_ref() {
                 ThreadItemKind::ToolCall { meta, .. } => meta.ext.get("agentResponseHasBody") == Some(&Value::Bool(true)),
@@ -834,7 +834,7 @@ mod tests {
         let body = "<task-notification>\n<task-id>t1</task-id>\n<status>completed</status>\n<summary>Agent \"rev\" completed</summary>\n<result>\nall done\n</result>\n</task-notification>";
         directory.finished(&handle.id, "agent", "t1", "completed", body.to_owned()).await;
         // The body of the same execution replaces its preview on the tail card.
-        eventually(|| has_body().then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || has_body().then_some(())).await;
         directory.finished(&handle.id, "agent", "t1", "completed", body.to_owned()).await;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(cards(), 1, "one card for the execution; its body shows once");

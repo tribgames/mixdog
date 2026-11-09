@@ -32,7 +32,7 @@ use crate::session::Clock;
 use crate::session::seams::RunOutcome;
 use crate::session::testing::Rig;
 use crate::session::testing::lock;
-use crate::session::tests::eventually;
+use crate::session::tests::eventually_on;
 use crate::session::tests::idle;
 use crate::session::tests::turn;
 
@@ -217,9 +217,10 @@ async fn a_hidden_session_is_created_as_mixys_exec_run_and_closed_with_a_tombsto
         assert_eq!(header.get(key), Some(&want), "{key}");
     }
 
+    let loaded = directory.handle(&thread).expect("loaded");
     assert!(wake.close_hidden_session(&id).await.unwrap());
     assert_eq!(*lock(&hooks.shells_cancelled), std::slice::from_ref(&id), "the shells it owns are cancelled");
-    eventually(|| directory.handle(&thread).is_none().then_some(())).await;
+    eventually_on(&[&loaded.cell.stepped, directory.left()], || directory.handle(&thread).is_none().then_some(())).await;
     // Loaded again: the header as its records fold it.
     let reopened = directory.open_handle(&thread, &CallContext::internal("test")).await.expect("the tombstone stays");
     let closed = reopened.cell.header.load_full();
@@ -254,14 +255,14 @@ async fn a_close_ends_the_running_turn_drops_the_queue_and_unloads_after_it() {
     let thread = ThreadId::from(id.as_str());
     let handle = directory.handle(&thread).expect("loaded");
     turn(&handle, "beat", "op-1").await;
-    eventually(|| handle.cell.run.load().is_some().then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
     assert_eq!(turn(&handle, "later", "op-2").await["kind"], json!("queued"));
-    eventually(|| (handle.cell.queued.load().len() == 1).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (handle.cell.queued.load().len() == 1).then_some(())).await;
 
     assert!(wake.close_hidden_session(&id).await.unwrap());
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert_eq!(lock(&aborted).as_deref(), Some(format!("Session \"{id}\" closed: closeSession (reason=heartbeat-finished)").as_str()));
-    eventually(|| directory.handle(&thread).is_none().then_some(())).await;
+    eventually_on(&[&handle.cell.stepped, directory.left()], || directory.handle(&thread).is_none().then_some(())).await;
     assert!(handle.cell.queued.load().is_empty(), "the queued input went with the close");
 }
 

@@ -57,20 +57,8 @@ fn request(method: &'static str, params: Value, op: &str) -> CoreRequest {
     }
 }
 
-pub(crate) async fn eventually<T>(mut probe: impl FnMut() -> Option<T>) -> T {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    loop {
-        if let Some(value) = probe() {
-            return value;
-        }
-        assert!(tokio::time::Instant::now() < deadline, "condition not reached in 5 s");
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-}
-
-/// [`eventually`] for a test whose state moves on real I/O (the real store: its writer is an OS
-/// thread, so the clock cannot be paused). It ends when `probe` holds and is woken by a change of
-/// the state it reads, never by the clock: `wakes` are the signals of what the probe reads (the
+/// Waits until `probe` holds, woken by a change of the state it reads, never by the clock (the real store's writer is an OS
+/// thread, so a paused clock cannot pace it): `wakes` are the signals of what the probe reads (the
 /// thread actor's steps, the directory losing a thread, the delete log), each registered before the
 /// probe runs so no change between probe and wait is missed. A wait that can never end is the
 /// test's failure, as for any event wait.
@@ -229,7 +217,7 @@ async fn a_turn_publishes_its_rows_in_order_after_they_are_durable() {
 
     let started = turn(&handle, "write a haiku", "op-1").await;
     assert_eq!(started["kind"], "started");
-    eventually(|| (rows(&handle).len() == 2 && idle(&handle)).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (rows(&handle).len() == 2 && idle(&handle)).then_some(())).await;
 
     assert_eq!(
         rows(&handle),
@@ -269,17 +257,17 @@ async fn prompt_history_follows_todays_derivation_and_updates_incrementally() {
     crate::session::fixture_fs::write(&file, br#"{"version":1,"entries":["older","one"]}"#);
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
-    eventually(|| (prompt_list(&handle) == ["one", "older"]).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (prompt_list(&handle) == ["one", "older"]).then_some(())).await;
 
     turn(&handle, "two", "op-1").await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     turn(&handle, "  one  ", "op-2").await;
-    eventually(|| (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
-    eventually(|| (prompt_list(&handle) == ["one", "two", "older"]).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (prompt_list(&handle) == ["one", "two", "older"]).then_some(())).await;
     // The persisted history of the cwd took both submits (`appendPromptHistory`), written behind
     // the window (`WRITE_BEHIND_MS`) after the last of them.
     let want = json!({ "version": 1, "entries": ["older", "two", "one"] });
-    let saved = eventually(|| {
+    let saved = eventually_on(&[&*rig.prompts_wrote], || {
         let text = crate::session::fixture_fs::read_to_string(&file).ok()?;
         serde_json::from_str::<Value>(&text).ok().filter(|saved| *saved == want)
     })
@@ -308,7 +296,7 @@ async fn prompt_history_follows_todays_derivation_and_updates_incrementally() {
         .expect("rewind");
     let Reply::Value(value) = reply else { panic!() };
     assert_eq!(value["text"], "one");
-    eventually(|| (rows(&handle).len() == 2).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (rows(&handle).len() == 2).then_some(())).await;
     assert_eq!(prompt_list(&handle), ["two", "older"]);
     let frames = rig.feeds.frames(handle.id.as_str());
     let reset = frames
@@ -364,9 +352,9 @@ async fn an_implicit_approval_session_asks_nobody() {
     let id = ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id"));
     let handle = directory.handle(&id).expect("loaded");
     turn(&handle, "clean", "op-1").await;
-    let resolution = eventually(|| lock(&resolved).clone()).await;
+    let resolution = eventually_on(&[&handle.cell.stepped], || lock(&resolved).clone()).await;
     assert!(matches!(resolution, ApprovalResolution::Unavailable { .. }), "{resolution:?}");
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert!(rig.sink.events().is_empty(), "no approval request is published");
 }
 
@@ -399,7 +387,7 @@ async fn the_first_valid_decision_wins_and_an_invalid_one_is_rejected() {
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "clean", "op-1").await;
-    let published = eventually(|| {
+    let published = eventually_on(&[&handle.cell.stepped], || {
         rig.sink.events().into_iter().find_map(|event| match event {
             ServerRequestEvent::Published(request) => Some(request),
             _ => None,
@@ -417,7 +405,7 @@ async fn the_first_valid_decision_wins_and_an_invalid_one_is_rejected() {
     handle.decide(decide(7, json!({ "approved": "yes" }))).expect("routed");
     handle.decide(decide(8, json!({ "approved": true }))).expect("routed");
     handle.decide(decide(9, json!({ "approved": false }))).expect("routed");
-    let resolution = eventually(|| lock(&resolved).clone()).await;
+    let resolution = eventually_on(&[&handle.cell.stepped], || lock(&resolved).clone()).await;
     let ApprovalResolution::Decided { decision, device, .. } = resolution else {
         panic!("decided");
     };
@@ -433,7 +421,7 @@ async fn the_first_valid_decision_wins_and_an_invalid_one_is_rejected() {
         })
         .collect();
     assert_eq!(rejected, vec![ConnectionId(7)]);
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let result = handle
         .cell
         .view
@@ -482,9 +470,9 @@ async fn interrupt_is_answered_on_the_control_path_and_ends_the_run() {
         handle.interrupt(&TurnId::from("other"), None),
         Err(CoreError::TurnNotActive { .. })
     ));
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     // `turn/completed` is published once its run record is durable, after the slot clears.
-    let completed = eventually(|| {
+    let completed = eventually_on(&[&rig.feeds.published], || {
         rig.feeds
             .frames(handle.id.as_str())
             .into_iter()
@@ -669,20 +657,27 @@ async fn input_and_task_notifications_release_the_runs_wait() {
     let seen = reasons.clone();
     let inputs: Arc<Mutex<Vec<Value>>> = Arc::default();
     let bodies = inputs.clone();
+    // Told after each wait the run begins, each reason it records and each input it takes.
+    let progress = Arc::new(tokio::sync::Notify::new());
+    let told = progress.clone();
     // The first run's `task wait`, twice: once released by new input, once by a notification.
     rig.set_script(Arc::new(move |run| {
         let wakes = wakes.clone();
         let seen = seen.clone();
+        let told = told.clone();
         let first = {
             let mut bodies = lock(&bodies);
             bodies.push(run.input_body.clone());
             bodies.len() == 1
         };
+        told.notify_waiters();
         Box::pin(async move {
             for _ in 0..usize::from(first) * 2 {
                 let wait = wakes.begin(&run.thread);
+                told.notify_waiters();
                 wait.released().await;
                 lock(&seen).push(wait.wake().expect("released").reason);
+                told.notify_waiters();
             }
             RunOutcome::Completed(Default::default())
         })
@@ -690,25 +685,25 @@ async fn input_and_task_notifications_release_the_runs_wait() {
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "build", "op-1").await;
-    eventually(|| (rig.wakes.active_waits(&handle.id) == 1).then_some(())).await;
+    eventually_on(&[&progress], || (rig.wakes.active_waits(&handle.id) == 1).then_some(())).await;
     assert_eq!(turn(&handle, "next", "op-2").await["kind"], "queued");
-    eventually(|| (rig.wakes.active_waits(&handle.id) == 1 && lock(&reasons).len() == 1).then_some(()))
+    eventually_on(&[&progress], || (rig.wakes.active_waits(&handle.id) == 1 && lock(&reasons).len() == 1).then_some(()))
         .await;
 
     directory.finished(&handle.id, "shell", "job-7", "completed", "Async shell task job-7 finished.".into()).await;
-    eventually(|| (lock(&reasons).len() == 2).then_some(())).await;
+    eventually_on(&[&progress], || (lock(&reasons).len() == 2).then_some(())).await;
     assert_eq!(*lock(&reasons), [WakeReason::UserMessage, WakeReason::Notification]);
 
     // The completion was queued, never a queued prompt; the turn took no boundary after it, so
     // it runs as its own turn after the queued prompt, as a task-notification row.
-    eventually(|| (lock(&inputs).len() == 3).then_some(())).await;
+    eventually_on(&[&progress], || (lock(&inputs).len() == 3).then_some(())).await;
     let bodies = lock(&inputs).clone();
     assert_eq!(bodies[1]["content"], "next");
     assert_eq!(bodies[2]["meta"]["source"], "task-notification");
     assert_eq!(bodies[2]["meta"]["execution"], json!({ "surface": "shell", "id": "job-7", "status": "completed" }));
     assert_eq!(bodies[2]["content"], "Async shell task job-7 finished.");
     assert!(!prompt_list(&handle).iter().any(|p| p.contains("job-7")));
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert!(handle.cell.view.load_full().state.queued.as_ref().is_some_and(Vec::is_empty));
 }
 
@@ -736,7 +731,7 @@ async fn a_running_turn_takes_a_completion_at_its_next_boundary() {
     turn(&handle, "build", "op-1").await;
     directory.finished(&handle.id, "shell", "job-7", "completed", "job-7 finished.".into()).await;
     // Durable before the boundary looks.
-    eventually(|| {
+    eventually_on(&[&handle.cell.stepped], || {
         rig.store.records(&handle.id).into_iter().any(|(_, record)| {
             matches!(record, mixdog_store::schema::record::Record::Queue(_))
         })
@@ -745,7 +740,7 @@ async fn a_running_turn_takes_a_completion_at_its_next_boundary() {
     .await;
     tokio::time::sleep(Duration::from_millis(50)).await;
     gate.notify_one();
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let taken = lock(&taken).clone();
     assert_eq!(taken.len(), 1);
     assert_eq!(taken[0].mode, SteerMode::TaskNotification);
@@ -789,7 +784,7 @@ async fn queued_prompts_wait_for_the_terminal_boundary_and_merge() {
     let first = turn(&handle, "first", "op-2").await;
     let second = turn(&handle, "second", "op-3").await;
     directory.finished(&handle.id, "shell", "job-7", "completed", "job-7 finished.".into()).await;
-    eventually(|| {
+    eventually_on(&[&handle.cell.stepped], || {
         let queued = rig.store.records(&handle.id).into_iter().filter(|(_, record)| {
             matches!(record, mixdog_store::schema::record::Record::Queue(_))
         });
@@ -797,7 +792,7 @@ async fn queued_prompts_wait_for_the_terminal_boundary_and_merge() {
     })
     .await;
     gate.notify_one();
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let taken = lock(&taken).clone();
     assert_eq!(taken.len(), 2);
     assert!(taken[0].is_empty(), "a queued prompt keeps the mid-chain boundary from the queue");
@@ -824,14 +819,17 @@ async fn completions_after_the_woken_turns_last_look_replay_oldest_first() {
     let gate = Arc::new(tokio::sync::Notify::new());
     let inputs: Arc<Mutex<Vec<(Value, usize)>>> = Arc::default();
     let (open, seen) = (gate.clone(), inputs.clone());
+    let progress = Arc::new(tokio::sync::Notify::new());
+    let said = progress.clone();
     rig.set_script(Arc::new(move |run| {
-        let (open, seen) = (open.clone(), seen.clone());
+        let (open, seen, told) = (open.clone(), seen.clone(), said.clone());
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
             let first = lock(&seen).is_empty();
             // The boundary looks first; the woken turn then waits past its last look.
             let took = run.port.take_steers(drain(DrainStage::PreSend)).await.expect("take").len();
             lock(&seen).push((run.input_body.clone(), took));
+            told.notify_waiters();
             if first {
                 open.notified().await;
             }
@@ -841,13 +839,13 @@ async fn completions_after_the_woken_turns_last_look_replay_oldest_first() {
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     directory.finished(&handle.id, "shell", "job-1", "completed", "job-1 finished.".into()).await;
-    eventually(|| (lock(&inputs).len() == 1).then_some(())).await;
+    eventually_on(&[&progress], || (lock(&inputs).len() == 1).then_some(())).await;
     directory.finished(&handle.id, "shell", "job-2", "completed", "job-2 finished.".into()).await;
     directory.finished(&handle.id, "shell", "job-3", "completed", "job-3 finished.".into()).await;
     tokio::time::sleep(Duration::from_millis(50)).await;
     gate.notify_one();
-    eventually(|| (lock(&inputs).len() == 3).then_some(())).await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&progress], || (lock(&inputs).len() == 3).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
     let inputs = lock(&inputs).clone();
     let order: Vec<&str> = inputs.iter().map(|(body, _)| body["content"].as_str().unwrap()).collect();
@@ -999,7 +997,7 @@ async fn a_held_route_leaves_a_completion_to_the_next_turn() {
     directory.finished(&handle.id, "shell", "job-7", "completed", "job-7 finished.".into()).await;
     tokio::time::sleep(Duration::from_millis(50)).await;
     gate.notify_one();
-    eventually(|| (lock(&took).len() == 2).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (lock(&took).len() == 2).then_some(())).await;
     assert_eq!(lock(&took)[0], 0, "held: not taken by this turn");
     assert_eq!(runs_started(&rig, &handle.id), 2, "the next turn is the completion's");
 }
@@ -1510,7 +1508,7 @@ async fn a_seeded_thread_that_is_not_created_is_abandoned_once() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_start_cancelled_after_the_thread_is_published_leaves_its_scope_to_the_actor() {
     use mixdog_store::schema::record::Header;
-    struct Tools(Mutex<Vec<ThreadId>>);
+    struct Tools(Mutex<Vec<ThreadId>>, tokio::sync::Notify);
     #[async_trait::async_trait]
     impl super::NewThreadTools for Tools {
         async fn seed(&self, _: &ThreadId, header: &Header) -> Result<Header, String> {
@@ -1518,10 +1516,11 @@ async fn a_start_cancelled_after_the_thread_is_published_leaves_its_scope_to_the
         }
         fn abandon(&self, thread: &ThreadId) {
             lock(&self.0).push(thread.clone());
+            self.1.notify_waiters();
         }
     }
     let rig = Rig::new();
-    let tools = Arc::new(Tools(Mutex::default()));
+    let tools = Arc::new(Tools(Mutex::default(), tokio::sync::Notify::new()));
     let mut deps = rig.deps_parts(rig.store.clone());
     deps.new_tools = tools.clone();
     let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
@@ -1543,7 +1542,7 @@ async fn a_start_cancelled_after_the_thread_is_published_leaves_its_scope_to_the
     assert!(lock(&tools.0).is_empty(), "the cancelled caller released nothing");
     let id = directory.loaded_ids().pop().expect("the published thread");
     release.send(()).expect("lane waits");
-    eventually(|| (rig.store.records(&id).len() == 1).then_some(())).await;
+    eventually_on(&[&rig.store.committed], || (rig.store.records(&id).len() == 1).then_some(())).await;
     let handle = directory.handle(&id).expect("loaded");
     handle
         .request(CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": id, "set": {}, "unset": [] }), op: None, ctx: CallContext::internal("test") })
@@ -1555,7 +1554,7 @@ async fn a_start_cancelled_after_the_thread_is_published_leaves_its_scope_to_the
     let release = cancelled_in_the_window("op-failed").await;
     let failed = directory.loaded_ids().into_iter().find(|loaded| *loaded != id).expect("the second published thread");
     release.send(()).expect("lane waits");
-    let abandoned = eventually(|| Some(lock(&tools.0).clone()).filter(|abandoned| !abandoned.is_empty())).await;
+    let abandoned = eventually_on(&[&tools.1], || Some(lock(&tools.0).clone()).filter(|abandoned| !abandoned.is_empty())).await;
     assert_eq!(abandoned, [failed], "the actor abandons the seed of a thread whose first record failed");
 }
 
@@ -2146,13 +2145,13 @@ async fn a_completion_on_an_idle_thread_wakes_it_with_the_completion_as_the_turn
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     directory.finished(&handle.id, "shell", "job-7", "completed", "Async shell task job-7 finished.".into()).await;
-    eventually(|| (lock(&inputs).len() == 1).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (lock(&inputs).len() == 1).then_some(())).await;
     let body = lock(&inputs)[0].clone();
     assert_eq!(body["role"], "user");
     assert_eq!(body["content"], "Async shell task job-7 finished.");
     assert_eq!(body["meta"]["source"], "task-notification");
     assert_eq!(body["meta"]["execution"], json!({ "surface": "shell", "id": "job-7", "status": "completed" }));
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert_eq!(runs_started(&rig, &handle.id), 1);
     assert!(prompt_list(&handle).is_empty(), "a completion is no prompt");
 }
@@ -2172,11 +2171,11 @@ async fn no_wake_without_auto_wake_or_for_a_thread_opened_for_the_completion() {
     let parked = start_thread(&directory).await;
     subscribe(&parked);
     parked.cell.unsubscribed();
-    eventually(|| directory.handle(&parked.id).is_none().then_some(())).await;
+    eventually_on(&[&parked.cell.stepped, directory.left()], || directory.handle(&parked.id).is_none().then_some(())).await;
     directory.finished(&parked.id, "shell", "job-2", "completed", "job-2 finished.".into()).await;
 
     for (handle, task) in [(&quiet, "job-1"), (&parked, "job-2")] {
-        let queued = eventually(|| {
+        let queued = eventually_on(&[&rig.store.committed], || {
             rig.store.records(&handle.id).into_iter().find_map(|(_, record)| match record {
                 mixdog_store::schema::record::Record::Queue(queue) => queue.entry,
                 _ => None,
@@ -2242,7 +2241,7 @@ async fn a_failed_barrier_applies_nothing_and_answers_the_mutation() {
         ))
         .await
         .expect("name/set");
-    eventually(|| {
+    eventually_on(&[&handle.cell.stepped], || {
         (handle.cell.view.load_full().state.title.as_deref() == Some("renamed")).then_some(())
     })
     .await;
@@ -2255,7 +2254,7 @@ async fn a_cold_open_is_single_flight_and_reopens_the_same_state() {
     let first = SessionDirectory::new(rig.deps());
     let handle = start_thread(&first).await;
     turn(&handle, "hello", "op-1").await;
-    eventually(|| (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
     let before = rows(&handle);
     let prompts = prompt_list(&handle);
     let id = handle.id.clone();
@@ -2283,7 +2282,7 @@ async fn a_cold_open_is_single_flight_and_reopens_the_same_state() {
     assert!(handles.iter().all(|h| Arc::ptr_eq(h, &handles[0])));
     let reopened = &handles[0];
     assert_eq!(rows(reopened), before);
-    eventually(|| (prompt_list(reopened) == prompts).then_some(())).await;
+    eventually_on(&[&reopened.cell.stepped], || (prompt_list(reopened) == prompts).then_some(())).await;
     assert!(second.get(&ThreadId::from("missing")).is_none());
     assert!(matches!(
         second.open(&ThreadId::from("missing"), &CallContext::internal("test")).await,
@@ -2789,7 +2788,7 @@ async fn the_runs_progress_is_read_from_the_session_cell() {
     let handle = start_thread(&directory).await;
     assert_eq!(LiveSessions::runtime_stage(&directory, handle.id.as_str()), None, "no marker yet");
     turn(&handle, "go", "op-1").await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert_eq!(LiveSessions::runtime_stage(&directory, handle.id.as_str()).as_deref(), Some("streaming"));
     let live = directory.worker_live(&handle.id, 2_000, &NoJobs);
     assert_eq!(live.runtime_stage.as_deref(), Some("streaming"));
@@ -2932,7 +2931,7 @@ async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
     let handle = start_thread(&directory).await;
     turn(&handle, "go", "op-1").await;
     let items = |handle: &SessionHandle| -> Vec<ThreadItem> { handle.cell.view.load_full().items.iter().map(|item| (**item).clone()).collect() };
-    let thinking = eventually(|| {
+    let thinking = eventually_on(&[&handle.cell.stepped], || {
         items(&handle).into_iter().find_map(|item| match item {
             ThreadItem::Reasoning { content, .. } if content.concat() == "think more" => Some(content),
             _ => None,
@@ -2940,9 +2939,9 @@ async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
     })
     .await;
     assert_eq!(thinking, ["think more"], "one growing part");
-    eventually(|| prompt_list(&handle).contains(&"steered words".to_owned()).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || prompt_list(&handle).contains(&"steered words".to_owned()).then_some(())).await;
     gate.notify_one();
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
 
     let shown = items(&handle);
     let kinds: Vec<String> = shown
@@ -3047,9 +3046,9 @@ async fn a_model_calls_usage_reaches_the_header_when_it_is_reported() {
     let handle = start_thread(&directory).await;
     turn(&handle, "go", "op-1").await;
     // While the turn still runs: the call is already counted.
-    eventually(|| (handle.live_header().header().get("totalInputTokens") == Some(&json!(10))).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (handle.live_header().header().get("totalInputTokens") == Some(&json!(10))).then_some(())).await;
     gate.notify_one();
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let live = handle.live_header();
     let header = live.header();
     for (key, want) in [
@@ -3112,10 +3111,10 @@ async fn a_web_searchs_spend_is_heard_by_the_feed_and_not_by_the_headers_books()
     let handle = start_thread(&directory).await;
     turn(&handle, "go", "op-1").await;
     let heard = |rig: &Rig| -> Vec<Value> { rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/tokenUsage/updated").map(|(_, _, params)| params["usage"].clone()).collect() };
-    eventually(|| (heard(&rig).len() == 2).then_some(())).await;
+    eventually_on(&[&rig.feeds.published], || (heard(&rig).len() == 2).then_some(())).await;
     assert_eq!(heard(&rig)[1], delta);
     gate.notify_one();
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let live = handle.live_header();
     let header = live.header();
     assert_eq!((header.get("totalInputTokens"), header.get("totalOutputTokens"), header.get("lastIterationIndex")), (Some(&json!(10)), Some(&json!(5)), Some(&json!(1))));
@@ -3160,11 +3159,11 @@ async fn a_turn_stamps_its_heartbeat_and_prepares_its_meters_and_syncs_the_compa
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "go", "op-1").await;
-    eventually(|| handle.live_header().header().get("lastHeartbeatAt").filter(|at| at.as_f64().is_some_and(|at| at > 0.0)).map(|_| ())).await;
+    eventually_on(&[&handle.cell.stepped], || handle.live_header().header().get("lastHeartbeatAt").filter(|at| at.as_f64().is_some_and(|at| at > 0.0)).map(|_| ())).await;
     let stamped = handle.live_header().header().get("lastHeartbeatAt").cloned();
     assert_eq!(*lock(&rig.compaction.sync_calls), vec![true], "the installation syncs; a turn start and its checks do not");
     gate.notify_one();
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let live = handle.live_header();
     let header = live.header();
     assert_eq!(*lock(&rig.compaction.sync_calls), vec![true, true], "the completed turn syncs again");
@@ -3219,11 +3218,11 @@ async fn a_streaming_tool_call_stamps_the_stored_heartbeat_once_a_minute() {
         let step = step as u32 + 1;
         rig.clock.0.store(START + offset, std::sync::atomic::Ordering::SeqCst);
         tx.send(step).expect("script alive");
-        eventually(|| (handle.live_header().header().get("lastIterationIndex") == Some(&json!(step))).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || (handle.live_header().header().get("lastIterationIndex") == Some(&json!(step))).then_some(())).await;
         assert_eq!(handle.live_header().header().get("lastHeartbeatAt"), Some(&json!(stamped)), "at +{offset} ms");
     }
     drop(tx);
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
 }
 
 /// The summary model's usage of a compaction pass is a usage report of the turn (`accumulateCompactUsage` ->
@@ -3262,7 +3261,7 @@ async fn a_compaction_passs_summary_usage_reaches_the_header_totals() {
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "go", "op-1").await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let live = handle.live_header();
     let header = live.header();
     assert_eq!(header.get("totalInputTokens"), Some(&json!(210)));
@@ -3308,11 +3307,11 @@ async fn a_goal_continues_across_a_turn_until_it_stops() {
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "start", "op-1").await;
-    eventually(|| (lock(&inputs).len() == 2 && idle(&handle)).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (lock(&inputs).len() == 2 && idle(&handle)).then_some(())).await;
     let goal_status = |frames: &[(u64, String, Value)]| {
         frames.iter().rev().find(|(_, method, _)| method == "thread/goal/updated").map(|(_, _, p)| p["value"]["status"].clone())
     };
-    eventually(|| (goal_status(&rig.feeds.frames(handle.id.as_str())) == Some(json!("paused"))).then_some(())).await;
+    eventually_on(&[&rig.feeds.published], || (goal_status(&rig.feeds.frames(handle.id.as_str())) == Some(json!("paused"))).then_some(())).await;
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     let inputs = lock(&inputs).clone();
     assert_eq!(inputs.len(), 2, "a paused Goal does not continue: {inputs:?}");
@@ -3394,7 +3393,7 @@ async fn a_queued_turn_starts_after_the_settlement_returns() {
     let directory = SessionDirectory::new(Arc::new(deps));
     let handle = start_thread(&directory).await;
     turn(&handle, "one", "op-1").await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     // The first turn ended; its settlement is held. A new prompt waits behind it.
     let queued = turn(&handle, "two", "op-2").await;
     assert_eq!(queued["kind"], "queued", "{queued}");
@@ -3402,10 +3401,10 @@ async fn a_queued_turn_starts_after_the_settlement_returns() {
     assert!(idle(&handle), "no turn starts before the settlement");
     assert_eq!(settled.load(Ordering::SeqCst), 0);
     release.notify_one();
-    eventually(|| (settled.load(Ordering::SeqCst) == 1).then_some(())).await;
-    eventually(|| rows(&handle).iter().any(|(role, text)| *role == "user" && text == "two").then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (settled.load(Ordering::SeqCst) == 1).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || rows(&handle).iter().any(|(role, text)| *role == "user" && text == "two").then_some(())).await;
     release.notify_one();
-    eventually(|| (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
 }
 
 /// Each run fails on exhausted provider quota with the reset the provider named, as the run host
@@ -3442,7 +3441,7 @@ async fn a_cancel_inside_the_quota_settling_window_keeps_the_suspension_unrecord
         async move {
             goals.goal_control(&handle.id, json!({ "action": "create", "objective": "Ship it" })).await.expect("create");
             let goal = goals.goal_status(&handle.id).await.expect("status").expect("a goal");
-            let attempt = eventually(|| {
+            let attempt = eventually_on(&[&handle.cell.stepped], || {
                 handle.cell.view.load_full().items.iter().find_map(|item| match item.as_ref() {
                     ThreadItem::TurnEnd { meta, .. } => meta.ext.get("attemptId").and_then(Value::as_str).map(str::to_owned),
                     _ => None,
@@ -3457,25 +3456,25 @@ async fn a_cancel_inside_the_quota_settling_window_keeps_the_suspension_unrecord
     // Settled undisturbed: the resume waits and the suspended Goal is recorded.
     let first = start_routed_thread(&directory).await;
     let (goal_id, key) = failed_turn(&rig, first.clone()).await;
-    eventually(|| rig.quota.entry(first.id.as_str()).filter(|entry| entry.turn_key == key)).await;
+    eventually_on(&[&rig.quota_changed, &first.cell.stepped], || rig.quota.entry(first.id.as_str()).filter(|entry| entry.turn_key == key)).await;
     assert_eq!(settled.load(Ordering::SeqCst), 0);
     release.notify_one();
-    eventually(|| (rig.quota.suspended_goal(first.id.as_str(), &key) == goal_id).then_some(())).await;
+    eventually_on(&[&rig.quota_changed, &first.cell.stepped], || (rig.quota.suspended_goal(first.id.as_str(), &key) == goal_id).then_some(())).await;
 
     // A prompt while the failed turn settles: the resume goes, and the settlement records nothing.
     let second = start_routed_thread(&directory).await;
     let (_, key) = failed_turn(&rig, second.clone()).await;
     let id = second.id.as_str();
-    eventually(|| rig.quota.entry(id).filter(|entry| entry.turn_key == key)).await;
+    eventually_on(&[&rig.quota_changed, &second.cell.stepped], || rig.quota.entry(id).filter(|entry| entry.turn_key == key)).await;
     rig.set_script(echo());
     let queued = turn(&second, "next", "op-next").await;
     assert_eq!(queued["kind"], "queued", "the failed turn is still settling: {queued}");
-    eventually(|| rig.quota.entry(id).is_none().then_some(())).await;
+    eventually_on(&[&rig.quota_changed, &second.cell.stepped], || rig.quota.entry(id).is_none().then_some(())).await;
     release.notify_one();
-    eventually(|| (settled.load(Ordering::SeqCst) == 2).then_some(())).await;
-    eventually(|| rows(&second).iter().any(|(role, text)| *role == "user" && text == "next").then_some(())).await;
+    eventually_on(&[&second.cell.stepped], || (settled.load(Ordering::SeqCst) == 2).then_some(())).await;
+    eventually_on(&[&second.cell.stepped], || rows(&second).iter().any(|(role, text)| *role == "user" && text == "next").then_some(())).await;
     release.notify_one();
-    eventually(|| (settled.load(Ordering::SeqCst) == 3).then_some(())).await;
+    eventually_on(&[&second.cell.stepped], || (settled.load(Ordering::SeqCst) == 3).then_some(())).await;
     // The settlement's store call runs after the cancel's, on the session's quota lane.
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(rig.quota.suspended_goal(id, &key), "", "the cancel inside the window wins");
@@ -3508,25 +3507,20 @@ async fn a_scheduler_fire_replays_the_failed_turn_once() {
     let handle = start_routed_thread(&directory).await;
     let id = handle.id.as_str().to_owned();
     turn(&handle, "build the parser", "op-failed").await;
-    let entry = eventually(|| rig.quota.entry(&id)).await;
+    let entry = eventually_on(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id)).await;
     rig.set_script(echo());
     let host = SessionResumeHost::new(directory.clone(), Arc::new(NoUsage));
     host.materialize(&id).await.expect("loaded");
     // A generation that is not queued is stale at once.
     assert_eq!(host.fire(&id, entry.generation + 1).await, Ok(FireOutcome::Stale));
-    let mut outcome = host.fire(&id, entry.generation).await;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    while outcome == Ok(FireOutcome::Busy) {
-        assert!(tokio::time::Instant::now() < deadline, "the failed turn never settled");
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        outcome = host.fire(&id, entry.generation).await;
-    }
+    eventually_on(&[&handle.cell.stepped], || (!handle.cell.busy.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
+    let outcome = host.fire(&id, entry.generation).await;
     assert_eq!(outcome, Ok(FireOutcome::Fired));
     assert_eq!(host.fire(&id, entry.generation).await, Ok(FireOutcome::Stale), "a repeat of the generation");
-    eventually(|| rig.quota.entry(&id).is_none().then_some(())).await;
+    eventually_on(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id).is_none().then_some(())).await;
     // The retry ran (the failed turn's own message, or its prompt, is what it answered).
-    eventually(|| rows(&handle).iter().any(|(role, text)| *role == "assistant" && text.starts_with("re: ")).then_some(())).await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || rows(&handle).iter().any(|(role, text)| *role == "assistant" && text.starts_with("re: ")).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert_eq!(host.fire(&id, entry.generation).await, Ok(FireOutcome::Stale), "after the retry ran");
 }
 
@@ -3683,15 +3677,10 @@ async fn the_real_store_reopens_a_thread_and_appends_after_it() {
         .await
         .expect("name/set");
     // The index answers the metadata with the stored (normalized) title, without loading anything.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    let meta = loop {
-        let meta = first.session_meta(&id).await.expect("meta");
-        if meta.as_ref().is_some_and(|m| m.title.as_deref() == Some("Haiku")) {
-            break meta.expect("listed");
-        }
-        assert!(tokio::time::Instant::now() < deadline, "meta not indexed: {meta:?}");
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    };
+    // Reading a row waits for the index to hold every barrier acked so far.
+    first.history_row(&id, handle.cell.view.load_full().items[0].id().as_str()).await.expect("read");
+    let meta = first.session_meta(&id).await.expect("meta").expect("listed");
+    assert_eq!(meta.title.as_deref(), Some("Haiku"), "the index answers the stored title");
     assert_eq!(meta.agent, Value::Null);
     assert_eq!(meta.owner_session_id, Value::Null);
     assert_eq!(
@@ -3737,15 +3726,15 @@ async fn an_idle_thread_unloads_when_its_last_subscriber_leaves_and_ingests_its_
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "hello", "op-1").await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     subscribe(&handle);
     subscribe(&handle);
     handle.cell.unsubscribed();
     assert!(directory.handle(&handle.id).is_some(), "one subscriber is left");
 
     handle.cell.unsubscribed();
-    eventually(|| directory.handle(&handle.id).is_none().then_some(())).await;
-    eventually(|| (lock(&rig.closes.seen).len() == 1).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+    eventually_on(&[&*rig.closes.ended], || (lock(&rig.closes.seen).len() == 1).then_some(())).await;
     assert_eq!(lock(&rig.closes.seen)[0].1.len(), 2, "the input row and the reply");
     assert!(!handle.cell.subscribing(), "an unloaded thread takes no subscriber");
     // A later open loads it again.
@@ -3778,12 +3767,12 @@ async fn a_thread_nobody_watched_unloads_after_the_idle_delay() {
     assert!(directory.handle(&handle.id).is_some(), "a running thread is never evicted");
 
     release.send(true).expect("release");
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
     tokio::task::yield_now().await;
     assert!(directory.handle(&handle.id).is_some(), "not before the delay");
     tokio::time::advance(Duration::from_secs(2)).await;
-    eventually(|| directory.handle(&handle.id).is_none().then_some(())).await;
+    eventually_on(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
 }
 
 /// Retention's delete (`deleteSession(id, { isSessionLive: treeChanged })`) asks again under the
@@ -4002,10 +3991,10 @@ async fn a_headless_session_keeps_its_options_and_ingests_no_memory_when_it_clos
     assert_eq!(header["sourceType"], "exec");
 
     turn(&handle, "hello", "op-1").await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     subscribe(&handle);
     handle.cell.unsubscribed();
-    eventually(|| directory.handle(&handle.id).is_none().then_some(())).await;
+    eventually_on(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert!(lock(&rig.closes.seen).is_empty(), "memory is off for this session");
 }
@@ -4031,7 +4020,7 @@ async fn a_live_run_keeps_the_thread_loaded_until_it_ends() {
     assert!(directory.handle(&handle.id).is_some(), "the run is live");
 
     release.send(true).expect("release");
-    eventually(|| directory.handle(&handle.id).is_none().then_some(())).await;
+    eventually_on(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
 }
 
 #[tokio::test(start_paused = true)]
@@ -4042,7 +4031,7 @@ async fn shutdown_waits_for_the_ingests_at_most_2500_ms() {
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "hello", "op-1").await;
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
 
     let started = tokio::time::Instant::now();
     directory.shutdown().await;
@@ -4059,7 +4048,7 @@ async fn a_completed_turn_goes_to_session_search_with_its_model_context() {
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "hello", "op-1").await;
-    eventually(|| (lock(&rig.ingests.0).len() == 1).then_some(())).await;
+    eventually_on(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 1).then_some(())).await;
     let (thread, messages) = lock(&rig.ingests.0)[0].clone();
     assert_eq!(thread, handle.id);
     assert_eq!(messages.len(), 2, "the input row and the reply: {messages:?}");
@@ -4095,13 +4084,13 @@ async fn a_value_marked_sensitive_while_a_turn_runs_reingests_its_session_search
         "arguments": { "action": "fill", "input": { "sensitive": true, "text": "s3cret" } },
     });
     assert!(rig.sensitive.remember(handle.id.as_str(), &[again]));
-    eventually(|| (lock(&rig.ingests.0).len() == 1).then_some(())).await;
+    eventually_on(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 1).then_some(())).await;
     let (thread, messages) = lock(&rig.ingests.0)[0].clone();
     assert_eq!(thread, handle.id);
     assert_eq!(messages.len(), 1, "the turn's durable input row: {messages:?}");
 
     release.send(true).expect("release");
-    eventually(|| (lock(&rig.ingests.0).len() == 2).then_some(())).await;
+    eventually_on(&[&rig.ingests.1], || (lock(&rig.ingests.0).len() == 2).then_some(())).await;
 }
 
 #[tokio::test(start_paused = true)]
@@ -4131,9 +4120,9 @@ async fn a_saved_provider_state_reaches_the_next_turn_whole_and_a_clear_drops_it
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "one", "op-1").await;
-    eventually(|| (idle(&handle) && lock(&seen).len() == 1).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && lock(&seen).len() == 1).then_some(())).await;
     turn(&handle, "two", "op-2").await;
-    eventually(|| (idle(&handle) && lock(&seen).len() == 2).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && lock(&seen).len() == 2).then_some(())).await;
     assert_eq!(lock(&seen).clone(), vec![None, Some(saved.clone())]);
     assert_eq!(
         handle.live_header().header().get("providerState"),
@@ -4188,7 +4177,7 @@ async fn a_tool_result_completes_its_call_in_place() {
     turn(&handle, "ls", "op-1").await;
     // A turn that opened a tool card is not a no-op, so it ends with its live turn end (`turnDoneItem`,
     // `isNoOpTurn`): the user row, the reply, the call, then the end.
-    eventually(|| (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 4).then_some(())).await;
     assert!(
         matches!(handle.cell.view.load_full().items.last().map(|item| item.as_ref()), Some(ThreadItem::TurnEnd { .. })),
         "the turn ends with its live end"
@@ -4236,7 +4225,7 @@ async fn runs_get_the_sessions_tool_surface() {
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "go", "op-1").await;
-    eventually(|| (lock(&seen).len() == 1).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || (lock(&seen).len() == 1).then_some(())).await;
     // A user thread denies the Lead-only goal tools (`createSession`'s `disallowedTools`,
     // `LEAD_DISALLOWED_TOOLS`, `tool-defs.mjs:228`).
     assert_eq!(lock(&seen)[0], ["get_goal", "create_goal", "set_goal_tasks", "update_goal"]);
@@ -4475,8 +4464,8 @@ async fn a_cancel_whose_store_write_fails_still_disarms_the_pending_resume() {
     let handle = start_routed_thread(&directory).await;
     let id = handle.id.as_str().to_owned();
     turn(&handle, "build the parser", "op-failed").await;
-    let entry = eventually(|| rig.quota.entry(&id)).await;
-    eventually(|| idle(&handle).then_some(())).await;
+    let entry = eventually_on(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id)).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     // The next store write fails: the file's place becomes a directory (the atomic rename cannot land).
     let file = rig._data.path().join(mixdog_core_base::quota_resume::QUOTA_RESUME_FILE);
     crate::session::fixture_fs::remove_file(&file);
@@ -4487,13 +4476,8 @@ async fn a_cancel_whose_store_write_fails_still_disarms_the_pending_resume() {
     rig.set_script(echo());
     let host = SessionResumeHost::new(directory.clone(), Arc::new(NoUsage));
     host.materialize(&id).await.expect("loaded");
-    let mut outcome = host.fire(&id, entry.generation).await;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    while outcome == Ok(FireOutcome::Busy) {
-        assert!(tokio::time::Instant::now() < deadline, "the failed turn never settled");
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        outcome = host.fire(&id, entry.generation).await;
-    }
+    eventually_on(&[&handle.cell.stepped], || (!handle.cell.busy.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
+    let outcome = host.fire(&id, entry.generation).await;
     assert_eq!(outcome, Ok(FireOutcome::Stale), "the cancelled resume does not fire");
     assert!(!rows(&handle).iter().any(|(role, text)| *role == "assistant" && text.starts_with("re: ")), "and the failed turn was not replayed");
 }

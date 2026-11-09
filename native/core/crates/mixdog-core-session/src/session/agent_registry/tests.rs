@@ -357,7 +357,7 @@ async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
     use crate::session::thread_state::SessionThreads;
     use crate::session::SessionDirectory;
     use crate::session::seams::RunOutcome;
-    use crate::session::tests::eventually;
+    use crate::session::tests::eventually_on;
     use crate::session::tests::idle;
     use crate::session::tests::start_thread;
     use crate::session::tests::turn;
@@ -383,7 +383,7 @@ async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
     let id = handle.id.as_str().to_owned();
 
     turn(&handle, "one", "op-1").await;
-    let stamped = eventually(|| {
+    let stamped = eventually_on(&[&handle.cell.stepped], || {
         let header = handle.cell.header.load_full();
         header.contains_key("lastTurnCompletedAt").then(|| (*header).clone())
     })
@@ -394,7 +394,7 @@ async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
     registry.mark_released(std::slice::from_ref(&id));
     assert!(rig.store.map(&id).is_some_and(|m| m.contains_key("releasedAt")));
     turn(&handle, "two", "op-2").await;
-    eventually(|| handle.cell.run.load().is_some().then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
     assert!(rig.store.map(&id).is_none(), "the turn start lifted the release");
 
     let statusline = Arc::new(Statusline::default());
@@ -406,7 +406,7 @@ async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
     assert!(sessions.close_session(&id, "cli-agent-close", options).await);
     // `cancelOwnedShellTrees(id)` (`session-close.mjs:184`).
     assert_eq!(*shells.0.lock().unwrap(), [id.clone()]);
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let header = handle.cell.header.load_full();
     assert_eq!(header["ownerClosedAt"], json!(NOW));
     assert_eq!(header["detachedReason"], json!("cli-agent-close"));
@@ -427,7 +427,7 @@ async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
     use crate::session::thread_state::SessionThreads;
     use crate::session::SessionDirectory;
     use crate::session::seams::RunOutcome;
-    use crate::session::tests::eventually;
+    use crate::session::tests::eventually_on;
     use crate::session::tests::idle;
     use crate::session::tests::start_thread;
     use crate::session::tests::turn;
@@ -449,7 +449,7 @@ async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
     let handle = start_thread(&directory).await;
     let id = handle.id.as_str().to_owned();
     turn(&handle, "work", "op-1").await;
-    eventually(|| handle.cell.run.load().is_some().then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
 
     let threads = Arc::new(SessionThreads::new(directory.clone()));
     let sessions = AgentSessions::new(
@@ -463,7 +463,7 @@ async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
     );
     let options = mixdog_agent::agent_tool::host::CloseOptions { tombstone: false, owner_close: false };
     assert!(sessions.close_session(&id, "agent-task-cancel", options).await);
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert_eq!(
         aborted.lock().unwrap().as_deref(),
         Some(format!("Session \"{id}\" closed: closeSession (reason=agent-task-cancel)").as_str())
@@ -475,9 +475,9 @@ async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
 
     // `abortSessionTurn(id, reason)` for a session no outer turn holds.
     turn(&handle, "again", "op-2").await;
-    eventually(|| handle.cell.run.load().is_some().then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
     assert!(directory.abort_session_turn(&handle.id, "login-required"));
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert_eq!(
         aborted.lock().unwrap().as_deref(),
         Some(format!("Session \"{id}\" closed: abortSessionTurn (reason=login-required)").as_str())
