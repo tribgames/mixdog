@@ -183,4 +183,184 @@ export const SCENARIOS = [
     args: base('zai', 'glm-4.6-very-long-custom-fine-tune-identifier-v2', { effort: 'low', fast: true, ultra: true }),
     files: {},
   },
+  // The route the footer's primary status belongs to (Node's configuredGatewayStatus).
+  {
+    name: 'gateway default of another provider drops the primary status, the cached snapshot still shows',
+    cols: 120,
+    args: base('openai-oauth', 'gpt-5.5'),
+    files: {
+      'mixdog-config.json': JSON.stringify({ gateway: { mode: 'fixed', defaultProvider: 'anthropic-oauth', defaultModel: 'claude-opus-4-7' } }),
+      ...cache({
+        'openai-oauth': { cachedAt: T0, quotaWindows: codexWindows },
+        'anthropic-oauth': { cachedAt: T0, quotaWindows: [{ label: '5H', usedPct: 5, resetAt: T0 + HOUR, source: 'anthropic-oauth' }] },
+      }),
+    },
+  },
+  {
+    name: 'gateway default of the same route keeps the primary windows',
+    cols: 120,
+    args: base('openai-oauth', 'gpt-5.5'),
+    files: {
+      'mixdog-config.json': JSON.stringify({ gateway: { mode: 'fixed', defaultProvider: 'openai-oauth', defaultModel: 'gpt-5.5' } }),
+      ...cache({ 'openai-oauth': { cachedAt: T0, quotaWindows: codexWindows } }),
+    },
+  },
+  {
+    name: 'a pinned session route of this session and host decides the status',
+    cols: 120,
+    args: base('openai-oauth', 'gpt-5.5'),
+    files: {
+      'gateway-session-routes.json': JSON.stringify({
+        version: 2,
+        updatedAt: T0,
+        sessions: {},
+        sessionHosts: {
+          'sess-footer#4242': { mode: 'fixed', defaultProvider: 'openai-oauth', defaultModel: 'gpt-5.5', sessionId: 'sess-footer', clientHostPid: 4242, updatedAt: T0 },
+        },
+      }),
+      ...cache({ 'openai-oauth': { cachedAt: T0, quotaWindows: codexWindows } }),
+    },
+  },
+  {
+    name: 'a pinned session route of another provider makes the status mismatch the route',
+    cols: 120,
+    args: base('openai-oauth', 'gpt-5.5'),
+    files: {
+      'gateway-session-routes.json': JSON.stringify({
+        version: 2,
+        updatedAt: T0,
+        sessions: {},
+        sessionHosts: {
+          'sess-footer#4242': { mode: 'fixed', defaultProvider: 'anthropic-oauth', defaultModel: 'claude-opus-4-7', sessionId: 'sess-footer', clientHostPid: 4242, updatedAt: T0 },
+        },
+      }),
+      ...cache({
+        'openai-oauth': { cachedAt: T0, quotaWindows: codexWindows },
+        'anthropic-oauth': { cachedAt: T0, quotaWindows: [{ label: '7D', usedPct: 33, resetAt: T0 + 2 * DAY, source: 'anthropic-oauth' }] },
+      }),
+    },
+  },
+  {
+    name: "another session's route of the same host is used when this session has none",
+    cols: 120,
+    args: base('anthropic-oauth', 'claude-opus-4-7'),
+    files: {
+      'gateway-session-routes.json': JSON.stringify({
+        version: 2,
+        updatedAt: T0,
+        sessions: {},
+        sessionHosts: {
+          'other-session-1#4242': { mode: 'fixed', defaultProvider: 'anthropic-oauth', defaultModel: 'claude-opus-4-7', sessionId: 'other-session-1', clientHostPid: 4242, updatedAt: T0 - 5000 },
+          'other-session-2#4242': { mode: 'fixed', defaultProvider: 'openai-oauth', defaultModel: 'gpt-5.5', sessionId: 'other-session-2', clientHostPid: 4242, updatedAt: T0 - 1000 },
+        },
+      }),
+      ...cache({
+        'openai-oauth': { cachedAt: T0, quotaWindows: codexWindows },
+        'anthropic-oauth': { cachedAt: T0, quotaWindows: [{ label: '5H', usedPct: 61, resetAt: T0 + HOUR, source: 'anthropic-oauth' }] },
+      }),
+    },
+  },
+  {
+    name: 'a session route without a mode inherits the Claude-current route',
+    cols: 120,
+    args: base('anthropic-oauth', 'claude-opus-4-9'),
+    files: {
+      'gateway-session-routes.json': JSON.stringify({
+        version: 2,
+        updatedAt: T0,
+        sessions: {},
+        sessionHosts: {
+          'sess-footer#4242': { defaultProvider: 'openai-oauth', defaultModel: 'gpt-5.5', sessionId: 'sess-footer', clientHostPid: 4242, updatedAt: T0 },
+        },
+      }),
+      'anthropic-oauth-models.json': JSON.stringify({
+        models: [
+          { id: 'claude-opus-4-8', releaseDate: '2026-01-01' },
+          { id: 'claude-opus-4-9', releaseDate: '2026-06-01' },
+          { id: 'claude-sonnet-5', releaseDate: '2026-09-01' },
+        ],
+      }),
+      ...cache({ 'anthropic-oauth': { cachedAt: T0, quotaWindows: [{ label: '5H', usedPct: 18, resetAt: T0 + HOUR, source: 'anthropic-oauth' }] } }),
+    },
+  },
+  {
+    name: 'Claude-current mode resolves the family alias of settings.json through the roster',
+    cols: 120,
+    args: base('anthropic-oauth', 'claude-opus-4-9', { sessionId: '' }),
+    configFiles: { 'settings.json': JSON.stringify({ model: 'opus[1m]', effortLevel: 'high' }) },
+    files: {
+      'mixdog-config.json': JSON.stringify({ gateway: { mode: 'claude-current' } }),
+      'anthropic-oauth-models.json': JSON.stringify([
+        { id: 'claude-opus-4-8', releaseDate: '2026-01-01' },
+        { id: 'claude-opus-4-9', releaseDate: '2026-06-01' },
+      ]),
+      ...cache({ 'anthropic-oauth': { cachedAt: T0, quotaWindows: [{ label: '5H', usedPct: 77, resetAt: T0 + HOUR, source: 'anthropic-oauth' }] } }),
+    },
+  },
+  {
+    name: 'Claude-current mode with nothing configured falls back to the Opus default',
+    cols: 120,
+    args: base('anthropic-oauth', 'claude-opus-4-8', { sessionId: '' }),
+    files: {
+      'mixdog-config.json': JSON.stringify({ gateway: { mode: 'claude-current' } }),
+      ...cache({ 'anthropic-oauth': { cachedAt: T0, quotaWindows: [{ label: '5H', usedPct: 9, resetAt: T0 + HOUR, source: 'anthropic-oauth' }] } }),
+    },
+  },
+  {
+    name: 'a mixdog/<preset> model in settings.json resolves to the preset route',
+    cols: 120,
+    args: base('anthropic-oauth', 'claude-opus-4-8', { sessionId: '' }),
+    configFiles: { 'settings.json': JSON.stringify({ model: 'mixdog/opus-high' }) },
+    files: {
+      'mixdog-config.json': JSON.stringify({ gateway: { mode: 'fixed', defaultProvider: 'openai-oauth', defaultModel: 'gpt-5.5' } }),
+      ...cache({ 'anthropic-oauth': { cachedAt: T0, quotaWindows: [{ label: '7D', usedPct: 44, resetAt: T0 + DAY * 2, source: 'anthropic-oauth' }] } }),
+    },
+  },
+  {
+    name: 'an unknown mixdog/<preset> model in settings.json leaves no primary status',
+    cols: 120,
+    args: base('anthropic-oauth', 'claude-opus-4-8', { sessionId: '' }),
+    configFiles: { 'settings.json': JSON.stringify({ model: 'mixdog/no-such-preset' }) },
+    files: {
+      ...cache({ 'anthropic-oauth': { cachedAt: T0, quotaWindows: [{ label: '7D', usedPct: 44, resetAt: T0 + DAY * 2, source: 'anthropic-oauth' }] } }),
+    },
+  },
+  // The event store (Node's loadUsageEvents).
+  {
+    name: 'a legacy gateway-usage.local.json is migrated and read',
+    cols: 120,
+    args: base('deepseek', 'deepseek-chat', { effort: '' }),
+    files: {
+      'gateway-usage.local.json': JSON.stringify({ events: [{ ts: T0 + 500, provider: 'deepseek', model: 'deepseek-chat', costUsd: 0.25 }] }),
+    },
+  },
+  {
+    name: 'a torn last event line is not read',
+    cols: 120,
+    args: base('deepseek', 'deepseek-chat', { effort: '' }),
+    files: {
+      'gateway-usage.local.jsonl': `${JSON.stringify({ ts: T0 + 500, provider: 'deepseek', model: 'deepseek-chat', costUsd: 0.5 })}\n{"ts":${T0 + 600},"provider":"deepseek","mod`,
+    },
+  },
+  // The first renders of a footer: what Node shows before its caches have been refreshed.
+  {
+    name: 'first renders: an OAuth route with windows and a memory cycle',
+    cols: 120,
+    steps: [0, 150, 700, 1400],
+    args: base('openai-oauth', 'gpt-5.5'),
+    files: {
+      ...cache({ 'openai-oauth': { cachedAt: T0, quotaWindows: codexWindows } }),
+      'memory-cycle-state.json': JSON.stringify({ updatedAt: T0, running: { cycle: 'cycle1', started_at: T0 - 42_000 } }),
+    },
+  },
+  {
+    name: 'first renders: a plain API route with spend and a balance',
+    cols: 120,
+    steps: [0, 150, 700, 1400],
+    args: base('deepseek', 'deepseek-chat', { effort: '' }),
+    files: {
+      'mixdog-config.json': JSON.stringify({ gateway: { balance: { budgetUsd: 50, period: '30d' } } }),
+      ...events([{ ts: T0 + 10, provider: 'deepseek', model: 'deepseek-chat', costUsd: 0.4 }]),
+    },
+  },
 ];
