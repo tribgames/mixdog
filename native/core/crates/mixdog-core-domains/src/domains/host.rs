@@ -50,6 +50,21 @@ pub fn remote_viewing_value(registry: &DeviceRegistry) -> Value {
     json!({ "sessionIds": registry.visualize_viewed_sessions() })
 }
 
+/// `hostState` key `remoteSession`: the session the channel bridge is pinned to, which the host stamps on every
+/// snapshot as `remoteEnabled`/`remoteSessionId`. `applyRemoteSessionState` (`session-host-publication.ts`) keeps the id
+/// only for an enabled state whose id is at most 256 characters and a session id (`/^[A-Za-z0-9_-]+$/`).
+pub fn remote_session_value(enabled: bool, session_id: Option<&str>) -> Value {
+    let kept = session_id.filter(|id| {
+        enabled && id.chars().count() <= 256 && !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    });
+    json!({ "sessionId": kept })
+}
+
+/// Publishes [`remote_session_value`] for the binding as it now stands.
+pub fn publish_remote_session(publisher: &dyn StatePublisher, enabled: bool, session_id: Option<&str>) {
+    publisher.publish(SectionName::HostState, Some("remoteSession".to_owned()), change_of(&remote_session_value(enabled, session_id)));
+}
+
 /// Publishes [`remote_viewing_value`] now and after each change of who is attached or what is
 /// shown; ends when the registry is dropped.
 pub async fn publish_remote_viewing(registry: std::sync::Weak<DeviceRegistry>, publisher: Arc<dyn StatePublisher>) {

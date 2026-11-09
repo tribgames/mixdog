@@ -184,6 +184,8 @@ mod steer_tests;
 mod assembly_tests;
 #[cfg(test)]
 mod recorded_145_tests;
+#[cfg(test)]
+mod phone_chat_tests;
 
 use std::sync::Arc;
 

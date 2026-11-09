@@ -2739,13 +2739,14 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     builder.register(mixdog_services::memory::thread_search::ThreadSearchService::new(memory.search().db().clone()))?;
     // channel/*: the admin and the call dispatch of the channel worker; `ChannelRuntime` is the lifecycle `activate_channel_bridge`/`reload_config` drive.
     // `degraded` is `isChannelsDegraded()`, a constant `false` in Node (`crash-log.mjs:12`).
-    builder.register(Arc::new(mixdog_services::channels::ChannelService::new(
-        channel_admin.clone(),
-        mixdog_services::channels::CallDispatch::new(
-            Arc::new(mixdog_services::channels::bridge::BridgeCalls::new(mixdog_services::channels::ToolDispatch::new(channel_runtime.clone(), channel_work.clone(), Box::new(|| false)))),
-            channel_work.clone(),
-        ),
-    )))?;
+    let channel_calls = mixdog_services::channels::CallDispatch::new(
+        Arc::new(mixdog_services::channels::bridge::BridgeCalls::new(mixdog_services::channels::ToolDispatch::new(channel_runtime.clone(), channel_work.clone(), Box::new(|| false)))),
+        channel_work.clone(),
+    );
+    // `hostState.remoteSession`: the session the bridge is pinned to, published now and at each change of the binding.
+    let session_publisher = state.publisher.clone();
+    channel_calls.observe_binding(Arc::new(move |enabled, session| mixdog_core_domains::domains::host::publish_remote_session(session_publisher.as_ref(), enabled, session)));
+    builder.register(Arc::new(mixdog_services::channels::ChannelService::new(channel_admin.clone(), channel_calls)))?;
     // agent/*, lead, home: definitions with the connector and permission stores the tool gate holds, the Lead's appearance, and the bots' homes.
     // The home threads, one value for the home methods, the lifecycle of the definition calls and Mixy's status: the stored
     // sessions the retire pass reads, and the room ports a deleted agent leaves.

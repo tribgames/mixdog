@@ -45,7 +45,8 @@ async fn queue_prompt(handle: &SessionHandle, prompt: &Value, options: Option<Va
             method: Method("turn/start"),
             params: json!({ "threadId": handle.id, "opId": op, "input": input }),
             op: Some(OpId::from(op.as_str())),
-            ctx: CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, CancellationToken::new()),
+            // A blank prompt is refused at the user's submit (submission.mjs:10), which Node's own queue run bypassed.
+            ctx: if prompt.as_str().is_some_and(|text| text.trim().is_empty()) { CallContext::internal("test") } else { CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, CancellationToken::new()) },
         })
         .await
         .expect("turn/start");
