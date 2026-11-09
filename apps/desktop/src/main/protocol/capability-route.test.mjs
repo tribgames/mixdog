@@ -793,10 +793,11 @@ test('rewindToItem answers what Node recorded where the core refuses an unknown 
   await assert.rejects(recordingLane(async () => { throw other; }).lane.invoke('rewindToItem', ['i1'], 't1'), other);
 });
 
-test('prioritizeQueued answers what Node recorded: a queued entry by membership, a missing one a count of none', async () => {
+test('prioritizeQueued answers what Node recorded: a prioritized entry accepted, one Node leaves alone (missing, slash command) a count of none', async () => {
   assert.ok(refusals.prioritize.length > 0);
   for (const recorded of refusals.prioritize) {
-    const queued = recorded.queued.includes(recorded.selectedId);
+    // The core accepts exactly the entries Node's drain was kicked for.
+    const queued = recorded.kicked === 1;
     const { lane } = recordingLane(async () => {
       if (queued) return { accepted: true, queuedId: recorded.selectedId };
       throw wireRefusal('queuedEntryNotFound', { threadId: 't1', queuedId: recorded.selectedId });
