@@ -305,7 +305,7 @@ pub(crate) async fn remote_metadata(
     root: &Path,
     options: &RunOptions,
 ) -> Result<(Vec<String>, String), ScmFailure> {
-    // The clock a replay of Node's recording moves by explicit skew (seam.rs), never by waiting out the minute.
+    // The clock a replay of Node's recording moves only by an explicit advance (seam.rs), never by waiting out the minute.
     let now = crate::seam::cache_clock();
     type Entry = (std::time::Instant, (Vec<String>, String));
     static CACHE: std::sync::OnceLock<std::sync::Mutex<HashMap<String, Entry>>> = std::sync::OnceLock::new();
@@ -365,12 +365,11 @@ fn revision_of(path: &Path) -> Option<String> {
     use std::os::unix::fs::MetadataExt;
     let meta = std::fs::metadata(path).ok()?;
     let nanos = |seconds: i64, nsec: i64| i128::from(seconds) * 1_000_000_000 + i128::from(nsec);
-    Some(revision_text(
-        meta.size(),
-        nanos(meta.mtime(), meta.mtime_nsec()),
-        nanos(meta.ctime(), meta.ctime_nsec()),
-        meta.ino(),
-    ))
+    let (mtime_ns, ctime_ns, ino) = crate::seam::file_identity(
+        path,
+        (nanos(meta.mtime(), meta.mtime_nsec()), nanos(meta.ctime(), meta.ctime_nsec()), meta.ino()),
+    );
+    Some(revision_text(meta.size(), mtime_ns, ctime_ns, ino))
 }
 
 /// libuv's `FILETIME_TO_TIMESPEC`: 100 ns ticks since 1601 as nanoseconds since the Unix epoch.
@@ -429,11 +428,19 @@ fn revision_of(path: &Path) -> Option<String> {
         if basic_read == 0 || standard_read == 0 || GetFileInformationByHandle(handle, &mut index) == 0 {
             return None;
         }
+        let (mtime_ns, ctime_ns, ino) = crate::seam::file_identity(
+            path,
+            (
+                filetime_ns(basic.LastWriteTime),
+                filetime_ns(basic.ChangeTime),
+                (u64::from(index.nFileIndexHigh) << 32) | u64::from(index.nFileIndexLow),
+            ),
+        );
         Some(revision_text(
             standard.EndOfFile as u64,
-            filetime_ns(basic.LastWriteTime),
-            filetime_ns(basic.ChangeTime),
-            (u64::from(index.nFileIndexHigh) << 32) | u64::from(index.nFileIndexLow),
+            mtime_ns,
+            ctime_ns,
+            ino,
         ))
     }
 }

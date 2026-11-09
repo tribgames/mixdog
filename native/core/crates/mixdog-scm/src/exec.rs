@@ -86,6 +86,7 @@ pub struct Exec {
 
 impl Exec {
     pub fn new(processes: Arc<dyn ProcessManager>) -> Self {
+        crate::seam::start();
         Self {
             processes,
             next: AtomicU64::new(0),
@@ -110,11 +111,28 @@ impl Exec {
     ) -> Result<ExecOutput, ScmFailure> {
         let cwd = AbsPath::new(&spec.cwd)
             .ok_or_else(|| ScmFailure::invalid("cwd", "an absolute directory"))?;
+        let attempt = crate::seam::attempt_begin(&spec.program, &spec.args, false);
+        let result = self.run_attempt(spec, cwd, cancel, &attempt).await;
+        attempt.done(&match &result {
+            Ok(out) => crate::seam::Ended::Code(out.code),
+            Err(ScmFailure::TimedOut { .. }) => crate::seam::Ended::TimedOut,
+            Err(ScmFailure::OutputTooLarge { .. }) => crate::seam::Ended::TooLarge,
+            Err(_) => crate::seam::Ended::Cancelled,
+        });
+        result
+    }
+
+    async fn run_attempt(
+        &self,
+        spec: ExecSpec,
+        cwd: AbsPath,
+        cancel: &CancellationToken,
+        attempt: &crate::seam::Attempt,
+    ) -> Result<ExecOutput, ScmFailure> {
         let handle = self.handle();
         let stdin_piped = spec.stdin.is_some();
-        let time_limit = crate::seam::run_limit(spec.time_limit, &spec.args);
+        let (time_limit, mut deadline) = crate::seam::run_limit(spec.time_limit, attempt);
         let program = spec.program.clone();
-        let attempted_args = spec.args.clone();
         // Node's runners word a deadline or an overflow with the command as `git status -z` (git-runner.ts gitTimeout).
         let command = command_label(&spec.program, &spec.args);
         let request = SpawnRequest {
@@ -136,7 +154,7 @@ impl Exec {
             time_limit,
         };
         let spawned = self.processes.spawn(request).await;
-        crate::seam::attempt(&program, &attempted_args, false, spawned.is_ok());
+        attempt.spawned(spawned.is_ok());
         spawned.map_err(|error| spawn_failure(error, &program))?;
         let mut events = self
             .processes
@@ -154,11 +172,17 @@ impl Exec {
         let mut killed = false;
         let mut cancelled = false;
         let mut too_large = false;
+        // A virtual run limit (a replay's debug seam) reached: the child is killed here, as the process manager kills at a real one.
+        let mut limit_reached = false;
         loop {
             tokio::select! {
                 biased;
                 _ = cancel.cancelled(), if !cancelled => {
                     cancelled = true;
+                    let _ = self.processes.kill(&handle);
+                }
+                () = deadline.fired(), if !limit_reached => {
+                    limit_reached = true;
                     let _ = self.processes.kill(&handle);
                 }
                 event = events.next() => match event {
@@ -196,10 +220,10 @@ impl Exec {
             os_code: None,
             message: "process events ended without an exit".into(),
         })?;
-        if exit.killed == Some(KillReason::TimeLimit) {
+        if limit_reached || exit.killed == Some(KillReason::TimeLimit) {
             return Err(ScmFailure::TimedOut {
                 command,
-                millis: time_limit.map_or(0, |limit| limit.as_millis() as u64),
+                millis: spec.time_limit.map_or(0, |limit| limit.as_millis() as u64),
             });
         }
         out.code = match exit.status {

@@ -136,6 +136,74 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "remote",
+            "-v"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "rev-parse",
+            "--show-toplevel"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -283,6 +351,23 @@
               }
             ],
             "untrackedOmitted": 0
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
           }
         }
       ],
@@ -437,6 +522,23 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -585,6 +687,50 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -649,6 +795,86 @@
             "operation": "",
             "files": [],
             "untrackedOmitted": 0
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "reply": {
+            "code": 128
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "reply": {
+            "code": 129
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "reply": {
+            "code": 129
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "remote",
+            "-v"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "reply": {
+            "code": 128
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "rev-parse",
+            "--show-toplevel"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "reply": {
+            "code": 128
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "rev-parse",
+            "--absolute-git-dir"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\plain",
+          "reply": {
+            "code": 128
           }
         }
       ],
@@ -739,6 +965,37 @@
           "result": "diff --git a/a.txt b/a.txt\nindex 6addb9b..02b5054 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -2,3 +2,4 @@ one\n TWO\n three\n four\n+five\n"
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "HEAD",
+            "--",
+            "a.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -776,6 +1033,25 @@
             false
           ],
           "result": "diff --git a/src/b.mjs b/src/b.mjs\nindex b85663f..2021030 100644\n--- a/src/b.mjs\n+++ b/src/b.mjs\n@@ -1 +1 @@\n-export const b = 1;\n+export const b = 2;\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "--cached",
+            "--",
+            "src/b.mjs"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -857,6 +1133,24 @@
             false
           ],
           "result": ""
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "--",
+            "src/b.mjs"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -1048,6 +1342,46 @@
           ]
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "log",
+            "--all",
+            "--topo-order",
+            "--decorate=full",
+            "--skip=0",
+            "-n40",
+            "--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%s%x1f%cr%x1f%an%x1f%aI"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-list",
+            "@{u}..HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 128
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-list",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -1133,6 +1467,48 @@
           ]
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "log",
+            "--all",
+            "--topo-order",
+            "--decorate=full",
+            "--skip=0",
+            "-n40",
+            "--regexp-ignore-case",
+            "--grep=second",
+            "--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%s%x1f%cr%x1f%an%x1f%aI"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-list",
+            "@{u}..HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 128
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-list",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -1200,6 +1576,46 @@
               "remotes": []
             }
           ]
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "log",
+            "--all",
+            "--topo-order",
+            "--decorate=full",
+            "--skip=1",
+            "-n1",
+            "--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%s%x1f%cr%x1f%an%x1f%aI"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-list",
+            "@{u}..HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 128
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-list",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -1355,6 +1771,53 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "show",
+            "-s",
+            "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%P",
+            "195a88a14f217e42d8171d8186b9f64bde1e2828"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "show",
+            "--format=",
+            "--name-status",
+            "-z",
+            "--find-renames",
+            "--first-parent",
+            "195a88a14f217e42d8171d8186b9f64bde1e2828"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "show",
+            "--format=",
+            "--numstat",
+            "-z",
+            "--find-renames",
+            "--first-parent",
+            "195a88a14f217e42d8171d8186b9f64bde1e2828"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -1426,6 +1889,53 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "show",
+            "-s",
+            "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%P",
+            "195a88a"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "show",
+            "--format=",
+            "--name-status",
+            "-z",
+            "--find-renames",
+            "--first-parent",
+            "195a88a"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "show",
+            "--format=",
+            "--numstat",
+            "-z",
+            "--find-renames",
+            "--first-parent",
+            "195a88a"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -1489,6 +1999,53 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "show",
+            "-s",
+            "--format=%H%x1f%h%x1f%s%x1f%an%x1f%ae%x1f%aI%x1f%P",
+            "0123456789abcdef"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 128
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "show",
+            "--format=",
+            "--name-status",
+            "-z",
+            "--find-renames",
+            "--first-parent",
+            "0123456789abcdef"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 128
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "show",
+            "--format=",
+            "--numstat",
+            "-z",
+            "--find-renames",
+            "--first-parent",
+            "0123456789abcdef"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 128
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -1524,6 +2081,28 @@
             "a.txt"
           ],
           "result": "diff --git a/a.txt b/a.txt\nindex 4cb29ea..6addb9b 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+TWO\n three\n+four\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "show",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "--format=",
+            "--patch",
+            "--find-renames",
+            "--first-parent",
+            "195a88a14f217e42d8171d8186b9f64bde1e2828",
+            "--",
+            "a.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -1590,6 +2169,19 @@
           "result": "one\nTWO\nthree\nfour\n"
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "show",
+            "HEAD:a.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -1625,6 +2217,19 @@
             "src/b.mjs"
           ],
           "result": "export const b = 2;\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "show",
+            ":0:src/b.mjs"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -1664,6 +2269,19 @@
           "result": "one\ntwo\nthree\n"
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "show",
+            "195a88a14f217e42d8171d8186b9f64bde1e2828^:a.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -1699,6 +2317,19 @@
             "nope.txt"
           ],
           "result": null
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "show",
+            "HEAD:nope.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 128
+          }
         }
       ],
       "world": {
@@ -1824,6 +2455,114 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--no-ahead-behind",
+            "--untracked-files=all",
+            "--no-renames"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 128
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "refs/remotes/origin/main"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 1
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "refs/remotes/origin/master"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 1
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "refs/heads/main"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "merge-base",
+            "main",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "-c",
+            "core.quotePath=false",
+            "--no-optional-locks",
+            "--literal-pathspecs",
+            "diff",
+            "195a88a14f217e42d8171d8186b9f64bde1e2828",
+            "--raw",
+            "--numstat",
+            "--no-renames",
+            "-z",
+            "--",
+            "a.txt",
+            "src/b.mjs"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -1921,6 +2660,47 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--no-ahead-behind",
+            "--untracked-files=all",
+            "--no-renames"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "-c",
+            "core.quotePath=false",
+            "--no-optional-locks",
+            "--literal-pathspecs",
+            "diff",
+            "HEAD",
+            "--raw",
+            "--numstat",
+            "--no-renames",
+            "-z",
+            "--",
+            "a.txt",
+            "src/b.mjs"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -1984,6 +2764,39 @@
             "uncommitted"
           ],
           "result": "diff --git a/a.txt b/a.txt\nindex 6addb9b..02b5054 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -2,3 +2,4 @@ one\n TWO\n three\n four\n+five\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            "HEAD",
+            "--",
+            "a.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -2063,6 +2876,52 @@
           "result": "diff --git a/a.txt b/a.txt\nindex 6addb9b..02b5054 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -2,3 +2,4 @@ one\n TWO\n three\n four\n+five\n"
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "merge-base",
+            "main",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            "195a88a14f217e42d8171d8186b9f64bde1e2828",
+            "--",
+            "a.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -2138,6 +2997,43 @@
               }
             ],
             "omitted": []
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "-c",
+            "core.quotePath=false",
+            "--no-optional-locks",
+            "--literal-pathspecs",
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            "--no-renames",
+            "HEAD",
+            "--",
+            "a.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
           }
         }
       ],
@@ -2260,6 +3156,108 @@
       ],
       "processes": [
         {
+          "tool": "git",
+          "argv": [
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            "a.txt",
+            "src/b.mjs"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "status",
+            "--short",
+            "--branch"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "diff",
+            "HEAD",
+            "--stat"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "diff",
+            "HEAD",
+            "--",
+            "a.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "diff",
+            "HEAD",
+            "--",
+            "src/b.mjs"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "log",
+            "-12",
+            "--format=%s"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "log",
+            "--oneline",
+            "feature..HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "diff",
+            "feature...HEAD",
+            "--stat"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
           "tool": "gh",
           "argv": [
             "pr",
@@ -2337,6 +3335,42 @@
         }
       ],
       "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "status",
+            "--short",
+            "--branch"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "diff",
+            "HEAD",
+            "--stat"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "log",
+            "-12",
+            "--format=%s"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
         {
           "tool": "gh",
           "argv": [
@@ -2417,6 +3451,47 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "user.name"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 1
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "user.email"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 1
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "init.defaultBranch"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 1
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -2471,6 +3546,60 @@
           "name": "settings-changed",
           "value": {
             "scope": "git"
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "user.name",
+            "Phone Dev"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "user.name"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "user.email"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 1
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "init.defaultBranch"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 1
           }
         }
       ],
@@ -2531,6 +3660,60 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "user.email",
+            "phone@example.invalid"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "user.name"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "user.email"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "init.defaultBranch"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 1
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -2585,6 +3768,60 @@
           "name": "settings-changed",
           "value": {
             "scope": "git"
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "init.defaultBranch",
+            "trunk"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "user.name"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "user.email"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "init.defaultBranch"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0
           }
         }
       ],
@@ -2645,6 +3882,60 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--unset",
+            "init.defaultBranch"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "user.name"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "user.email"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "init.defaultBranch"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 1
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -2699,6 +3990,60 @@
           "name": "settings-changed",
           "value": {
             "scope": "git"
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--unset",
+            "init.defaultBranch"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 5
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "user.name"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "user.email"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "init.defaultBranch"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 1
           }
         }
       ],
@@ -2817,6 +4162,47 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "user.name"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "user.email"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--global",
+            "--get",
+            "init.defaultBranch"
+          ],
+          "cwd": null,
+          "reply": {
+            "code": 1
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -2901,6 +4287,21 @@
               "a.txt"
             ]
           ]
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "add",
+            "-A",
+            "--",
+            "a.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -2995,6 +4396,33 @@
           ]
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "restore",
+            "--staged",
+            "--",
+            "a.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -3057,6 +4485,19 @@
           ]
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--show-toplevel"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -3093,6 +4534,19 @@
           ]
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--show-toplevel"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -3126,6 +4580,19 @@
             "other.txt",
             "file"
           ]
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--show-toplevel"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -3216,6 +4683,20 @@
           "result": "[main f36ba8c] Commit the staged b\n 1 file changed, 1 insertion(+), 1 deletion(-)\n"
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "commit",
+            "-m",
+            "Commit the staged b"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -3250,6 +4731,20 @@
           ],
           "error": {
             "message": "Command failed: git commit -m Nothing to commit"
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "commit",
+            "-m",
+            "Nothing to commit"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 1
           }
         }
       ],
@@ -3292,6 +4787,346 @@
             ]
           ],
           "result": "[main 00dab64] Edit a through paths\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--absolute-git-dir",
+            "--show-toplevel"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--show-toplevel"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--get",
+            "commit.cleanup"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 1
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "hook",
+            "run",
+            "--ignore-missing",
+            "mixdog-hook-probe"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--git-path",
+            "hooks"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "HEAD^{commit}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "ls-files",
+            "--stage",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "read-tree",
+            "f36ba8cf162c036bb4c7f500f9cd39e089e98557"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "add",
+            "--all",
+            "--force",
+            "--",
+            ":(literal)a.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "hook",
+            "run",
+            "--ignore-missing",
+            "pre-commit"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "hook",
+            "run",
+            "--ignore-missing",
+            "prepare-commit-msg",
+            "--",
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo\\.git\\COMMIT_EDITMSG",
+            "message"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "hook",
+            "run",
+            "--ignore-missing",
+            "commit-msg",
+            "--",
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo\\.git\\COMMIT_EDITMSG"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "stripspace"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "ls-files",
+            "--stage",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "write-tree"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "diff-tree",
+            "-r",
+            "--name-only",
+            "-z",
+            "--no-commit-id",
+            "f36ba8cf162c036bb4c7f500f9cd39e089e98557^{tree}",
+            "0b2fa82c898d1f50b40704fcee21b16502b8f6ad"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "config",
+            "--bool",
+            "--default",
+            "false",
+            "--get",
+            "commit.gpgsign"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "commit-tree",
+            "0b2fa82c898d1f50b40704fcee21b16502b8f6ad",
+            "-p",
+            "f36ba8cf162c036bb4c7f500f9cd39e089e98557"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "update-ref",
+            "-m",
+            "commit: Edit a through paths",
+            "HEAD",
+            "00dab6403d3acfabf5f3c2a154eee203217f5d6b",
+            "f36ba8cf162c036bb4c7f500f9cd39e089e98557"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "hook",
+            "run",
+            "--ignore-missing",
+            "post-commit"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "ls-files",
+            "--stage",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "reset",
+            "--quiet",
+            "00dab6403d3acfabf5f3c2a154eee203217f5d6b",
+            "--",
+            ":(literal)a.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "symbolic-ref",
+            "--short",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -3356,6 +5191,21 @@
           "result": "[main 90a1de0] Edit a through paths (amended)\n Date: Fri Jan 2 03:04:05 2026 +0000\n 1 file changed, 2 insertions(+)\n"
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "commit",
+            "--amend",
+            "-m",
+            "Edit a through paths (amended)"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -3388,6 +5238,20 @@
             ""
           ],
           "result": "[main 90a1de0] Edit a through paths (amended)\n Date: Fri Jan 2 03:04:05 2026 +0000\n 1 file changed, 2 insertions(+)\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "commit",
+            "--amend",
+            "--no-edit"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -3449,6 +5313,20 @@
           "result": ""
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "reset",
+            "--soft",
+            "HEAD~1"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -3485,6 +5363,35 @@
             false,
             "all"
           ]
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "restore",
+            "--source=HEAD",
+            "--staged",
+            "--worktree",
+            "--",
+            "a.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -3524,6 +5431,22 @@
           ]
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "clean",
+            "-f",
+            "-d",
+            "--",
+            "scratch.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -3560,6 +5483,21 @@
             false,
             "worktree"
           ]
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "restore",
+            "--worktree",
+            "--",
+            "a.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -3628,6 +5566,23 @@
           ]
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "apply",
+            "--cached",
+            "--recount",
+            "--whitespace=nowarn",
+            "--include=a.txt",
+            "-"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -3664,6 +5619,24 @@
             "diff --git a/a.txt b/a.txt\nindex 6addb9b..763a535 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -2,3 +2,4 @@ one\n TWO\n three\n four\n+patched\n",
             true
           ]
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "apply",
+            "--cached",
+            "--recount",
+            "--whitespace=nowarn",
+            "--reverse",
+            "--include=a.txt",
+            "-"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -3704,6 +5677,23 @@
           ],
           "error": {
             "message": "error: No valid patches in input (allow with \"--allow-empty\")"
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "apply",
+            "--cached",
+            "--recount",
+            "--whitespace=nowarn",
+            "--include=a.txt",
+            "-"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 128
           }
         }
       ],
@@ -3802,6 +5792,47 @@
           "result": ""
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--symbolic-full-name",
+            "6c0b81c871eddac63c6994726b196d8bf90227b0"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "6c0b81c871eddac63c6994726b196d8bf90227b0^{commit}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "reset",
+            "--soft",
+            "6c0b81c871eddac63c6994726b196d8bf90227b0"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -3843,6 +5874,77 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--symbolic-full-name",
+            "6c0b81c871eddac63c6994726b196d8bf90227b0"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "6c0b81c871eddac63c6994726b196d8bf90227b0^{commit}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -3881,6 +5983,77 @@
           ],
           "error": {
             "message": "Uncommitted changes would be overwritten by resetting to 6c0b81c8: src/b.mjs. Commit or stash them first."
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--symbolic-full-name",
+            "6c0b81c871eddac63c6994726b196d8bf90227b0"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "6c0b81c871eddac63c6994726b196d8bf90227b0^{commit}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
           }
         }
       ],
@@ -3955,6 +6128,77 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--symbolic-full-name",
+            "0d09186811f1d6ecf4349b35de7b9af21e58df74"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "0d09186811f1d6ecf4349b35de7b9af21e58df74^{commit}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -3994,6 +6238,47 @@
           "result": "Unstaged changes after reset:\nM\tsrc/b.mjs\n"
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--symbolic-full-name",
+            "0d09186811f1d6ecf4349b35de7b9af21e58df74"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "0d09186811f1d6ecf4349b35de7b9af21e58df74^{commit}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "reset",
+            "--mixed",
+            "0d09186811f1d6ecf4349b35de7b9af21e58df74"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -4027,6 +6312,61 @@
             "0d09186811f1d6ecf4349b35de7b9af21e58df74"
           ],
           "result": "[main d81832e] Revert \"edit m again\"\n Date: Fri Jan 2 03:04:05 2026 +0000\n 1 file changed, 1 deletion(-)\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--symbolic-full-name",
+            "0d09186811f1d6ecf4349b35de7b9af21e58df74"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "0d09186811f1d6ecf4349b35de7b9af21e58df74^{commit}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-list",
+            "--parents",
+            "-n",
+            "1",
+            "0d09186811f1d6ecf4349b35de7b9af21e58df74"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "revert",
+            "--no-edit",
+            "0d09186811f1d6ecf4349b35de7b9af21e58df74"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -4066,6 +6406,46 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--symbolic-full-name",
+            "0123456789abcdef"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 1
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "0123456789abcdef^{commit}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 1
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--disambiguate=0123456789abcdef"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -4099,6 +6479,103 @@
             "ebdc4069059ab8c34fbd46a6021c8d8bf9ce43e8"
           ],
           "result": "[main 56de87a] feature file\n Date: Fri Jan 2 03:04:05 2026 +0000\n 1 file changed, 1 insertion(+)\n create mode 100644 f.txt\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--symbolic-full-name",
+            "ebdc4069059ab8c34fbd46a6021c8d8bf9ce43e8"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "ebdc4069059ab8c34fbd46a6021c8d8bf9ce43e8^{commit}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-list",
+            "--parents",
+            "-n",
+            "1",
+            "ebdc4069059ab8c34fbd46a6021c8d8bf9ce43e8"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "cherry-pick",
+            "--empty=keep",
+            "ebdc4069059ab8c34fbd46a6021c8d8bf9ce43e8"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -4138,6 +6615,115 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--symbolic-full-name",
+            "b96c1e980161d604540c27a8798a11f80cb31eb1"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "b96c1e980161d604540c27a8798a11f80cb31eb1^{commit}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-list",
+            "--parents",
+            "-n",
+            "1",
+            "b96c1e980161d604540c27a8798a11f80cb31eb1"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "cherry-pick",
+            "--empty=keep",
+            "b96c1e980161d604540c27a8798a11f80cb31eb1"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 1
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "diff",
+            "--name-only",
+            "--diff-filter=U"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -4173,6 +6759,19 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "cherry-pick",
+            "--continue"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 128
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -4204,6 +6803,19 @@
             "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
           ],
           "result": ""
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "cherry-pick",
+            "--abort"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -4313,6 +6925,115 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--symbolic-full-name",
+            "b96c1e980161d604540c27a8798a11f80cb31eb1"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "b96c1e980161d604540c27a8798a11f80cb31eb1^{commit}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-list",
+            "--parents",
+            "-n",
+            "1",
+            "b96c1e980161d604540c27a8798a11f80cb31eb1"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "cherry-pick",
+            "--empty=keep",
+            "b96c1e980161d604540c27a8798a11f80cb31eb1"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 1
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "diff",
+            "--name-only",
+            "--diff-filter=U"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -4344,6 +7065,19 @@
             "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
           ],
           "result": "[main e4efa63] feature edits a\n Date: Fri Jan 2 03:04:05 2026 +0000\n 1 file changed, 1 insertion(+), 1 deletion(-)\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "cherry-pick",
+            "--continue"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -4461,6 +7195,21 @@
           ]
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "for-each-ref",
+            "--format=%(refname)%00%(refname:short)%00%(HEAD)%00%(upstream:short)%00%(committerdate:iso-strict)%00%(committerdate:relative)%00%(ahead-behind:HEAD)",
+            "refs/heads",
+            "refs/remotes"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -4496,6 +7245,45 @@
             "topic2"
           ],
           "result": ""
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "check-ref-format",
+            "--branch",
+            "topic"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "check-ref-format",
+            "--branch",
+            "topic2"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "branch",
+            "-m",
+            "topic",
+            "topic2"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -4564,6 +7352,45 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "check-ref-format",
+            "--branch",
+            "topic2"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "check-ref-format",
+            "--branch",
+            "feature"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "branch",
+            "-m",
+            "topic2",
+            "feature"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 128
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -4597,6 +7424,32 @@
             "topic2"
           ],
           "result": "Deleted branch topic2 (was e4efa63).\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "check-ref-format",
+            "--branch",
+            "topic2"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "branch",
+            "-d",
+            "topic2"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -4633,6 +7486,32 @@
           ],
           "error": {
             "message": "error: cannot delete branch 'main' used by worktree at 'D:/mixdog-build/tmp/phone-ph2-scm-rec/repo'"
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "check-ref-format",
+            "--branch",
+            "main"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "branch",
+            "-d",
+            "main"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 1
           }
         }
       ],
@@ -4673,6 +7552,32 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "check-ref-format",
+            "--branch",
+            "unmerged"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "branch",
+            "-d",
+            "unmerged"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 1
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -4707,6 +7612,32 @@
           ],
           "error": {
             "message": "error: branch 'nope' not found"
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "check-ref-format",
+            "--branch",
+            "nope"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "branch",
+            "-d",
+            "nope"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 1
           }
         }
       ],
@@ -4747,6 +7678,58 @@
           "result": "Created tag v1.0 at e4efa63a."
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "check-ref-format",
+            "refs/tags/v1.0"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--symbolic-full-name",
+            "e4efa63ad1cf7fab253ca3b5aa856e08539266fd"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "e4efa63ad1cf7fab253ca3b5aa856e08539266fd^{commit}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "tag",
+            "v1.0",
+            "e4efa63ad1cf7fab253ca3b5aa856e08539266fd"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -4783,6 +7766,58 @@
           ],
           "error": {
             "message": "fatal: tag 'v1.0' already exists"
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "check-ref-format",
+            "refs/tags/v1.0"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--symbolic-full-name",
+            "e4efa63ad1cf7fab253ca3b5aa856e08539266fd"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "e4efa63ad1cf7fab253ca3b5aa856e08539266fd^{commit}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "tag",
+            "v1.0",
+            "e4efa63ad1cf7fab253ca3b5aa856e08539266fd"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 128
           }
         }
       ],
@@ -4848,6 +7883,31 @@
           "result": "Deleted tag 'v1.0' (was e4efa63)\n"
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "check-ref-format",
+            "refs/tags/v1.0"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "tag",
+            "-d",
+            "v1.0"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -4882,6 +7942,31 @@
           ],
           "error": {
             "message": "error: tag 'v1.0' not found."
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "check-ref-format",
+            "refs/tags/v1.0"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "tag",
+            "-d",
+            "v1.0"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 1
           }
         }
       ],
@@ -4980,6 +8065,21 @@
           ]
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "for-each-ref",
+            "--format=%(refname)%00%(refname:short)%00%(HEAD)%00%(upstream:short)%00%(committerdate:iso-strict)%00%(committerdate:relative)%00%(ahead-behind:HEAD)",
+            "refs/heads",
+            "refs/remotes"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -5013,6 +8113,22 @@
             "wip from phone"
           ],
           "result": "Saved working directory and index state On main: wip from phone\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "stash",
+            "push",
+            "-u",
+            "-m",
+            "wip from phone"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -5060,6 +8176,20 @@
           ]
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "stash",
+            "list",
+            "--format=%gd%x00%s%x00%cr"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -5092,6 +8222,20 @@
             ""
           ],
           "result": "No local changes to save\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "stash",
+            "push",
+            "-u"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -5129,6 +8273,20 @@
           "result": "On branch main\nChanges to be committed:\n  (use \"git restore --staged <file>...\" to unstage)\n\tnew file:   stashed-new.txt\n\nChanges not staged for commit:\n  (use \"git add <file>...\" to update what will be committed)\n  (use \"git restore <file>...\" to discard changes in working directory)\n\tmodified:   a.txt\n\n"
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "stash",
+            "apply",
+            "stash@{0}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -5163,6 +8321,20 @@
           ],
           "error": {
             "message": "fatal: log for 'stash' only has 1 entries"
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "stash",
+            "apply",
+            "stash@{9}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 128
           }
         }
       ],
@@ -5225,6 +8397,19 @@
           "result": "On branch main\nChanges to be committed:\n  (use \"git restore --staged <file>...\" to unstage)\n\tnew file:   stashed-new.txt\n\nChanges not staged for commit:\n  (use \"git add <file>...\" to update what will be committed)\n  (use \"git restore <file>...\" to discard changes in working directory)\n\tmodified:   a.txt\n\nDropped refs/stash@{0} (ef9e9b94ae351d26b064d32604aee6b0459e3f7c)\n"
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "stash",
+            "pop"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -5257,6 +8442,19 @@
           ],
           "error": {
             "message": "No stash entries found."
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "stash",
+            "pop"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 1
           }
         }
       ],
@@ -5293,6 +8491,20 @@
             "stash@{0}"
           ],
           "result": "Dropped stash@{0} (b34f88de5a93c36c3e6f9d1e0fc5e4669873a579)\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "stash",
+            "drop",
+            "stash@{0}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -5332,6 +8544,20 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "stash",
+            "drop",
+            "stash@{0}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 1
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -5363,6 +8589,20 @@
             "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
           ],
           "result": []
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "stash",
+            "list",
+            "--format=%gd%x00%s%x00%cr"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -5400,6 +8640,34 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{u}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 128
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "push",
+            "-u",
+            "origin",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 128
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -5431,6 +8699,19 @@
             "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo"
           ],
           "result": ""
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "fetch",
+            "--prune"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -5468,6 +8749,20 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "pull",
+            "--no-rebase",
+            "--no-edit"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 1
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -5500,6 +8795,20 @@
           ],
           "error": {
             "message": "There is no tracking information for the current branch.\nPlease specify which branch you want to merge with.\nSee git-pull(1) for details.\n\n    git pull <remote> <branch>\n\nIf you wish to set tracking information for this branch you can do so with:\n\n    git branch --set-upstream-to=<remote>/<branch> main"
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "pull",
+            "--no-rebase",
+            "--no-edit"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 1
           }
         }
       ],
@@ -5570,6 +8879,74 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "remote",
+            "-v"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "rev-parse",
+            "--show-toplevel"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -5637,6 +9014,50 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -5652,7 +9073,125 @@
       }
     },
     {
-      "name": "gitStatus-remote-after-ttl",
+      "name": "gitStatus-remote-before-ttl",
+      "call": "gitStatus",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "repository": true,
+          "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "branch": "main",
+          "detached": false,
+          "unborn": false,
+          "upstream": false,
+          "upstreamName": "",
+          "remote": false,
+          "remoteUrl": "",
+          "ahead": 0,
+          "behind": 0,
+          "operation": "",
+          "files": [],
+          "untrackedOmitted": 0
+        }
+      },
+      "ops": [
+        {
+          "name": "gitStatus",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+            {
+              "reuseLineStats": false,
+              "skipLineStats": false
+            }
+          ],
+          "result": {
+            "repository": true,
+            "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+            "branch": "main",
+            "detached": false,
+            "unborn": false,
+            "upstream": false,
+            "upstreamName": "",
+            "remote": false,
+            "remoteUrl": "",
+            "ahead": 0,
+            "behind": 0,
+            "operation": "",
+            "files": [],
+            "untrackedOmitted": 0
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
+      "clock": [
+        {
+          "advance": 59999,
+          "fired": [],
+          "armed": []
+        }
+      ],
+      "world": {
+        "ghInstalled": false,
+        "ghAuth": false,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": false,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "gitStatus-remote-at-ttl",
       "call": "gitStatus",
       "params": [
         "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo"
@@ -5704,6 +9243,334 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "remote",
+            "-v"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
+      "clock": [
+        {
+          "advance": 1,
+          "fired": [],
+          "armed": []
+        }
+      ],
+      "world": {
+        "ghInstalled": false,
+        "ghAuth": false,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": false,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "gitStatus-late-before-remote-add",
+      "call": "gitStatus",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "repository": true,
+          "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "branch": "main",
+          "detached": false,
+          "unborn": false,
+          "upstream": false,
+          "upstreamName": "",
+          "remote": false,
+          "remoteUrl": "",
+          "ahead": 0,
+          "behind": 0,
+          "operation": "",
+          "files": [],
+          "untrackedOmitted": 0
+        }
+      },
+      "ops": [
+        {
+          "name": "gitStatus",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+            {
+              "reuseLineStats": false,
+              "skipLineStats": false
+            }
+          ],
+          "result": {
+            "repository": true,
+            "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+            "branch": "main",
+            "detached": false,
+            "unborn": false,
+            "upstream": false,
+            "upstreamName": "",
+            "remote": false,
+            "remoteUrl": "",
+            "ahead": 0,
+            "behind": 0,
+            "operation": "",
+            "files": [],
+            "untrackedOmitted": 0
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "remote",
+            "-v"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "rev-parse",
+            "--show-toplevel"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
+      "world": {
+        "ghInstalled": false,
+        "ghAuth": false,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": false,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "gitStatus-remote-after-ttl",
+      "call": "gitStatus",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "repository": true,
+          "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "branch": "main",
+          "detached": false,
+          "unborn": false,
+          "upstream": false,
+          "upstreamName": "",
+          "remote": true,
+          "remoteUrl": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "ahead": 0,
+          "behind": 0,
+          "operation": "",
+          "files": [],
+          "untrackedOmitted": 0
+        }
+      },
+      "ops": [
+        {
+          "name": "gitStatus",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+            {
+              "reuseLineStats": false,
+              "skipLineStats": false
+            }
+          ],
+          "result": {
+            "repository": true,
+            "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+            "branch": "main",
+            "detached": false,
+            "unborn": false,
+            "upstream": false,
+            "upstreamName": "",
+            "remote": true,
+            "remoteUrl": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+            "ahead": 0,
+            "behind": 0,
+            "operation": "",
+            "files": [],
+            "untrackedOmitted": 0
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "remote",
+            "-v"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\late-remote",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
+      "clock": [
+        {
+          "advance": 60001,
+          "fired": [],
+          "armed": []
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -5735,6 +9602,34 @@
             "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
           ],
           "result": "branch 'main' set up to track 'origin/main'.\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{u}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 128
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "push",
+            "-u",
+            "origin",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -5770,6 +9665,31 @@
           "result": ""
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{u}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "push"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -5803,6 +9723,31 @@
           "result": ""
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{u}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "push"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -5834,6 +9779,19 @@
             "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
           ],
           "result": ""
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "fetch",
+            "--prune"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -5903,6 +9861,62 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "remote",
+            "-v"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -5934,6 +9948,20 @@
             "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
           ],
           "result": "Updating be0dd08..a034cf0\nFast-forward\n remote1.txt | 1 +\n 1 file changed, 1 insertion(+)\n create mode 100644 remote1.txt\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "pull",
+            "--no-rebase",
+            "--no-edit"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -5971,6 +9999,31 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{u}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "push"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 1
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -6004,6 +10057,43 @@
           "result": "Merge made by the 'ort' strategy.\n remote2.txt | 1 +\n 1 file changed, 1 insertion(+)\n create mode 100644 remote2.txt\n"
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "pull",
+            "--no-rebase",
+            "--no-edit"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{u}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "push"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -6035,6 +10125,43 @@
             "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
           ],
           "result": "Already up to date.\n"
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "pull",
+            "--no-rebase",
+            "--no-edit"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{u}"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "push"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -6072,6 +10199,20 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "pull",
+            "--no-rebase",
+            "--no-edit"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 1
+          }
+        }
+      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -6103,6 +10244,19 @@
             "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
           ],
           "result": ""
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "merge",
+            "--abort"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "reply": {
+            "code": 0
+          }
         }
       ],
       "world": {
@@ -10594,33 +14748,6 @@
           "tool": "git",
           "argv": [
             "--no-optional-locks",
-            "rev-parse",
-            "--show-toplevel"
-          ],
-          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
-          "reply": {
-            "code": -1,
-            "stderr": "ENOENT"
-          }
-        },
-        {
-          "tool": "git",
-          "argv": [
-            "--no-optional-locks",
-            "diff",
-            "--numstat",
-            "-z"
-          ],
-          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
-          "reply": {
-            "code": -1,
-            "stderr": "ENOENT"
-          }
-        },
-        {
-          "tool": "git",
-          "argv": [
-            "--no-optional-locks",
             "diff",
             "--cached",
             "--numstat",
@@ -10636,8 +14763,35 @@
           "tool": "git",
           "argv": [
             "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "reply": {
+            "code": -1,
+            "stderr": "ENOENT"
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
             "remote",
             "-v"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "reply": {
+            "code": -1,
+            "stderr": "ENOENT"
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "rev-parse",
+            "--show-toplevel"
           ],
           "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
           "reply": {
@@ -10803,6 +14957,49 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "rev-parse",
+            "--show-toplevel"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\big",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "rev-parse",
+            "--verify",
+            "HEAD"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\big",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "HEAD",
+            "--",
+            "big.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\big",
+          "reply": {
+            "error": "EMAXBUFFER"
+          }
+        }
+      ],
       "world": {
         "ghInstalled": true,
         "ghAuth": true,
@@ -10825,7 +15022,7 @@
       ],
       "frame": {
         "ok": false,
-        "error": "git --no-optional-locks status --porcelain=v2 -z --branch --untracked-files=all timed out after 1ms",
+        "error": "git --no-optional-locks status --porcelain=v2 -z --branch --untracked-files=all timed out after 60000ms",
         "errorCode": "EGITTIMEOUT"
       },
       "ops": [
@@ -10839,9 +15036,101 @@
             }
           ],
           "error": {
-            "message": "git --no-optional-locks status --porcelain=v2 -z --branch --untracked-files=all timed out after 1ms",
+            "message": "git --no-optional-locks status --porcelain=v2 -z --branch --untracked-files=all timed out after 60000ms",
             "code": "EGITTIMEOUT"
           }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "reply": {
+            "error": "ETIMEDOUT"
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "reply": {
+            "code": 0
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "rev-parse",
+            "--show-toplevel"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "reply": {
+            "code": 0
+          }
+        }
+      ],
+      "clock": [
+        {
+          "advance": 59999,
+          "fired": [],
+          "armed": [
+            {
+              "tool": "git",
+              "argv": [
+                "--no-optional-locks",
+                "status",
+                "--porcelain=v2",
+                "-z",
+                "--branch",
+                "--untracked-files=all"
+              ]
+            }
+          ]
+        },
+        {
+          "advance": 2,
+          "fired": [
+            {
+              "tool": "git",
+              "argv": [
+                "--no-optional-locks",
+                "status",
+                "--porcelain=v2",
+                "-z",
+                "--branch",
+                "--untracked-files=all"
+              ]
+            }
+          ],
+          "armed": []
         }
       ],
       "world": {
