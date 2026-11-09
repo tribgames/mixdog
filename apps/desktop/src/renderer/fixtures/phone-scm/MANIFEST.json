@@ -1,0 +1,43 @@
+{
+  "calls": 62,
+  "cases": 217,
+  "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "fileCount": 3,
+  "files": [
+    {
+      "bytes": 841,
+      "path": "calls.txt",
+      "sha256": "cac86bcf4866239925b9378c55b76fda18e14a74d8bf1c2ad45148a77f097038"
+    },
+    {
+      "bytes": 10287,
+      "path": "gh-script.json",
+      "sha256": "0baa520f25e0b30d0d345ba81ac1827953786294a7d84c0a9af840ea070e3086"
+    },
+    {
+      "bytes": 278742,
+      "path": "golden.json",
+      "sha256": "afc1f44cc520a8bfa515e12d89f3e7c0b818d15e36c78600e20c932dda922a54"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-phone-scm.mjs",
+  "set": "phone-scm",
+  "totalBytes": 289870
+}
