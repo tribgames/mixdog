@@ -36,8 +36,7 @@ export async function withPhoneApi(handlers, run) {
       synced: () => ready,
       probe() {},
       silentSince: () => false,
-      nextRequestSent: () => ready,
-    });
+          });
     const fanOut = (listeners, value) => {
       for (const listener of [...listeners]) listener(value);
     };

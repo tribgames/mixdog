@@ -128,6 +128,25 @@
       "frames": [
         "evt@3"
       ]
+    },
+    {
+      "phase": "lane-feed-closed",
+      "feed": "lane",
+      "frames": [
+        "response"
+      ]
+    },
+    {
+      "phase": "pushes-after-lane-feed-closed",
+      "feed": "app",
+      "frames": [
+        "evt@4"
+      ]
+    },
+    {
+      "phase": "pushes-after-lane-feed-closed",
+      "feed": "lane",
+      "frames": []
     }
   ]
 }

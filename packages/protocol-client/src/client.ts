@@ -35,6 +35,7 @@ import type {
   ThreadResumeResponse,
   TransportSink,
   TransportWriter,
+  SentClaim,
 } from './api.ts';
 import type { OpStatusEntry } from '@mixdog/protocol';
 import { DEFAULT_LADDER, WIRE } from './api.ts';
@@ -431,18 +432,29 @@ class Engine implements ProtocolClient<Json> {
 
   // ── wire ──
 
-  private send(frame: Record<string, unknown>): void {
-    const w = this.writer;
-    if (!w) throw fail({ kind: 'connectionLost' });
-    w.send(JSON.stringify(frame));
+  private scope: SentClaim | null = null;
+  withSendScope<T>(claim: SentClaim, run: () => T): T {
+    const outer = this.scope;
+    this.scope = claim;
+    try {
+      return run();
+    } finally {
+      this.scope = outer;
+    }
   }
 
-  private rpc(method: string, params: Json | undefined, cls?: RequestClass, sync?: (v: Json) => void): Promise<Json> {
+  private send(frame: Record<string, unknown>, claim?: SentClaim | null): void {
+    const w = this.writer;
+    if (!w) throw fail({ kind: 'connectionLost' });
+    w.send(JSON.stringify(frame), claim ?? undefined);
+  }
+
+  private rpc(method: string, params: Json | undefined, cls?: RequestClass, sync?: (v: Json) => void, claim?: SentClaim | null): Promise<Json> {
     return new Promise<Json>((resolve, reject) => {
       const id = this.nextRequestId++;
       try {
         this.pending.set(id, { cls, resolve, reject, ...(sync ? { sync } : {}) });
-        this.send(params === undefined ? { id, method } : { id, method, params });
+        this.send(params === undefined ? { id, method } : { id, method, params }, claim);
       } catch (e) {
         this.pending.delete(id);
         reject(e);
@@ -801,13 +813,15 @@ class Engine implements ProtocolClient<Json> {
 
   /** `stay` calls (stub resolution inside the fold) never wait for a reconnect: they reject `connectionLost` instead. */
   private async run(method: string, params: Json, info: MethodInfo, sync?: (v: Json) => void, stay = false): Promise<Json> {
+    // The caller's claim is read before the first await: the frame is written later, after the connection is known to be ready.
+    const claim = this.scope;
     for (;;) {
       if (stay) {
         if (this.status.state !== 'ready') throw fail({ kind: 'connectionLost' });
       } else await this.whenReady();
       const sent: SentAt = { all: this.responses, byClass: { ...this.classResponses }, feed: this.feedEvents };
       try {
-        return await this.rpc(method, params, info.class, sync);
+        return await this.rpc(method, params, info.class, sync, claim);
       } catch (e) {
         const d = detailOf(e);
         if (d.kind === 'rpc' && d.code === -32001) {

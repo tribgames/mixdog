@@ -86,8 +86,6 @@ export interface RelayConnector extends Connector {
   wake(): boolean;
   /** Nothing has arrived on the live socket since `since`, and no probe is out: a call sent then is worth a probe (Node: remote-shim-calls.ts:264-267). */
   silentSince(since: number): boolean;
-  /** Claims the next request frame sent: resolves when that frame has been sealed and handed to the socket or a transport carrier, per call (Node: that call's sendApplicationFrame settling, remote-shim-calls.ts:258). */
-  nextRequestSent(): Promise<void>;
   /** The page stayed in the background: end the socket with 1000 `background` once what was handed to it is sent, and hold every open until `wake`. */
   suspend(): void;
   readonly suspended: boolean;
@@ -127,8 +125,6 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
   // A socket whose desktop leg went away while the relay kept it: the relay re-challenges it when the desktop returns, so the
   // next open takes it over instead of dialing again. Frames that arrive meanwhile (the new challenge) wait here.
   let parked: { readonly ws: RelaySocket; readonly inbox: unknown[] } | null = null;
-  // Calls waiting to learn that their own request frame left this page, oldest first.
-  let sentWaiters: Array<() => void> = [];
   let suspended = false;
   let release: (() => void) | null = null;
   let held: Promise<void> | null = null;
@@ -170,7 +166,6 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
     },
     retire: () => current?.retire(),
     silentSince: (since) => current?.silentSince(since) ?? false,
-    nextRequestSent: () => new Promise<void>((resolve) => sentWaiters.push(resolve)),
     suspend: () => {
       suspended = true;
       hold();
@@ -383,11 +378,13 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
 
         let outbound: Promise<void> = Promise.resolve();
         const writer: TransportWriter = {
-          send: (text) => {
-            // A request frame belongs to the oldest call still waiting to learn that its frame left (calls register in the order they invoke).
+          send: (text, claim) => {
+            // The call that wrote this request frame handed its own claim down with it; that call alone learns when the frame left
+            // (Node: its sendApplicationFrame settling, remote-shim-calls.ts:258-273). A frame no call claimed has no one to tell.
             const request = JSON.parse(text) as { id?: unknown; method?: unknown } | null;
             const isRequest = request !== null && request.id !== undefined && request.method !== undefined;
-            const left = isRequest ? sentWaiters.shift() : undefined;
+            let left: (() => void) | undefined;
+            if (isRequest && claim) claim(new Promise<void>((resolve) => (left = resolve)));
             // Sealing is asynchronous: chaining keeps wire order equal to send order.
             outbound = outbound
               .then(async () => {

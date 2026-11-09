@@ -13,13 +13,14 @@ import type { ClientEvent, ProtocolClient, SessionFold, StoreChange } from '../.
 import { armCallWatch } from '../../desktop/src/renderer/remote-shim-call-watch.ts';
 import { remoteConnectionInterruptedError } from '../../desktop/src/renderer/remote-connection-state.ts';
 import { createViewSync } from './phone-view-sync.ts';
+import { firstFrame, scopeClient, type FrameClaim } from './phone-send-scope.ts';
 
 /** Threads open per pane: the same window `thread/resume` is asked for everywhere on the phone. */
 export const VIEW_WINDOW = { lastItems: 50 } as const;
 
 const APP_FEED = 'app';
 
-export type ViewClient = Pick<ProtocolClient<SessionFold>, 'resumeThread' | 'unsubscribeThread' | 'subscribeApp' | 'status' | 'on'> & {
+export type ViewClient = Pick<ProtocolClient<SessionFold>, 'resumeThread' | 'unsubscribeThread' | 'subscribeApp' | 'status' | 'on' | 'withSendScope'> & {
   readonly store: Pick<ProtocolClient<SessionFold>['store'], 'subscribe'>;
 };
 
@@ -34,7 +35,7 @@ export interface ViewManager {
 }
 
 export function createViewManager(
-  client: ViewClient,
+  raw: ViewClient,
   options: {
     /** Threads of the last visit: opened with the first connection, whatever the panes name first. */
     restored: readonly string[];
@@ -52,8 +53,6 @@ export function createViewManager(
     probe(): void;
     /** Nothing arrived since a call was sent and no probe is out (the silent-call probe's condition). */
     silentSince(since: number): boolean;
-    /** Resolves when the next request frame has left this page. */
-    nextRequestSent(): Promise<void>;
   }
 ): ViewManager {
   const open = new Set<string>();
@@ -117,6 +116,9 @@ export function createViewManager(
     }
   };
 
+  // The sync's request is the first frame the view writes while a sync runs; the view's client opens that claim around each of its methods.
+  let claimSync: FrameClaim = () => undefined;
+  const client = scopeClient(raw, (sent) => claimSync(sent));
   const inFlight = new Map<number, true>();
   let syncId = 0;
   const timers = {
@@ -129,8 +131,9 @@ export function createViewManager(
       const id = ++syncId;
       inFlight.set(id, true);
       const watch = armCallWatch(inFlight, id, reject, options.probe, options.silentSince, timers);
-      void options.nextRequestSent().then(watch.transmitted);
+      claimSync = firstFrame((sent) => void sent.then(watch.transmitted));
       const done = (): void => {
+        claimSync = () => undefined;
         watch.cancel();
         inFlight.delete(id);
       };

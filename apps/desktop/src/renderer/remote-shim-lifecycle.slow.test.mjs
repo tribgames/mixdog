@@ -49,8 +49,11 @@ test('lane pushes: a phone that has not opened a lane hears the same at the core
   assert.deepEqual(laneEvents(node['lane-terminal-registered']), ['termData']);
   assert.deepEqual(core('lane-feed-opened', 'lane'), ['response', 'snapshot@2']);
   assert.deepEqual(core('pushes-with-lane-feed', 'lane'), ['evt@3']);
-  // Dropping the lane returns Node to the empty state.
+  // Dropping the lane returns Node to the empty state; closing the feed (feed/unsubscribe) does the same at the core, and the app feed goes on.
   assert.deepEqual(laneEvents(node['lane-terminal-dropped']), []);
+  assert.deepEqual(core('lane-feed-closed', 'lane'), ['response']);
+  assert.deepEqual(core('pushes-after-lane-feed-closed', 'lane'), []);
+  assert.deepEqual(core('pushes-after-lane-feed-closed', 'app'), ['evt@4']);
 });
 
 // The difference the empty registration leaves: Node's client is read as "everything" from its join until the phone's registration is handled

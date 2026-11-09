@@ -3,14 +3,14 @@
   "fileCount": 3,
   "files": [
     {
-      "bytes": 117946,
+      "bytes": 127200,
       "path": "golden.json",
-      "sha256": "57e21c689fc845888893e41a4752b9234fbf9986275376eb342ca60a40361878"
+      "sha256": "c0cd84d5ff720fa47653ee086d8f51708f9a313e8bec22baf7e4f5e2b07a8e25"
     },
     {
-      "bytes": 3012,
+      "bytes": 3353,
       "path": "lane-pushes.json",
-      "sha256": "a3a7c70b53df8b2a1eefeec70d70ad6c839b454ab8c25157d33f13d8fc9588d7"
+      "sha256": "0a9f1fe513442f55e4c4305ed2e4d8b9214691fd47c3f90b5a6af3bcafb105b8"
     },
     {
       "bytes": 11911,
@@ -36,7 +36,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-lifecycle.mjs",
-  "scenarios": 49,
+  "scenarios": 51,
   "set": "phone-lifecycle",
-  "totalBytes": 132869
+  "totalBytes": 142464
 }

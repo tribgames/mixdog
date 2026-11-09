@@ -77,9 +77,12 @@ export interface TransportSink {
   frame(text: string): void;
   closed(code: number, reason: string): void;
 }
+/** Receives the completion of one request frame: it settles once the frame has been handed to the wire, and never if it was dropped first. */
+export type SentClaim = (sent: Promise<void>) => void;
 /** Outbound half. One JSON message per text frame. */
 export interface TransportWriter {
-  send(text: string): void;
+  /** `sent`, when given, receives a promise that settles when this frame has left the page (a transport that cannot tell never calls it). */
+  send(text: string, sent?: SentClaim): void;
   /** One binary frame (X17 host media). Absent on transports that cannot carry one. */
   sendBinary?(data: Uint8Array): void;
   close(code: number, reason: string): void;
@@ -223,6 +226,8 @@ export interface CallOptions {
 export type CallParams<P> = P extends { opId: infer O } ? Omit<P, 'opId'> & { opId?: O } : P;
 
 export interface ProtocolClient<S = Json> {
+  /** Runs `run` with `claim` open: the first request frame a client method invoked inside it writes is handed to `claim` (a call learns when its own frame left). */
+  withSendScope<T>(claim: SentClaim, run: () => T): T;
   readonly store: FoldStore<S>;
   /** Latest `initialize` result (replaced on every reconnect). */
   readonly server: InitializeResponse;
