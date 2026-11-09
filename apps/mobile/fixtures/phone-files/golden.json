@@ -90,13 +90,13 @@
             "ok": true,
             "value": [
               {
-                "name": "proj2",
-                "path": "D:\\mixdog-build\\tmp\\ph2-files\\proj2",
+                "name": "proj",
+                "path": "D:\\mixdog-build\\tmp\\ph2-files\\proj",
                 "alias": null
               },
               {
-                "name": "proj",
-                "path": "D:\\mixdog-build\\tmp\\ph2-files\\proj",
+                "name": "proj2",
+                "path": "D:\\mixdog-build\\tmp\\ph2-files\\proj2",
                 "alias": null
               }
             ]
@@ -154,14 +154,14 @@
             "ok": true,
             "value": [
               {
-                "name": "Second",
-                "path": "D:\\mixdog-build\\tmp\\ph2-files\\proj2",
-                "alias": "Second"
-              },
-              {
                 "name": "proj",
                 "path": "D:\\mixdog-build\\tmp\\ph2-files\\proj",
                 "alias": null
+              },
+              {
+                "name": "Second",
+                "path": "D:\\mixdog-build\\tmp\\ph2-files\\proj2",
+                "alias": "Second"
               }
             ]
           }
@@ -910,7 +910,8 @@
                 "$fileMtime": true
               }
             }
-          }
+          },
+          "fileMtimeMs": 1794239155648.3381
         },
         {
           "call": "writeProjectFile",
@@ -959,7 +960,8 @@
                 "$fileMtime": true
               }
             }
-          }
+          },
+          "fileMtimeMs": 1794239155655.339
         },
         {
           "call": "writeProjectFile",
@@ -978,7 +980,8 @@
                 "$fileMtime": true
               }
             }
-          }
+          },
+          "fileMtimeMs": 1794239155658.3398
         },
         {
           "call": "writeProjectFile",
@@ -997,7 +1000,8 @@
                 "$fileMtime": true
               }
             }
-          }
+          },
+          "fileMtimeMs": 1794239155661.3408
         },
         {
           "call": "writeProjectFile",
@@ -3476,7 +3480,28 @@
           "size": 20,
           "sha256": "9c132b8bf1b58b509194727e278e132b5a5311e705ba38a7803fd2e9c8e2f392"
         }
-      ]
+      ],
+      "userdata": {
+        "preferences": {
+          "version": 2,
+          "aliases": {},
+          "hidden": [
+            "D:\\mixdog-build\\tmp\\ph2-files\\proj2"
+          ]
+        },
+        "editorBackups": [],
+        "editorRecovery": [],
+        "newTaskReceipts": []
+      },
+      "registry": {
+        "projects": [
+          {
+            "name": "proj",
+            "path": "D:\\mixdog-build\\tmp\\ph2-files\\proj",
+            "addedAt": 1780819750000
+          }
+        ]
+      }
     },
     "relay": {
       "steps": [
@@ -3694,7 +3719,8 @@
                 "$fileMtime": true
               }
             }
-          }
+          },
+          "fileMtimeMs": 1794239159211.9653
         },
         {
           "call": "readProjectFile",
@@ -4125,7 +4151,28 @@
           "path": "workspaces",
           "dir": true
         }
-      ]
+      ],
+      "userdata": {
+        "preferences": {
+          "version": 2,
+          "aliases": {},
+          "hidden": [
+            "D:\\mixdog-build\\tmp\\ph2-files\\proj2"
+          ]
+        },
+        "editorBackups": [],
+        "editorRecovery": [],
+        "newTaskReceipts": []
+      },
+      "registry": {
+        "projects": [
+          {
+            "name": "proj",
+            "path": "D:\\mixdog-build\\tmp\\ph2-files\\proj",
+            "addedAt": 1780819750000
+          }
+        ]
+      }
     }
   }
 }

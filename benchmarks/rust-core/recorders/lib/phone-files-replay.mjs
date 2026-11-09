@@ -184,16 +184,51 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
   expected.steps.forEach((node, index) => {
     const core = trace.steps[index];
     compared += 1;
-    if (differences(node, core).length) unexpected.push({ index, call: node.call, params: node.params, node, core });
+    // `fileMtimeMs` is the OS stamp of a write: the answer's `{$fileMtime}` already says it is the file's own (play checks it against the
+    // disk), and each side's stamp is its own clock's, so the two numbers are not compared.
+    const { fileMtimeMs: _node, ...nodeStep } = node;
+    const { fileMtimeMs: _core, ...coreStep } = core ?? {};
+    if (differences(nodeStep, core === undefined ? undefined : coreStep).length) unexpected.push({ index, call: node.call, params: node.params, node, core });
   });
-  const tree = treeOf(world.root);
+  // The whole final state, field by field. The world's project folders are compared file by file. What Node keeps under `userdata` is
+  // compared as the state it holds, through the core's own reads:
+  //  - desktop-projects.json -> the aliases and hidden tombstones of the registered rows (`project/list`: `alias`, `hidden`); the `.bak`
+  //    beside it is a write-safety copy only a damaged primary is restored from (atomic-file.mjs:359-378, :615-645), not state;
+  //  - editor-backups/ -> the core's `<data>/userdata/editor-backups/` (the same files under a different root);
+  //  - editor-recovery/<digest>/ -> the core's `<data>/recovery/<digest>/` (the same digest of the project root, a different root).
+  //  - the `hidden` list of desktop-projects.json (the tombstone `remove` writes, desktop-project-registry.ts:116) is NOT compared: it is
+  //    write-only legacy state (its only readers are `unhide` and `savePreferences`, which prune it; `list` ignores it), so no answer or
+  //    screen depends on it. The core deletes the row. The replay prints it as a known gap.
+  //  - new-task-receipts/ -> the core keeps none (a phone-chat concern: `startTask` ids); Node's must be empty here.
+  const byPath = (a, b) => (a.path < b.path ? -1 : 1);
+  const filesUnder = (dir) => (existsSync(dir) ? treeOf(dir).filter((row) => !row.dir) : []);
+  const tree = treeOf(world.root, (rel) => rel.startsWith('userdata'));
   if (!isDeepStrictEqual(tree, expected.finalTree)) unexpected.push({ step: 'finalTree', paths: differences(expected.finalTree, tree), node: expected.finalTree, core: tree });
-
+  const rows = (await client.call('project/list', {})).projects;
+  const preferences = {
+    aliases: Object.fromEntries(rows.filter((row) => row.alias).map((row) => [row.path, row.alias]).sort(([a], [b]) => (a < b ? -1 : 1))),
+  };
+  const nodePreferences = { aliases: Object.fromEntries(Object.entries(expected.userdata.preferences.aliases).sort(([a], [b]) => (a < b ? -1 : 1))) };
+  const state = {
+    preferences,
+    editorBackups: filesUnder(join(core.dataDir, 'userdata', 'editor-backups')),
+    editorRecovery: filesUnder(join(core.dataDir, 'recovery')),
+    newTaskReceipts: [],
+  };
+  const nodeState = { preferences: nodePreferences, editorBackups: expected.userdata.editorBackups, editorRecovery: expected.userdata.editorRecovery, newTaskReceipts: expected.userdata.newTaskReceipts };
+  if (!isDeepStrictEqual(state, nodeState)) unexpected.push({ step: 'userdata', paths: differences(nodeState, state), node: nodeState, core: state });
+  // The registry, with its timestamps. Node's rows are `{name, path, addedAt, lastSelectedAt?}`, shown under the alias when there is one; the
+  // core keeps one `lastUsedAt` per row, which is the recency Node orders by (`projectRecency`, projects.mjs:121-126: `lastSelectedAt`, else
+  // `addedAt`) and the only thing that reads either (nothing else in the product does: projects.mjs, desktop-project-registry.ts:173).
+  const registry = rows.filter((row) => !row.hidden).map(({ path, name, lastUsedAt }) => ({ path, name, recency: lastUsedAt })).sort(byPath);
+  const nodeRegistry = (expected.registry?.projects ?? []).map(({ path, name, addedAt, lastSelectedAt }) => ({ path, name: nodePreferences.aliases[path] ?? name, recency: lastSelectedAt ?? addedAt })).sort(byPath);
+  if (!isDeepStrictEqual(registry, nodeRegistry)) unexpected.push({ step: 'registry', paths: differences(nodeRegistry, registry), node: nodeRegistry, core: registry });
   client.close?.();
   window?.client.close?.();
   const { execFileSync } = await import('node:child_process');
   execFileSync('taskkill', ['/T', '/F', '/PID', String(core.child.pid)], { stdio: 'ignore' });
   relay?.close();
+  console.log(`phone-files ${name} known gap, not compared: Node's legacy hidden tombstones ${JSON.stringify(expected.userdata.preferences.hidden)} (write-only; the core keeps no row for a removed project)`);
   console.log(`phone-files ${name} replay over ${exe}: ${compared} compared, ${unexpected.length} unexpected`);
   const show = (value) => JSON.stringify(value?.frame ?? value).slice(0, 360);
   for (const entry of unexpected) {
