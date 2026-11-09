@@ -212,3 +212,21 @@ async fn the_remembered_file_keeps_each_clients_entry_and_refuses_foreign_conten
         .unwrap();
     assert_eq!(known.read("grok-cli").await, None);
 }
+
+/// `warmCliVersion` (`anthropic-oauth-client-version.mjs`): the claude-code package's npm `latest` is asked before the
+/// OAuth listing continues, unless `MIXDOG_CLI_VERSION` names the version. This is why Node's cold `anthropic-oauth`
+/// listing outlives the catalog's 4 s deadline when the registry cannot be reached.
+#[tokio::test]
+async fn the_claude_dialect_warms_the_claude_code_package_unless_the_version_is_named() {
+    for (env, asked) in [(HashMap::new(), 1), (HashMap::from([("MIXDOG_CLI_VERSION".to_owned(), "2.1.400".to_owned())]), 0)] {
+        let dir = tempfile::tempdir().unwrap();
+        let net = Arc::new(Net::default());
+        let versions = versions_in(dir.path(), &net, env, &Arc::new(AtomicU64::new(1_000_000)));
+        versions.warm(Dialect::Claude).await;
+        let log = net.log.lock().unwrap();
+        assert_eq!(log.len(), asked);
+        if asked == 1 {
+            assert_eq!(log[0].0, "https://registry.npmjs.org/@anthropic-ai/claude-code/latest");
+        }
+    }
+}

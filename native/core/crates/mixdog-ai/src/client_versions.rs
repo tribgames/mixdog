@@ -492,6 +492,8 @@ pub enum Dialect {
     Grok,
     Cursor,
     Antigravity,
+    /// `warmCliVersion` (`anthropic-oauth-client-version.mjs`): awaited by `ensureAuth`, so by the model listing too.
+    Claude,
 }
 
 impl Dialect {
@@ -502,6 +504,7 @@ impl Dialect {
             "grok-oauth" => Some(Self::Grok),
             "cursor-oauth" | "cursor-api" => Some(Self::Cursor),
             "antigravity-oauth" => Some(Self::Antigravity),
+            "anthropic-oauth" => Some(Self::Claude),
             _ => None,
         }
     }
@@ -511,8 +514,11 @@ impl Dialect {
 pub struct ClientVersions {
     codex: Arc<RemoteVersion>,
     grok: Arc<RemoteVersion>,
+    claude: Arc<RemoteVersion>,
     cursor: Arc<RemoteVersion>,
     antigravity: Arc<AntigravityVersion>,
+    /// `MIXDOG_CLI_VERSION`: when set, `warmCliVersion` does not look the live version up.
+    claude_env: String,
     /// `MIXDOG_GROK_CLIENT_VERSION` / `MIXDOG_CURSOR_CLIENT_VERSION`, read once as Node does.
     grok_env: String,
     cursor_env: String,
@@ -543,6 +549,8 @@ impl ClientVersions {
         Arc::new(Self {
             codex: npm(CODEX_NPM_PACKAGE, "codex-cli"),
             grok: npm(GROK_NPM_PACKAGE, "grok-cli"),
+            claude: npm("@anthropic-ai/claude-code", "claude-cli"),
+            claude_env: text("MIXDOG_CLI_VERSION"),
             cursor: RemoteVersion::new(
                 Arc::clone(&http),
                 CURSOR_INSTALL_URL.to_owned(),
@@ -611,7 +619,10 @@ impl ClientVersions {
             Dialect::Cursor if self.cursor_env.is_empty() => {
                 self.cursor.warm().await;
             }
-            Dialect::Grok | Dialect::Cursor => {}
+            Dialect::Claude if self.claude_env.is_empty() => {
+                self.claude.warm().await;
+            }
+            Dialect::Grok | Dialect::Cursor | Dialect::Claude => {}
             Dialect::Antigravity => {
                 self.antigravity.ensure().await;
             }
