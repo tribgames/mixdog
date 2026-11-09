@@ -70,6 +70,10 @@ test('fork placement is only a gap for the fork, and only as the task workspace'
   const { nodeRoster, phone } = after('turns');
   const other = parity.classify(nodeRoster, edit(phone, 'Title 3', (row) => ({ ...row, classification: 'task' })));
   assert.ok(other.unexpected.includes('Title 3.classification'), other.unexpected.join());
+  // Another data root with the same ending is not the live run's task workspace.
+  const suffix = live.manifest.taskWorkspace.split(/[\\/]/).slice(-2).join('\\');
+  const otherRoot = parity.classify(nodeRoster, edit(phone, 'Title 2', (row) => ({ ...row, cwd: `Z:\\unrelated\\${suffix}` })));
+  assert.ok(otherRoot.unexpected.includes('Title 2.cwd'), otherRoot.unexpected.join());
   const wrongFolder = parity.classify(nodeRoster, edit(phone, 'Title 2', (row) => ({ ...row, cwd: 'D:\\elsewhere' })));
   assert.ok(wrongFolder.unexpected.includes('Title 2.cwd'), wrongFolder.unexpected.join());
 });

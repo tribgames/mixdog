@@ -165,6 +165,8 @@ try {
     manifest: {
       binary: bin, binarySha256: sha256(bin), binaryBuilt: statSync(bin).mtime.toISOString(),
       server: (await call('server/info', {}).catch(() => null)) ?? null,
+      // The task workspace as the core itself names it (project/taskWorkspace): where a session made outside a project lives.
+      taskWorkspace: (await call('project/taskWorkspace', {})).path,
       harness: Object.fromEntries(PINNED.map((name) => [`lib/${name}`, sha256(lib(name))])),
       source: 'running mixdogd serve, isolated env (real-turn harness env.mjs / stage.mjs / fake-provider.mjs, pinned above), driven over the WebSocket JSON-RPC protocol',
     },
