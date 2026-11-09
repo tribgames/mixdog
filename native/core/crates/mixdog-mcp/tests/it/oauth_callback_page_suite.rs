@@ -18,10 +18,14 @@ use mixdog_mcp::McpServerConfig;
 use mixdog_mcp::config::InlineSecret;
 use mixdog_mcp::config::StaticClient;
 use mixdog_mcp::oauth::AccountMode;
-use mixdog_mcp::oauth::MemoryStore;
 use mixdog_mcp::oauth::OAuthEnv;
+use mixdog_mcp::oauth::SecretStore;
 use mixdog_mcp::oauth::callback::HELD_PAGE_DELAYING;
 use mixdog_mcp::oauth::callback::HELD_PAGE_DELAY_MS;
+use mixdog_mcp::oauth::callback::LISTENERS_CLOSED;
+use mixdog_mcp::oauth::callback::LISTENER_CLOSED;
+use mixdog_mcp::oauth::callback::LOGIN_DEADLINE_MS;
+use mixdog_secrets::SecretError;
 use mixdog_mcp::result::OutputPolicy;
 use serde_json::Value;
 use serde_json::json;
@@ -34,6 +38,48 @@ use tokio::sync::Notify;
 use super::oauth_suite::form;
 use super::oauth_suite::read_request;
 use super::oauth_suite::respond;
+
+/// The credential store of the recorder's `memoryStore`: the write that stores the tokens waits for `gate` when armed.
+#[derive(Default)]
+struct Spy {
+    values: std::sync::Mutex<std::collections::HashMap<String, String>>,
+    hold: std::sync::atomic::AtomicBool,
+    arrived: Notify,
+    gate: Notify,
+}
+
+#[async_trait::async_trait]
+impl SecretStore for Spy {
+    async fn get(&self, account: &str) -> Result<Option<String>, SecretError> {
+        Ok(self.values.lock().unwrap().get(account).cloned())
+    }
+    async fn set(&self, account: &str, value: &str) -> Result<(), SecretError> {
+        if value.contains("fixture-token") && self.hold.swap(false, Ordering::SeqCst) {
+            self.arrived.notify_one();
+            self.gate.notified().await;
+        }
+        self.values.lock().unwrap().insert(account.to_owned(), value.to_owned());
+        Ok(())
+    }
+    async fn delete(&self, account: &str) -> Result<(), SecretError> {
+        self.values.lock().unwrap().remove(account);
+        Ok(())
+    }
+}
+
+/// Returns once a listener was released after `before` listeners had been: the port now refuses, as Node's does the
+/// moment its abort handler ran.
+async fn closed_after(before: usize) {
+    loop {
+        let notified = LISTENER_CLOSED.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        if LISTENERS_CLOSED.load(Ordering::SeqCst) > before {
+            return;
+        }
+        notified.await;
+    }
+}
 
 const GOLDEN: &str = include_str!("../../../../fixtures/oauth-callback-mcp/golden.json");
 
@@ -173,11 +219,16 @@ async fn the_mcp_callback_answers_as_nodes() {
         });
         let server_task = tokio::spawn(serve(listener, Arc::clone(&auth)));
 
+        let spy = Arc::new(Spy::default());
+        spy.hold.store(case["cancel"] == "write", Ordering::SeqCst);
+        // Node's `timeoutMs` is long enough to reach its browser step; here the deadline is just short of that.
+        let timeout = case["timeoutMs"].as_u64().unwrap();
+        LOGIN_DEADLINE_MS.store(if timeout == 0 { 0 } else if case["afterHeld"] == true { 1500 } else { 400 }, Ordering::SeqCst);
         let tokens = mixdog_rt::testing::tokens();
         let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io };
         let dir = tempfile::tempdir().unwrap();
         let hub = McpHub::new(io, dir.path().join("artifacts"), OutputPolicy::default());
-        hub.set_oauth_env(OAuthEnv { store: Arc::new(MemoryStore::default()), plugin_data: dir.path().to_path_buf(), io: io.durability });
+        hub.set_oauth_env(OAuthEnv { store: Arc::clone(&spy) as Arc<dyn SecretStore>, plugin_data: dir.path().to_path_buf(), io: io.durability });
         let name = case["serverName"].as_str().unwrap();
         let mut config = McpServerConfig::from_entry(name, &json!({"url": format!("http://127.0.0.1:{origin_port}/mcp")}), &Default::default()).unwrap();
         if let Some(client) = case["client"].as_object() {
@@ -208,6 +259,11 @@ async fn the_mcp_callback_answers_as_nodes() {
             state: query["state"].clone(),
         });
 
+        if case["cancel"] == "waiting" {
+            let before = LISTENERS_CLOSED.load(Ordering::SeqCst);
+            session.cancel();
+            closed_after(before).await;
+        }
         let steps = case["steps"].as_array().unwrap();
         let phase = |name: &'static str| steps.iter().filter(move |step| step["phase"] == name);
         // A pasted callback: Node stops listening before it answers the callback.
@@ -231,16 +287,36 @@ async fn the_mcp_callback_answers_as_nodes() {
         }
         if flushing > 0 {
             HELD_PAGE_DELAYING.notified().await;
+            if case["cancel"] == "flush" {
+                let before = LISTENERS_CLOSED.load(Ordering::SeqCst);
+                session.cancel();
+                closed_after(before).await;
+            }
             for step in phase("flush") {
                 assert_answer(exchange(callback.port, &callback.request(step)).await, &step["answer"], &format!("{title}: flush {} {}", step["method"], step["target"]));
             }
         }
         if phase("during").next().is_some() {
             auth.arrived.notified().await;
+            if case["cancel"] == "exchange" || case["cancel"] == "write" {
+                if case["cancel"] == "write" {
+                    spy.arrived.notified().await;
+                }
+                let before = LISTENERS_CLOSED.load(Ordering::SeqCst);
+                session.cancel();
+                closed_after(before).await;
+            }
+            // A timeout answers the held page when it fires: that answer says the listener is closed.
+            if case["afterHeld"] == true {
+                for (step, answered) in std::mem::take(&mut held) {
+                    assert_answer(answered.await.unwrap(), &step["answer"], &format!("{title}: held {} {}", step["method"], step["target"]));
+                }
+            }
             for step in phase("during") {
                 assert_answer(exchange(callback.port, &callback.request(step)).await, &step["answer"], &format!("{title}: during {} {}", step["method"], step["target"]));
             }
             auth.gate.notify_one();
+            spy.gate.notify_one();
         }
         let end = loop {
             match session.next().await {
@@ -252,11 +328,17 @@ async fn the_mcp_callback_answers_as_nodes() {
         for (step, answered) in held {
             assert_answer(answered.await.unwrap(), &step["answer"], &format!("{title}: held {} {}", step["method"], step["target"]));
         }
-        assert_eq!(matches!(end, LoginState::Done { .. }), case["signedIn"].as_bool().unwrap(), "{title}: Node signed in = {}, got {end:?}", case["signedIn"]);
+        // Node's `signedIn` is the request that started the sign-in succeeding; a cancel after the callback was
+// handled leaves the tokens stored (the login finished) although that request fails on its aborted signal.
+        assert_eq!(matches!(end, LoginState::Done { .. }), case["tokensStored"].as_bool().unwrap(), "{title}: Node stored tokens = {}, got {end:?}", case["tokensStored"]);
+        assert!(!case["signedIn"].as_bool().unwrap() || matches!(end, LoginState::Done { .. }), "{title}: Node signed in, got {end:?}");
+        let client_stored = spy.values.lock().unwrap().values().any(|value| value.contains("\"clientInformation\""));
+        assert_eq!(client_stored, case["clientStored"].as_bool().unwrap(), "{title}: the stored client registration");
         assert_eq!(auth.exchanges.load(Ordering::SeqCst) as u64, case["exchanges"].as_u64().unwrap(), "{title}: token requests");
         for step in phase("post") {
             assert_answer(exchange(callback.port, &callback.request(step)).await, &step["answer"], &format!("{title}: post {} {}", step["method"], step["target"]));
         }
+        LOGIN_DEADLINE_MS.store(0, Ordering::SeqCst);
         hub.close_all().await;
         server_task.abort();
     }

@@ -131,6 +131,18 @@ pub static HELD_PAGE_DELAY_MS: std::sync::atomic::AtomicU64 = std::sync::atomic:
 #[cfg(feature = "test-support")]
 pub static HELD_PAGE_DELAYING: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
+/// Test seam: counts the listeners whose port was released, and wakes whoever waits for the next one, so a test
+/// that cancels or times out a login knows that a request now meets a closed port (Node closes synchronously).
+#[cfg(feature = "test-support")]
+pub static LISTENERS_CLOSED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+#[cfg(feature = "test-support")]
+pub static LISTENER_CLOSED: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// Test seam: the login deadline in milliseconds for the next logins (0: Node's five minutes), so a timeout can be
+/// driven through the real abort path.
+#[cfg(feature = "test-support")]
+pub static LOGIN_DEADLINE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Stops a listener from accepting and waits until its port is released.
 #[derive(Clone)]
 pub struct Stopper {
@@ -298,6 +310,11 @@ pub async fn listen(
         }
         drop(listener);
         closed.cancel();
+        #[cfg(feature = "test-support")]
+        {
+            LISTENERS_CLOSED.fetch_add(1, Ordering::SeqCst);
+            LISTENER_CLOSED.notify_waiters();
+        }
     });
     Ok(Listener { port, stopper })
 }
