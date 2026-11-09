@@ -6,11 +6,11 @@
 // The package root of every state holds the REAL shipped files of the commit (blobs of `--commit`) and its real
 // defaults/shipped-history.json; an "old copy" is a real earlier version of that item taken from git history whose hash the
 // history lists. Each state records the data dir before, the data dir tree afterwards (every file's bytes, the marker
-// included; backup folder names have their timestamp masked), what the function threw, and what it printed.
+// included; backup folder names as Node named them under the pinned clock; on Linux also every permission bit), what the function threw, and what it printed.
 //
 //   node benchmarks/rust-core/recorders/record-shipped-retirement.mjs --tree <git checkout at --commit, with node_modules> --commit <40-hex>
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, parse } from 'node:path';
@@ -125,7 +125,8 @@ function materialize(dir, overrides = new Map(), data = false) {
 }
 
 const enc = (buf) => (Buffer.from(buf.toString('utf8')).equals(buf) ? buf.toString('utf8') : { hex: buf.toString('hex') });
-const mask = (path) => path.replace(/defaults-separation-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z/g, 'defaults-separation-<iso>');
+// Every state pins the clock of the pass, so the backup folder names are recorded as Node named them (`shipped-definitions.mjs:236`).
+const CLOCK = '2026-01-02T03:04:05.678Z';
 // A link (a junction: creating a symlink needs a privilege this machine does not grant) is recorded as the link it is, with its
 // target made relative to the data dir (`<data>/x`) or to the second-volume folder (`<external>/x`).
 function snapshot(dir, ctx) {
@@ -146,9 +147,11 @@ function snapshot(dir, ctx) {
   const walk = (current, prefix) => {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-      if (entry.isSymbolicLink()) out.push({ path: mask(rel), link: portable(readlinkSync(join(current, entry.name))) });
+      // Permission bits are recorded on Linux only (Windows has no such bits).
+      const modeOf = () => (LINUX ? { mode: (lstatSync(join(current, entry.name)).mode & 0o777).toString(8) } : {});
+      if (entry.isSymbolicLink()) out.push({ path: rel, link: portable(readlinkSync(join(current, entry.name))) });
       else if (entry.isDirectory()) {
-        out.push({ path: `${mask(rel)}/` });
+        out.push({ path: `${rel}/`, ...modeOf() });
         walk(join(current, entry.name), rel);
       } else {
         // A file another process holds without sharing cannot be read: recorded as such.
@@ -159,7 +162,7 @@ function snapshot(dir, ctx) {
           if (error.code !== 'EBUSY') throw error;
           content = { unreadable: 'EBUSY' };
         }
-        out.push({ path: mask(rel), content });
+        out.push({ path: rel, content, ...modeOf() });
       }
     }
   };
@@ -175,7 +178,7 @@ const backupFolders = (dir) => {
 };
 
 const states = [];
-function state(name, { root = new Map(), data = new Map(), runs = 1, noDataDir = false, clock = null, base: given = null, prepared = false, links = [], crossVolume = false, locks = [], symlinks = [], linux = false }) {
+function state(name, { root = new Map(), data = new Map(), runs = 1, noDataDir = false, clock = CLOCK, base: given = null, prepared = false, links = [], crossVolume = false, locks = [], symlinks = [], modes = [], linux = false }) {
   if (linux !== LINUX) return;
   // A pinned clock makes the backup folder name known, so a state can hold folders that clash with the one the pass claims.
   const RealDate = globalThis.Date;
@@ -201,6 +204,8 @@ function state(name, { root = new Map(), data = new Map(), runs = 1, noDataDir =
     mkdirSync(dirname(join(dataDir, path)), { recursive: true });
     symlinkSync(text, join(dataDir, path));
   }
+  // Permission bits as the test lays them (deepest first, so a folder closed to its owner is changed last).
+  for (const [path, mode] of [...modes].sort((a, b) => b[0].length - a[0].length)) chmodSync(join(dataDir, path), mode);
   // `backups` on another volume: the pass's rename into it fails with EXDEV and falls back to copy and remove.
   let external = null;
   if (crossVolume) {
@@ -241,7 +246,7 @@ function state(name, { root = new Map(), data = new Map(), runs = 1, noDataDir =
   const backups = backupFolders(dataDir);
   for (const folder of backups) if (!/^defaults-separation-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(-\d+)?$/.test(folder)) throw new Error(`backup folder ${folder}`);
   const files = (map) => Object.fromEntries([...map].filter(([, v]) => v !== null).map(([k, v]) => [k, enc(v)]));
-  states.push({ name, root: Object.fromEntries([...root].map(([k, v]) => [k, v === null ? null : enc(v)])), noDataDir, clock, links, symlinks, crossVolume, locks, before: files(data), runs, after, externalAfter, error, logs });
+  states.push({ name, root: Object.fromEntries([...root].map(([k, v]) => [k, v === null ? null : enc(v)])), noDataDir, clock, links, symlinks, modes, crossVolume, locks, before: files(data), runs, after, externalAfter, error, logs });
   // A given base still holds the lockers' files: its owner removes it once they let go.
   if (external) rmSync(external, { recursive: true, force: true });
   if (!given) rmSync(base, { recursive: true, force: true });
@@ -343,7 +348,6 @@ state('skills-root-missing', { data: merge(new Map([[`agents/${ag}/AGENT.md`, pi
 state('user-own-items', { data: new Map([['skills/mine/SKILL.md', Buffer.from('mine\n')], ['agents/mine/AGENT.md', Buffer.from('---\nname: Mine\n---\n\nBody\n')], ['workflows/mine/WORKFLOW.md', Buffer.from('Body\n')], ['output-styles/mine.md', Buffer.from('mine\n')], ['output-styles/notes.txt', Buffer.from('x')], [`output-styles/${picks.outputStyles[0].name.replace(/\.md$/, '')}.d/a.md`, Buffer.from('x')], ['orchestration/mine.md', Buffer.from('mine\n')]]) });
 state('backups-blocked-by-a-file', { data: merge(old('agents'), new Map([['backups', Buffer.from('a file')]])) });
 // The backup folder of the pass is `defaults-separation-<ISO with : and . as ->`; an existing one is never reused (`-2`, `-3`, ...).
-const CLOCK = '2026-01-02T03:04:05.678Z';
 const clashing = (...names) => new Map(names.map((n) => [`backups/defaults-separation-2026-01-02T03-04-05-678Z${n}/keep.txt`, Buffer.from('earlier\n')]));
 state('backup-folder-clash-once', { clock: CLOCK, data: merge(old('agents'), clashing('')) });
 state('backup-folder-clash-twice', { clock: CLOCK, data: merge(old('agents'), clashing('', '-2')) });
@@ -395,6 +399,12 @@ await lockedState('failed-copy-agent-stray-cross-volume', { clock: CLOCK, data: 
   };
   state('linux-skill-links-renamed', { linux: true, data: merge(old('skills'), base), symlinks: [[`${skill}/up`, '../../linked/e.txt'], ['hop', 'linked'], [`${skill}/via`, '../../hop/e.txt'], [`${skill}/gone`, '../../nothing/x']] });
   for (const [label, symlinks] of Object.entries(cases)) state(`linux-cross-volume-skill-link-${label}`, { linux: true, clock: CLOCK, data: merge(old('skills'), base), symlinks, crossVolume: true });
+  // `cpSync` keeps the source modes: an executable, a 0600 file, an executable ignorable stray, closed-down folders.
+  const modesOf = [[skill, 0o750], [`${skill}/SKILL.md`, 0o755], [`${skill}/notes.orig`, 0o600], [`${skill}/run.bak`, 0o755], [`${skill}/sub`, 0o711], [`${skill}/sub/tool.bak`, 0o700]];
+  const withModes = merge(old('skills'), stray(skill, 'notes.orig'), stray(skill, 'run.bak'), stray(`${skill}/sub`, 'tool.bak'));
+  state('linux-skill-modes-renamed', { linux: true, data: withModes, modes: modesOf });
+  state('linux-cross-volume-skill-modes', { linux: true, data: withModes, modes: modesOf, crossVolume: true });
+  state('linux-cross-volume-skill-modes-and-links', { linux: true, data: merge(withModes, base), modes: modesOf, symlinks: cases.relative, crossVolume: true });
   state('linux-cross-volume-skill-all-links', { linux: true, clock: CLOCK, data: merge(old('skills'), base), symlinks: [['hop', 'linked'], ...Object.values(cases).flat().filter(([p]) => p.startsWith(skill) && p !== `${skill}/via2` && p !== `${skill}/back` && p !== `${skill}/gone2` && p !== `${skill}/first` && p !== `${skill}/second`)], crossVolume: true });
 }
 if (LINUX) {

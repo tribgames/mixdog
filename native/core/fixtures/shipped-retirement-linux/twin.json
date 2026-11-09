@@ -21,7 +21,7 @@
       "name": "linux-skill-links-renamed",
       "root": {},
       "noDataDir": false,
-      "clock": null,
+      "clock": "2026-01-02T03:04:05.678Z",
       "links": [],
       "symlinks": [
         [
@@ -41,6 +41,7 @@
           "../../nothing/x"
         ]
       ],
+      "modes": [],
       "crossVolume": false,
       "locks": [],
       "before": {
@@ -53,34 +54,40 @@
         [
           {
             "path": ".shipped-history-retired",
-            "content": "1:de29bee4640eba3c1903e67414a24b16\n"
+            "content": "1:de29bee4640eba3c1903e67414a24b16\n",
+            "mode": "600"
           },
           {
-            "path": "backups/"
+            "path": "backups/",
+            "mode": "755"
           },
           {
-            "path": "backups/defaults-separation-<iso>/"
+            "path": "backups/defaults-separation-2026-01-02T03-04-05-678Z/",
+            "mode": "755"
           },
           {
-            "path": "backups/defaults-separation-<iso>/skills/"
+            "path": "backups/defaults-separation-2026-01-02T03-04-05-678Z/skills/",
+            "mode": "755"
           },
           {
-            "path": "backups/defaults-separation-<iso>/skills/memory-management/"
+            "path": "backups/defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/",
+            "mode": "755"
           },
           {
-            "path": "backups/defaults-separation-<iso>/skills/memory-management/SKILL.md",
-            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+            "path": "backups/defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+            "mode": "644"
           },
           {
-            "path": "backups/defaults-separation-<iso>/skills/memory-management/gone",
+            "path": "backups/defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/gone",
             "link": "<text>../../nothing/x"
           },
           {
-            "path": "backups/defaults-separation-<iso>/skills/memory-management/up",
+            "path": "backups/defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/up",
             "link": "<text>../../linked/e.txt"
           },
           {
-            "path": "backups/defaults-separation-<iso>/skills/memory-management/via",
+            "path": "backups/defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/via",
             "link": "<text>../../hop/e.txt"
           },
           {
@@ -88,21 +95,26 @@
             "link": "<text>linked"
           },
           {
-            "path": "linked/"
+            "path": "linked/",
+            "mode": "755"
           },
           {
             "path": "linked/e.txt",
-            "content": "linked\n"
+            "content": "linked\n",
+            "mode": "644"
           },
           {
-            "path": "linked/sub/"
+            "path": "linked/sub/",
+            "mode": "755"
           },
           {
             "path": "linked/sub/f.txt",
-            "content": "f\n"
+            "content": "f\n",
+            "mode": "644"
           },
           {
-            "path": "skills/"
+            "path": "skills/",
+            "mode": "755"
           }
         ]
       ],
@@ -124,6 +136,7 @@
           "../../linked/e.txt"
         ]
       ],
+      "modes": [],
       "crossVolume": true,
       "locks": [],
       "before": {
@@ -136,48 +149,58 @@
         [
           {
             "path": ".shipped-history-retired",
-            "content": "1:de29bee4640eba3c1903e67414a24b16\n"
+            "content": "1:de29bee4640eba3c1903e67414a24b16\n",
+            "mode": "600"
           },
           {
             "path": "backups",
             "link": "<external>"
           },
           {
-            "path": "linked/"
+            "path": "linked/",
+            "mode": "755"
           },
           {
             "path": "linked/e.txt",
-            "content": "linked\n"
+            "content": "linked\n",
+            "mode": "644"
           },
           {
-            "path": "linked/sub/"
+            "path": "linked/sub/",
+            "mode": "755"
           },
           {
             "path": "linked/sub/f.txt",
-            "content": "f\n"
+            "content": "f\n",
+            "mode": "644"
           },
           {
-            "path": "skills/"
+            "path": "skills/",
+            "mode": "755"
           }
         ]
       ],
       "externalAfter": [
         [
           {
-            "path": "defaults-separation-<iso>/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/SKILL.md",
-            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+            "mode": "644"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/up",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/up",
             "link": "<data>/linked/e.txt"
           }
         ]
@@ -197,6 +220,7 @@
           "../../linked"
         ]
       ],
+      "modes": [],
       "crossVolume": true,
       "locks": [],
       "before": {
@@ -209,48 +233,58 @@
         [
           {
             "path": ".shipped-history-retired",
-            "content": "1:de29bee4640eba3c1903e67414a24b16\n"
+            "content": "1:de29bee4640eba3c1903e67414a24b16\n",
+            "mode": "600"
           },
           {
             "path": "backups",
             "link": "<external>"
           },
           {
-            "path": "linked/"
+            "path": "linked/",
+            "mode": "755"
           },
           {
             "path": "linked/e.txt",
-            "content": "linked\n"
+            "content": "linked\n",
+            "mode": "644"
           },
           {
-            "path": "linked/sub/"
+            "path": "linked/sub/",
+            "mode": "755"
           },
           {
             "path": "linked/sub/f.txt",
-            "content": "f\n"
+            "content": "f\n",
+            "mode": "644"
           },
           {
-            "path": "skills/"
+            "path": "skills/",
+            "mode": "755"
           }
         ]
       ],
       "externalAfter": [
         [
           {
-            "path": "defaults-separation-<iso>/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/SKILL.md",
-            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+            "mode": "644"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/updir",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/updir",
             "link": "<data>/linked"
           }
         ]
@@ -270,6 +304,7 @@
           "../../../../linked/e.txt"
         ]
       ],
+      "modes": [],
       "crossVolume": true,
       "locks": [],
       "before": {
@@ -282,54 +317,66 @@
         [
           {
             "path": ".shipped-history-retired",
-            "content": "1:de29bee4640eba3c1903e67414a24b16\n"
+            "content": "1:de29bee4640eba3c1903e67414a24b16\n",
+            "mode": "600"
           },
           {
             "path": "backups",
             "link": "<external>"
           },
           {
-            "path": "linked/"
+            "path": "linked/",
+            "mode": "755"
           },
           {
             "path": "linked/e.txt",
-            "content": "linked\n"
+            "content": "linked\n",
+            "mode": "644"
           },
           {
-            "path": "linked/sub/"
+            "path": "linked/sub/",
+            "mode": "755"
           },
           {
             "path": "linked/sub/f.txt",
-            "content": "f\n"
+            "content": "f\n",
+            "mode": "644"
           },
           {
-            "path": "skills/"
+            "path": "skills/",
+            "mode": "755"
           }
         ]
       ],
       "externalAfter": [
         [
           {
-            "path": "defaults-separation-<iso>/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/SKILL.md",
-            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+            "mode": "644"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/sub/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/sub/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/sub/deep/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/sub/deep/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/sub/deep/inner",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/sub/deep/inner",
             "link": "<data>/linked/e.txt"
           }
         ]
@@ -353,6 +400,7 @@
           "../../hop/e.txt"
         ]
       ],
+      "modes": [],
       "crossVolume": true,
       "locks": [],
       "before": {
@@ -365,7 +413,8 @@
         [
           {
             "path": ".shipped-history-retired",
-            "content": "1:de29bee4640eba3c1903e67414a24b16\n"
+            "content": "1:de29bee4640eba3c1903e67414a24b16\n",
+            "mode": "600"
           },
           {
             "path": "backups",
@@ -376,41 +425,50 @@
             "link": "<text>linked"
           },
           {
-            "path": "linked/"
+            "path": "linked/",
+            "mode": "755"
           },
           {
             "path": "linked/e.txt",
-            "content": "linked\n"
+            "content": "linked\n",
+            "mode": "644"
           },
           {
-            "path": "linked/sub/"
+            "path": "linked/sub/",
+            "mode": "755"
           },
           {
             "path": "linked/sub/f.txt",
-            "content": "f\n"
+            "content": "f\n",
+            "mode": "644"
           },
           {
-            "path": "skills/"
+            "path": "skills/",
+            "mode": "755"
           }
         ]
       ],
       "externalAfter": [
         [
           {
-            "path": "defaults-separation-<iso>/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/SKILL.md",
-            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+            "mode": "644"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/via",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/via",
             "link": "<data>/linked/e.txt"
           }
         ]
@@ -438,6 +496,7 @@
           "../../hop2/sub/f.txt"
         ]
       ],
+      "modes": [],
       "crossVolume": true,
       "locks": [],
       "before": {
@@ -450,7 +509,8 @@
         [
           {
             "path": ".shipped-history-retired",
-            "content": "1:de29bee4640eba3c1903e67414a24b16\n"
+            "content": "1:de29bee4640eba3c1903e67414a24b16\n",
+            "mode": "600"
           },
           {
             "path": "backups",
@@ -465,41 +525,50 @@
             "link": "<text>hop"
           },
           {
-            "path": "linked/"
+            "path": "linked/",
+            "mode": "755"
           },
           {
             "path": "linked/e.txt",
-            "content": "linked\n"
+            "content": "linked\n",
+            "mode": "644"
           },
           {
-            "path": "linked/sub/"
+            "path": "linked/sub/",
+            "mode": "755"
           },
           {
             "path": "linked/sub/f.txt",
-            "content": "f\n"
+            "content": "f\n",
+            "mode": "644"
           },
           {
-            "path": "skills/"
+            "path": "skills/",
+            "mode": "755"
           }
         ]
       ],
       "externalAfter": [
         [
           {
-            "path": "defaults-separation-<iso>/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/SKILL.md",
-            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+            "mode": "644"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/via2",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/via2",
             "link": "<data>/linked/sub/f.txt"
           }
         ]
@@ -523,6 +592,7 @@
           "../../hop/../e.txt"
         ]
       ],
+      "modes": [],
       "crossVolume": true,
       "locks": [],
       "before": {
@@ -535,7 +605,8 @@
         [
           {
             "path": ".shipped-history-retired",
-            "content": "1:de29bee4640eba3c1903e67414a24b16\n"
+            "content": "1:de29bee4640eba3c1903e67414a24b16\n",
+            "mode": "600"
           },
           {
             "path": "backups",
@@ -546,41 +617,50 @@
             "link": "<text>linked/sub"
           },
           {
-            "path": "linked/"
+            "path": "linked/",
+            "mode": "755"
           },
           {
             "path": "linked/e.txt",
-            "content": "linked\n"
+            "content": "linked\n",
+            "mode": "644"
           },
           {
-            "path": "linked/sub/"
+            "path": "linked/sub/",
+            "mode": "755"
           },
           {
             "path": "linked/sub/f.txt",
-            "content": "f\n"
+            "content": "f\n",
+            "mode": "644"
           },
           {
-            "path": "skills/"
+            "path": "skills/",
+            "mode": "755"
           }
         ]
       ],
       "externalAfter": [
         [
           {
-            "path": "defaults-separation-<iso>/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/SKILL.md",
-            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+            "mode": "644"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/back",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/back",
             "link": "<data>/linked/e.txt"
           }
         ]
@@ -600,6 +680,7 @@
           "../../nothing/x"
         ]
       ],
+      "modes": [],
       "crossVolume": true,
       "locks": [],
       "before": {
@@ -612,48 +693,58 @@
         [
           {
             "path": ".shipped-history-retired",
-            "content": "1:de29bee4640eba3c1903e67414a24b16\n"
+            "content": "1:de29bee4640eba3c1903e67414a24b16\n",
+            "mode": "600"
           },
           {
             "path": "backups",
             "link": "<external>"
           },
           {
-            "path": "linked/"
+            "path": "linked/",
+            "mode": "755"
           },
           {
             "path": "linked/e.txt",
-            "content": "linked\n"
+            "content": "linked\n",
+            "mode": "644"
           },
           {
-            "path": "linked/sub/"
+            "path": "linked/sub/",
+            "mode": "755"
           },
           {
             "path": "linked/sub/f.txt",
-            "content": "f\n"
+            "content": "f\n",
+            "mode": "644"
           },
           {
-            "path": "skills/"
+            "path": "skills/",
+            "mode": "755"
           }
         ]
       ],
       "externalAfter": [
         [
           {
-            "path": "defaults-separation-<iso>/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/SKILL.md",
-            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+            "mode": "644"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/gone",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/gone",
             "link": "<data>/nothing/x"
           }
         ]
@@ -677,6 +768,7 @@
           "../../hop/missing/../more.txt"
         ]
       ],
+      "modes": [],
       "crossVolume": true,
       "locks": [],
       "before": {
@@ -689,7 +781,8 @@
         [
           {
             "path": ".shipped-history-retired",
-            "content": "1:de29bee4640eba3c1903e67414a24b16\n"
+            "content": "1:de29bee4640eba3c1903e67414a24b16\n",
+            "mode": "600"
           },
           {
             "path": "backups",
@@ -700,41 +793,50 @@
             "link": "<text>linked"
           },
           {
-            "path": "linked/"
+            "path": "linked/",
+            "mode": "755"
           },
           {
             "path": "linked/e.txt",
-            "content": "linked\n"
+            "content": "linked\n",
+            "mode": "644"
           },
           {
-            "path": "linked/sub/"
+            "path": "linked/sub/",
+            "mode": "755"
           },
           {
             "path": "linked/sub/f.txt",
-            "content": "f\n"
+            "content": "f\n",
+            "mode": "644"
           },
           {
-            "path": "skills/"
+            "path": "skills/",
+            "mode": "755"
           }
         ]
       ],
       "externalAfter": [
         [
           {
-            "path": "defaults-separation-<iso>/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/SKILL.md",
-            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+            "mode": "644"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/gone2",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/gone2",
             "link": "<data>/linked/more.txt"
           }
         ]
@@ -754,6 +856,7 @@
           "/nonexistent-dir/x/../y"
         ]
       ],
+      "modes": [],
       "crossVolume": true,
       "locks": [],
       "before": {
@@ -766,48 +869,58 @@
         [
           {
             "path": ".shipped-history-retired",
-            "content": "1:de29bee4640eba3c1903e67414a24b16\n"
+            "content": "1:de29bee4640eba3c1903e67414a24b16\n",
+            "mode": "600"
           },
           {
             "path": "backups",
             "link": "<external>"
           },
           {
-            "path": "linked/"
+            "path": "linked/",
+            "mode": "755"
           },
           {
             "path": "linked/e.txt",
-            "content": "linked\n"
+            "content": "linked\n",
+            "mode": "644"
           },
           {
-            "path": "linked/sub/"
+            "path": "linked/sub/",
+            "mode": "755"
           },
           {
             "path": "linked/sub/f.txt",
-            "content": "f\n"
+            "content": "f\n",
+            "mode": "644"
           },
           {
-            "path": "skills/"
+            "path": "skills/",
+            "mode": "755"
           }
         ]
       ],
       "externalAfter": [
         [
           {
-            "path": "defaults-separation-<iso>/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/SKILL.md",
-            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+            "mode": "644"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/abs",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/abs",
             "link": "<abs>/nonexistent-dir/y"
           }
         ]
@@ -831,6 +944,7 @@
           "../../linked/e.txt"
         ]
       ],
+      "modes": [],
       "crossVolume": true,
       "locks": [],
       "before": {
@@ -843,52 +957,62 @@
         [
           {
             "path": ".shipped-history-retired",
-            "content": "1:de29bee4640eba3c1903e67414a24b16\n"
+            "content": "1:de29bee4640eba3c1903e67414a24b16\n",
+            "mode": "600"
           },
           {
             "path": "backups",
             "link": "<external>"
           },
           {
-            "path": "linked/"
+            "path": "linked/",
+            "mode": "755"
           },
           {
             "path": "linked/e.txt",
-            "content": "linked\n"
+            "content": "linked\n",
+            "mode": "644"
           },
           {
-            "path": "linked/sub/"
+            "path": "linked/sub/",
+            "mode": "755"
           },
           {
             "path": "linked/sub/f.txt",
-            "content": "f\n"
+            "content": "f\n",
+            "mode": "644"
           },
           {
-            "path": "skills/"
+            "path": "skills/",
+            "mode": "755"
           }
         ]
       ],
       "externalAfter": [
         [
           {
-            "path": "defaults-separation-<iso>/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/SKILL.md",
-            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+            "mode": "644"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/first",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/first",
             "link": "<data>/linked/e.txt"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/second",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/second",
             "link": "<data>/linked/e.txt"
           }
         ]
@@ -908,6 +1032,7 @@
           "./../.././linked//e.txt"
         ]
       ],
+      "modes": [],
       "crossVolume": true,
       "locks": [],
       "before": {
@@ -920,48 +1045,392 @@
         [
           {
             "path": ".shipped-history-retired",
-            "content": "1:de29bee4640eba3c1903e67414a24b16\n"
+            "content": "1:de29bee4640eba3c1903e67414a24b16\n",
+            "mode": "600"
           },
           {
             "path": "backups",
             "link": "<external>"
           },
           {
-            "path": "linked/"
+            "path": "linked/",
+            "mode": "755"
           },
           {
             "path": "linked/e.txt",
-            "content": "linked\n"
+            "content": "linked\n",
+            "mode": "644"
           },
           {
-            "path": "linked/sub/"
+            "path": "linked/sub/",
+            "mode": "755"
           },
           {
             "path": "linked/sub/f.txt",
-            "content": "f\n"
+            "content": "f\n",
+            "mode": "644"
           },
           {
-            "path": "skills/"
+            "path": "skills/",
+            "mode": "755"
           }
         ]
       ],
       "externalAfter": [
         [
           {
-            "path": "defaults-separation-<iso>/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/SKILL.md",
-            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+            "mode": "644"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/dots",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/dots",
+            "link": "<data>/linked/e.txt"
+          }
+        ]
+      ],
+      "error": null,
+      "logs": []
+    },
+    {
+      "name": "linux-skill-modes-renamed",
+      "root": {},
+      "noDataDir": false,
+      "clock": "2026-01-02T03:04:05.678Z",
+      "links": [],
+      "symlinks": [],
+      "modes": [
+        [
+          "skills/memory-management",
+          488
+        ],
+        [
+          "skills/memory-management/SKILL.md",
+          493
+        ],
+        [
+          "skills/memory-management/notes.orig",
+          384
+        ],
+        [
+          "skills/memory-management/run.bak",
+          493
+        ],
+        [
+          "skills/memory-management/sub",
+          457
+        ],
+        [
+          "skills/memory-management/sub/tool.bak",
+          448
+        ]
+      ],
+      "crossVolume": false,
+      "locks": [],
+      "before": {
+        "skills/memory-management/SKILL.md": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+        "skills/memory-management/notes.orig": "stray\n",
+        "skills/memory-management/run.bak": "stray\n",
+        "skills/memory-management/sub/tool.bak": "stray\n"
+      },
+      "runs": 1,
+      "after": [
+        [
+          {
+            "path": ".shipped-history-retired",
+            "content": "1:de29bee4640eba3c1903e67414a24b16\n",
+            "mode": "600"
+          },
+          {
+            "path": "backups/",
+            "mode": "755"
+          },
+          {
+            "path": "backups/defaults-separation-2026-01-02T03-04-05-678Z/",
+            "mode": "755"
+          },
+          {
+            "path": "backups/defaults-separation-2026-01-02T03-04-05-678Z/skills/",
+            "mode": "755"
+          },
+          {
+            "path": "backups/defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/",
+            "mode": "750"
+          },
+          {
+            "path": "backups/defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+            "mode": "755"
+          },
+          {
+            "path": "backups/defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/notes.orig",
+            "content": "stray\n",
+            "mode": "600"
+          },
+          {
+            "path": "backups/defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/run.bak",
+            "content": "stray\n",
+            "mode": "755"
+          },
+          {
+            "path": "backups/defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/sub/",
+            "mode": "711"
+          },
+          {
+            "path": "backups/defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/sub/tool.bak",
+            "content": "stray\n",
+            "mode": "700"
+          },
+          {
+            "path": "skills/",
+            "mode": "755"
+          }
+        ]
+      ],
+      "externalAfter": [
+        null
+      ],
+      "error": null,
+      "logs": []
+    },
+    {
+      "name": "linux-cross-volume-skill-modes",
+      "root": {},
+      "noDataDir": false,
+      "clock": "2026-01-02T03:04:05.678Z",
+      "links": [],
+      "symlinks": [],
+      "modes": [
+        [
+          "skills/memory-management",
+          488
+        ],
+        [
+          "skills/memory-management/SKILL.md",
+          493
+        ],
+        [
+          "skills/memory-management/notes.orig",
+          384
+        ],
+        [
+          "skills/memory-management/run.bak",
+          493
+        ],
+        [
+          "skills/memory-management/sub",
+          457
+        ],
+        [
+          "skills/memory-management/sub/tool.bak",
+          448
+        ]
+      ],
+      "crossVolume": true,
+      "locks": [],
+      "before": {
+        "skills/memory-management/SKILL.md": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+        "skills/memory-management/notes.orig": "stray\n",
+        "skills/memory-management/run.bak": "stray\n",
+        "skills/memory-management/sub/tool.bak": "stray\n"
+      },
+      "runs": 1,
+      "after": [
+        [
+          {
+            "path": ".shipped-history-retired",
+            "content": "1:de29bee4640eba3c1903e67414a24b16\n",
+            "mode": "600"
+          },
+          {
+            "path": "backups",
+            "link": "<external>"
+          },
+          {
+            "path": "skills/",
+            "mode": "755"
+          }
+        ]
+      ],
+      "externalAfter": [
+        [
+          {
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/",
+            "mode": "755"
+          },
+          {
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/",
+            "mode": "755"
+          },
+          {
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/",
+            "mode": "755"
+          },
+          {
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+            "mode": "755"
+          },
+          {
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/notes.orig",
+            "content": "stray\n",
+            "mode": "600"
+          },
+          {
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/run.bak",
+            "content": "stray\n",
+            "mode": "755"
+          },
+          {
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/sub/",
+            "mode": "755"
+          },
+          {
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/sub/tool.bak",
+            "content": "stray\n",
+            "mode": "700"
+          }
+        ]
+      ],
+      "error": null,
+      "logs": []
+    },
+    {
+      "name": "linux-cross-volume-skill-modes-and-links",
+      "root": {},
+      "noDataDir": false,
+      "clock": "2026-01-02T03:04:05.678Z",
+      "links": [],
+      "symlinks": [
+        [
+          "skills/memory-management/up",
+          "../../linked/e.txt"
+        ]
+      ],
+      "modes": [
+        [
+          "skills/memory-management",
+          488
+        ],
+        [
+          "skills/memory-management/SKILL.md",
+          493
+        ],
+        [
+          "skills/memory-management/notes.orig",
+          384
+        ],
+        [
+          "skills/memory-management/run.bak",
+          493
+        ],
+        [
+          "skills/memory-management/sub",
+          457
+        ],
+        [
+          "skills/memory-management/sub/tool.bak",
+          448
+        ]
+      ],
+      "crossVolume": true,
+      "locks": [],
+      "before": {
+        "skills/memory-management/SKILL.md": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+        "skills/memory-management/notes.orig": "stray\n",
+        "skills/memory-management/run.bak": "stray\n",
+        "skills/memory-management/sub/tool.bak": "stray\n",
+        "linked/e.txt": "linked\n",
+        "linked/sub/f.txt": "f\n"
+      },
+      "runs": 1,
+      "after": [
+        [
+          {
+            "path": ".shipped-history-retired",
+            "content": "1:de29bee4640eba3c1903e67414a24b16\n",
+            "mode": "600"
+          },
+          {
+            "path": "backups",
+            "link": "<external>"
+          },
+          {
+            "path": "linked/",
+            "mode": "755"
+          },
+          {
+            "path": "linked/e.txt",
+            "content": "linked\n",
+            "mode": "644"
+          },
+          {
+            "path": "linked/sub/",
+            "mode": "755"
+          },
+          {
+            "path": "linked/sub/f.txt",
+            "content": "f\n",
+            "mode": "644"
+          },
+          {
+            "path": "skills/",
+            "mode": "755"
+          }
+        ]
+      ],
+      "externalAfter": [
+        [
+          {
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/",
+            "mode": "755"
+          },
+          {
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/",
+            "mode": "755"
+          },
+          {
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/",
+            "mode": "755"
+          },
+          {
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+            "mode": "755"
+          },
+          {
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/notes.orig",
+            "content": "stray\n",
+            "mode": "600"
+          },
+          {
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/run.bak",
+            "content": "stray\n",
+            "mode": "755"
+          },
+          {
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/sub/",
+            "mode": "755"
+          },
+          {
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/sub/tool.bak",
+            "content": "stray\n",
+            "mode": "700"
+          },
+          {
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/up",
             "link": "<data>/linked/e.txt"
           }
         ]
@@ -1009,6 +1478,7 @@
           "./../.././linked//e.txt"
         ]
       ],
+      "modes": [],
       "crossVolume": true,
       "locks": [],
       "before": {
@@ -1021,7 +1491,8 @@
         [
           {
             "path": ".shipped-history-retired",
-            "content": "1:de29bee4640eba3c1903e67414a24b16\n"
+            "content": "1:de29bee4640eba3c1903e67414a24b16\n",
+            "mode": "600"
           },
           {
             "path": "backups",
@@ -1032,71 +1503,82 @@
             "link": "<text>linked"
           },
           {
-            "path": "linked/"
+            "path": "linked/",
+            "mode": "755"
           },
           {
             "path": "linked/e.txt",
-            "content": "linked\n"
+            "content": "linked\n",
+            "mode": "644"
           },
           {
-            "path": "linked/sub/"
+            "path": "linked/sub/",
+            "mode": "755"
           },
           {
             "path": "linked/sub/f.txt",
-            "content": "f\n"
+            "content": "f\n",
+            "mode": "644"
           },
           {
-            "path": "skills/"
+            "path": "skills/",
+            "mode": "755"
           }
         ]
       ],
       "externalAfter": [
         [
           {
-            "path": "defaults-separation-<iso>/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/SKILL.md",
-            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+            "mode": "644"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/abs",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/abs",
             "link": "<abs>/nonexistent-dir/y"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/dots",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/dots",
             "link": "<data>/linked/e.txt"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/gone",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/gone",
             "link": "<data>/nothing/x"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/sub/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/sub/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/sub/deep/"
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/sub/deep/",
+            "mode": "755"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/sub/deep/inner",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/sub/deep/inner",
             "link": "<data>/linked/e.txt"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/up",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/up",
             "link": "<data>/linked/e.txt"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/updir",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/updir",
             "link": "<data>/linked"
           },
           {
-            "path": "defaults-separation-<iso>/skills/memory-management/via",
+            "path": "defaults-separation-2026-01-02T03-04-05-678Z/skills/memory-management/via",
             "link": "<data>/linked/e.txt"
           }
         ]

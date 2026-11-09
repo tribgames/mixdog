@@ -515,6 +515,7 @@ pub fn absorb_kind_equal_to_shipped(
 /// `cpSync(from, to, { recursive: true, force: false, errorOnExist: true })`: `dereference` and `verbatimSymlinks` stay off, so a
 /// symbolic link is created again at `to` pointing at its target resolved to an absolute path. A Windows junction is not a symlink
 /// to Node's copy: it is followed and copied as the folder it shows (recorded: `skill-with-junction`, `cross-volume-skill-with-junction`).
+/// A file keeps its source mode, a folder does not (the native copy creates it with the default mode).
 /// The first error stops the copy and whatever was copied stays; a source that cannot be opened leaves no file behind.
 fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
@@ -528,11 +529,14 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
             let entry = entry?;
             copy_tree(&entry.path(), &to.join(entry.file_name()))?;
         }
+        // A folder is created with the default mode (recorded: `linux-cross-volume-skill-modes` keeps 0755 for a 0711 source).
         return Ok(());
     }
     let mut source = std::fs::File::open(from)?;
     let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(to)?;
-    std::io::copy(&mut source, &mut file).map(drop)
+    std::io::copy(&mut source, &mut file)?;
+    // A file keeps the mode of its source (recorded: an executable and a 0600 file).
+    file.set_permissions(source.metadata()?.permissions())
 }
 
 /// `std::filesystem::weakly_canonical` (what Node's native copy writes for a symbolic link): the longest leading part of the path that

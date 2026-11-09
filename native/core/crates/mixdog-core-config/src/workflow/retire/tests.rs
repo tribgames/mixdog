@@ -1,6 +1,6 @@
 //! The retirement pass against Node's recording (`fixtures/shipped-retirement/twin.json`, recorded by
 //! `benchmarks/rust-core/recorders/record-shipped-retirement.mjs` from Node's real `ensureStandaloneEnvironment`): over each recorded
-//! state the data dir the pass leaves (every file's bytes, the marker, the backup folders), what it throws, and that it logs nothing.
+//! state the data dir the pass leaves (every file's bytes, the backup folders under their recorded names, on Linux every permission bit), what it throws, and that it logs nothing.
 
 use std::path::Path;
 
@@ -40,27 +40,6 @@ fn lay(dir: &Path, files: &serde_json::Map<String, Value>) {
     }
 }
 
-/// Node's `mask`: the timestamp of a backup folder name.
-fn mask(path: &str) -> String {
-    let tag = "defaults-separation-";
-    let mut out = String::new();
-    let mut rest = path;
-    while let Some(at) = rest.find(tag) {
-        out.push_str(&rest[..at + tag.len()]);
-        let tail = &rest[at + tag.len()..];
-        let stamp: String = tail.chars().take(24).collect();
-        let shaped = stamp.len() == 24 && stamp.ends_with('Z') && stamp.starts_with(|c: char| c.is_ascii_digit());
-        if shaped {
-            out.push_str("<iso>");
-            rest = &tail[24..];
-        } else {
-            rest = tail;
-        }
-    }
-    out.push_str(rest);
-    out
-}
-
 /// A link entry of a snapshot, and a file another process holds without sharing (its bytes cannot be read), as the content they compare by.
 fn link_content(target: &str) -> Vec<u8> {
     format!("\0link:{target}").into_bytes()
@@ -92,31 +71,48 @@ fn portable(target: &Path, data: &Path, external: Option<&Path>) -> String {
 }
 
 /// Node's `snapshot`: folders as `path/`, files with their bytes, links as links, sorted by UTF-16 code units.
-fn snapshot(dir: &Path, data: &Path, external: Option<&Path>) -> Vec<(String, Option<Vec<u8>>)> {
-    fn walk(current: &Path, prefix: &str, data: &Path, external: Option<&Path>, out: &mut Vec<(String, Option<Vec<u8>>)>) {
+/// `(path, bytes, permission bits)`: the bits are recorded on Linux only (`None` elsewhere, and for links).
+type Entry = (String, Option<Vec<u8>>, Option<u32>);
+
+fn mode_of(path: &Path) -> Option<u32> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        return Some(std::fs::symlink_metadata(path).expect("mode").permissions().mode() & 0o777);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        None
+    }
+}
+
+fn snapshot(dir: &Path, data: &Path, external: Option<&Path>, with_modes: bool) -> Vec<Entry> {
+    fn walk(current: &Path, prefix: &str, data: &Path, external: Option<&Path>, with_modes: bool, out: &mut Vec<Entry>) {
         for entry in std::fs::read_dir(current).expect("read_dir") {
             let entry = entry.expect("entry");
             let name = entry.file_name().to_string_lossy().into_owned();
             let rel = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
             let kind = entry.file_type().expect("type");
+            let mode = if with_modes { mode_of(&entry.path()) } else { None };
             if kind.is_symlink() {
                 let target = std::fs::read_link(entry.path()).expect("link");
-                out.push((mask(&rel), Some(link_content(&portable(&target, data, external)))));
+                out.push((rel, Some(link_content(&portable(&target, data, external))), None));
             } else if kind.is_dir() {
-                out.push((format!("{}/", mask(&rel)), None));
-                walk(&entry.path(), &rel, data, external, out);
+                out.push((format!("{rel}/"), None, mode));
+                walk(&entry.path(), &rel, data, external, with_modes, out);
             } else {
-                out.push((mask(&rel), Some(std::fs::read(entry.path()).unwrap_or_else(|_| UNREADABLE.to_vec()))));
+                out.push((rel, Some(std::fs::read(entry.path()).unwrap_or_else(|_| UNREADABLE.to_vec())), mode));
             }
         }
     }
     let mut out = Vec::new();
-    walk(dir, "", data, external, &mut out);
-    out.sort_by_key(|(path, _)| path.encode_utf16().collect::<Vec<u16>>());
+    walk(dir, "", data, external, with_modes, &mut out);
+    out.sort_by_key(|(path, _, _)| path.encode_utf16().collect::<Vec<u16>>());
     out
 }
 
-fn recorded(snapshot: &Value) -> Vec<(String, Option<Vec<u8>>)> {
+fn recorded(snapshot: &Value) -> Vec<Entry> {
     snapshot
         .as_array()
         .expect("snapshot")
@@ -127,7 +123,8 @@ fn recorded(snapshot: &Value) -> Vec<(String, Option<Vec<u8>>)> {
                 (None, Some(content)) if content.get("unreadable").is_some() => Some(UNREADABLE.to_vec()),
                 (None, content) => content.map(bytes_of),
             };
-            (entry["path"].as_str().expect("path").to_owned(), content)
+            let mode = entry.get("mode").map(|mode| u32::from_str_radix(mode.as_str().expect("mode"), 8).expect("octal mode"));
+            (entry["path"].as_str().expect("path").to_owned(), content, mode)
         })
         .collect()
 }
@@ -269,6 +266,13 @@ async fn replay_all(set: &str) {
                 std::fs::create_dir_all(data.join(path).parent().expect("parent")).expect("link folder");
                 std::os::unix::fs::symlink(text, data.join(path)).expect("symlink");
             }
+            // The permission bits the recording laid (deepest first, as Node's recorder did).
+            let mut modes: Vec<(&str, u32)> = state["modes"].as_array().into_iter().flatten().map(|mode| (mode[0].as_str().expect("path"), mode[1].as_u64().expect("mode") as u32)).collect();
+            modes.sort_by_key(|(path, _)| std::cmp::Reverse(path.len()));
+            for (path, mode) in modes {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(data.join(path), std::fs::Permissions::from_mode(mode)).expect("chmod");
+            }
             (state["crossVolume"] == true).then(|| {
                 let folder = tempfile::Builder::new().prefix("mixdog-retire-").tempdir_in("/dev/shm").expect("external");
                 assert_ne!(std::fs::metadata(folder.path()).expect("shm").dev(), std::fs::metadata(&data).expect("data").dev(), "{name}: needs a second mount");
@@ -281,18 +285,17 @@ async fn replay_all(set: &str) {
         let mut error = None;
         for (run, after) in state["after"].as_array().expect("after").iter().enumerate() {
             let paths = WorkflowPaths { root: root.clone(), data: data.clone() };
-            // A recorded pinned clock (`new Date()` of the pass) names the backup folder the recorded clashes were laid against.
-            let clock = state["clock"].as_str().map(str::to_owned);
-            let outcome = mixdog_core_base::support::on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| {
-                retire_seeded_copies(lane, &paths, &|| clock.clone().unwrap_or_else(|| chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)))
-            })
+            // The recorded pinned clock (`new Date()` of the pass), an input of every state: it names the backup folder.
+            let clock = state["clock"].as_str().unwrap_or_else(|| panic!("{name}: no recorded clock")).to_owned();
+            let outcome = mixdog_core_base::support::on_lane(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new(), move |lane| retire_seeded_copies(lane, &paths, &|| clock.clone()))
             .await
             .expect("lane job");
             error = outcome.err();
             let outside = external.as_ref().map(|folder| folder.path());
-            assert_eq!(snapshot(&data, &data, outside), recorded(after), "{name}: run {run}");
+            let with_modes = set == "linux";
+            assert_eq!(snapshot(&data, &data, outside, with_modes), recorded(after), "{name}: run {run}");
             if let Some(folder) = outside {
-                assert_eq!(snapshot(folder, &data, outside), recorded(&state["externalAfter"][run]), "{name}: run {run}, the other volume");
+                assert_eq!(snapshot(folder, &data, outside, with_modes), recorded(&state["externalAfter"][run]), "{name}: run {run}, the other volume");
             }
         }
         let node = state["error"].as_str().map(|text| text.strip_prefix("TypeError: ").unwrap_or(text).to_owned());
