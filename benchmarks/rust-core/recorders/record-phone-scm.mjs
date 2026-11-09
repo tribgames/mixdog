@@ -90,11 +90,18 @@ const failure = (error) => ({
   ...(typeof error?.code === 'string' ? { code: error.code } : {}),
   ...(error?.details !== undefined ? { details: clone(error.details) } : {}),
 });
+// While set, the next operation of this name waits for the gate before it runs (the ordering scenario below).
+let hold = null;
 const host = {
   invokeDesktopOperation: async (name, operationArgs) => {
     const entry = { name, args: clone(operationArgs) };
     trace.push(entry);
     try {
+      if (hold?.name === name) {
+        const gate = hold.gate;
+        hold = null;
+        await gate;
+      }
       const result = await operations.invoke(name, operationArgs);
       // JSON drops `undefined`: an operation that returned nothing has no `result` here.
       if (result !== undefined) entry.result = clone(result);
@@ -517,6 +524,60 @@ await rec('installLibreOffice-present', 'installLibreOffice', []);
 await rec('libreOfficeStatus-installed', 'libreOfficeStatus', []);
 await rec('libreOfficeStatus-refresh', 'libreOfficeStatus', [true]);
 
+// ═══ 10. ordering: a read behind a slow write ═══
+// Node's per-connection barrier (remote-call-queue.ts): the calls ride the queue the relay clients use. The write is held on a
+// gate until every later call was submitted and the loop turned over; the recording keeps which calls had started while it was
+// held, and for each operation what had ended before it started (reads: only the writes among them, readers overlap).
+const { createRemoteCallQueue } = await main('remote-call-queue');
+const queue = createRemoteCallQueue();
+const WRITES = new Set(['gitStage', 'gitUnstage']);
+const orderLog = [];
+const ended = [];
+const tracing = host.invokeDesktopOperation;
+host.invokeDesktopOperation = async (name, operationArgs) => {
+  const priors = WRITES.has(name) ? [...ended].sort() : ended.filter((done) => WRITES.has(done)).sort();
+  orderLog.push({ started: name, endedBefore: priors });
+  try {
+    return await tracing(name, operationArgs);
+  } finally {
+    ended.push(name);
+  }
+};
+const turns = async (count) => {
+  for (let n = 0; n < count; n++) await new Promise((resolve) => setImmediate(resolve));
+};
+const scenario = [
+  ['gitStage', [R, ['ordering.txt']]],
+  ['gitStatus', [R]],
+  ['gitLog', [R]],
+  ['gitUnstage', [R, ['ordering.txt']]],
+  ['gitDiff', [R, 'a.txt', false]],
+];
+write(R, 'ordering.txt', 'staged behind a slow write\n');
+trace.length = 0;
+let release;
+hold = { name: 'gitStage', gate: new Promise((resolve) => (release = resolve)) };
+const answers = [];
+const running = scenario.map(([call, params], index) => queue.run(call, async () => {
+  const frame = await executeRemoteFrame(methods, JSON.stringify({ id: 1, method: call, params }));
+  const { id: _id, ...answer } = JSON.parse(JSON.stringify(frame));
+  answers[index] = answer;
+}));
+await turns(20);
+const heldStarts = orderLog.map((entry) => entry.started);
+if (heldStarts.join() !== 'gitStage') throw new Error(`calls started while the write was held: ${heldStarts}`);
+release();
+await Promise.all(running);
+queue.close();
+const ordering = {
+  name: 'read-behind-a-slow-write',
+  calls: scenario.map(([call, params]) => ({ call, params: clone(params) })),
+  heldStarts,
+  order: clone(orderLog),
+  answers,
+  ops: clone(trace),
+};
+
 // ── every one of the 62 calls was recorded ──
 const PH2_SCM_CALLS = readFileSync(join(FIXTURES, 'calls.txt'), 'utf8').split(/\s+/).filter(Boolean);
 const missing = PH2_SCM_CALLS.filter((call) => !covered.has(call));
@@ -533,6 +594,7 @@ writeJson(join(stage, 'golden.json'), {
   platform: process.platform,
   git: gitVersion,
   cases,
+  ordering,
 });
 writeSetManifest(stage, {
   set: 'phone-scm',

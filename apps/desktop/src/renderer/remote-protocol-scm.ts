@@ -34,6 +34,7 @@ import {
   requiredReviewDiffFiles,
   requiredString,
 } from '../shared/scm-input';
+import { createRemoteCallQueue } from '../main/remote-call-queue';
 import type { NodeCall, PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
 
 /** The part of the protocol client this group uses. */
@@ -84,9 +85,7 @@ const cwdOnly = (name: string): NodeCall => operation(name, ([cwd]) => [required
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
-export const adapter: PhoneProtocolAdapter = {
-  group: 'scm',
-  calls: {
+const calls: Record<string, NodeCall> = {
     // ── working tree and index ──
     gitStatus: operation('gitStatus', ([cwd, options]) => {
       const hint = record(options);
@@ -233,5 +232,32 @@ export const adapter: PhoneProtocolAdapter = {
     ghPrCheckout: operation('ghPrCheckout', ([cwd, number]) => [requiredRepositoryCwd(cwd), number]),
     ghPrMerge: operation('ghPrMerge', ([cwd, number, method]) => [requiredRepositoryCwd(cwd), number, method]),
     ghPrDiff: operation('ghPrDiff', ([cwd, number]) => [requiredRepositoryCwd(cwd), number]),
-  },
+};
+
+/** Node's per-connection barrier (remote-call-queue.ts, the module itself): a read waits for the writes queued before it, a
+ *  write waits for everything before it, and the slow reads (gitReview*, ghPr*, githubCli*) ride their own lane. Calls of
+ *  other groups on the same connection are not in this queue (each adapter orders its own). */
+const queues = new WeakMap<PhoneProtocolHost, ReturnType<typeof createRemoteCallQueue>>();
+const queueOf = (host: PhoneProtocolHost): ReturnType<typeof createRemoteCallQueue> => {
+  let queue = queues.get(host);
+  if (!queue) {
+    queue = createRemoteCallQueue();
+    queues.set(host, queue);
+  }
+  return queue;
+};
+
+const ordered = (name: string, call: NodeCall): NodeCall => (params, host) => {
+  let answer: unknown;
+  return queueOf(host)
+    .run(name, async () => {
+      answer = await call(params, host);
+    })
+    .then(() => answer);
+};
+
+export const adapter: PhoneProtocolAdapter = {
+  group: 'scm',
+  calls: Object.fromEntries(Object.entries(calls).map(([name, call]) => [name, ordered(name, call)])),
+  install: (host) => () => queueOf(host).close(),
 };
