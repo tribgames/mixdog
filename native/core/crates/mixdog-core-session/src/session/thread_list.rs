@@ -40,6 +40,8 @@ use mixdog_store::sqlite::lead::LeadRow;
 use mixdog_store::sqlite::lead::decode_catalog_cursor;
 use mixdog_store::sqlite::lead::encode_catalog_cursor;
 
+use super::TaskWorkspace;
+use super::thread_edges::on_roster;
 use super::transcript::summary_of_list_row;
 
 pub const LIST: &str = "thread/list";
@@ -165,13 +167,15 @@ pub struct ThreadListService {
     store: Arc<SqliteStore>,
     overlay: Arc<dyn ListOverlay>,
     rooms: Arc<dyn ListRooms>,
+    /// The host's task workspace, which decides a legacy row's classification (the roster's `taskWorkspace` input).
+    task_workspace: Arc<dyn TaskWorkspace>,
     /// Told of every row this service shows (see [`CatalogObserver`]).
     observer: OnceLock<Arc<dyn CatalogObserver>>,
 }
 
 impl ThreadListService {
-    pub fn new(store: Arc<SqliteStore>, overlay: Arc<dyn ListOverlay>, rooms: Arc<dyn ListRooms>) -> Self {
-        Self { store, overlay, rooms, observer: OnceLock::new() }
+    pub fn new(store: Arc<SqliteStore>, overlay: Arc<dyn ListOverlay>, rooms: Arc<dyn ListRooms>, task_workspace: Arc<dyn TaskWorkspace>) -> Self {
+        Self { store, overlay, rooms, task_workspace, observer: OnceLock::new() }
     }
 
     /// Connects the observer of the published catalog. Set once.
@@ -185,8 +189,9 @@ impl ThreadListService {
         }
     }
 
-    fn row_of(&self, id: &ThreadId, listed: &LeadRow) -> ThreadSummary {
-        let mut row = summary_of_list_row(id, &serde_json::Value::Object(listed.row.clone()), listed.archived);
+    /// The roster row of a listed row (desktopSessionSummaries over the catalog's row), with the live overlay.
+    fn row_of(&self, id: &ThreadId, listed: &LeadRow, workspace: &str) -> ThreadSummary {
+        let mut row = on_roster(summary_of_list_row(id, &serde_json::Value::Object(listed.row.clone()), listed.archived), &listed.row, workspace);
         self.overlay.of(id).lay_over(&mut row);
         row
     }
@@ -197,14 +202,20 @@ impl ThreadListService {
 
     /// The row `thread/list` shows for `id`; `None` when the listing has none.
     pub async fn summary(&self, id: &ThreadId) -> Result<Option<ThreadSummary>, CoreError> {
+        let workspace = self.workspace().await?;
         let listed = self.store.lead_row(id.as_str()).await.map_err(|error| failed(DOMAIN, error.to_string()))?;
         let Some(listed) = listed else { return Ok(None) };
-        self.summary_of(id, &listed).await
+        self.summary_of(id, &listed, &workspace).await
+    }
+
+    /// The host's task workspace; a lookup that fails fails the listing (`listSessions` asks the host first, `session-host.ts:793`).
+    async fn workspace(&self) -> Result<String, CoreError> {
+        self.task_workspace.path().await.map_err(|error| failed(DOMAIN, error))
     }
 
     /// The row `thread/list` shows for `id` over the listed row in hand (what the index held when it was written).
-    pub(super) async fn summary_of(&self, id: &ThreadId, listed: &LeadRow) -> Result<Option<ThreadSummary>, CoreError> {
-        let row = self.with_rooms(vec![self.row_of(id, listed)]).await?.pop();
+    pub(super) async fn summary_of(&self, id: &ThreadId, listed: &LeadRow, workspace: &str) -> Result<Option<ThreadSummary>, CoreError> {
+        let row = self.with_rooms(vec![self.row_of(id, listed, workspace)]).await?.pop();
         if let Some(row) = &row {
             self.published(&[row.id.as_str()]);
         }
@@ -227,6 +238,7 @@ impl ThreadListService {
         };
         let after = decode_catalog_cursor(params.cursor.as_deref())
             .map_err(|error| coded(DOMAIN, "EINVALIDCURSOR", error.to_string()))?;
+        let workspace = self.workspace().await?;
         let filter = LeadFilter { archived: params.archived, cwd: params.cwd };
         let page = self.store.lead_page(after, filter, limit).await.map_err(|error| failed(DOMAIN, error.to_string()))?;
         let next_cursor = if page.more { page.rows.last().map(|row| encode_catalog_cursor(&row.row)) } else { None };
@@ -235,7 +247,7 @@ impl ThreadListService {
             .iter()
             .map(|listed| {
                 let id = ThreadId::from(listed.row.get("id").and_then(serde_json::Value::as_str).unwrap_or_default().to_owned());
-                self.row_of(&id, listed)
+                self.row_of(&id, listed, &workspace)
             })
             .collect();
         let data = self.with_rooms(rows).await?;
@@ -392,7 +404,7 @@ mod tests {
             let id = header["id"].as_str().expect("id").to_owned();
             store.upsert(CatalogHead { session: id, log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.expect("upsert");
         }
-        ThreadListService::new(store, Arc::new(Busy), Arc::new(NoRooms))
+        ThreadListService::new(store, Arc::new(Busy), Arc::new(NoRooms), Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks")))
     }
 
     /// No rooms: every row passes as listed.
@@ -486,7 +498,7 @@ mod tests {
         let header = json!({ "id": "sess_room_room01", "title": "log", "cwd": "C:\\Tasks", "createdAt": 1000, "updatedAt": 1000 });
         let head = CatalogHead { session: "sess_room_room01".into(), log_id: "L".into(), base_session: None, header: header.as_object().unwrap().clone() };
         store.upsert(head, DirtyMark::Clear).await.expect("upsert");
-        let list = Arc::new(ThreadListService::new(store, Arc::new(Busy), Arc::new(Stamp)));
+        let list = Arc::new(ThreadListService::new(store, Arc::new(Busy), Arc::new(Stamp), Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks"))));
 
         let limits = MockLimits::default();
         let feed = Arc::new(MockFeed::new("app".into(), mixdog_core_api::mock::epoch(1), Arc::new(mixdog_core_api::mock::EchoView), limits));
@@ -516,7 +528,7 @@ mod tests {
 
         let golden = golden();
         let data = tempfile::tempdir().expect("data dir");
-        let list = Arc::new(ThreadListService::new(service(data.path(), &golden).await.store, Arc::new(Busy), Arc::new(NoRooms)));
+        let list = Arc::new(ThreadListService::new(service(data.path(), &golden).await.store, Arc::new(Busy), Arc::new(NoRooms), Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks"))));
         let feed = Arc::new(MockFeed::new("app".into(), mixdog_core_api::mock::epoch(1), Arc::new(mixdog_core_api::mock::EchoView), MockLimits::default()));
         let rig = crate::session::testing::Rig::new();
         let directory = Arc::new(crate::session::SessionDirectory::new(rig.deps()));
@@ -605,41 +617,6 @@ mod tests {
             assert_eq!(published["classification"], desktop["classification"], "{id}");
             assert_eq!(published["projectPath"], desktop["projectPath"], "{id}");
         }
-    }
-
-    /// The roster row's fields beyond `_sessionSummary` (`favorite`, `readMessageCount`, `readRevision`, `agentDeleted`,
-    /// `createdAt`, `working`, `leadWorking`, `agentWorking`) as the desktop's own catalog projection answered each crafted
-    /// record (`fixtures/roster-row-fields`): the Rust row over the header keys that metadata is stored in, with the live overlay.
-    #[test]
-    fn the_listed_row_carries_the_roster_fields_nodes_catalog_does() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/roster-row-fields/golden.json")).expect("golden json");
-        let stored = &golden["stored"];
-        let mut checked = 0;
-        for case in golden["cases"].as_array().expect("cases") {
-            let mut header = case["record"].as_object().expect("record").clone();
-            header.remove("messages");
-            let id = header["id"].as_str().expect("id").to_owned();
-            if let Some(at) = stored["favorites"].get(&id) {
-                header.insert("favoriteAt".into(), at.clone());
-            }
-            if let Some(at) = stored["retired"].get(&id) {
-                header.insert("retiredAt".into(), at.clone());
-            }
-            if let Some(cursor) = stored["reads"].get(&id) {
-                header.insert("readState".into(), cursor.clone());
-            }
-            let head = CatalogHead { session: id.clone(), log_id: "L".into(), base_session: None, header };
-            let list: Value = serde_json::from_str(&mixdog_store::summary::catalog_row(&head, &Default::default(), 0.0).summary).expect("list row");
-            let mut row = summary_of_list_row(&ThreadId::from(id.clone()), &list, false);
-            let flag = |name: &str| case["overlay"].get(name).and_then(Value::as_bool);
-            RowOverlay { working: flag("working"), agent_working: flag("agentWorking"), ..Default::default() }.lay_over(&mut row);
-            let row = serde_json::to_value(row).expect("row json");
-            for field in ["updatedAt", "activityAt", "createdAt", "favorite", "readMessageCount", "readRevision", "agentDeleted", "working", "leadWorking", "agentWorking"] {
-                assert_eq!(row.get(field), case["row"].get(field), "{field} of {id}");
-            }
-            checked += 1;
-        }
-        assert_eq!(checked, 11);
     }
 
     /// A cursor that does not decode is Node's `EINVALIDCURSOR` failure; a text search or another

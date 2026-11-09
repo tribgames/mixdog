@@ -407,14 +407,25 @@ pub(super) fn summary_of_list_row(id: &ThreadId, list: &Value, archived: bool) -
         "classification": desktop.get("classification").cloned().unwrap_or_else(|| json!({})),
         "projectPath": desktop.get("projectPath").cloned().unwrap_or(Value::Null),
         "compactCount": list["compactCount"],
-        "archived": archived,
-        "sessionMode": list["sessionMode"],
-        "lastMessagePreview": list["lastMessagePreview"],
     });
-    for (field, source) in [("parentThreadId", "parentSessionId"), ("forkedFromId", "inheritedFromSessionId")] {
-        if let Some(value) = some_text(&list[source]) {
-            out[field] = value;
-        }
+    // The roster states these only when they are so (`desktop-state.ts:273-276`, `withArchiveFlags`).
+    if archived {
+        out["archived"] = json!(true);
+    }
+    if list["sessionMode"] == "agent" {
+        out["sessionMode"] = json!("agent");
+    }
+    if let Some(preview) = list["lastMessagePreview"].as_str().map(str::trim).filter(|s| !s.is_empty()) {
+        out["lastMessagePreview"] = json!(preview);
+    }
+    // `cleanIncomingTail`: whole places, at most the last hundred.
+    if let Some(tail) = list["incomingTail"].as_array() {
+        let places: Vec<i64> = tail.iter().filter_map(|place| place.as_i64().filter(|place| *place > 0)).collect();
+        out["incomingTail"] = json!(&places[places.len().saturating_sub(100)..]);
+    }
+    // The roster names no parent: an agent's child session is marked `agentSession` (`on_roster`), not linked.
+    if let Some(value) = some_text(&list["inheritedFromSessionId"]) {
+        out["forkedFromId"] = value;
     }
     if let Some(activity) = list["lastUsedAt"].as_f64().filter(|at| *at > 0.0) {
         out["activityAt"] = json!(activity as i64);
