@@ -9,7 +9,10 @@
 //
 //   node benchmarks/rust-core/recorders/record-thread-edges.mjs --tree <tree of b6f10295a with node_modules>
 // Output: native/core/fixtures/thread-edges/golden.json
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import './lib/ts-register.mjs';
 import { FIXTURES_ROOT, exactProductIdentity, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
@@ -21,8 +24,30 @@ const { desktopSessionSummaries } = await importFrom(tree, 'apps/desktop/src/mai
 const { canonicalJson } = await importFrom(tree, 'apps/desktop/src/shared/remote-view-resume.ts');
 const { compactedSessionTitle } = await importFrom(tree, 'apps/desktop/src/shared/session-title.mjs');
 
-// The host's task workspace (`<userData>/workspace/unclassified`), the one input of the roster besides the rows and the names.
-const TASK_WORKSPACE = 'C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified';
+// The host's task workspace: Node's `SessionHost.taskWorkspace()` makes `<userData>/workspace/unclassified` and caches its
+// `realpath` in `canonicalTaskWorkspace` (session-host.ts:519-523), only when both steps succeed; `sessionCatalog()` hands that cache to
+// `desktopSessionSummaries` (:1180-1191). The recorder runs those two methods of the product itself (bundled from the tree, on a host
+// holding only what they read) so the cache and its failures are Node's: a lookup fails when the folder's parent is a file.
+const { build } = (await importFrom(tree, 'node_modules/esbuild/lib/main.js')).default;
+const hostFile = join(tree, '.recorder-session-host.mjs');
+writeFileSync(hostFile, (await build({ entryPoints: [join(tree, 'apps/desktop/src/main/session-host.ts')], bundle: true, write: false, platform: 'node', format: 'esm', packages: 'external', logLevel: 'error', outfile: 'host.mjs' })).outputFiles[0].text);
+const { SessionHost } = await import(pathToFileURL(hostFile).href).finally(() => rmSync(hostFile));
+const WORK = join(tmpdir(), 'mixdog-rs5-thread-edges');
+rmSync(WORK, { recursive: true, force: true });
+mkdirSync(WORK, { recursive: true });
+writeFileSync(join(WORK, 'a-file'), '');
+const RESOLVABLE = join(WORK, 'workspace', 'unclassified');
+const UNRESOLVABLE = join(WORK, 'a-file', 'unclassified');
+const passthrough = (rows) => rows;
+const newHost = () => ({
+  taskWorkspacePath: RESOLVABLE,
+  canonicalTaskWorkspace: '',
+  rawSessionRows: [],
+  sessionMetadata: { titles: {}, names: {}, withReadCursors: passthrough, withFavoriteFlags: passthrough, withRetiredFlags: passthrough, withArchiveFlags: passthrough },
+  agentRooms: { withRooms: passthrough },
+});
+// The folder as the file system resolves it: what a task session's cwd is.
+const TASK_WORKSPACE = await SessionHost.prototype.taskWorkspace.call(newHost());
 const rec = (id, extra) => ({ id, updatedAt: 1000, createdAt: 500, cwd: 'C:/w', messages: [], ...extra });
 // The writes of each trigger, in order. `draft` rows are held back until titled (pendingCatalogSessionIds).
 const triggers = [
@@ -56,7 +81,6 @@ const triggers = [
   // project at its folder. An untitled one is listed only once a user's name is given. A stored project row in the workspace stays one.
   {
     name: 'legacy-task-workspace',
-    taskWorkspace: TASK_WORKSPACE,
     writes: [
       rec('s_in', { title: 'In the task workspace', cwd: TASK_WORKSPACE, updatedAt: 3100 }),
       rec('s_in_spelled', { title: 'Spelled otherwise', cwd: TASK_WORKSPACE.toLowerCase().replaceAll('\\', '/') + '/', updatedAt: 3200 }),
@@ -68,33 +92,62 @@ const triggers = [
       rec('s_in_project', { title: 'Stored project', cwd: TASK_WORKSPACE, desktopSession: { classification: 'project', projectPath: TASK_WORKSPACE }, updatedAt: 3800 }),
     ],
   },
-  // The same writes when the host's task workspace is unknown: nothing is in it.
-  { name: 'legacy-unknown-task-workspace', taskWorkspace: '', writes: [rec('s_unk', { title: 'Anywhere', cwd: TASK_WORKSPACE, updatedAt: 3900 })] },
+  // The lookup of the task workspace succeeds, then fails (the host keeps the last path it resolved), then succeeds again: a titled
+  // legacy row in the workspace stays a task through the failing writes, the new row written then is one too.
+  {
+    name: 'legacy-workspace-lookup-fails-later',
+    lookups: ['ok', 'fail', 'fail', 'ok'],
+    writes: [
+      rec('s_l', { title: 'Before', cwd: TASK_WORKSPACE, updatedAt: 4000 }),
+      rec('s_l', { title: 'After the lookup failed', cwd: TASK_WORKSPACE, updatedAt: 4100 }),
+      rec('s_l2', { title: 'Written while it fails', cwd: TASK_WORKSPACE, updatedAt: 4200 }),
+      rec('s_l2', { title: 'Written after it recovered', cwd: TASK_WORKSPACE, updatedAt: 4300 }),
+    ],
+  },
+  // The lookup never succeeds: the host knows no task workspace (`''`), so a legacy row with a folder is a project, whatever the folder.
+  {
+    name: 'legacy-workspace-never-resolves',
+    lookups: ['fail', 'fail', 'fail'],
+    writes: [
+      rec('s_n1', { title: 'Folder of the task workspace', cwd: TASK_WORKSPACE, updatedAt: 4400 }),
+      rec('s_n1', { title: 'Renamed by the work', cwd: TASK_WORKSPACE, updatedAt: 4500 }),
+      rec('s_n2', { title: 'Elsewhere', cwd: 'C:/elsewhere', updatedAt: 4600 }),
+    ],
+  },
 ];
 
-// The roster Node holds after the writes so far (the last write of an id replaces it).
-const rosterOf = (records, taskWorkspace) => {
-  const rows = [...records.values()].map(_sessionSummary).filter(isLeadVisibleRow);
+// The roster Node holds after the writes so far (the last write of an id replaces it): `SessionHost.sessionCatalog()` over the rows,
+// the names and the host's cached task workspace.
+const rosterOf = (host, records) => {
+  host.rawSessionRows = [...records.values()].map(_sessionSummary).filter(isLeadVisibleRow);
   // `names[id]`: what `renameSession` stored beside the header's user title (the session metadata, whatever the session's state).
-  const names = {};
-  for (const record of records.values()) if (record.titleSource === 'user') names[record.id] = record.title;
+  host.sessionMetadata.names = {};
+  for (const record of records.values()) if (record.titleSource === 'user') host.sessionMetadata.names[record.id] = record.title;
   // The complete rows, in the order Node holds them: the value the channel compares and pushes.
-  return desktopSessionSummaries(rows, {}, names, taskWorkspace);
+  return SessionHost.prototype.sessionCatalog.call(host);
 };
-const recorded = triggers.map(({ name, writes, taskWorkspace = '' }) => {
+const recorded = [];
+for (const { name, writes, lookups = [] } of triggers) {
   const records = new Map();
+  const host = newHost();
   let last = canonicalJson([]);
-  const steps = writes.map((record) => {
+  const steps = [];
+  for (const [at, record] of writes.entries()) {
     records.set(record.id, record);
-    const roster = rosterOf(records, taskWorkspace);
+    // Each catalog refresh asks the host for the task workspace first (`listSessions`, session-host.ts:793); a lookup that fails leaves
+    // the cached path as it was (:521).
+    const ok = (lookups[at] ?? 'ok') === 'ok';
+    host.taskWorkspacePath = ok ? RESOLVABLE : UNRESOLVABLE;
+    const lookup = await SessionHost.prototype.taskWorkspace.call(host).then((path) => ({ ok: true, path }), (error) => ({ ok: false, path: null, error: error.code }));
+    const roster = rosterOf(host, records);
     // CatalogChannel.publish (session-host-publication.ts:129-142) skips a value whose canonical JSON equals the last one.
     const json = canonicalJson(roster);
     const published = json !== last;
     last = json;
-    return { id: record.id, record, roster, published };
-  });
-  return { name, taskWorkspace, steps };
-});
+    steps.push({ id: record.id, record, lookup, roster, published });
+  }
+  recorded.push({ name, steps });
+}
 
 // The roster's own gate (`desktopSessionSummaries`, the second gate) on list rows as the catalog holds them: the rows that carry
 // what the gate reads beyond a header (message counts, the cli-resume mark), so they are given as rows. `kept` is Node's answer.
@@ -187,4 +240,5 @@ writeSetManifest(out, {
   identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146'),
 });
 commitStage(out, finalOut);
+rmSync(WORK, { recursive: true, force: true });
 console.log(`triggers=${recorded.length} published=${recorded.flatMap((t) => t.steps).filter((s) => s.published).length}`);
