@@ -8,6 +8,8 @@ use std::time::Duration;
 
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
+use mixdog_core_config::user_data::Env;
+use mixdog_core_config::user_data::UserData;
 use mixdog_core_api::mock::MockStatePublisher;
 use mixdog_protocol::ConfigWriteMode;
 use mixdog_rt::Backend;
@@ -59,7 +61,11 @@ async fn reads_run_on_the_interactive_lane_and_writes_on_the_durability_lane() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("mixdog-config.json");
 
-    let (config, _) = Config::open(&path, Arc::new(MockStatePublisher::default()), lanes)
+    // The guard's jobs are part of what is counted, so its environment is this test's own: backups on, under a home
+    // of its own (`MIXDOG_SKIP_USER_DATA_BACKUP` in the process environment would remove the guard's jobs).
+    let home = dir.path().join("home");
+    let user_data = Arc::new(UserData::new(Env::new(|_| None, Some(home)), || 0, || "instance".to_owned(), |_| {}));
+    let (config, _) = Config::open_guarded(&path, Arc::new(MockStatePublisher::default()), lanes, user_data)
         .await
         .unwrap();
     // A missing file asks the user-data guard (marker, backups: disk checks) whether the dir lost its config.
