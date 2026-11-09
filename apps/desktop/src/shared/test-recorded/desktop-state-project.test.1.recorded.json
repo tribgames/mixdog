@@ -1,0 +1,77 @@
+{
+ "constants": {},
+ "calls": {
+  "listLeadSessions\u0000[{\"listSessions\":{\"$fn\":1}}]": [
+   {
+    "result": [
+     {
+      "id": "sess_truncated_only",
+      "agent": null,
+      "sessionMode": "coding",
+      "owner": "user",
+      "visibility": "ordinary",
+      "ownerSessionId": null,
+      "realTurnCount": 0,
+      "updatedAt": 1000,
+      "lastUsedAt": 0,
+      "cwd": "C:\\Project\\mixdog",
+      "model": null,
+      "provider": null,
+      "messageCount": 2,
+      "compactCount": 0,
+      "title": "",
+      "preview": "",
+      "desktopSession": {
+       "classification": "project",
+       "projectPath": "C:\\Project\\mixdog"
+      },
+      "sourceType": null,
+      "sourceName": null,
+      "createdAt": 0,
+      "inheritedFromSessionId": null
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "id": "sess_truncated_only",
+      "agent": null,
+      "sessionMode": "coding",
+      "owner": "user",
+      "visibility": "ordinary",
+      "ownerSessionId": null,
+      "realTurnCount": 1,
+      "updatedAt": 1000,
+      "lastUsedAt": 0,
+      "cwd": "C:\\Project\\mixdog",
+      "model": null,
+      "provider": null,
+      "messageCount": 3,
+      "compactCount": 0,
+      "title": "",
+      "preview": "",
+      "lastMessagePreview": "Fix the login bug",
+      "desktopSession": {
+       "classification": "project",
+       "projectPath": "C:\\Project\\mixdog"
+      },
+      "sourceType": null,
+      "sourceName": null,
+      "createdAt": 0,
+      "inheritedFromSessionId": null
+     }
+    ],
+    "async": false
+   }
+  ]
+ },
+ "order": {
+  "listLeadSessions": [
+   "listLeadSessions\u0000[{\"listSessions\":{\"$fn\":1}}]",
+   "listLeadSessions\u0000[{\"listSessions\":{\"$fn\":1}}]"
+  ]
+ },
+ "opaque": []
+}

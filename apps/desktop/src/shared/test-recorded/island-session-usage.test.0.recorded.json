@@ -1,0 +1,152 @@
+{
+ "constants": {},
+ "calls": {
+  "createUsageStatsApi#0.getSessionUsage\u0000[{\"sessionIds\":[\"agent-a\"],\"agents\":true}]": [
+   {
+    "result": {
+     "sessionId": "lead-session",
+     "outputTokensPerSecond": null,
+     "turns": 1,
+     "input": 1,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "tokens": 1,
+     "unmeasuredTurns": 0,
+     "costUsd": 0,
+     "costKnownTurns": 1,
+     "costUnpricedTurns": 0,
+     "cacheHitRate": 0,
+     "agents": {
+      "outputTokensPerSecond": null,
+      "turns": 1,
+      "input": 1,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "tokens": 1,
+      "unmeasuredTurns": 0,
+      "costUsd": 0,
+      "costKnownTurns": 1,
+      "costUnpricedTurns": 0,
+      "cacheHitRate": 0
+     },
+     "sessions": {
+      "agent-a": {
+       "outputTokensPerSecond": null,
+       "turns": 1,
+       "input": 1,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "tokens": 1,
+       "unmeasuredTurns": 0,
+       "costUsd": 0,
+       "costKnownTurns": 1,
+       "costUnpricedTurns": 0,
+       "cacheHitRate": 0
+      }
+     }
+    },
+    "async": true
+   },
+   {
+    "result": {
+     "sessionId": "lead-session",
+     "outputTokensPerSecond": null,
+     "turns": 1,
+     "input": 1,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "tokens": 1,
+     "unmeasuredTurns": 0,
+     "costUsd": 0,
+     "costKnownTurns": 1,
+     "costUnpricedTurns": 0,
+     "cacheHitRate": 0,
+     "agents": {
+      "outputTokensPerSecond": null,
+      "turns": 1,
+      "input": 1,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "tokens": 1,
+      "unmeasuredTurns": 0,
+      "costUsd": 0,
+      "costKnownTurns": 1,
+      "costUnpricedTurns": 0,
+      "cacheHitRate": 0
+     },
+     "sessions": {
+      "agent-a": {
+       "outputTokensPerSecond": null,
+       "turns": 1,
+       "input": 1,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "tokens": 1,
+       "unmeasuredTurns": 0,
+       "costUsd": 0,
+       "costKnownTurns": 1,
+       "costUnpricedTurns": 0,
+       "cacheHitRate": 0
+      }
+     }
+    },
+    "async": true
+   }
+  ],
+  "createUsageStatsApi#0.getSessionUsage\u0000[]": [
+   {
+    "result": {
+     "sessionId": "lead-session",
+     "outputTokensPerSecond": null,
+     "turns": 1,
+     "input": 1,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "tokens": 1,
+     "unmeasuredTurns": 0,
+     "costUsd": 0,
+     "costKnownTurns": 1,
+     "costUnpricedTurns": 0,
+     "cacheHitRate": 0
+    },
+    "async": true
+   }
+  ]
+ },
+ "services": {
+  "createUsageStatsApi": [
+   "getUsageStats",
+   "getUsageRequests",
+   "getSessionUsage",
+   "getQuotaHistory"
+  ]
+ },
+ "stubs": {
+  "UsageLedger": "class",
+  "makeUsageRecord": "identity"
+ },
+ "order": {
+  "createUsageStatsApi#0.getSessionUsage": [
+   "createUsageStatsApi#0.getSessionUsage\u0000[{\"sessionIds\":[\"agent-a\"],\"agents\":true}]",
+   "createUsageStatsApi#0.getSessionUsage\u0000[]",
+   "createUsageStatsApi#0.getSessionUsage\u0000[{\"sessionIds\":[\"agent-a\"],\"agents\":true}]"
+  ]
+ },
+ "positional": [
+  "createUsageStatsApi.getUsageStats",
+  "createUsageStatsApi.getUsageRequests",
+  "createUsageStatsApi.getSessionUsage",
+  "createUsageStatsApi.getQuotaHistory"
+ ],
+ "opaque": [],
+ "instances": {
+  "createUsageStatsApi": 1
+ }
+}

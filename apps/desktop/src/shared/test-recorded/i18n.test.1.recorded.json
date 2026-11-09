@@ -1,0 +1,55 @@
+{
+ "constants": {
+  "DEVELOPER_SECTIONS": [
+   {
+    "id": "approvals",
+    "label": "Approvals",
+    "options": [
+     {
+      "id": "allowAllActions",
+      "label": "Allow all actions",
+      "description": "Skips the approval cards for every action except payments and permanent deletes.",
+      "warning": "Turning this on lets agents act without asking you first, except for payments and permanent deletes. Use it only if you accept that risk."
+     }
+    ]
+   },
+   {
+    "id": "providers",
+    "label": "Providers",
+    "description": "Using this provider through OAuth carries a high risk of penalties such as account restrictions.",
+    "options": [
+     {
+      "id": "antigravityOAuth",
+      "label": "Gemini (Antigravity)",
+      "description": "Show Antigravity (Gemini) OAuth in Providers and the model picker.",
+      "warning": "Using this provider through OAuth carries a high risk of penalties such as account restrictions.",
+      "provider": "antigravity-oauth"
+     },
+     {
+      "id": "cursorOAuth",
+      "label": "Cursor",
+      "description": "Show Cursor OAuth in Providers and the model picker.",
+      "warning": "Using this provider through OAuth carries a high risk of penalties such as account restrictions.",
+      "provider": "cursor-oauth"
+     },
+     {
+      "id": "devinOAuth",
+      "label": "Devin",
+      "description": "Show Devin OAuth in Providers and the model picker.",
+      "warning": "Using this provider through OAuth carries a high risk of penalties such as account restrictions.",
+      "provider": "devin-oauth"
+     },
+     {
+      "id": "mimoOAuth",
+      "label": "MiMo",
+      "description": "Show Xiaomi MiMo OAuth in Providers and the model picker.",
+      "warning": "Using this provider through OAuth carries a high risk of penalties such as account restrictions.",
+      "provider": "mimo-oauth"
+     }
+    ]
+   }
+  ]
+ },
+ "calls": {},
+ "opaque": []
+}

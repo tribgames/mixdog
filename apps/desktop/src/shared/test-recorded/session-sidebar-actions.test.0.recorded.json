@@ -1,0 +1,54 @@
+{
+ "constants": {},
+ "calls": {
+  "applySessionSidebarChange\u0000[\"sess_desktop_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",{\"favorite\":true}]": [
+   {
+    "result": {
+     "$undef": 1
+    },
+    "async": true
+   },
+   {
+    "error": {
+     "name": "Error",
+     "message": "no desktop app is attached to this runtime",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": true
+   }
+  ],
+  "applySessionSidebarChange\u0000[\"sess_desktop_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",{\"archived\":false}]": [
+   {
+    "result": {
+     "$undef": 1
+    },
+    "async": true
+   }
+  ],
+  "applySessionSidebarChange\u0000[\"sess_desktop_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",{\"project\":\"\"}]": [
+   {
+    "error": {
+     "name": "TypeError",
+     "message": "Session sidebar change is invalid.",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": true
+   }
+  ]
+ },
+ "order": {
+  "applySessionSidebarChange": [
+   "applySessionSidebarChange\u0000[\"sess_desktop_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",{\"favorite\":true}]",
+   "applySessionSidebarChange\u0000[\"sess_desktop_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",{\"archived\":false}]",
+   "applySessionSidebarChange\u0000[\"sess_desktop_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",{\"project\":\"\"}]",
+   "applySessionSidebarChange\u0000[\"sess_desktop_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",{\"favorite\":true}]"
+  ]
+ },
+ "opaque": [
+  "registerSessionSidebarHost"
+ ]
+}

@@ -1,0 +1,149 @@
+{
+ "constants": {
+  "COMPUTER_CORE_ACTION_SCHEMA": {
+   "type": "object",
+   "description": "One action; act.actions defines ordering and target reuse.",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "click",
+      "double_click",
+      "triple_click",
+      "mouse_down",
+      "mouse_up",
+      "move",
+      "drag",
+      "scroll",
+      "type",
+      "set_value",
+      "key",
+      "key_down",
+      "key_up",
+      "wait"
+     ]
+    },
+    "ref": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 4096,
+     "description": "Fresh semantic ref from capture."
+    },
+    "element": {
+     "type": "integer",
+     "minimum": 1,
+     "description": "Fresh SOM/OCR mark from capture."
+    },
+    "x": {
+     "type": "integer",
+     "description": "Frame-relative X; act.input.frame_id owns the frame."
+    },
+    "y": {
+     "type": "integer",
+     "description": "Frame-relative Y; act.input.frame_id owns the frame."
+    },
+    "to": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 4096,
+     "description": "Drag destination semantic ref."
+    },
+    "to_element": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "to_x": {
+     "type": "integer"
+    },
+    "to_y": {
+     "type": "integer"
+    },
+    "waypoints": {
+     "type": "array",
+     "minItems": 2,
+     "maxItems": 32,
+     "items": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "integer"
+       },
+       "y": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "x",
+       "y"
+      ],
+      "additionalProperties": false
+     },
+     "description": "Drag points in act.input.frame_id for a gesture that is not a straight line; replaces x/y and to_x/to_y."
+    },
+    "button": {
+     "type": "string",
+     "enum": [
+      "left",
+      "right",
+      "middle"
+     ]
+    },
+    "modifiers": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 32,
+     "pattern": "^(?:ctrl|shift|alt)(?:\\+(?:ctrl|shift|alt))*$",
+     "description": "Optional pointer modifiers joined by +. Background supports ctrl/shift; alt requires foreground delivery."
+    },
+    "direction": {
+     "type": "string",
+     "enum": [
+      "up",
+      "down",
+      "left",
+      "right"
+     ]
+    },
+    "amount": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 100
+    },
+    "text": {
+     "type": "string",
+     "maxLength": 30000,
+     "description": "Literal text; foreground cap 4000 UTF-16 code units per action. Never a password, or a code from SMS, an authenticator app or a passkey, even one shown on screen: saved_login or handoff_user. The one exception is a one-time code e-mailed for a sign-up or sign-in you started, read from a connected mailbox: type it yourself, never echo it."
+    },
+    "value": {
+     "type": "string",
+     "maxLength": 30000,
+     "description": "set_value replacement for an element that advertises set_value; writes the control directly, without focus or keystrokes. Never a password or a code; an e-mailed code is typed with text and delivery foreground (set_value fills only one box of a segmented code input)."
+    },
+    "keys": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 512,
+     "description": "Key name or chord. Keyboard chords with ctrl/shift/alt require explicit foreground delivery; background supports plain keys.",
+     "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+    },
+    "duration": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 5,
+     "description": "wait: cap in seconds. act already settles after every action; use wait only for a known async delay."
+    },
+    "quiet": {
+     "type": "boolean",
+     "description": "wait: opt-in (default false, a fixed pause). true ends before duration once the window set, foreground, focused window, title and bounds stop changing (3 equal samples 200 ms apart); use it when waiting for a window or dialog to open, close or move. Content changes inside a window (canvas, text) are not seen: use verify for those."
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "additionalProperties": false
+  },
+  "COMPUTER_DEFAULT_DELIVERY": "background"
+ },
+ "calls": {},
+ "opaque": []
+}

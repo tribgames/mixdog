@@ -1,0 +1,12 @@
+{
+ "constants": {
+  "ALLOW_NOT_SAVED_NOTICE": "Allowed this once. The setting could not be saved.",
+  "CONNECTOR_APPROVAL_REASON": "This connector tool is set to ask before it runs for this agent."
+ },
+ "calls": {},
+ "services": {},
+ "stubs": {},
+ "order": {},
+ "positional": [],
+ "opaque": []
+}

@@ -1,0 +1,39 @@
+{
+ "constants": {
+  "DEVIN_OAUTH_FAILURE_CODES": [
+   "DEVIN_OAUTH_CALLBACK_PORT_IN_USE",
+   "DEVIN_OAUTH_CALLBACK_SERVER_FAILED",
+   "DEVIN_OAUTH_LOGIN_TIMED_OUT",
+   "DEVIN_OAUTH_AUTHORIZATION_DENIED",
+   "DEVIN_OAUTH_STATE_MISMATCH",
+   "DEVIN_OAUTH_CODE_REQUIRED",
+   "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED"
+  ],
+  "REAUTH_GUIDANCE": "Open /providers in Mixdog to sign in again."
+ },
+ "calls": {
+  "exchangeDevinCode\u0000[\"c\",\"v\",{\"fetchFn\":{\"$fn\":1}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED: Devin token exchange request failed (network error). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY.",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": true
+   },
+   {
+    "error": {
+     "name": "Error",
+     "message": "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED: Devin token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY.",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": true
+   }
+  ]
+ },
+ "opaque": []
+}

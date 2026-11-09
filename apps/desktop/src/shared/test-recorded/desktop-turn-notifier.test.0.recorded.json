@@ -1,0 +1,844 @@
+{
+ "constants": {},
+ "calls": {
+  "restoreTranscriptItems\u0000[[{\"role\":\"assistant\",\"content\":\"**검사 완료**: `file.ts`\",\"meta\":{\"transcript\":{\"at\":2000,\"completion\":{\"status\":\"done\",\"elapsedMs\":1000}}}}]]": [
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "kind": "assistant",
+      "id": "hist_session_0_1",
+      "text": "**검사 완료**: `file.ts`",
+      "at": 2000
+     },
+     {
+      "kind": "turndone",
+      "id": "hist_session_0_2",
+      "status": "done",
+      "elapsedMs": 1000,
+      "finalAssistantId": "hist_session_0_1",
+      "at": 2000
+     }
+    ],
+    "async": false
+   }
+  ]
+ },
+ "opaque": []
+}
