@@ -170,6 +170,29 @@ mod tests {
         assert!(stamp.len() == 24 && stamp.ends_with('Z') && stamp.as_bytes()[10] == b'T', "{stamp}");
     }
 
+    /// `decisions.md` "Node daemon hot paths found by profiling" 6: the stale-row deadline needs only `autoClear`; it reads the
+    /// published snapshot, so it neither reloads the config nor goes through the provider loader that probes credentials.
+    #[tokio::test]
+    async fn the_reap_window_read_neither_reloads_the_config_nor_probes_credentials() {
+        let dir = tempfile::tempdir().expect("dir");
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
+        config
+            .update(|doc| {
+                doc.insert("agent".into(), serde_json::json!({ "autoClear": { "providerIdleMs": { "openai": 120_000 } } }));
+                Ok(())
+            })
+            .await
+            .expect("saved");
+        let revision = config.revision();
+        let reap = ConfigReap::new(config.clone());
+        for _ in 0..5 {
+            assert_eq!(reap.terminal_reap_ms("openai"), 120_000.0);
+        }
+        assert_eq!(config.revision(), revision, "a reap-window read rebuilt the config");
+    }
+
     /// `resolveAgentTerminalReapMs`: openai-oauth keeps the finite hour its unlimited cache needs, a
     /// provider with an override uses it, an unknown provider the `default` row.
     #[test]

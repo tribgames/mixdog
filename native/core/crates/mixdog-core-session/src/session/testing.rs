@@ -248,6 +248,8 @@ type Log = Arc<Mutex<Vec<(u64, Record)>>>;
 pub struct MemStore {
     logs: Mutex<HashMap<ThreadId, Log>>,
     pub head_reads: AtomicU64,
+    /// Every stored header read (`read_header`).
+    pub header_reads: AtomicU64,
     /// The next barrier fails (rolled back).
     pub fail_next: Arc<AtomicBool>,
     /// The next read of a thread's model context fails.
@@ -343,6 +345,7 @@ impl ThreadStore for MemStore {
 
     /// The header of the session record, as `decode` takes it.
     fn read_header(&self, _lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Header, CoreError> {
+        self.header_reads.fetch_add(1, Ordering::SeqCst);
         let records = self.records(id);
         let Some((_, Record::Session(session))) = records.first() else {
             return Err(CoreError::ThreadNotFound { thread_id: id.clone() });
