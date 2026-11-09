@@ -1,44 +1,50 @@
 // The remote surface's download stubs: gated on the host's `fileDownloads` advertisement (re-read per leg), handed to the protocol router
 // as the Node method names, and failing with a typed reason the UI can show.
+//
+// Inputs and every observation are Node's: apps/mobile/fixtures/phone-shim/golden.json, recorded from b6f10295a by
+// benchmarks/rust-core/recorders/record-phone-shim.mjs. Each test feeds the recorded inputs and compares what the page observed, whole.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { fileDownloadErrorReason } from '../shared/file-downloads.ts';
 import { withPhoneApi } from './test-support/phone-api-rig.mjs';
 
-const REQUEST = { source: { kind: 'project', sessionId: 's1', relPath: 'out/report.pdf' }, purpose: 'save' };
+const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-shim/golden.json', import.meta.url), 'utf8'));
 
 test('a host that did not advertise fileDownloads refuses as host-too-old without a call', async () => {
+  const { input, observed } = golden.downloads;
   const handlers = {
     fileDownloadAuthorize: () => {
-      throw Object.assign(new Error('No reply in this conversation links that file.'), { code: 'file-download:not-linked' });
+      throw Object.assign(new Error(input.authorizeRefusal.error), { code: input.authorizeRefusal.errorCode });
     },
-    fileDownloadRange: () => ({ length: 0 }),
+    fileDownloadRange: () => input.range.value,
   };
   await withPhoneApi(handlers, async ({ ctx, api, calls }) => {
-    assert.equal(api.fileDownloads.available(), false);
-    const refusal = await api.fileDownloads.authorize(REQUEST).catch((error) => error);
-    assert.equal(fileDownloadErrorReason(refusal), 'host-too-old');
-    assert.deepEqual(calls, [], 'nothing reached the adapter');
+    const seen = {};
+    seen.availableBeforeAdvertisement = api.fileDownloads.available();
+    seen.reasonBeforeAdvertisement = fileDownloadErrorReason(await api.fileDownloads.authorize(input.request).catch((error) => error));
+    seen.sentBeforeAdvertisement = calls.length;
 
     ctx.peerFileDownloads = true;
-    assert.equal(api.fileDownloads.available(), true);
-    assert.equal(fileDownloadErrorReason(await api.fileDownloads.authorize(REQUEST).catch((error) => error)), 'not-linked');
-    assert.deepEqual(calls.at(-1), { method: 'fileDownloadAuthorize', params: [REQUEST] });
-
-    assert.deepEqual(await api.fileDownloads.readRange('t', 8, 16, 'v'), { length: 0 });
-    assert.deepEqual(calls.at(-1), { method: 'fileDownloadRange', params: ['t', 8, 16, 'v'] });
+    seen.availableAfterAdvertisement = api.fileDownloads.available();
+    seen.reasonAfterRefusal = fileDownloadErrorReason(await api.fileDownloads.authorize(input.request).catch((error) => error));
+    seen.authorizeParams = calls.at(-1).params;
+    seen.rangeResult = await api.fileDownloads.readRange(...input.range.args);
+    seen.rangeParams = calls.at(-1).params;
 
     ctx.peerFileDownloads = undefined;
-    assert.equal(api.fileDownloads.available(), false, 'a reconnect to an older host withdraws it');
+    seen.availableAfterOlderHost = api.fileDownloads.available();
+    assert.deepEqual(seen, observed);
   });
 });
 
 test('resolveLocalPaths forwards the conversation only when one is named', async () => {
+  const { input, observed } = golden.resolveLocalPaths;
   await withPhoneApi({ resolveLocalPaths: () => [] }, async ({ api, calls }) => {
-    await api.resolveLocalPaths(['/x/a.pdf'], 's1');
-    assert.deepEqual(calls.at(-1).params, [['/x/a.pdf'], 's1']);
-    await api.resolveLocalPaths(['/x/a.pdf']);
-    assert.deepEqual(calls.at(-1).params, [['/x/a.pdf']]);
+    await api.resolveLocalPaths(input.paths, input.sessionId);
+    const namedParams = calls.at(-1).params;
+    await api.resolveLocalPaths(input.paths);
+    assert.deepEqual({ namedParams, plainParams: calls.at(-1).params }, observed);
   });
 });

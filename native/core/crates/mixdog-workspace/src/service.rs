@@ -476,6 +476,9 @@ impl WorkspaceService {
     }
 
     fn map_error(&self, req: &CoreRequest, error: WsError) -> CoreError {
+        // The phone's adapter asks for `nodeErrors`: an entry beyond the project is Node's plain `Error` there (a code-less `domainError`);
+        // every other caller keeps the permission refusal.
+        let error = if req.params.get("nodeErrors") == Some(&Value::Bool(true)) && crate::pathguard::is_beyond_project(&error) { WsError::plain(error.message) } else { error };
         match error.reason {
             Reason::InvalidParams => CoreError::InvalidParams { path: "params".into(), expected: error.message.into() },
             Reason::PermissionDenied => {

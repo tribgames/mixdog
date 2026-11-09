@@ -471,7 +471,10 @@ async fn paths_outside_the_registry_or_project_are_refused_with_permission_denie
     std::fs::create_dir_all(&outside).unwrap();
     assert!(unavailable(&call(&env, "projectFs/listDir", json!({ "root": outside.to_string_lossy(), "rel": "." })).await));
     let root = env.root.to_string_lossy().into_owned();
-    assert!(outside_the_project(&call(&env, "projectFs/readText", json!({ "root": root, "rel": "../other/x" })).await));
+    // The phone asks for Node's answer; a local or SSH caller keeps the permission refusal for the same path.
+    assert!(outside_the_project(&call(&env, "projectFs/readText", json!({ "root": root, "rel": "../other/x", "nodeErrors": true })).await));
+    let local = call(&env, "projectFs/readText", json!({ "root": root, "rel": "../other/x" })).await;
+    assert!(matches!(local, Err(CoreError::PermissionDenied { .. })), "{local:?}");
     let ok = call(&env, "projectFs/listDir", json!({ "root": root, "rel": "." })).await.unwrap();
     assert_eq!(ok[0]["name"], "src");
 }
@@ -892,6 +895,8 @@ fn expect_error(message: &str, got: &CoreError, ctx: &str, root: &str) {
             // Search-pattern text is shown to the user: byte-equal. Others map by reason.
             if message.starts_with("Invalid search pattern") { &**expected == message } else { message == "Entry name is invalid." }
         }
+        // A local caller's refusal of a path beyond the project (Node's service threw its plain `Error`; the phone's answer is the test above).
+        CoreError::PermissionDenied { .. } => message == "Path is outside the project." || message == "Path resolves outside the project.",
         CoreError::DomainError { code, message: got, .. } => match code.as_deref() {
             // A system error: Node's whole text, the recorded `<ROOT>` standing for this world's folder.
             Some("ENOENT") => got.as_deref().map(|text| text.replace(root, "<ROOT>")).as_deref() == Some(message),
@@ -1289,18 +1294,30 @@ fn domain(error: &CoreError) -> (Option<String>, Option<String>) {
     }
 }
 
-/// The adapter's sequence for `startProject` / `startProjectTask` (remote-protocol-chat-host.ts): the core calls, and the folder the blank snapshot names.
-async fn start_through_core(env: &Env, call: &str, path: &str) -> Result<String, CoreError> {
-    if call == "startProject" {
-        let created = self::call(env, "project/create", json!({ "path": path })).await?;
-        let folder = created["project"]["path"].as_str().unwrap().to_owned();
-        let _ = self::call(env, "project/touch", json!({ "path": folder })).await;
-        Ok(folder)
+/// The adapter's sequence for `startProject` / `startProjectTask` (remote-protocol-chat-host.ts): the folder the blank snapshot names, and the
+/// folders `project/create` registered (Node's `addProject` calls) on the way.
+async fn start_through_core(env: &Env, call: &str, path: &str) -> (Result<String, CoreError>, Vec<String>) {
+    let mut added = Vec::new();
+    let folder = if call == "startProject" {
+        match self::call(env, "project/create", json!({ "path": path })).await {
+            Ok(created) => {
+                let folder = created["project"]["path"].as_str().unwrap().to_owned();
+                added.push(folder.clone());
+                let _ = self::call(env, "project/touch", json!({ "path": folder })).await;
+                Ok(folder)
+            }
+            Err(error) => Err(error),
+        }
     } else {
-        let folder = self::call(env, "project/directory", json!({ "path": path, "owner": true })).await?["path"].as_str().unwrap().to_owned();
-        let _ = self::call(env, "project/touch", json!({ "path": path })).await;
-        Ok(folder)
-    }
+        match self::call(env, "project/directory", json!({ "path": path, "owner": true })).await {
+            Ok(answer) => {
+                let _ = self::call(env, "project/touch", json!({ "path": path })).await;
+                Ok(answer["path"].as_str().unwrap().to_owned())
+            }
+            Err(error) => Err(error),
+        }
+    };
+    (folder, added)
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1334,26 +1351,42 @@ async fn recorded_start_calls_resolve_the_folder_node_did() {
         }
         // `requiredString` (the phone method layer) trims before a call reaches the host; a blank or non-string path never does.
         let Some(given) = case["args"][0].as_str().map(str::trim).filter(|g| !g.is_empty()) else { continue };
-        let outcome = start_through_core(&env, case["call"].as_str().unwrap(), &at(given)).await;
+        let (outcome, added) = start_through_core(&env, case["call"].as_str().unwrap(), &at(given)).await;
         let node = &case["node"];
         match (&outcome, node.get("error")) {
-            (Ok(folder), None) => assert_eq!(*folder, at(node["result"]["cwd"].as_str().unwrap()), "{name}: the folder of the blank snapshot"),
+            (Ok(folder), None) => {
+                // What the core decides is the folder; Node's snapshot names it three times (the rest of the snapshot is the chat adapter's, replayed
+                // over this same fixture by remote-protocol-chat-host.test.mjs).
+                let result = &node["result"];
+                for field in [&result["cwd"], &result["currentProject"], &result["desktopSession"]["projectPath"]] {
+                    assert_eq!(*folder, at(field.as_str().unwrap()), "{name}: the folder of the blank snapshot");
+                }
+            }
             (Err(error), Some(node_error)) => {
                 let (code, message) = domain(error);
                 let node_message = node_error["message"].as_str().unwrap();
+                let mut keys: Vec<&str> = node_error.as_object().unwrap().keys().map(String::as_str).collect();
+                keys.sort();
                 match code.as_deref() {
-                    // The message is the path the OS error names; the client builds Node's text from it.
+                    // The message is the path the OS error names; the client builds Node's whole text from it.
                     Some("pathMissing") => {
+                        assert_eq!(node_error["name"], "Error", "{name}");
+                        assert_eq!(keys, ["code", "message", "name"], "{name}");
                         assert_eq!(node_error["code"], "ENOENT", "{name}");
                         let named = message.unwrap().replace('\\', "/").replace(&root.replace('\\', "/"), "<ROOT>");
-                        assert!(node_message.contains(&format!("realpath '{named}'")), "{name}: {node_message}");
+                        assert_eq!(node_message, format!("ENOENT: no such file or directory, realpath '{named}'"), "{name}");
                     }
-                    Some("notADirectory") => assert_eq!(message.as_deref(), Some(node_message), "{name}"),
+                    Some("notADirectory") => {
+                        assert_eq!(node_error["name"], "TypeError", "{name}");
+                        assert_eq!(keys, ["message", "name"], "{name}");
+                        assert_eq!(message.as_deref(), Some(node_message), "{name}");
+                    }
                     // Node's registry (`known`, desktop-project-registry.ts) throws a plain `Error` with no code when its store has no
                     // `listProjectsStrict` (the stand-in store this fixture was recorded with: no `code` in `node_error`), and the coded
                     // `PROJECT_UNAVAILABLE` when it has one - as the real store (src/runtime/shared/projects.mjs) does, and as the core's
                     // registry is: it tells a removal from an unreadable table. The real store's whole error is in the files recording.
                     Some("PROJECT_UNAVAILABLE") => {
+                        assert_eq!(node_error["name"], "Error", "{name}");
                         assert!(node_error.get("code").is_none(), "{name}: the stand-in store's error carries no code");
                         let files: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
                         let strict = files["scenarios"]["relay"]["steps"].as_array().unwrap().iter().map(|step| &step["frame"]).find(|frame| frame["errorCode"] == "PROJECT_UNAVAILABLE").unwrap();
@@ -1367,9 +1400,11 @@ async fn recorded_start_calls_resolve_the_folder_node_did() {
         }
         // The registry afterwards: the touch went to the Project Node touched, and the entered Project lost its tombstone.
         let rows = env.state.projects().await.unwrap();
-        let used: Vec<&str> = rows.iter().filter(|row| row.last_used_at.is_some()).map(|row| row.path.as_str()).collect();
-        let touched: Vec<String> = node["storeCalls"].as_array().unwrap().iter().filter(|c| c[0] == "touchProjectSelected").map(|c| at(c[1].as_str().unwrap())).collect();
-        assert_eq!(used, touched.iter().map(String::as_str).collect::<Vec<_>>(), "{name}: touched");
+        // Node's store calls, whole: an `addProject` for each Project `project/create` registered, then a `touchProjectSelected` for each Project the
+        // touch reached (the core's `lastUsedAt`).
+        let core_calls: Vec<Value> = added.iter().map(|path| json!(["addProject", path])).chain(rows.iter().filter(|row| row.last_used_at.is_some()).map(|row| json!(["touchProjectSelected", row.path]))).collect();
+        let node_calls: Vec<Value> = node["storeCalls"].as_array().unwrap().iter().map(|call| Value::Array(call.as_array().unwrap().iter().map(|part| json!(at(part.as_str().unwrap()))).collect())).collect();
+        assert_eq!(core_calls, node_calls, "{name}: the store calls");
         let mut left: Vec<String> = rows.iter().filter(|row| row.hidden).map(|row| row.path.clone()).collect();
         left.sort();
         let node_left: Vec<String> = node["hiddenAfter"].as_array().map(|h| h.iter().map(|p| at(p.as_str().unwrap())).collect()).unwrap_or_else(|| hidden.clone());

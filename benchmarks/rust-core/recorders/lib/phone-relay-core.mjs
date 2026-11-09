@@ -90,6 +90,8 @@ export async function startRelay({ repoRoot, clients, capabilities }) {
     async envelopesReach(count) {
       while (state.envelopes.length < count) await new Promise((resolve) => state.envelopeWaiters.push(resolve));
     },
+    /** The relay sends the PC a frame of its own (a webpush-subscriptions set, for one). */
+    send: (frame) => state.socket.send(JSON.stringify(frame)),
     openPhone,
     close: () => server.close(),
   };
