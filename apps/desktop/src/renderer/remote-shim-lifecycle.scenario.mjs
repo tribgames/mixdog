@@ -3,7 +3,7 @@
 // Prints the trace on a marker line; remote-shim-lifecycle.test.mjs compares it with the recording.
 import { readFileSync } from 'node:fs';
 import { SYNTHETIC_READ_REQUESTS, createPhoneWorld, protocolDialect } from '../../../../benchmarks/rust-core/recorders/lib/phone-world.mjs';
-import { SCENARIOS, play } from '../../../../benchmarks/rust-core/recorders/lib/phone-scenarios.mjs';
+import { PAYLOAD_CEILING_CHARS, SCENARIOS, play } from '../../../../benchmarks/rust-core/recorders/lib/phone-scenarios.mjs';
 
 async function main() {
 const name = process.argv[2];
@@ -25,7 +25,11 @@ const { VISUALIZE_PANELS_EVENT } = await import('../shared/visualize.ts');
 const adapter = {
   group: 'lifecycle-test',
   calls: {
-    deleteSession: (_params, host) => host.client().call('feed/subscribe', { feedId: 'pending-call' }),
+    // A payload past the relay's ceiling is refused before anything is sent, with Node's code (shared/remote-payload-limit.ts:46).
+    deleteSession: (params, host) =>
+      String(params[0]).length > PAYLOAD_CEILING_CHARS
+        ? Promise.reject(Object.assign(new Error('payload too large'), { code: 'RELAY_PAYLOAD_TOO_LARGE' }))
+        : host.client().call('feed/subscribe', { feedId: 'pending-call' }),
     // The reads the app makes as it mounts: PH-2's group adapters answer these; here each is one request the world names.
     ...Object.fromEntries(
       Object.entries(SYNTHETIC_READ_REQUESTS).map(([name, method]) => [name, (_params, host) => host.client().call(method, {})])

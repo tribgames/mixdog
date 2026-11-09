@@ -52,5 +52,11 @@ async fn a_connection_hears_a_feed_only_after_it_opens_it() {
     client.request(2, "feed/subscribe", json!({ "feedId": "terminal:t1" }));
     assert_eq!(record(&mut steps, "lane-feed-opened", "lane", &client), ["response", "snapshot@2"]);
     assert_eq!(pushes("pushes-with-lane-feed", &mut steps), (vec!["evt@3".to_string()], vec!["evt@3".to_string()]));
+    // Closing the lane is dropping it from the registration: its pushes stop, the app feed's go on.
+    // A connection keys its subscriptions by the feed's own id, which for a held feed is the id it was subscribed by; the mock thread feed
+    // carries its own, so that is the id to close it by here.
+    client.request(3, "feed/unsubscribe", json!({ "feedId": thread.feed().feed_id().as_str() }));
+    assert_eq!(record(&mut steps, "lane-feed-closed", "lane", &client), ["response"]);
+    assert_eq!(pushes("pushes-after-lane-feed-closed", &mut steps), (vec!["evt@4".to_string()], vec![]));
     println!("@@LANES@@{}", Value::Array(steps));
 }

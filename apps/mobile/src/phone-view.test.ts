@@ -14,6 +14,7 @@ function rig(hold = false) {
   const subscribers = new Set<(change: StoreChange) => void>();
   const client = {
     status: READY,
+    withSendScope: (_claim: unknown, run: () => unknown) => run(),
     on: (listener: (event: ClientEvent) => void) => (listeners.add(listener), () => listeners.delete(listener)),
     store: { subscribe: (fn: (change: StoreChange) => void) => (subscribers.add(fn), () => subscribers.delete(fn)) },
     subscribeApp: async () => void calls.push('app'),
@@ -40,7 +41,6 @@ function rig(hold = false) {
     recycle: () => void (events.recycled += 1),
     probe: () => undefined,
     silentSince: () => false,
-    nextRequestSent: () => Promise.resolve(),
   });
   return { calls, client, status, store, events, manager, held };
 }
@@ -101,6 +101,8 @@ test('subscription events never open the gate: only the machine finishing a sync
   // Events of feeds restored (as a library would emit them) while the machine's own first sync is still attaching a thread.
   store({ type: 'subscription', feedId: 'app', state: 'restored' });
   store({ type: 'subscription', feedId: 't1', state: 'restored' });
+  // The machine's first sync starts one timer turn after the connection (phone-view.ts irstTurn); wait for it to be attaching.
+  await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(await settled(gate), 'shut');
   assert.equal(events.synced, 0);
   for (const release of held) release();

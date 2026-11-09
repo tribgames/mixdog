@@ -4,6 +4,9 @@
 // since the last checkpoint), what the core knows of the phone, how a pending call ends, and the pairing reset.
 import { effectiveCore } from './phone-world.mjs';
 
+/** The text ceiling the world's relay publishes at the handshake (uplinkTextCeilingBytes, phone-world.mjs): a payload of one byte per char past it is refused by the page before it leaves (Node: refuseOversize, remote-shim-payload-limit.ts). */
+export const PAYLOAD_CEILING_CHARS = 4_000_000;
+
 export const SCENARIOS = {
   // Boot, handshake, the first reports and the view of the last visit; then the page changes what it shows.
   'cold-connect-and-reports': [
@@ -658,6 +661,75 @@ export const SCENARIOS = {
     { op: 'advance', ms: 1 },
     { op: 'mark', name: 'b-expired-37s' },
   ],
+  // A call whose frame is refused before it is sent (an oversize payload, Node: refuseOversize, remote-shim-calls.ts:154 / :270-287) is rejected
+  // alone and sends nothing; the call asked after it is timed from its own frame leaving, not from the refused one (Node: each call awaits its own
+  // sendApplicationFrame, :258). The read is held on the PC; every ping is answered.
+  'call-rejected-before-send': [
+    { op: 'boot', reads: true },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'advance', ms: 10000 },
+    { op: 'hold', name: 'readSettings' },
+    { op: 'oversize', as: 'refused' },
+    { op: 'mark', name: 'refused-call-settled' },
+    { op: 'hold-seal' },
+    { op: 'read', name: 'readSettings', as: 'b' },
+    { op: 'advance', ms: 3000 },
+    { op: 'release-seal' },
+    { op: 'mark', name: 'b-left-at-3s' },
+    { op: 'advance', ms: 4999 },
+    { op: 'mark', name: 'b-quiet-4999ms' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'b-silence-probe-5s' },
+    { op: 'pong' },
+    { op: 'advance', ms: 5000 },
+    { op: 'mark', name: 'b-quiet-10s' },
+    { op: 'pong' },
+    { op: 'advance', ms: 10000 },
+    { op: 'mark', name: 'b-deadline-probe-20s' },
+    { op: 'pong' },
+    { op: 'advance', ms: 4999 },
+    { op: 'mark', name: 'b-pending-24999ms' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'b-expired-25s' },
+  ],
+  // The socket ends while a call's frame is still being sealed: that call fails as interrupted, its frame finishes sealing on the dead leg, and a
+  // call asked on the redialed connection is timed from its own frame leaving, not from anything the dead leg held (Node: each call awaits its own
+  // sendApplicationFrame on its own socket, remote-shim-calls.ts:258-273).
+  'frame-in-flight-at-reconnect': [
+    { op: 'boot', reads: true },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'advance', ms: 10000 },
+    { op: 'hold', name: 'readSettings' },
+    { op: 'hold-seal' },
+    { op: 'read', name: 'readSettings', as: 'a' },
+    { op: 'advance', ms: 2000 },
+    { op: 'random', value: 0 },
+    { op: 'drop', code: 1006 },
+    { op: 'advance', ms: 0 },
+    { op: 'release-seal' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'a-lost-with-its-frame-sealing' },
+    { op: 'accept' },
+    { op: 'check', name: 'back', expect: { foreground: true } },
+    { op: 'read', name: 'readSettings', as: 'c' },
+    { op: 'advance', ms: 4999 },
+    { op: 'mark', name: 'c-quiet-4999ms' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'c-silence-probe-5s' },
+    { op: 'pong' },
+    { op: 'advance', ms: 5000 },
+    { op: 'mark', name: 'c-quiet-10s' },
+    { op: 'pong' },
+    { op: 'advance', ms: 10000 },
+    { op: 'mark', name: 'c-deadline-probe-20s' },
+    { op: 'pong' },
+    { op: 'advance', ms: 4999 },
+    { op: 'mark', name: 'c-pending-24999ms' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'c-expired-25s' },
+  ],
   // A call on the wire with nothing arriving for 5 s probes the leg (Node: remote-shim-calls.ts:264-268). Just under 5 s nothing is sent; at 5 s the
   // ping leaves; its pong answers it, and the call is answered afterwards.
   'silent-call-probe': [
@@ -981,6 +1053,13 @@ export async function play(world, driver, ops) {
           (value) => world.log({ ev: 'settled', as: op.as, ok: true, value }),
           (error) => world.log({ ev: 'settled', as: op.as, ok: false, code: error?.code })
         );
+        break;
+      case 'oversize':
+        driver.api().deleteSession('x'.repeat(PAYLOAD_CEILING_CHARS + 1)).then(
+          (value) => world.log({ ev: 'settled', as: op.as, ok: true, value }),
+          (error) => world.log({ ev: 'settled', as: op.as, ok: false, code: error?.code })
+        );
+        await world.advance(0);
         break;
       case 'unhold':
         world.holds.delete(op.name);

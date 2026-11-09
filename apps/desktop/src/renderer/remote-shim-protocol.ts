@@ -4,6 +4,7 @@
 // A Node name no adapter claimed is never sent: the core would answer "unknown method" to a frame it cannot read.
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import { armCallWatch } from './remote-shim-call-watch';
+import { firstFrame, scopeClient } from '../../../mobile/src/phone-send-scope';
 import { remoteConnectionInterruptedError } from './remote-connection-state';
 import type { RemoteShimContext } from './remote-shim-state';
 
@@ -96,8 +97,6 @@ export function createProtocolRouter(
     probe(): void;
     /** Nothing has arrived since `since` and no probe is out: a call sent then is worth a probe. */
     silentSince(since: number): boolean;
-    /** Resolves when the next request frame has left this page (transmission complete). */
-    nextRequestSent(): Promise<void>;
   }
 ): ProtocolRouter {
   const owners = new Map<string, string>();
@@ -143,9 +142,11 @@ export function createProtocolRouter(
             watch.cancel();
             waiting.delete(id);
           };
-          // Node restarts the deadline and starts measuring silence when the frame is on its way, not when the call began (:258-268).
-          void link.nextRequestSent().then(watch.transmitted);
-          return handler(params, link.host);
+          // Node restarts the deadline and starts measuring silence when this call's own frame has left, not when the call began (:258-268):
+          // the client the handler reaches hands that frame to this call's claim. A call that fails before sending claims nothing.
+          const claim = firstFrame((sent) => void sent.then(watch.transmitted));
+          const host: PhoneProtocolHost = { ...link.host, client: () => scopeClient(link.host.client(), claim) };
+          return handler(params, host);
         })().then(
           (value) => {
             settle();
