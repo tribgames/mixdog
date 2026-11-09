@@ -406,6 +406,8 @@ fn stored_queue(shard: &Value, entry: &Value, durable: &Value, at: i64, clock: u
             ("context", Value::Null, "a follow-up's caller context; none was given"),
             ("key", Value::Null, "the dedupe key of a runtime-made entry; a user prompt has none"),
             ("origin", Value::Null, "the channel a prompt came from; none"),
+            // The only renderer reader is conversation-prompt-items.ts:137, on the entries the projection sends; the projection drops the
+            // field (session-state-projection.mjs:40-48), so that reader sees it absent for Node and for the core alike.
             ("skipSlashCommands", json!(false), UNSET),
             ("suppressDisplay", json!(false), "hides the row from the transcript; a user prompt shows"),
             ("abortDiscardOnAbort", json!(false), UNSET),
@@ -581,7 +583,13 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         }
         if notification {
             // The notice reaches the thread through its inbox: wait for the entry on the queue.
-            eventually_on(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1).then_some(())).await;
+            // Paused time: the deadline is virtual and fires only when no step can still enqueue it, so a missing enqueue fails here.
+            let queued = tokio::time::timeout(
+                std::time::Duration::from_secs(60),
+                eventually_on(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1).then_some(())),
+            )
+            .await;
+            assert!(queued.is_ok(), "{name}: the channel notification never reached the thread's queue (held entries: {})", handle.cell.queue.load().len());
         }
         let since = || frames().into_iter().skip(base_frames).collect::<Vec<_>>();
         let node = &case["after"];
@@ -852,6 +860,37 @@ async fn every_recorded_rewind_resolves_the_displayed_id_as_nodes_does() {
                 assert_eq!(held, want, "{name}: the rows left after the rewind");
             }
         }
+    }
+}
+
+/// Every recorded image shape of a queue entry (Node's real `makeQueueEntry` shown by `projectSessionState`): the row the core
+/// publishes for the same stored entry is Node's whole, the image list included (`content` for `data`, `mediaType` for `mimeType`,
+/// `Number(sizeBytes)` with the length as the fallback).
+#[test]
+fn every_recorded_image_shape_is_published_as_nodes_queue_projection_shows_it() {
+    use super::seams::Transcript;
+    let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
+    let cases: Vec<&Value> = all["cases"].as_array().unwrap().iter().filter(|case| case["kind"] == "image-shape").collect();
+    assert!(cases.len() >= 20, "the recorded shapes");
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let projected = case["projected"].as_array().unwrap();
+        assert_eq!(projected.len(), 1, "{name}");
+        let mut options = json!({ "clientSubmissionId": "q1" });
+        if !case["pastedImages"].is_null() {
+            options["pastedImages"] = case["pastedImages"].clone();
+        }
+        let entry = json!({ "message": case["content"], "enqueuedAt": 1, "priority": "next", "options": options });
+        let got = super::transcript::RecordTranscript::new().queued("<qid>", &entry);
+        let (mut got, mut want) = (got, queue_row(&projected[0], 1, 1));
+        if case["content"][1].get("attachmentRef").is_some() {
+            // The text of a prompt holding a stored attachment is read from the attachment store (`promptDisplayText`), which this
+            // case has not seeded on either side: the text is that read's, not the image list's, and has its own goldens.
+            got["text"] = Value::Null;
+            want["text"] = Value::Null;
+        }
+        assert_eq!(got, want, "{name}");
+        assert_eq!(projected[0]["images"].as_array().map(Vec::len), Some(1), "{name}: Node shows the image");
     }
 }
 

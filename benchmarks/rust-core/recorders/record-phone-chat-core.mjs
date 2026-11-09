@@ -65,6 +65,7 @@ const { pendingMessagesPath } = await importFrom(tree, 'src/runtime/agent/orches
 const { saveSessionAsync } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/store.mjs');
 const { projectSessionState } = await importFrom(tree, 'src/standalone/session-state-projection.mjs');
 const { rewindSessionMessagesTo } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/manager/session-crud.mjs');
+const { makeQueueEntry } = await importFrom(tree, 'src/tui/session/session-flow/queue/entry-shape.mjs');
 
 /** A value as the fixture keeps it: callbacks have no JSON form, so they read as a marker. */
 // The steering mirror's id ends in random bytes (`newSteeringPersistId`, tui-steering-persist.mjs): kept as a marker so a
@@ -408,6 +409,34 @@ await rewinding('a submitted row is rewound by the id it shows', { itemId: 'sub1
 await rewinding('an id that names no row answers nothing', { itemId: 'zz' });
 await rewinding('a busy session answers nothing', { itemId: 'sub1', busy: true });
 await rewinding('the second of two prompts with the same text is rewound', { itemId: 'sub2', turns: 2 });
+
+// The image shapes a queue entry can hold (a persisted queue entry carries whatever the producer wrote): Node's real `makeQueueEntry`
+// builds the entry and `projectSessionState` shows it to a client, so `images` is what `promptContentImageMeta` gives for the shape.
+function imageShape(name, part, pastedImages = null) {
+  const content = [{ type: 'text', text: 'see [Image #1]' }, { type: 'image', ...part }];
+  const entry = makeQueueEntry(content, { id: 'q1', submittedAt: 1, ...(pastedImages ? { pastedImages } : {}) }, () => 'unused');
+  cases.push({ name, kind: 'image-shape', content, pastedImages, projected: plain(projectSessionState({}, { queued: [entry] }).queued) });
+}
+imageShape('data and mimeType', { data: 'AAAA', mimeType: 'image/png' });
+imageShape('content and no data', { content: 'BBBBBBBB', mimeType: 'image/jpeg' });
+imageShape('data that is no string falls back to content', { data: 7, content: 'CCCCC', mimeType: 'image/jpeg' });
+imageShape('neither data nor content', { mimeType: 'image/jpeg' });
+imageShape('mediaType instead of mimeType', { data: 'AAAA', mediaType: 'image/webp' });
+imageShape('mimeType wins over mediaType', { data: 'AAAA', mimeType: 'image/gif', mediaType: 'image/webp' });
+imageShape('an empty mimeType falls to mediaType', { data: 'AAAA', mimeType: '', mediaType: 'image/webp' });
+imageShape('the pasted image names the type', { data: 'AAAA' }, { 1: { id: 3, mediaType: 'image/avif', filename: 'p.avif' } });
+imageShape('no type anywhere is a png', { data: 'AAAA' });
+imageShape('sizeBytes an integer', { data: 'AAAA', mimeType: 'image/png', sizeBytes: 4096 });
+imageShape('sizeBytes a numeric string', { data: 'AAAA', mimeType: 'image/png', sizeBytes: '12' });
+imageShape('sizeBytes a padded numeric string', { data: 'AAAA', mimeType: 'image/png', sizeBytes: ' 0x10 ' });
+imageShape('sizeBytes a float', { data: 'AAAA', mimeType: 'image/png', sizeBytes: 12.5 });
+imageShape('sizeBytes zero', { data: 'AAAA', mimeType: 'image/png', sizeBytes: 0 });
+imageShape('sizeBytes a word', { data: 'AAAA', mimeType: 'image/png', sizeBytes: 'abc' });
+imageShape('sizeBytes true', { data: 'AAAA', mimeType: 'image/png', sizeBytes: true });
+imageShape('sizeBytes null', { data: 'AAAA', mimeType: 'image/png', sizeBytes: null });
+imageShape('sizeBytes an object', { data: 'AAAA', mimeType: 'image/png', sizeBytes: {} });
+imageShape('sizeBytes infinite', { data: 'AAAA', mimeType: 'image/png', sizeBytes: 'Infinity' });
+imageShape('a stored attachment keeps its reference', { mimeType: 'image/png', sizeBytes: 99, attachmentRef: 'a'.repeat(64) });
 
 const out = join(FIXTURES_ROOT, 'phone-chat-core', 'phone-chat-core.json');
 mkdirSync(join(FIXTURES_ROOT, 'phone-chat-core'), { recursive: true });
