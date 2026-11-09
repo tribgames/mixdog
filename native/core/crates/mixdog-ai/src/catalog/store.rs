@@ -592,66 +592,128 @@ mod tests {
                 .iter()
                 .map(|p| slow(p["name"].as_str().unwrap(), Some(Duration::from_millis(p["answersAfterMs"].as_u64().unwrap()))))
                 .unzip();
-            // The latest listing's error per provider: what Node's kept entry carries.
             let mut codes = BTreeMap::new();
-            let pending = |catalog: &ProviderCatalog| {
-                let flights = catalog.flights.lock().unwrap();
-                let names: Vec<&str> = flights.latest.keys().map(ProviderId::as_str).collect();
-                let stalled: Vec<serde_json::Value> = flights
-                    .running
-                    .iter()
-                    .flat_map(|(p, ops)| ops.iter().filter(|f| f.timed_out.load(Ordering::SeqCst)).map(move |_| p))
-                    .map(|p| serde_json::json!({ "name": p.as_str(), "kind": "list" }))
-                    .collect();
-                (serde_json::json!(names), serde_json::Value::Array(stalled))
-            };
-            let tie = |catalog: &ProviderCatalog| catalog.flights.lock().unwrap().latest[&ProviderId::from("tie")].work.clone();
             for point in ["first", "whilePending", "afterSettle"] {
                 if point == "afterSettle" {
                     // The tied listing's own timer, at the instant the deadline fired; its settlement leaves the table.
-                    tie(&catalog).await.unwrap();
-                    assert_eq!(pending(&catalog).0, scenario["settledOps"], "{name}: operations once the listing settled");
+                    latest_work(&catalog, "tie").await.unwrap();
+                    assert_eq!(pending_ops(&catalog).0, scenario["settledOps"], "{name}: operations once the listing settled");
                 }
-                let outcome = catalog.refresh_asking(&sources, Ask::Due).await;
-                for (provider, error) in &outcome.failed {
-                    codes.insert(provider.clone(), error.code.clone());
-                }
-                let snapshot = catalog.snapshot();
-                let entries: Vec<serde_json::Value> = sources
-                    .iter()
-                    .map(|s| {
-                        let provider = s.provider();
-                        let mut entry = serde_json::json!({
-                            "name": provider.as_str(),
-                            "models": snapshot.models_of(provider).iter().map(|m| m.id.clone()).collect::<Vec<_>>(),
-                        });
-                        if let Some(ProviderStatus::Missing { retry_at, message }) = snapshot.status.get(provider) {
-                            entry["error"] = serde_json::json!({ "code": codes[provider], "message": message });
-                            entry["retryAt"] = serde_json::json!(retry_at - now);
-                        }
-                        entry
-                    })
-                    .collect();
-                let recorded = &scenario[point];
-                assert_eq!(serde_json::Value::Array(entries), recorded["entries"], "{name}: {point} entries");
-                let asked: serde_json::Map<String, serde_json::Value> = sources
-                    .iter()
-                    .zip(&calls)
-                    .map(|(s, c)| (s.provider().as_str().to_owned(), c.load(Ordering::SeqCst).into()))
-                    .collect();
-                assert_eq!(serde_json::Value::Object(asked), recorded["calls"], "{name}: providers asked by {point}");
-                assert_eq!(serde_json::json!(at()), recorded["at"], "{name}: time of {point}");
-                let (names, stalled) = pending(&catalog);
-                assert_eq!(names, recorded["pendingOps"], "{name}: operations pending after {point}");
-                assert_eq!(stalled, recorded["stalled"], "{name}: operations stalled after {point}");
+                read_as_recorded(&catalog, &sources, &calls, &mut codes, now, &at, &scenario[point], &format!("{name}: {point}")).await;
             }
-            // A listing the last read started runs to its end before the next scenario, as the recorder drives it.
-            let left = catalog.flights.lock().unwrap().latest.values().map(|f| f.work.clone()).collect::<Vec<_>>();
-            for work in left {
-                let _ = work.await;
-            }
-            assert!(catalog.flights.lock().unwrap().running.is_empty(), "{name}: nothing pends at the end");
+            drain(&catalog, name).await;
         }
+    }
+
+    /// `record-catalog-deadline-tie.mjs` `crossEpoch`: a listing overruns its deadline, an account change opens a new
+    /// epoch, and the new epoch's read fails on the still-unsettled operation ("ignored its deadline") without asking
+    /// the provider; once that listing settles a read asks again. Each point against its own recording.
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_listing_holds_its_provider_across_an_account_change_as_nodes() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/catalog-deadline-tie/golden.json")).unwrap();
+        let now = golden["now"].as_u64().unwrap();
+        let scenario = &golden["crossEpoch"];
+        let name = scenario["name"].as_str().unwrap();
+        let start = tokio::time::Instant::now();
+        let at = move || start.elapsed().as_millis() as u64;
+        // The recorder's virtual clock runs on from the scenarios before this one.
+        tokio::time::advance(Duration::from_millis(scenario["startedAt"].as_u64().unwrap())).await;
+        let catalog = ProviderCatalog::new(CatalogSnapshot::default()).with_clock(Arc::new(move || now + at()));
+        let (sources, calls): (Vec<_>, Vec<_>) = scenario["providers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| slow(p["name"].as_str().unwrap(), Some(Duration::from_millis(p["answersAfterMs"].as_u64().unwrap()))))
+            .unzip();
+        let mut codes = BTreeMap::new();
+        for point in ["first", "afterAccountChange", "afterSettle"] {
+            match point {
+                "afterAccountChange" => catalog.invalidate_accounts(),
+                "afterSettle" => {
+                    // The old epoch's listing runs to its own timer; its settlement leaves both tables.
+                    latest_work(&catalog, "stall").await.unwrap();
+                    let (ops, stalled) = pending_ops(&catalog);
+                    assert_eq!(ops, scenario["settledOps"], "{name}: operations once the listing settled");
+                    assert_eq!(stalled, scenario["settledStalled"], "{name}: stalled operations once it settled");
+                }
+                _ => {}
+            }
+            read_as_recorded(&catalog, &sources, &calls, &mut codes, now, &at, &scenario[point], &format!("{name}: {point}")).await;
+        }
+        drain(&catalog, name).await;
+    }
+
+    /// The latest operation's work for `provider`.
+    fn latest_work(catalog: &ProviderCatalog, provider: &str) -> Shared<BoxFuture<'static, Listing>> {
+        catalog.flights.lock().unwrap().latest[&ProviderId::from(provider)].work.clone()
+    }
+
+    /// `pendingProviderCatalogOps()` and `stalledProviderCatalogOps()`.
+    fn pending_ops(catalog: &ProviderCatalog) -> (serde_json::Value, serde_json::Value) {
+        let flights = catalog.flights.lock().unwrap();
+        let names: Vec<&str> = flights.latest.keys().map(ProviderId::as_str).collect();
+        let stalled: Vec<serde_json::Value> = flights
+            .running
+            .iter()
+            .flat_map(|(p, ops)| ops.iter().filter(|f| f.timed_out.load(Ordering::SeqCst)).map(move |_| p))
+            .map(|p| serde_json::json!({ "name": p.as_str(), "kind": "list" }))
+            .collect();
+        (serde_json::json!(names), serde_json::Value::Array(stalled))
+    }
+
+    /// One unforced read, compared with its recorded point: entries, provider calls, time, pending and stalled
+    /// operations. `codes` keeps the latest listing's error code per provider: what Node's kept entry carries.
+    #[allow(clippy::too_many_arguments)]
+    async fn read_as_recorded(
+        catalog: &ProviderCatalog,
+        sources: &[ModelSource],
+        calls: &[Arc<AtomicU64>],
+        codes: &mut BTreeMap<ProviderId, Option<String>>,
+        now: u64,
+        at: &impl Fn() -> u64,
+        recorded: &serde_json::Value,
+        label: &str,
+    ) {
+        let outcome = catalog.refresh_asking(sources, Ask::Due).await;
+        for (provider, error) in &outcome.failed {
+            codes.insert(provider.clone(), error.code.clone());
+        }
+        let snapshot = catalog.snapshot();
+        let entries: Vec<serde_json::Value> = sources
+            .iter()
+            .map(|s| {
+                let provider = s.provider();
+                let mut entry = serde_json::json!({
+                    "name": provider.as_str(),
+                    "models": snapshot.models_of(provider).iter().map(|m| m.id.clone()).collect::<Vec<_>>(),
+                });
+                if let Some(ProviderStatus::Missing { retry_at, message }) = snapshot.status.get(provider) {
+                    entry["error"] = serde_json::json!({ "code": codes[provider], "message": message });
+                    entry["retryAt"] = serde_json::json!(retry_at - now);
+                }
+                entry
+            })
+            .collect();
+        assert_eq!(serde_json::Value::Array(entries), recorded["entries"], "{label} entries");
+        let asked: serde_json::Map<String, serde_json::Value> = sources
+            .iter()
+            .zip(calls)
+            .map(|(s, c)| (s.provider().as_str().to_owned(), c.load(Ordering::SeqCst).into()))
+            .collect();
+        assert_eq!(serde_json::Value::Object(asked), recorded["calls"], "{label}: providers asked");
+        assert_eq!(serde_json::json!(at()), recorded["at"], "{label}: time");
+        let (names, stalled) = pending_ops(catalog);
+        assert_eq!(names, recorded["pendingOps"], "{label}: operations pending");
+        assert_eq!(stalled, recorded["stalled"], "{label}: operations stalled");
+    }
+
+    /// A listing the last read started runs to its end, as the recorder drives it; nothing pends afterwards.
+    async fn drain(catalog: &ProviderCatalog, name: &str) {
+        let left = catalog.flights.lock().unwrap().latest.values().map(|f| f.work.clone()).collect::<Vec<_>>();
+        for work in left {
+            let _ = work.await;
+        }
+        assert!(catalog.flights.lock().unwrap().running.is_empty(), "{name}: nothing pends at the end");
     }
 
     #[tokio::test(start_paused = true)]
