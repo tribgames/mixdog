@@ -1085,12 +1085,21 @@ mod tests {
 
         /// The stored header equals the recorded session `want` in full, but for the times (Node's are its own clock's).
         async fn assert_header_is(&self, want: &Value, what: &str) {
+            self.assert_header_is_but(want, what, &[]).await;
+        }
+
+        /// [`Self::assert_header_is`] but for the `skipped` fields, which both headers still hold.
+        async fn assert_header_is_but(&self, want: &Value, what: &str, skipped: &[&str]) {
             use mixdog_core_ports::ports::threads::ThreadState;
             let mut got = self.replay.threads.header(&self.id).await.expect("the session");
             let mut want = self.replay.recorded_header(want);
             for header in [&mut got, &mut want] {
                 assert!(header.get("updatedAt").is_some_and(Value::is_number), "{what}: a stored time");
                 header.remove("updatedAt");
+                for field in skipped {
+                    assert!(header.contains_key(*field), "{what}: {field} is held");
+                    header.remove(*field);
+                }
             }
             let mut differing = Vec::new();
             differences(&Value::Object(got), &Value::Object(want), "$", &mut differing);
@@ -1128,6 +1137,39 @@ mod tests {
         let folder_seen = |header: &Header| header.get("cwd") == gated.golden["inFlight"].get("movedTo");
         assert_eq!(folder_seen(&seen[1]), order[0] == "folder", "the second write computed from the header the first left");
         gated.assert_header_is(&gated.golden["inFlight"][recorded], recorded).await;
+    }
+
+    /// A route change to another model on a session holding a value its tool surface is resolved from that is not what it
+    /// should be (`schemaAllowedTools`, `mcpScopeId`, `agent`, `preset`, `cwd`, `disallowedTools`): as in Node's pass (no
+    /// throw), the change commits, the model changes, and the stored header equals Node's in full.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_route_change_over_malformed_surface_values_ends_as_nodes_ends() {
+        use mixdog_core_ports::ports::route::RouteSession;
+        use mixdog_core_ports::ports::threads::HeaderUpdates;
+        let probes = Gated::new().await.golden["inFlight"]["surfaceProbes"].as_array().cloned().expect("the recorded probes");
+        assert_eq!(probes.len(), 6);
+        for probe in probes {
+            let key = probe["key"].as_str().expect("key").to_owned();
+            let gated = Gated::new().await;
+            let mut route: Route = gated.golden["inFlight"]["fields"].as_object().cloned().expect("the recorded route fields");
+            let other = probe["model"].as_str().expect("model").to_owned();
+            route.insert("model".into(), json!(other));
+            let value = probe["value"].clone();
+            let held = (key.clone(), value);
+            gated
+                .replay
+                .threads
+                .update_header(&gated.id, Box::new(move |_| mixdog_store::schema::record::HeaderChange { set: [held].into_iter().collect(), unset: Vec::new() }))
+                .await
+                .expect("the malformed value");
+            assert!(probe["thrown"].is_null(), "{key}: Node did not throw");
+            let wrote = gated.replay.adapter.update_route(&gated.id, route, false).await;
+            assert!(wrote.is_ok(), "{key}: the route change did not fail: {wrote:?}");
+            // The tool list and its spec are the surface the route change resolves from the tool pool; this replay wires none,
+            // so they stay as the seed left them (`resume_tools`' `malformed_values_resolve_as_nodes_do` replays the spec
+            // against these same probes). The reset's time is the replay clock's, Node's is its own.
+            gated.assert_header_is_but(&probe["header"], &key, &["tools", "toolSpec", "lastContextTokensUpdatedAt"]).await;
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

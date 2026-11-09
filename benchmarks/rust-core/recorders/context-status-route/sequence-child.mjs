@@ -63,7 +63,7 @@ for (const [key, value] of [['schemaAllowedTools', 5], ['mcpScopeId', {}], ['age
   } catch (error) {
     thrown = String(error?.message || error);
   }
-  out.surfaceProbes.push({ key, value, thrown, model: session.model });
+  out.surfaceProbes.push({ key, value, thrown, model: session.model, header: headerOf(session) });
 }
 process.stdout.write(`RESULT ${JSON.stringify(out)}\n`);
 process.exit(0);
