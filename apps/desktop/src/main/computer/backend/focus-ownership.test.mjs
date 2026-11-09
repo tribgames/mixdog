@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +8,38 @@ import test from 'node:test';
 import { PS_RUNTIME } from './ps-runtime.ts';
 import { PS_INPUT } from './ps-input.ts';
 import { loadComputerSource } from './native-assets.ts';
+
+/** Runs the fixture script. Each time the stub reports that it is waiting for
+ *  the delayed steal, the steal is released with one stdin line; the script's
+ *  last stdout line is the JSON result. */
+async function runWithStealTriggers(directory) {
+  const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')], {
+    timeout: 90000,
+    windowsHide: true,
+    env: { ...process.env, FIXTURE_DIRECTORY: directory },
+  });
+  const output = [];
+  let partial = '';
+  let stderr = '';
+  child.stderr.setEncoding('utf8').on('data', (chunk) => {
+    stderr += chunk;
+  });
+  child.stdin.on('error', () => {});
+  child.stdout.setEncoding('utf8').on('data', (chunk) => {
+    const lines = (partial + chunk).split(/\r?\n/);
+    partial = lines.pop();
+    for (const line of lines) {
+      if (line === 'awaiting-steal') child.stdin.write('steal\n');
+      else output.push(line);
+    }
+  });
+  const code = await new Promise((resolve, reject) => {
+    child.on('error', reject);
+    child.on('close', resolve);
+  });
+  assert.equal(code, 0, stderr);
+  return JSON.parse([...output, partial].join('\n').trim());
+}
 
 test('session release leaves focus alone, and background input returns it only while the user did not move it', {
   skip: process.platform !== 'win32' && 'Windows only',
@@ -47,14 +79,29 @@ public static class MixWin32 {
   // Reads left before a delayed steal lands; negative means none is pending.
   public static int StealAfterReads = -1;
   public static IntPtr StealWith;
-  // A steal that lands this many ms after ArmSteal, whenever the foreground is next read.
-  static System.Diagnostics.Stopwatch stealClock = new System.Diagnostics.Stopwatch();
-  static long stealAtMs = -1;
-  public static void ArmSteal(long ms) { stealAtMs = ms; stealClock.Restart(); }
+  // A steal the test triggers. PlanSteal is called before the call under test;
+  // ArmSteal inside the operation. The first foreground read after that reports
+  // "awaiting-steal" on stdout and blocks until the test answers with a line on
+  // stdin, then the steal lands on that read. An unlock waits for the planned
+  // steal to land, so the steal always falls inside the lock's hold, however
+  // long the test takes to answer.
+  public static bool StealPlanned, StealArmed;
+  static readonly System.Threading.ManualResetEvent StealLanded = new System.Threading.ManualResetEvent(true);
+  public static void PlanSteal() { StealLanded.Reset(); StealPlanned = true; }
+  public static void ArmSteal() { StealArmed = true; }
+  static void AwaitSteal() {
+    StealArmed = false;
+    Console.Out.WriteLine("awaiting-steal");
+    Console.Out.Flush();
+    Console.In.ReadLine();
+    TrySteal(StealWith);
+    StealPlanned = false;
+    StealLanded.Set();
+  }
   public static IntPtr Foreground() {
     if (StealAfterReads == 0) TrySteal(StealWith);
     if (StealAfterReads >= 0) StealAfterReads--;
-    if (stealAtMs >= 0 && stealClock.ElapsedMilliseconds >= stealAtMs) { stealAtMs = -1; TrySteal(StealWith); }
+    if (StealArmed) AwaitSteal();
     return Current;
   }
   // Window 9 is a packaged app's content window inside frame 1.
@@ -77,6 +124,7 @@ public static class MixWin32 {
       if (!LockGranted || Locked) return false;
       Locks++; Locked = true; LockClock.Restart(); return true;
     }
+    if (StealPlanned) StealLanded.WaitOne();
     if (!Locked) return false;
     Unlocks++; Locked = false; HeldMs = LockClock.ElapsedMilliseconds; return true;
   }
@@ -336,10 +384,11 @@ foreach($scenario in @('restolen','restore_refused')) {
     restore=[string]$reply.foreground_lock.restore}
 }
 [MixWin32]::Resteals=0; [MixWin32]::RestoreRefuses=$false
-# A self-activation that lands 150 ms after the call returned: the 250 ms hold
-# still covers it, and without a lock the watch, which lasts as long as the hold
-# would have, still does, so it gets the one restore. A steal that gets past the lock and
-# lifts it (the worker's unlocks then answer false: unknown) is restored too.
+# A self-activation that lands after the call returned, while the hold is still
+# in force: the hold refuses it, and without a lock the watch still sees it, so
+# it gets the one restore. A steal that gets past the lock and lifts it (the
+# worker's unlocks then answer false: unknown) is restored too. The test releases
+# the steal once the watch is reading the foreground.
 $fake.Grants=$false
 # A self-activating target, so the hold, and the watch, last 250 ms.
 [MixWin32]::SelfActivating=$true
@@ -351,9 +400,9 @@ foreach($scenario in @('locked_delayed_steal','unlocked_delayed_steal','own_lock
   [MixWin32]::FocusCalls=0; [MixWin32]::Current=[IntPtr]2; [MixWin32]::HeldMs=-1
   [MixWin32]::Locks=0; [MixWin32]::Unlocks=0; [MixWin32]::RefusedSteals=0
   [MixInputObservation]::Current=New-Object ObservedInput
-  $stealMs = $(if ($scenario -eq 'own_lock_lifted') { 50 } else { 150 })
+  [MixWin32]::PlanSteal()
   $reply=Invoke-BackgroundWindow ([IntPtr]1) {
-    [MixWin32]::ArmSteal($stealMs)
+    [MixWin32]::ArmSteal()
     @{ delivery_accepted=$true; delivery='background'; text='invoked' }
   }
   $results+=@{scenario=$scenario; restored=([MixWin32]::Current -eq [IntPtr]2); calls=[MixWin32]::FocusCalls;
@@ -371,12 +420,7 @@ $results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32
 [Console]::WriteLine(($results | ConvertTo-Json -Compress))
 `
     );
-    const result = await promisify(execFile)(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')],
-      { timeout: 90000, windowsHide: true, env: { ...process.env, FIXTURE_DIRECTORY: directory } }
-    );
-    const rows = JSON.parse(result.stdout.trim());
+    const rows = await runWithStealTriggers(directory);
     assert.deepEqual(
       rows.map((row) => row.calls),
       [0, 1, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 0],

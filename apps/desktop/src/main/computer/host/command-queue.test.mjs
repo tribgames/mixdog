@@ -170,49 +170,70 @@ test('a background focus guard waits for another session foreground work, then r
 test('background focus guards and foreground work never overlap in either order', {
   timeout: 3000,
 }, async (t) => {
-  const releases = {};
   const started = [];
   let running = 0;
   let maxRunning = 0;
+  const deferred = () => {
+    const slot = {};
+    slot.promise = new Promise((resolve) => {
+      slot.resolve = resolve;
+    });
+    return slot;
+  };
+  // Per session: `begun` settles when its command is dispatched, `releases` lets it finish.
+  const begun = {};
+  const releases = {};
+  const signal = (map, id) => (map[id] ??= deferred());
+  const dispatched = (id) => signal(begun, id).promise;
+  const release = (id) => signal(releases, id).resolve();
   const f = fixture(t, {
     runCommand: async (command) => {
       started.push(command.session_id);
       maxRunning = Math.max(maxRunning, ++running);
-      await new Promise((resolve) => {
-        releases[command.session_id] = resolve;
-      });
+      signal(begun, command.session_id).resolve();
+      await signal(releases, command.session_id).promise;
       running--;
       return { text: 'done' };
     },
   });
   t.after(() => {
-    for (const release of Object.values(releases)) release();
+    for (const slot of Object.values(releases)) slot.resolve();
   });
+  // The foreground lane reports a request that is waiting behind another one.
+  const waitingInLane = async (id) => {
+    let stop;
+    await new Promise((resolve) => {
+      stop = f.coordinator.subscribe((snapshot) => {
+        if (snapshot.activities.some((row) => row.sessionId === id && row.phase === 'queued_foreground')) resolve();
+      });
+    });
+    stop();
+  };
   const pointer = f.host.executeSerialized({ action: 'click', delivery: 'foreground', session_id: 'pointer' });
-  await turn();
+  await dispatched('pointer');
   const guard = f.host.executeSerialized({ action: 'invoke', ref: 's1:e0', session_id: 'guard' });
-  await turn();
+  await waitingInLane('guard');
   const laterGuard = f.host.executeSerialized({ action: 'toggle', ref: 's1:e1', session_id: 'later' });
-  await turn();
+  await waitingInLane('later');
   assert.deepEqual(started, ['pointer']);
-  releases.pointer();
+  release('pointer');
   await pointer;
-  await turn();
+  await dispatched('guard');
   assert.deepEqual(started, ['pointer', 'guard']);
-  releases.guard();
+  release('guard');
   await guard;
-  await turn();
+  await dispatched('later');
   assert.deepEqual(started, ['pointer', 'guard', 'later']);
-  releases.later();
+  release('later');
   await laterGuard;
   assert.equal(maxRunning, 1);
   // The other order: foreground work behind a guard is still refused, not run blind.
   const second = f.host.executeSerialized({ action: 'invoke', ref: 's1:e2', session_id: 'guard2' });
-  await turn();
+  await dispatched('guard2');
   const blocked = f.host.executeSerialized({ action: 'click', delivery: 'foreground', session_id: 'pointer2' });
-  await turn();
+  await waitingInLane('pointer2');
   assert.deepEqual(started.slice(3), ['guard2']);
-  releases.guard2();
+  release('guard2');
   await second;
   await blocked;
   assert.equal(maxRunning, 1);
