@@ -9,7 +9,7 @@ use serde_json::Value;
 
 #[test]
 fn the_saved_scope_and_the_answer_match_node_in_every_recorded_case() {
-    let golden: Value = serde_json::from_str(include_str!("golden/scope.json")).unwrap();
+    let golden: Value = serde_json::from_str(include_str!("../golden/scope.json")).unwrap();
     // Relative roots resolve against the directory Node recorded them in.
     std::env::set_current_dir(golden["cwd"].as_str().unwrap()).unwrap();
     let cases = golden["cases"].as_array().unwrap();
