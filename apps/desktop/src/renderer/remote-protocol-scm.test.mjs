@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { adapter } from './remote-protocol-scm.ts';
+import { callQueueFor, runQueued } from './remote-protocol-queue.ts';
 import { SCM_OPERATION_ROUTES } from '../shared/scm-operation-route.ts';
 import { scopeClient } from '../../../mobile/src/phone-send-scope.ts';
 
@@ -139,7 +140,8 @@ test('phone-scm keeps Node\'s barrier: a read submitted behind a slow write star
   };
   // The router gives every call a host object of its own (a client scoped to the call); only the connection's context is shared.
   const ctx = {};
-  const answers = ordering.calls.map(({ call, params }) => adapter.calls[call](clone(params), { ctx, client: () => core }).then((value) => ({ ok: true, value: value === undefined ? null : clone(value) })));
+  // Every call enters through the router's one shared queue, as remote-shim-protocol.ts sends it.
+  const answers = ordering.calls.map(({ call, params }) => runQueued(ctx, call, clone(params), () => adapter.calls[call](clone(params), { ctx, client: () => core })).then((value) => ({ ok: true, value: value === undefined ? null : clone(value) })));
   // The write signals from inside the operation, held: that is when Node's recording took the same snapshot.
   // A write that never started leaves nothing to signal: then every call finishes without reaching it, and that is the failure to name.
   const outcome = await Promise.race([reached.then(() => 'held'), Promise.allSettled(answers).then(() => 'every call finished')]);
@@ -148,11 +150,14 @@ test('phone-scm keeps Node\'s barrier: a read submitted behind a slow write star
   release();
   assert.deepEqual(await Promise.all(answers), ordering.answers);
   assert.deepEqual(log, ordering.order);
+  callQueueFor(ctx).close();
 });
 test('phone-scm checks an absolute path by the platform of the PC\'s initialize answer', async () => {
   const asked = [];
   const on = (platformFamily) => ({ ctx: {}, client: () => ({ server: { platformFamily }, call: async (method) => (asked.push(method), null) }) });
-  const status = (cwd, platformFamily) => adapter.calls.gitStatus([cwd], on(platformFamily));
+  // The router runs the handler in the call's queue slot, so an argument check that throws is a rejection.
+  const run = (call, params, platformFamily) => runQueued({}, call, params, async () => adapter.calls[call](params, on(platformFamily)));
+  const status = (cwd, platformFamily) => run('gitStatus', [cwd], platformFamily);
   await assert.rejects(status('C:\\repo', 'unix'), { message: 'A project directory is required.' });
   await assert.rejects(status('\\repo', 'unix'), { message: 'A project directory is required.' });
   assert.deepEqual(asked, []);
@@ -160,8 +165,8 @@ test('phone-scm checks an absolute path by the platform of the PC\'s initialize 
   await status('C:\\repo', 'windows');
   await status('/repo', 'windows');
   assert.deepEqual(asked, ['git/status', 'git/status', 'git/status']);
-  await assert.rejects(adapter.calls.gitDiff(['/repo', 'C:\\x'], on('windows')), { message: 'git path is invalid.' });
-  await adapter.calls.gitDiff(['/repo', 'C:\\x'], on('unix'));
+  await assert.rejects(run('gitDiff', ['/repo', 'C:\\x'], 'windows'), { message: 'git path is invalid.' });
+  await run('gitDiff', ['/repo', 'C:\\x'], 'unix');
 });
 test('phone-scm forwards the call\'s `sent` claim on every request it writes (the router scopes the client per call)', async () => {
   const claim = () => {};

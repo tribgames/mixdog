@@ -34,7 +34,6 @@ import {
   requiredReviewDiffFiles,
   requiredString,
 } from '../shared/scm-input';
-import { createRemoteCallQueue } from '../main/remote-call-queue';
 import type { NodeCall, PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
 
 /** The part of the protocol client this group uses. */
@@ -251,31 +250,5 @@ const calls: Record<string, NodeCall> = {
     ghPrDiff: operation('ghPrDiff', ([cwd, number], os) => [requiredRepositoryCwd(cwd, os), number]),
 };
 
-/** Node's per-connection barrier (remote-call-queue.ts, the module itself): a read waits for the writes queued before it, a
- *  write waits for everything before it, and the slow reads (gitReview*, ghPr*, githubCli*) ride their own lane. Calls of
- *  other groups on the same connection are not in this queue (each adapter orders its own). */
-const queues = new WeakMap<object, ReturnType<typeof createRemoteCallQueue>>();
-// The router hands each call its own host object (a scoped client per call); the connection's context is the one thing they share.
-const queueOf = (host: PhoneProtocolHost): ReturnType<typeof createRemoteCallQueue> => {
-  let queue = queues.get(host.ctx);
-  if (!queue) {
-    queue = createRemoteCallQueue();
-    queues.set(host.ctx, queue);
-  }
-  return queue;
-};
-
-const ordered = (name: string, call: NodeCall): NodeCall => (params, host) => {
-  let answer: unknown;
-  return queueOf(host)
-    .run(name, async () => {
-      answer = await call(params, host);
-    })
-    .then(() => answer);
-};
-
-export const adapter: PhoneProtocolAdapter = {
-  group: 'scm',
-  calls: Object.fromEntries(Object.entries(calls).map(([name, call]) => [name, ordered(name, call)])),
-  install: (host) => () => queueOf(host).close(),
-};
+// Ordering is the router's: every call of this group runs through the shared per-connection queue (remote-protocol-queue.ts runQueued).
+export const adapter: PhoneProtocolAdapter = { group: 'scm', calls };
