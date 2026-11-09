@@ -23,7 +23,7 @@ import {
   SERVER_PLATFORM_TARGETS,
 } from '../src/main/ssh/server-manifest.mjs';
 
-import { desktopJsRuntimeManifest, desktopOrtLibraryPath, JS_RUNTIME_MANIFEST, verifyCoreInstall } from './core-layout.mjs';
+import { desktopJsRuntimeManifest, desktopOrtLibraryPath, JS_RUNTIME_MANIFEST, verifyRemotePayload } from './core-layout.mjs';
 import { buildJsPayload, createBundleArchive } from './stage-js-bundle.mjs';
 
 const BUNDLE_FILE = 'bundle.tgz';
@@ -42,11 +42,9 @@ export { JS_RUNTIME_MANIFEST };
 export const jsRuntimeManifest = desktopJsRuntimeManifest;
 export const ortLibraryPath = desktopOrtLibraryPath;
 
-/** A server payload is complete before it is archived: layout, extension-host closure, ONNX Runtime library. */
-export async function verifyRemotePayload({ key, payloadDir }) {
-  const [platform, arch] = key.split('-');
-  verifyCoreInstall({ manifestDir: payloadDir, kind: 'remote', platform, arch });
-}
+/** A server payload is complete before it is archived (core-layout.mjs), and the staged package is verified
+ *  again with the same check (verify-staged-package.mjs). */
+export { verifyRemotePayload };
 
 async function builtBinary(targetDir, target, platform) {
   const file = join(targetDir, target, 'release', binaryName(platform));

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
@@ -15,48 +15,7 @@ import {
   verifyCoreInstall,
   verifyCoreTree,
 } from './core-layout.mjs';
-
-const put = (file, text = 'x') => {
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, text);
-};
-
-const LIBRARY = { win32: 'onnxruntime.dll', linux: 'libonnxruntime.so.1', darwin: 'libonnxruntime.1.dylib' };
-const SIBLINGS = {
-  win32: ['onnxruntime_binding.node', 'DirectML.dll','msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_atomic_wait.dll', 'vcruntime140.dll', 'vcruntime140_1.dll'],
-  linux: ['onnxruntime_binding.node'],
-  darwin: ['onnxruntime_binding.node'],
-};
-
-/** A `node_modules` holding the package (the files the core reads, an ext host reaching `alpha`, which
- *  depends on `beta`) and, where the platform has one, the ONNX Runtime directory. */
-function modulesTree(modules, platform, arch) {
-  const mixdog = join(modules, 'mixdog');
-  for (const file of CORE_READS.files) put(join(mixdog, file), file.endsWith('.json') ? '{}' : '');
-  put(join(mixdog, 'src/ext-host/worker.mjs'), "import 'alpha';\n");
-  put(join(mixdog, 'src/skill-script-entry.mjs'), '');
-  for (const dir of CORE_READS.dirs) put(join(mixdog, dir, 'file.md'));
-  put(join(modules, 'alpha/package.json'), JSON.stringify({ name: 'alpha', dependencies: { beta: '1' } }));
-  put(join(modules, 'beta/package.json'), JSON.stringify({ name: 'beta' }));
-  put(join(modules, CLOSURE_RECORD), JSON.stringify({ skippedOptional: [] }));
-  if (platform === 'darwin' && arch === 'x64') return;
-  const binary = join(modules, 'onnxruntime-node', ortBinaryDir(platform, arch));
-  put(join(binary, LIBRARY[platform]));
-  for (const sibling of SIBLINGS[platform]) put(join(binary, sibling));
-}
-
-/** `resources/` of a desktop package or `payload/` of a server bundle, complete for `platform`/`arch`. */
-function install(kind, platform, arch) {
-  // The desktop's resources sit one level inside its app directory: the interpreter is `../../<app>` of core/.
-  const top = makeTempDirSync(`core-layout-${kind}`);
-  const root = kind === 'desktop' ? join(top, 'resources') : top;
-  const manifest = (kind === 'desktop' ? desktopJsRuntimeManifest : remoteJsRuntimeManifest)(platform, arch);
-  const dir = kind === 'desktop' ? join(root, 'core') : root;
-  put(join(dir, 'js-runtime.json'), JSON.stringify(manifest));
-  put(join(dir, manifest.program));
-  modulesTree(kind === 'desktop' ? join(root, 'runtime.asar.unpacked/node_modules') : join(root, 'js/pkg/node_modules'), platform, arch);
-  return { root, dir, modules: kind === 'desktop' ? join(root, 'runtime.asar.unpacked/node_modules') : join(root, 'js/pkg/node_modules') };
-}
+import { install, LIBRARY, modulesTree, put } from './core-layout-fixture.mjs';
 
 const verify = (kind, { dir }, platform, arch, extra = {}) => verifyCoreInstall({ manifestDir: dir, kind, platform, arch, ...extra });
 
@@ -95,6 +54,11 @@ test('an incomplete install names what is missing', () => {
   };
   // What the core reads with plain fs.
   broken('desktop', 'linux', 'x64', ({ modules }) => rmSync(join(modules, 'mixdog/src/rules'), { recursive: true }), /missing or empty src\/rules/);
+  // Every directory the core reads is required, the workflow packs included (workflow/pack.rs).
+  assert.ok(CORE_READS.dirs.includes('src/workflows'));
+  for (const dir of CORE_READS.dirs) {
+    broken('remote', 'linux', 'x64', ({ modules }) => rmSync(join(modules, 'mixdog', dir), { recursive: true }), new RegExp(`missing or empty ${dir}`));
+  }
   broken('desktop', 'linux', 'x64', ({ modules }) => rmSync(join(modules, 'mixdog/package.json')), /missing file package\.json/);
   // The interpreter of the desktop is its app; a staged resources dir has none yet.
   broken('desktop', 'linux', 'x64', ({ root }) => rmSync(join(root, '..', 'mixdog-desktop')), /interpreter .* does not exist/);
