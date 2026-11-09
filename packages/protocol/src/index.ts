@@ -868,6 +868,17 @@ export type CoreDrainParams = { drainId: string, running: Array<DrainRunning>, c
 export type CoreState = { "state": "serving" } | { "state": "migrating", kind: string, done: number, total: number, } | { "state": "draining", reason: DrainReason, };
 
 /**
+ * How this core start's one-time `desktop` defaults separation ended (Node's app-ready `separateDefaults`). A
+ * failure never stops the core; the desktop records it in its own diagnostics log as `defaults-separation-failed`
+ * with `{ message }`, and the next start tries again.
+ */
+export type DefaultsSeparation = { ok: boolean,
+/**
+ * The failure's `error.message`, as Node's catch received it; absent when `ok`.
+ */
+message?: string, };
+
+/**
  * Feed a server notification travels on (P §6, DS §2.1).
  */
 export type Delivery = "thread" | "app" | { "scoped": ScopedFeedKind } | "anyScoped" | "connection";
@@ -1608,7 +1619,11 @@ modelProxy?: boolean, };
 
 export type InitializeParams = { clientInfo: ClientInfo, capabilities?: InitializeCapabilities, };
 
-export type InitializeResponse = { userAgent: string, platformFamily: string, platformOs: string, serverVersion: string, serverBuild: string,
+export type InitializeResponse = {
+/**
+ * Set once per core start, before any connection is served.
+ */
+defaultsSeparation?: DefaultsSeparation, userAgent: string, platformFamily: string, platformOs: string, serverVersion: string, serverBuild: string,
 /**
  * Changes on every core start; a different value means every held epoch is stale.
  */

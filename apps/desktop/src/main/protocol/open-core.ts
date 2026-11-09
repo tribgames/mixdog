@@ -7,6 +7,7 @@ import {
   type InitializeCapabilities,
   type SectionName,
 } from '../../../../../packages/protocol-client/src/index.ts';
+import type { InitializeResponse } from '../../../../../packages/protocol/src/index';
 import { SECTION_NAMES } from '../../shared/contract-sections';
 import type { ConnectionClient } from './connection';
 import { createWsConnector, type WsEndpoint } from './ws-connector';
@@ -22,9 +23,11 @@ export interface OpenCoreOptions {
   version: string;
   build?: string;
   capabilities: InitializeCapabilities;
+  /** Called with each initialize reply this opener's connect received, before the connection is handed on. */
+  onInitialized?(reply: InitializeResponse): void;
 }
 
-export function openCore({ resolve, version, build, capabilities }: OpenCoreOptions): () => Promise<ConnectionClient> {
+export function openCore({ resolve, version, build, capabilities, onInitialized }: OpenCoreOptions): () => Promise<ConnectionClient> {
   const connector = createWsConnector(resolve);
   return async () => {
     const client = await connect({
@@ -36,6 +39,8 @@ export function openCore({ resolve, version, build, capabilities }: OpenCoreOpti
       clock: { sleep: (ms) => new Promise((done) => setTimeout(done, ms)) },
       random: Math.random,
     });
+    // The library's reply type comes from the installed @mixdog/protocol, which is the repository's own package once installed from it.
+    onInitialized?.(client.server as InitializeResponse);
     return client as unknown as ConnectionClient;
   };
 }
