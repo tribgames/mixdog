@@ -54,14 +54,20 @@ for (const busy of [false, true]) {
       state = { ...state, queued: [...state.queued, { id, text: entry.text, priority: entry.priority }] };
     }
     const reply = ops.prioritizeQueued(selectedId);
+    const pendingAfter = bag.pending.map((entry) => ({ id: entry.id, priority: entry.priority }));
+    // What the kicked drain takes (`dequeueQueueBatch('later')`, the batch `drain` runs; a busy session defers it to the
+    // turn's settling): the entries it takes out of `pending`, and what stays.
+    const drained = kicked ? ops.dequeueQueueBatch('later').map((entry) => entry.id) : null;
     prioritize.push({
       name,
       busy,
       queued,
       selectedId,
       reply,
-      pendingAfter: bag.pending.map((entry) => ({ id: entry.id, priority: entry.priority })),
+      pendingAfter,
       kicked,
+      drained,
+      pendingAfterDrain: kicked ? bag.pending.map((entry) => ({ id: entry.id, priority: entry.priority })) : null,
     });
   }
 }

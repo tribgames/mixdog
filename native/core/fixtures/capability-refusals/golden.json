@@ -41,7 +41,9 @@
         "priority": "now"
       },
       "pendingAfter": [],
-      "kicked": 0
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
     },
     {
       "name": "the entry is not among the queued ones",
@@ -66,7 +68,9 @@
           "priority": "next"
         }
       ],
-      "kicked": 0
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
     },
     {
       "name": "a blank id",
@@ -86,7 +90,9 @@
           "priority": "next"
         }
       ],
-      "kicked": 0
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
     },
     {
       "name": "the only queued entry",
@@ -108,7 +114,11 @@
           "priority": "now"
         }
       ],
-      "kicked": 1
+      "kicked": 1,
+      "drained": [
+        "q1"
+      ],
+      "pendingAfterDrain": []
     },
     {
       "name": "a later queued entry",
@@ -140,7 +150,20 @@
           "priority": "next"
         }
       ],
-      "kicked": 1
+      "kicked": 1,
+      "drained": [
+        "q2"
+      ],
+      "pendingAfterDrain": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q3",
+          "priority": "next"
+        }
+      ]
     },
     {
       "name": "nothing is queued",
@@ -153,7 +176,9 @@
         "priority": "now"
       },
       "pendingAfter": [],
-      "kicked": 0
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
     },
     {
       "name": "the entry is not among the queued ones",
@@ -178,7 +203,9 @@
           "priority": "next"
         }
       ],
-      "kicked": 0
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
     },
     {
       "name": "a blank id",
@@ -198,7 +225,9 @@
           "priority": "next"
         }
       ],
-      "kicked": 0
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
     },
     {
       "name": "the only queued entry",
@@ -220,7 +249,11 @@
           "priority": "now"
         }
       ],
-      "kicked": 1
+      "kicked": 1,
+      "drained": [
+        "q1"
+      ],
+      "pendingAfterDrain": []
     },
     {
       "name": "a later queued entry",
@@ -252,7 +285,20 @@
           "priority": "next"
         }
       ],
-      "kicked": 1
+      "kicked": 1,
+      "drained": [
+        "q2"
+      ],
+      "pendingAfterDrain": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q3",
+          "priority": "next"
+        }
+      ]
     }
   ]
 }

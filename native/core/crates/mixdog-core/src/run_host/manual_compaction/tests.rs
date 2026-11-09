@@ -133,7 +133,7 @@ fn a_plan_and_its_commit_count_the_system_blocks_of_the_request() {
             now,
             started_at: now,
             commit_started_at: now,
-            committed_at: now,
+            committed_at: std::sync::Arc::new(move || now),
         };
         let (working, result) = committed_header(&facts, &header, &[]);
         assert_eq!(&result, value, "{name}: the reply");
@@ -151,6 +151,7 @@ fn a_plan_and_its_commit_count_the_system_blocks_of_the_request() {
 fn a_committed_header_equals_nodes_session() {
     let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/compaction-commit/golden.json")).expect("golden json");
     let now = golden["now"].as_f64().expect("now");
+    let sampled = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let (mut differ, mut compared) = (Vec::new(), 0);
     for case in golden["cases"].as_array().expect("cases") {
         let name = case["name"].as_str().expect("name");
@@ -197,7 +198,7 @@ fn a_committed_header_equals_nodes_session() {
             now,
             started_at: now,
             commit_started_at: now,
-            committed_at: now,
+            committed_at: { let sampled = sampled.clone(); std::sync::Arc::new(move || { sampled.fetch_add(1, std::sync::atomic::Ordering::SeqCst); now }) },
         };
         let appended: Vec<(ItemId, Value)> = appended_rows.iter().enumerate().map(|(n, row)| (ItemId::from(format!("late_{n}")), row.clone())).collect();
         let (working, result) = committed_header(&facts, &header, &appended);
@@ -211,6 +212,7 @@ fn a_committed_header_equals_nodes_session() {
         compared += 1;
     }
     assert_eq!(compared, 8, "the recorded cases that commit or leave the transcript");
+    assert_eq!(sampled.load(std::sync::atomic::Ordering::SeqCst), compared, "`recordCompactionTiming` samples the clock once per commit");
     assert!(differ.is_empty(), "{} differ: {}", differ.len(), differ.iter().take(3).cloned().collect::<Vec<_>>().join(" ; "));
 }
 

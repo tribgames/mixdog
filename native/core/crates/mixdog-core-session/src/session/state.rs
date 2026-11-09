@@ -349,6 +349,15 @@ impl SessionState {
                         queued.entry = entry.clone();
                     }
                 }
+                QueueAction::Prioritize => {
+                    if let (Some(at), Some(Slot::Inline(entry))) =
+                        (self.queue.iter().position(|q| q.qid == queue.qid.as_str()), &queue.entry)
+                    {
+                        let mut queued = self.queue.remove(at);
+                        queued.entry = entry.clone();
+                        self.queue.insert(0, queued);
+                    }
+                }
                 QueueAction::Dequeue => self.queue.retain(|q| q.qid != queue.qid.as_str()),
             },
             // The boundary row follows its anchor's rows (and the anchor's earlier boundaries)

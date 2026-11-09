@@ -166,8 +166,9 @@ pub(crate) struct CommitFacts {
     pub started_at: f64,
     /// The start of `commitSessionCompaction`, once the summary pass returned.
     pub commit_started_at: f64,
-    /// `recordCompactionTiming`'s `Date.now()`: the end of the commit, when its header is computed.
-    pub committed_at: f64,
+    /// `recordCompactionTiming`'s `Date.now()`: sampled once the header is built, as Node samples after the record, the fallback title,
+    /// the usage snapshot, the cache-break intent and the reminder re-arming.
+    pub committed_at: Arc<dyn Fn() -> f64 + Send + Sync>,
 }
 
 /// The header of `runSessionCompaction`'s commit (`commitSessionCompaction`): the summary's usage
@@ -198,7 +199,7 @@ pub(crate) fn committed_header(facts: &CommitFacts, header: &Header, appended: &
             now: facts.now,
             started_at: facts.started_at,
             commit_started_at: facts.commit_started_at,
-            committed_at: facts.committed_at,
+            committed_at: facts.commit_started_at,
             fresh: &facts.fresh,
             before_rows: &facts.before_rows,
             compacted_rows: &facts.compacted_rows,
@@ -229,6 +230,13 @@ pub(crate) fn committed_header(facts: &CommitFacts, header: &Header, appended: &
         // The compacted history no longer holds the late-tool announcements nor the settings notices.
         let _ = rearm_late_deferred_tools(&mut working, facts.now as i64);
         rearm_prompt_settings_notice(&mut working);
+    }
+    // `recordCompactionTiming` runs last, changed or not; the record above took a provisional end that this replaces.
+    let committed_at = (facts.committed_at)();
+    if let Some(Value::Object(record)) = working.get_mut("compaction") {
+        record.insert("lastCommittedAt".into(), number(committed_at));
+        record.insert("lastDurationMs".into(), number(committed_at - facts.started_at));
+        record.insert("lastCommitMs".into(), number(committed_at - facts.commit_started_at));
     }
     (working, committed.result)
 }
@@ -343,6 +351,7 @@ impl ManualCompaction for HostManualCompaction {
         let archived = Archived { dropped: output.dropped_count, identities: output.dropped.as_ref().map(|d| json!({ "messageIds": d.message_ids, "callIds": d.call_ids })) };
         let now = self.now();
         let compaction = Compaction { replacement, at: now as i64, dropped_count: output.dropped_count, dropped };
+        let clock = parts.clock.clone();
         let facts = CommitFacts {
             snapshot: snapshot.clone(),
             messages: session_messages.clone(),
@@ -355,13 +364,11 @@ impl ManualCompaction for HostManualCompaction {
             now,
             started_at,
             commit_started_at,
-            committed_at: now,
+            committed_at: Arc::new(move || clock.now_ms() as f64),
         };
         let answer = Arc::new(Mutex::new(None));
         let slot = answer.clone();
-        let clock = parts.clock.clone();
         let header: CompactionHeader = Box::new(move |header, appended| {
-            let facts = CommitFacts { committed_at: clock.now_ms() as f64, ..facts };
             let (mut working, result) = committed_header(&facts, header, appended);
             manual_tail(&mut working, facts.now);
             *slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(result);
