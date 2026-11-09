@@ -137,13 +137,14 @@ const SINGLE: Readonly<Record<string, Single>> = {
 };
 
 // `agentRoomAction(action, args)`: Node's `AgentRooms` methods take positional arguments, the core's `input` is one
-// object (`roomId` plus the patch). `reset` has no op.
+// object (`roomId` plus the patch).
 const ROOM_ACTIONS: Readonly<Record<string, (args: readonly any[]) => ServiceRequest>> = {
   create: ([config]) => ({ method: 'room/create', params: { input: config } }),
   update: ([roomId, patch]) => ({ method: 'room/update', params: { input: { roomId, ...patch } } }),
   continue: ([roomId]) => ({ method: 'room/continue', params: { input: { roomId } } }),
   leave: ([roomId]) => ({ method: 'room/leave', params: { input: { roomId } } }),
   remove: ([roomId]) => ({ method: 'room/remove', params: { input: { roomId } } }),
+  reset: ([roomId]) => ({ method: 'room/reset', params: { input: { roomId } } }),
 };
 
 /** Methods that are not requests of this lane: it refuses them with `unknownMethod`. The client sends the first two through

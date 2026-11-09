@@ -2834,6 +2834,29 @@
     },
     {
       "class": "C2",
+      "method": "room/reset",
+      "mutation": {
+        "domain": "room",
+        "kind": "op"
+      },
+      "opScope": {
+        "domain": "room",
+        "kind": "domain"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "RoomResetParams",
+      "result": "JsonValue",
+      "scope": {
+        "key": "room",
+        "kind": "global"
+      }
+    },
+    {
+      "class": "C2",
       "method": "room/remove",
       "mutation": {
         "domain": "room",

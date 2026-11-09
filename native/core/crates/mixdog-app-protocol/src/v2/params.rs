@@ -1332,6 +1332,21 @@ impl crate::common::HasOpId for RoomLeaveParams {
     }
 }
 
+/// Params of `room/reset`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct RoomResetParams {
+    pub op_id: OpId,
+    pub input: JsonValue,
+}
+
+impl crate::common::HasOpId for RoomResetParams {
+    fn op_id(&self) -> &OpId {
+        &self.op_id
+    }
+}
+
 /// Params of `room/remove`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]

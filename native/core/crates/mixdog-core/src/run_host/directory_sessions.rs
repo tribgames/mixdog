@@ -140,7 +140,8 @@ impl SessionOps for DirectorySessions {
         let thread = ThreadId::from(session_id);
         let view = self.request(&thread, "thread/read", json!({ "threadId": thread })).await.map_err(port)?;
         let kept = view.get("items").and_then(Value::as_array).is_some_and(|items| !items.is_empty());
-        if kept {
+        // No archive id: the conversation is emptied and nothing is kept (`fork: false`).
+        if kept && !archive_as.is_empty() {
             // The copy exists before anything is wiped; the mark keeps it out of the live list.
             let params = Self::op_params(&thread, json!({ "intoThreadId": archive_as }));
             self.request(&thread, "thread/fork", params).await.map_err(port)?;

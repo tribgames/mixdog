@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_app_protocol::v2::params::{RoomContinueParams, RoomCreateParams, RoomLeaveParams, RoomRemoveParams, RoomUpdateParams};
+use mixdog_app_protocol::v2::params::{RoomContinueParams, RoomCreateParams, RoomLeaveParams, RoomRemoveParams, RoomResetParams, RoomUpdateParams};
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::Reply;
@@ -54,6 +54,11 @@ pub trait RoomHost: Send + Sync {
     /// Deletes each session; the number that could not be deleted.
     async fn delete_sessions(&self, session_ids: &[String]) -> usize;
     fn republish_catalog(&self);
+    /// `startSessionOver`: the session is cleared in place and its conversation kept under a new archived id
+    /// (`None` when it had nothing to keep).
+    async fn start_over(&self, session_id: &str) -> Result<Option<String>, RoomError>;
+    /// `resetSessionConversation({ fork: false })`: a member's session is emptied, nothing kept.
+    async fn reset_member(&self, session_id: &str) -> Result<(), RoomError>;
 }
 
 /// The exchange scheduler: one bounded exchange per room at a time, memory-only.
@@ -277,6 +282,34 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
         Ok(json!({}))
     }
 
+    /// "대화 초기화" (`agent-rooms.ts` `reset`): the room's log starts over with the old one archived, every member's
+    /// cursor restarts and each member's own session is emptied. Refused while members are speaking.
+    async fn reset(&self, input: &Value) -> Result<Value, RoomError> {
+        let room_id = room_id_of(input)?;
+        let room = self.rooms.get(room_id).await?;
+        let session_id = room_session_id(room_id).ok_or_else(|| RoomError::Port("room id is invalid".into()))?;
+        if self.runner.is_running(room_id) {
+            return Err(RoomError::Invalid("The room is still talking; stop it or wait before resetting.".into()));
+        }
+        let archived = self.host.start_over(&session_id).await?;
+        self.rooms.reset(room_id, chrono::Utc::now().timestamp_millis()).await?;
+        self.host.republish_catalog();
+        let mut failed = 0;
+        for member in &room.config.members {
+            let Some(member_session) = room_member_session_id(room_id, member) else { continue };
+            if !self.host.session_exists(&member_session).await {
+                continue;
+            }
+            if self.host.reset_member(&member_session).await.is_err() {
+                failed += 1;
+            }
+        }
+        if failed > 0 {
+            return Err(RoomError::Port(format!("The room was reset, but {failed} of its members could not start over.")));
+        }
+        Ok(json!({ "archivedSessionId": archived }))
+    }
+
     /// "더 진행": the members a capped message still owes a turn, else another bounded batch.
     async fn proceed(&self, input: &Value) -> Result<Value, RoomError> {
         let room_id = room_id_of(input)?;
@@ -318,6 +351,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Dom
             "room/continue" => decode::<RoomContinueParams>(&req)?.input,
             "room/leave" => decode::<RoomLeaveParams>(&req)?.input,
             "room/remove" => decode::<RoomRemoveParams>(&req)?.input,
+            "room/reset" => decode::<RoomResetParams>(&req)?.input,
             other => return Err(wrong_method("room", other)),
         };
         let method = method.to_owned();
@@ -331,6 +365,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Dom
                         "room/update" => self.update(&input).await,
                         "room/continue" => self.proceed(&input).await,
                         "room/leave" => self.leave(&input).await,
+                        "room/reset" => self.reset(&input).await,
                         _ => self.remove(&input).await,
                     };
                     result.map_err(failure)
@@ -341,7 +376,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Dom
     }
 
     fn methods(&self) -> &'static [&'static str] {
-        &["room/create", "room/update", "room/continue", "room/leave", "room/remove"]
+        &["room/create", "room/update", "room/continue", "room/leave", "room/remove", "room/reset"]
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {

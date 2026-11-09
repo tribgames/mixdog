@@ -8743,6 +8743,20 @@
       ],
       "type": "object"
     },
+    "RoomResetParams": {
+      "description": "Params of `room/reset`.",
+      "properties": {
+        "input": true,
+        "opId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "input",
+        "opId"
+      ],
+      "type": "object"
+    },
     "RoomUpdateParams": {
       "additionalProperties": false,
       "description": "Params of `room/update`.",
@@ -11066,6 +11080,7 @@
           "type": "string"
         },
         "turnId": {
+          "description": "Absent: the thread's active turn (Node's `abortSession` named none), or, with none running, the idle stop.",
           "type": [
             "string",
             "null"
@@ -14832,6 +14847,29 @@
         },
         "params": {
           "$ref": "#/definitions/RoomLeaveParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Today's `agentRoomAction('reset', …)`: the room's log starts over, its members' sessions are emptied.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "room/reset"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/RoomResetParams"
         }
       },
       "required": [
