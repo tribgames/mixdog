@@ -2981,8 +2981,9 @@
       ]
     },
     "ConfigWriteResponse": {
-      "description": "The stored value after the write (`initializeIfMissing` returns the kept value).",
+      "description": "The stored value after the write (`initializeIfMissing` returns the kept value), and the `agent` and `desktop` subtrees of the config that same locked update saved (what Node's `updateConfigAsync` returned to the desktop).",
       "properties": {
+        "config": true,
         "revision": {
           "format": "uint64",
           "minimum": 0.0,
@@ -2994,6 +2995,7 @@
         }
       },
       "required": [
+        "config",
         "revision",
         "values"
       ],

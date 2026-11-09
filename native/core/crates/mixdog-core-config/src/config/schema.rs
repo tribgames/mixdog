@@ -203,6 +203,20 @@ pub(crate) fn stored_notifications(kind: Kind, value: &Value) -> Option<Value> {
     }
 }
 
+/// Node's thrown text for a setting `cookie_auto_import` refuses (`updateBrowserCookieAutoImport`): the shape and
+/// length check first, then the separator / missing-profile check.
+pub(crate) fn cookie_auto_import_error(value: &Value) -> &'static str {
+    let shaped = value.as_object().is_some_and(|object| {
+        object.get("enabled").is_some_and(Value::is_boolean)
+            && object.get("profileId").and_then(Value::as_str).is_some_and(|p| p.encode_utf16().count() <= 120)
+    });
+    if shaped {
+        "Automatic cookie import needs a Chrome profile."
+    } else {
+        "Automatic cookie import setting is invalid."
+    }
+}
+
 /// The setting as stored, or `None` when it is not valid.
 pub(crate) fn cookie_auto_import(value: &Value) -> Option<Value> {
     let object = value.as_object()?;

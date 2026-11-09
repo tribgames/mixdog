@@ -500,6 +500,61 @@ fn ds_cfg_1_matches_the_recorded_node_store() {
     }
 }
 
+/// What the desktop's refused settings writes threw in Node, and the saved config its locked update returned
+/// (`record-desktop-write-errors.mjs`): the wire's `expected` is Node's message, and the write answers the saved
+/// `agent` / `desktop` from inside the same update.
+#[test]
+fn desktop_write_errors_and_saved_config_match_node() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/write-errors-twin.json");
+    let twin: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    let entries = twin["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 23);
+    let canon = |mut map: Map<String, Value>| {
+        map.retain(|key, value| matches!(key.as_str(), "agent" | "desktop") && *value != json!({}));
+        Value::Object(map)
+    };
+    for entry in entries {
+        let name = entry["name"].as_str().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let (config, _) = open(&dir, Some(entry["config"].clone()));
+        let args = entry["write"]["args"].as_array().unwrap();
+        let (path, value, mode) = match entry["write"]["op"].as_str().unwrap() {
+            "update" => {
+                let path = match args[0].as_str().unwrap() {
+                    "autoClear" => "agent.autoClear.enabled".to_owned(),
+                    flag => format!("desktop.{flag}"),
+                };
+                (path, args[1].clone(), replace())
+            }
+            "updateNotificationVolume" => ("desktop.notificationVolume".into(), args[0].clone(), replace()),
+            "updateSessionRetention" => (format!("desktop.{}", args[0].as_str().unwrap()), args[1].clone(), replace()),
+            "updateBrowserPermissions" => ("desktop.browserPermissions".into(), args[0].clone(), replace()),
+            "updateBrowserCookieAutoImport" => ("desktop.browserCookieAutoImport".into(), args[0].clone(), replace()),
+            "updateActivityRailPins" => {
+                let mode = if args[1] == true { ConfigWriteMode::InitializeIfMissing } else { replace() };
+                ("desktop.activityRailPins".into(), args[0].clone(), mode)
+            }
+            op => panic!("{op}"),
+        };
+        let edit = ConfigEdit { path: path.clone(), value, mode };
+        let outcome = block_on(config.batch_write_saved(&[edit], service::SAVED_SUBTREES));
+        let after = &entry["after"];
+        if let Some(error) = after.get("error") {
+            match outcome {
+                Err(ConfigError::InvalidParams { path: at, expected }) => {
+                    assert_eq!(expected, error["message"].as_str().unwrap(), "{name}: Node's text");
+                    assert_eq!(at, path, "{name}");
+                }
+                other => panic!("{name}: Node threw {error}, got {other:?}"),
+            }
+            continue;
+        }
+        let (_, saved) = outcome.unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(canon(saved.clone()), canon(after["config"].as_object().unwrap().clone()), "{name}: the saved config");
+        assert_eq!(serde_json::to_value(desktop_settings(&saved)).unwrap(), after["settings"], "{name}: the saved settings");
+    }
+}
+
 #[test]
 fn cookie_auto_import_write_validation_matches_node() {
     let dir = tempfile::tempdir().unwrap();

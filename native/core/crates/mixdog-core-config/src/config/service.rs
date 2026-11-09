@@ -176,12 +176,12 @@ impl ConfigService {
     }
 
     async fn write(&self, edits: Vec<ConfigEdit>) -> Result<Value, CoreError> {
-        self.config.batch_write(&edits).await.map_err(core_error)?;
+        let (_, saved) = self.config.batch_write_saved(&edits, SAVED_SUBTREES).await.map_err(core_error)?;
         let values: Vec<Value> = edits
             .iter()
             .map(|edit| self.config.get(&edit.path).unwrap_or(Value::Null))
             .collect();
-        Ok(json!({ "revision": self.config.revision(), "values": values }))
+        Ok(json!({ "revision": self.config.revision(), "values": values, "config": saved }))
     }
 }
 
@@ -237,6 +237,9 @@ async fn settings_call(settings: &Settings, method: &str, params: &Value) -> Res
     };
     tool(result)
 }
+
+/// The subtrees Node's desktop settings read from the config its locked update returned (`desktopSettingsFromConfig`).
+pub(super) const SAVED_SUBTREES: &[&str] = &["agent", "desktop"];
 
 fn edit_of(params: &Value) -> Result<ConfigEdit, CoreError> {
     let path = params
