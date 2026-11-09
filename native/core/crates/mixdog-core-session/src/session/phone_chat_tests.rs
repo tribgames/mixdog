@@ -225,61 +225,6 @@ async fn a_refused_first_prompt_leaves_no_thread() {
     assert_eq!(directory.loaded_ids(), Vec::<ThreadId>::new());
 }
 
-/// `Date.now().toString(36)`, the time part of the steering mirror's id (`newSteeringPersistId`, tui-steering-persist.mjs).
-fn base36(mut n: u64) -> String {
-    let mut digits = Vec::new();
-    while n > 0 {
-        digits.push(char::from_digit((n % 36) as u32, 36).unwrap());
-        n /= 36;
-    }
-    digits.iter().rev().collect()
-}
-
-/// A queued entry as Node holds it (`makeQueueEntry`, entry-shape.mjs), written from Rust's queued entry and its store
-/// record: every key of Node's entry is here, so a key Node adds or a value that differs fails the comparison whole.
-/// What Rust keeps under another name or form is mapped; what Node derives from options a prompt did not carry is the
-/// default its `makeQueueEntry` gives, which holds because the entry's options are exactly the submission id.
-fn node_entry(rust: &Value, clock: u64, node_at: i64, store: &[Value]) -> Value {
-    assert_eq!(rust["options"], json!({ "clientSubmissionId": rust["options"]["clientSubmissionId"] }), "no option beyond the submission id");
-    assert_eq!(rust["enqueuedAt"], json!(clock), "Rust stamps its clock");
-    // `isQueuedEntryEditable`: a prompt that is neither meta nor display-suppressed (queue-helpers.mjs).
-    assert_eq!(rust["restorable"], json!(true));
-    let message = rust["message"].clone();
-    assert!(message.is_string(), "a text prompt: Node's `content` is that text");
-    // Node mirrors a busy-input prompt to disk (`appendTuiSteeringPersist`, drain-enqueue.mjs); Rust's mirror is the queue record.
-    assert!(store.iter().any(|record| record["k"] == "queue" && record["action"] == "enqueue" && record["entry"]["inline"] == *rust), "the durable mirror");
-    json!({
-        "id": rust["options"]["clientSubmissionId"],
-        "submittedAt": node_at,
-        "text": message,
-        "content": message,
-        "pastedImages": null,
-        "pastedTexts": null,
-        "images": null,
-        "onCommitted": null,
-        "onSettled": null,
-        "onToolResult": null,
-        "transcriptMeta": rust["transcriptMeta"],
-        "context": null,
-        "mode": "prompt",
-        "priority": "next",
-        "key": null,
-        "origin": null,
-        "skipSlashCommands": false,
-        "displayText": message,
-        "suppressDisplay": false,
-        "abortDiscardOnAbort": false,
-        "resumeCompletionKeys": [],
-        "steeringPersistId": format!("ts_{}_<random>", base36(node_at as u64)),
-        "isMeta": false,
-        "skillSelection": null,
-        "goalId": null,
-        "retryFailedTurn": false,
-        "retryTurnId": null,
-        "retryAttemptId": null,
-    })
-}
-
 /// What is random on each side, as one placeholder: a string equal to a known id, a `msg_` message id, an attempt id and a request
 /// digest. Everything else is compared as it is.
 fn anon(value: &Value, ids: &[(&str, &str)]) -> Value {
@@ -337,43 +282,63 @@ fn wire_item(row: &Value, clock: u64) -> Value {
     item
 }
 
-/// Node's pushed user row as the record Rust stores for it (`transcript_rows.rs`, `actor.rs` `turn_start`), whole. Node's row maps to
-/// `prompt` (the display text), `meta.transcript.{at, messageId, device, clientSubmissionId}` and the role and form. The rest is
-/// Rust's own and Node keeps it on the model-history message, not on this row (`stampCheckpoint`, ask-callbacks.mjs: `checkpointId`,
-/// `attemptId`; the prompt's `content`, `displayText`): the record's ids, the request that wrote it, the raw prompt parts.
-fn stored_item(row: &Value, prompt: &Value, clock: u64) -> Value {
-    let mut transcript = json!({
-        "messageId": row["messageId"],
-        "displayText": row["text"],
-        "checkpointId": "<iid>",
-        "at": clock,
-        "clientSubmissionId": row["id"],
-        "attemptId": "<random>",
-    });
-    if let Some(device) = row.get("device") {
-        transcript["device"] = device.clone();
+/// Node's pushed user row and the message Node's runtime was asked to run (`asked`: the `runtime.ask` content and its
+/// `transcriptMeta`, which the runtime persists as the message's `meta.transcript`), as the record Rust stores for the prompt,
+/// whole. Every key of Node's recorded metadata is kept as it is, but `at` (Node's submit time, Rust's clock) and `attemptId`
+/// (random). Rust's record adds what Node keeps elsewhere: the row's text (`displayText`), its id (`clientSubmissionId`) and its own
+/// item id (`checkpointId`, Node's `stampCheckpoint` stamps the same on the history message).
+fn stored_item(row: &Value, asked: &Value, clock: u64) -> Value {
+    let mut transcript = asked["options"]["transcriptMeta"].clone();
+    assert_eq!(transcript["at"], row["at"], "Node stamps one submit time");
+    assert_eq!(transcript["attemptId"], json!("<uuid>"));
+    transcript["at"] = json!(clock);
+    transcript["attemptId"] = json!("<random>");
+    // Node keeps the shown text only as the row's `text`; Rust's record also holds it when it differs from the prompt.
+    if asked["content"] != row["text"] {
+        transcript["displayText"] = row["text"].clone();
     }
+    transcript["checkpointId"] = json!("<iid>");
+    transcript["clientSubmissionId"] = row["id"].clone();
     json!({
         "k": "item", "iid": "<iid>", "turn": "<turn>", "role": "user", "form": "message", "model": true, "visible": true,
         "op": { "id": "op-0", "method": "turn/start", "digest": "<digest>", "result": { "kind": "started", "turnId": "<turn>" } },
         "prompt": { "inline": row["text"] },
         "refs": [],
-        "body": { "inline": { "role": "user", "content": prompt, "meta": { "transcript": transcript } } },
+        "body": { "inline": { "role": "user", "content": asked["content"], "meta": { "transcript": transcript } } },
     })
 }
 
-/// Node's queue entry (`makeQueueEntry`) as the record Rust stores when it queues it, whole. `message` is Node's `content`, the
-/// submission id its `id` (kept under `options`), `restorable` is `isQueuedEditable` (queue-helpers.mjs); `enqueuedAt` is the entry's
-/// submit time on Rust's clock. Node's other entry keys are defaults (`node_entry` pins them against the stored entry).
-fn stored_queue(entry: &Value, clock: u64) -> Value {
+/// Node's durable queue entry (the steering mirror's shard, as `appendTuiSteeringPersist` wrote it) and its in-memory entry
+/// (`makeQueueEntry`) as the record Rust stores when it queues the prompt, whole. Rust's `message` is Node's `content`, its
+/// `options.clientSubmissionId` Node's `submissionId`, `enqueuedAt` the submit time (Rust's clock) and `restorable` is
+/// `isQueuedEntryEditable`, from Node's `isMeta` and `suppressDisplay`. Everything else Node's entry holds has no Rust field: it is
+/// checked here to be Node's own mirror of those fields (`shard`) or an option the prompt did not set (null, false, empty).
+fn stored_queue(shard: &Value, entry: &Value, at: i64, clock: u64) -> Value {
+    assert_eq!(shard["submittedAt"], json!(at));
+    assert_eq!(shard["at"], json!(at));
+    assert_eq!(entry["submittedAt"], json!(at));
+    assert_eq!(shard["id"], entry["steeringPersistId"]);
+    assert_eq!(shard["submissionId"], entry["id"]);
+    assert_eq!(shard["content"], entry["content"]);
+    assert_eq!(shard["transcriptMeta"], entry["transcriptMeta"]);
+    assert_eq!(shard["text"], entry["text"]);
+    assert_eq!(entry["displayText"], entry["text"]);
+    for key in ["mode", "priority"] {
+        assert_eq!(shard[key], entry[key], "{key}");
+    }
+    assert_eq!(entry["mode"], json!("prompt"));
+    let mirrored = ["id", "submittedAt", "text", "content", "transcriptMeta", "displayText", "steeringPersistId", "isMeta", "suppressDisplay", "mode", "priority"];
+    for (key, value) in entry.as_object().unwrap().iter().filter(|(key, _)| !mirrored.contains(&key.as_str())) {
+        assert!(value.is_null() || *value == json!(false) || *value == json!([]), "an option the prompt did not set, but Node's entry has it: {key} = {value}");
+    }
     json!({
         "k": "queue", "qid": "<qid>", "action": "enqueue",
         "op": { "id": "op-0", "method": "turn/start", "digest": "<digest>", "result": { "kind": "queued", "queuedId": "<qid>" } },
         "entry": { "inline": {
-            "message": entry["content"],
+            "message": shard["content"],
             "enqueuedAt": clock,
-            "options": { "clientSubmissionId": entry["id"] },
-            "transcriptMeta": entry["transcriptMeta"],
+            "options": { "clientSubmissionId": shard["submissionId"] },
+            "transcriptMeta": shard["transcriptMeta"],
             "restorable": entry["isMeta"] == false && entry["suppressDisplay"] == false,
         } },
     })
@@ -489,22 +454,29 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         // and `checkpointId` is the item's own id.
         let node_rows = node["items"].as_array().unwrap();
         assert_eq!(user_records.len(), node_rows.len(), "{name}: stored rows");
-        for (record, row) in user_records.iter().zip(node_rows) {
+        let asked = node["asked"].as_array().unwrap();
+        assert_eq!(asked.len(), node_rows.len(), "{name}: a started turn per stored row");
+        for ((record, row), asked) in user_records.iter().zip(node_rows).zip(asked) {
             assert_eq!(row["at"], json!(at));
-            assert_eq!(anon(record, ids), stored_item(row, &case["prompt"], clock), "{name}: stored row");
+            assert_eq!(anon(record, ids), stored_item(row, asked, clock), "{name}: stored row");
         }
-        // The stored queue entries, whole, and the runtime records no Node row stands for (bookkeeping of the run).
+        // The stored queue entries, whole, against Node's durable mirror and its in-memory entries; and the runtime records no Node row
+        // stands for (bookkeeping of the run).
         let node_queued = node["queued"].as_array().unwrap();
+        let shard: Vec<&Value> = node["durable"]["sessions"].as_object().into_iter().flat_map(|sessions| sessions.values()).flat_map(|rows| rows.as_array().unwrap()).collect();
+        assert_eq!(shard.len(), node_queued.len(), "{name}: Node mirrors every queued entry");
         assert_eq!(queue_records.len(), node_queued.len(), "{name}: stored queue entries");
-        for (record, entry) in queue_records.iter().zip(node_queued) {
-            assert_eq!(anon(record, ids), stored_queue(entry, clock), "{name}: stored queue entry");
+        for ((record, entry), shard) in queue_records.iter().zip(node_queued).zip(shard) {
+            let want = stored_queue(shard, entry, at, clock);
+            assert_eq!(anon(record, ids), want, "{name}: stored queue entry");
         }
         for record in &store {
             assert!(["item", "queue", "meta", "run"].contains(&record["k"].as_str().unwrap()), "{name}: a record Node has no counterpart for: {record}");
         }
-        // The queue: Node's `queued` (the same entries as `pending`) against Rust's, entry by entry, every key.
-        let queued: Vec<Value> = handle.cell.queue.load().iter().map(|queued| node_entry(&queued.entry, clock, at, &store)).collect();
-        assert_eq!(&queued, node_queued, "{name}: queue entries");
+        // The queue Rust holds is the stored entries (the durable mirror).
+        let queued: Vec<Value> = handle.cell.queue.load().iter().map(|queued| json!({ "k": "queue", "entry": { "inline": queued.entry } })).collect();
+        let stored: Vec<Value> = queue_records.iter().map(|record| json!({ "k": "queue", "entry": record["entry"] })).collect();
+        assert_eq!(queued, stored, "{name}: queue entries");
         // Every entry Node's viewer was shown is one of them, whole.
         for publication in node["publications"].as_array().unwrap() {
             for entry in publication["state"]["queued"].as_array().unwrap() {
@@ -519,6 +491,46 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
 /// A wait that fails with the rows it saw instead of hanging: paused time makes the deadline fire only when nothing can still happen.
 async fn within<T>(wait: impl std::future::Future<Output = T>, name: &str, seen: &[(&'static str, String)]) -> T {
     tokio::time::timeout(std::time::Duration::from_secs(60), wait).await.unwrap_or_else(|_| panic!("{name}: never reached; rows {seen:?}"))
+}
+
+/// Node's transcript rows after a turn (`user`, `assistant`, `turndone`) as the wire items Rust holds for them. Every key of Node's row
+/// is taken from the row, and the key set is asserted, so a key this mapping does not place fails. Ids are placeholders by first
+/// appearance (the user row's is the submission id, which Rust carries as `clientSubmissionId`); times are Rust's clock; a Node
+/// `attemptId` is random. Where Rust keeps a Node field under another name: the turn end's `checkpointId` (the user row's id in Node)
+/// is the user item's id here, the submission id riding in the end's `clientSubmissionId`.
+fn rewind_wire(row: &Value, rows: &[Value], clock: u64) -> Value {
+    let keys = |expected: &[&str]| {
+        let mut held: Vec<&str> = row.as_object().unwrap().keys().map(String::as_str).collect();
+        held.sort_unstable();
+        let mut expected = expected.to_vec();
+        expected.sort_unstable();
+        assert_eq!(held, expected, "the keys of Node's {} row", row["kind"]);
+    };
+    assert_eq!(row["at"], rows[0]["at"], "one submit time");
+    match row["kind"].as_str().unwrap() {
+        "user" => {
+            keys(&["kind", "id", "text", "at", "messageId", "device"]);
+            wire_item(row, clock)
+        }
+        "assistant" => {
+            keys(&["kind", "id", "text", "at", "messageId", "device", "completionVerb", "attemptId", "streaming"]);
+            json!({
+                "type": "agentMessage", "id": "<aid>", "text": row["text"],
+                "meta": { "turnId": "<turn>", "ext": { "attemptId": "<random>", "at": clock, "messageId": row["messageId"], "completionVerb": row["completionVerb"], "device": row["device"], "streaming": row["streaming"] } },
+            })
+        }
+        "turndone" => {
+            keys(&["kind", "id", "checkpointId", "elapsedMs", "status", "finalAssistantId", "outputTokens", "thinkingElapsedMs", "toolCount", "verb", "at", "device", "completionVerb", "attemptId"]);
+            assert_eq!(row["checkpointId"], rows[0]["id"], "the end names the user row");
+            assert_eq!(row["finalAssistantId"], rows[1]["id"], "the end names the answer");
+            json!({
+                "type": "turnEnd", "id": "<eid>", "status": row["status"], "elapsedMs": row["elapsedMs"], "verb": row["verb"],
+                "checkpointId": "<iid>", "finalAssistantId": "<aid>",
+                "meta": { "turnId": "<turn>", "at": clock, "ext": { "outputTokens": row["outputTokens"], "thinkingElapsedMs": row["thinkingElapsedMs"], "toolCount": row["toolCount"], "clientSubmissionId": rows[0]["id"], "device": row["device"], "attemptId": "<random>", "completionVerb": row["completionVerb"] } },
+            })
+        }
+        other => panic!("a Node row of kind {other}"),
+    }
 }
 
 /// Node's message selector (`rewindToItem`, intake/rewind.mjs) on a submitted row: the client names the row by the id it shows, the
@@ -546,13 +558,16 @@ async fn every_recorded_rewind_resolves_the_displayed_id_as_nodes_does() {
             rig.set_script(Arc::new(|run| {
                 Box::pin(async move {
                     run.port.input_durable().await.expect("input durable");
+                    let iid = mixdog_core_api::ids::ItemId::from(format!("a-{}", run.turn));
+                    run.port.delta(iid.clone(), "hi".into()).await.expect("delta");
                     run.port
                         .commit_item(super::ItemCommit {
-                            iid: mixdog_core_api::ids::ItemId::from(format!("a-{}", run.turn)),
+                            iid,
                             role: Some("assistant".into()),
                             model: true,
                             visible: true,
-                            body: json!({ "role": "assistant", "content": "hi" }),
+                            // The stored answer carries the completion the runtime stamps (`meta.transcript.completion`).
+                            body: json!({ "role": "assistant", "content": "hi", "meta": { "transcript": { "completion": { "verb": "Mapped" } } } }),
                             prompt: None,
                         })
                         .await
@@ -573,10 +588,22 @@ async fn every_recorded_rewind_resolves_the_displayed_id_as_nodes_does() {
         } else {
             // The prompt, its answer and the turn's live end: the rows Node held (`before.items`).
             within(eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (idle(&handle) && rows(&handle).len() == 3).then_some(())), name, &rows(&handle)).await;
-            // Node's rows by kind and text (`user`, `assistant`, `turndone` are Rust's user, assistant and end rows).
-            let node_rows: Vec<(String, String)> = case["before"]["items"].as_array().unwrap().iter().map(|row| (row["kind"].as_str().unwrap().to_owned(), row["text"].as_str().unwrap_or_default().to_owned())).collect();
-            let rust_rows: Vec<(String, String)> = rows(&handle).into_iter().map(|(role, text)| ((if role == "other" { "turndone" } else { role }).to_owned(), text)).collect();
-            assert_eq!(rust_rows, node_rows, "{name}: the rows the session held");
+            let clock = rig.clock.0.load(std::sync::atomic::Ordering::SeqCst);
+            let items: Vec<Value> = handle.cell.view.load_full().items.iter().map(|item| serde_json::to_value(item.as_ref()).unwrap()).collect();
+            let ids = [(items[0]["id"].as_str().unwrap(), "<iid>"), (items[1]["id"].as_str().unwrap(), "<aid>"), (items[2]["id"].as_str().unwrap(), "<eid>"), (items[0]["meta"]["turnId"].as_str().unwrap(), "<turn>")];
+            let held: Vec<Value> = items.iter().map(|item| anon(item, &ids)).collect();
+            let node_rows = case["before"]["items"].as_array().unwrap();
+            let want: Vec<Value> = node_rows.iter().map(|row| rewind_wire(row, node_rows, clock)).collect();
+            assert_eq!(held, want, "{name}: the rows the session held");
+            // The stored user record against what Node's runtime was asked to persist, once the answer's own stamps are accounted for.
+            let mut asked = case["asked"].clone();
+            let stamps = asked["options"]["transcriptMeta"].as_object_mut().unwrap();
+            assert_eq!(stamps.remove("assistantAt"), Some(node_rows[1]["at"].clone()), "the answer's time");
+            assert_eq!(stamps.remove("assistantMessageId"), Some(node_rows[1]["messageId"].clone()), "the answer's message id");
+            let records = rig.store.records(&handle.id);
+            let user = records.iter().map(|(_, record)| serde_json::to_value(record).unwrap()).find(|record| record["k"] == "item" && record["role"] == "user").unwrap();
+            let (iid, turn) = (user["iid"].as_str().unwrap(), user["turn"].as_str().unwrap());
+            assert_eq!(anon(&user, &[(iid, "<iid>"), (turn, "<turn>")]), stored_item(&node_rows[0], &asked, clock), "{name}: stored row");
         }
         let rewound = handle
             .request(CoreRequest {
@@ -591,10 +618,10 @@ async fn every_recorded_rewind_resolves_the_displayed_id_as_nodes_does() {
             Value::Null => assert!(matches!(rewound, Err(CoreError::ItemNotFound { .. })), "{name}: {rewound:?}"),
             reply => {
                 let Ok(Reply::Value(value)) = rewound else { panic!("{name}: Node rewound, Rust answered {rewound:?}") };
-                assert_eq!(value["text"], reply["text"], "{name}: the prompt handed back");
-                assert_eq!(value["removed"], reply["removed"], "{name}: the rows removed");
+                assert_eq!(&value, reply, "{name}: the reply, whole");
                 // Node asked the runtime to rewind to the row's message id with its text; the row is gone and the history is as before it.
-                assert_eq!(case["runtimeCalls"][0]["text"], reply["text"]);
+                assert_eq!(case["runtimeCalls"][1]["options"]["text"], reply["text"]);
+                assert_eq!(case["runtimeCalls"][1]["result"]["removed"], reply["messages"], "the messages the runtime removed");
                 within(eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || rows(&handle).is_empty().then_some(())), name, &rows(&handle)).await;
                 assert_eq!(case["after"]["items"], json!([]), "{name}: Node's transcript is empty");
             }
