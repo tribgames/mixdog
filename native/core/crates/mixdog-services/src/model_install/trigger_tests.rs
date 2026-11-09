@@ -259,6 +259,19 @@ fn fetches(server: &Server) -> usize {
     server.hits(&format!("/{DEFAULT_MODEL_ID}/resolve/main/tokenizer.json"))
 }
 
+/// `MIXDOG_EMBED_WARMUP ??= '0'` then `envFlag('MIXDOG_EMBED_WARMUP', true)`.
+#[test]
+fn a_standalone_start_keeps_the_eager_paths_off_unless_the_variable_says_otherwise() {
+    let eager = |value: Option<&str>| RuntimeFlags::from_env(&|name| (name == "MIXDOG_EMBED_WARMUP").then(|| value.map(str::to_owned)).flatten()).eager_warmup;
+    assert!(!eager(None));
+    for off in ["0", "false", "Off", " no "] {
+        assert!(!eager(Some(off)), "{off:?}");
+    }
+    for on in ["1", "true", "YES", "on", "", "  ", "maybe"] {
+        assert!(eager(Some(on)), "{on:?}");
+    }
+}
+
 #[test]
 fn the_gates_follow_node_for_every_flag_combination() {
     let default = RuntimeFlags::default();

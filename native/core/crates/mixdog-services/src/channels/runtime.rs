@@ -271,14 +271,9 @@ impl ChannelLifecycle for ChannelRuntime {
 
     async fn reload_config(&self) -> Result<String, String> {
         self.reload_runtime().await?;
-        // Providers, presets and maintenance reload on the same call.
-        Ok(match self.agent.reload().await {
-            Ok(()) => ", agent providers/presets/maintenance".to_string(),
-            Err(error) => {
-                mixdog_rt::node_stderr!("[reload_config] agent reload failed: {error}");
-                String::new()
-            }
-        })
+        // `tool-dispatch.mjs:66`: the agent reload runs only when `MIXDOG_STANDALONE !== '1'`; the channel worker is always spawned
+        // with it (`channel-worker/daemon-spawn.mjs:32`), so the reply never names it.
+        Ok(String::new())
     }
 
     /// Rename and re-arm under one reservation: the scheduler is reloaded from the renamed
