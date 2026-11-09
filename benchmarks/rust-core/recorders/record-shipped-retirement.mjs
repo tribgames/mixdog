@@ -10,9 +10,10 @@
 //
 //   node benchmarks/rust-core/recorders/record-shipped-retirement.mjs --tree <git checkout at --commit, with node_modules> --commit <40-hex>
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, parse } from 'node:path';
 import { FIXTURES_ROOT, commitCheckoutIdentity, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const cli = parseArgs();
@@ -107,6 +108,9 @@ const [stampOf] = [(overrides = new Map()) => {
 }];
 
 const work = mkdtempSync(join(tmpdir(), 'shipped-retirement-'));
+// The folder of another volume for the EXDEV states: the Public profile of the system drive (writable by any user).
+const OTHER_VOLUME = join(`${process.env.SystemDrive}\\`, 'Users', 'Public');
+if (parse(OTHER_VOLUME).root.toLowerCase() === parse(work).root.toLowerCase()) throw new Error(`${OTHER_VOLUME} is on the volume of ${work}: the EXDEV states need two volumes`);
 function materialize(dir, overrides = new Map(), data = false) {
   const files = data ? overrides : new Map([...world, ...overrides]);
   mkdirSync(dir, { recursive: true });
@@ -119,16 +123,39 @@ function materialize(dir, overrides = new Map(), data = false) {
 
 const enc = (buf) => (Buffer.from(buf.toString('utf8')).equals(buf) ? buf.toString('utf8') : { hex: buf.toString('hex') });
 const mask = (path) => path.replace(/defaults-separation-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z/g, 'defaults-separation-<iso>');
-function snapshot(dir) {
+// A link (a junction: creating a symlink needs a privilege this machine does not grant) is recorded as the link it is, with its
+// target made relative to the data dir (`<data>/x`) or to the second-volume folder (`<external>/x`).
+function snapshot(dir, ctx) {
   if (!existsSync(dir)) return null;
   const out = [];
+  const portable = (target) => {
+    const text = target.replace(/\\/g, '/');
+    const data = ctx.data.replace(/\\/g, '/');
+    if (text === data || text.startsWith(`${data}/`)) return `<data>${text.slice(data.length)}`;
+    if (ctx.external) {
+      const external = ctx.external.replace(/\\/g, '/');
+      if (text === external || text.startsWith(`${external}/`)) return `<external>${text.slice(external.length)}`;
+    }
+    throw new Error(`link target ${target}`);
+  };
   const walk = (current, prefix) => {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) {
+      if (entry.isSymbolicLink()) out.push({ path: mask(rel), link: portable(readlinkSync(join(current, entry.name))) });
+      else if (entry.isDirectory()) {
         out.push({ path: `${mask(rel)}/` });
         walk(join(current, entry.name), rel);
-      } else out.push({ path: mask(rel), content: enc(readFileSync(join(current, entry.name))) });
+      } else {
+        // A file another process holds without sharing cannot be read: recorded as such.
+        let content;
+        try {
+          content = enc(readFileSync(join(current, entry.name)));
+        } catch (error) {
+          if (error.code !== 'EBUSY') throw error;
+          content = { unreadable: 'EBUSY' };
+        }
+        out.push({ path: mask(rel), content });
+      }
     }
   };
   walk(dir, '');
@@ -143,7 +170,7 @@ const backupFolders = (dir) => {
 };
 
 const states = [];
-function state(name, { root = new Map(), data = new Map(), runs = 1, noDataDir = false, clock = null }) {
+function state(name, { root = new Map(), data = new Map(), runs = 1, noDataDir = false, clock = null, base: given = null, prepared = false, links = [], crossVolume = false, locks = [] }) {
   // A pinned clock makes the backup folder name known, so a state can hold folders that clash with the one the pass claims.
   const RealDate = globalThis.Date;
   if (clock) {
@@ -156,12 +183,20 @@ function state(name, { root = new Map(), data = new Map(), runs = 1, noDataDir =
       }
     };
   }
-  const base = mkdtempSync(join(work, 's-'));
+  const base = given ?? mkdtempSync(join(work, 's-'));
   const rootDir = join(base, 'package');
   const dataDir = join(base, 'data');
   materialize(rootDir, root);
   if (!noDataDir) mkdirSync(dataDir, { recursive: true });
-  materialize(dataDir, data, true);
+  if (!prepared) materialize(dataDir, data, true);
+  for (const [path, target] of links) symlinkSync(join(dataDir, target), join(dataDir, path), 'junction');
+  // `backups` on another volume: the pass's rename into it fails with EXDEV and falls back to copy and remove.
+  let external = null;
+  if (crossVolume) {
+    external = mkdtempSync(join(OTHER_VOLUME, 'mixdog-retire-'));
+    symlinkSync(external, join(dataDir, 'backups'), 'junction');
+  }
+  const ctx = { data: dataDir, external };
   const logs = [];
   const patched = [];
   for (const level of ['log', 'info', 'warn', 'error', 'debug']) {
@@ -174,6 +209,7 @@ function state(name, { root = new Map(), data = new Map(), runs = 1, noDataDir =
   process.stdout.write = (chunk) => (logs.push(`stdout: ${chunk}`), true);
   process.stderr.write = (chunk) => (logs.push(`stderr: ${chunk}`), true);
   const after = [];
+  const externalAfter = [];
   let error = null;
   try {
     for (let run = 0; run < runs; run += 1) {
@@ -182,7 +218,8 @@ function state(name, { root = new Map(), data = new Map(), runs = 1, noDataDir =
       } catch (e) {
         error = `${e.constructor.name}: ${e.message}`;
       }
-      after.push(snapshot(dataDir));
+      after.push(snapshot(dataDir, ctx));
+      externalAfter.push(external ? snapshot(external, ctx) : null);
     }
   } finally {
     process.stdout.write = out;
@@ -193,8 +230,34 @@ function state(name, { root = new Map(), data = new Map(), runs = 1, noDataDir =
   const backups = backupFolders(dataDir);
   for (const folder of backups) if (!/^defaults-separation-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(-\d+)?$/.test(folder)) throw new Error(`backup folder ${folder}`);
   const files = (map) => Object.fromEntries([...map].filter(([, v]) => v !== null).map(([k, v]) => [k, enc(v)]));
-  states.push({ name, root: Object.fromEntries([...root].map(([k, v]) => [k, v === null ? null : enc(v)])), noDataDir, clock, before: files(data), runs, after, error, logs });
-  rmSync(base, { recursive: true, force: true });
+  states.push({ name, root: Object.fromEntries([...root].map(([k, v]) => [k, v === null ? null : enc(v)])), noDataDir, clock, links, crossVolume, locks, before: files(data), runs, after, externalAfter, error, logs });
+  // A given base still holds the lockers' files: its owner removes it once they let go.
+  if (external) rmSync(external, { recursive: true, force: true });
+  if (!given) rmSync(base, { recursive: true, force: true });
+}
+
+/** `state` over files another process holds open: [relative data path, 'Read' (others may read, not delete) | 'None'] each. */
+async function lockedState(name, opts) {
+  const base = mkdtempSync(join(work, 's-'));
+  const dataDir = join(base, 'data');
+  mkdirSync(dataDir, { recursive: true });
+  materialize(dataDir, opts.data, true);
+  const holders = [];
+  for (const [path, share] of opts.locks) {
+    const file = join(dataDir, path);
+    const child = spawn('powershell', ['-NoProfile', '-Command', `$f=[IO.File]::Open('${file}','Open','Read','${share}'); [Console]::Out.WriteLine('ready'); [Console]::In.ReadLine()`], { stdio: ['pipe', 'pipe', 'inherit'] });
+    await new Promise((resolve) => child.stdout.once('data', resolve));
+    holders.push(child);
+  }
+  try {
+    state(name, { ...opts, base, prepared: true });
+  } finally {
+    for (const child of holders) {
+      child.stdin.end();
+      await new Promise((resolve) => child.once('exit', resolve));
+    }
+    rmSync(base, { recursive: true, force: true });
+  }
 }
 
 const marker = (stamp) => new Map([[HISTORY_MARKER_FILE, Buffer.from(stamp)]]);
@@ -276,6 +339,22 @@ state('backup-folder-clash-gap', { clock: CLOCK, data: merge(old('agents'), clas
 state('backup-folder-pinned-clock', { clock: CLOCK, data: oldEvery() });
 // The marker only saves repeating the sweep: a write that fails (the marker path is a folder) is swallowed.
 state('marker-is-a-folder', { data: merge(oldEvery(), new Map([[`${HISTORY_MARKER_FILE}/x`, Buffer.from('x')]])) });
+// The fallback of a move (rename fails -> cpSync -> rmSync). A junction inside a skill: hashing ignores links, so the copy still
+// matches; the link target lives in the data dir (`linked/`).
+const linked = new Map([['linked/e.txt', Buffer.from('linked\n')]]);
+const linkOf = [[`skills/${sk}/ref-link`, 'linked']];
+state('skill-with-junction-renamed', { data: merge(old('skills'), linked), links: linkOf });
+// Rename into a `backups` folder on another volume fails with EXDEV: copy and remove instead.
+state('cross-volume-every-kind', { clock: CLOCK, data: oldEvery(), crossVolume: true });
+state('cross-volume-skill-with-junction', { clock: CLOCK, data: merge(old('skills'), linked), links: linkOf, crossVolume: true });
+// A file another process holds (open for reading, without sharing delete) blocks the rename and the remove, not the copy.
+const stray = (path, name) => new Map([[`${path}/${name}`, Buffer.from('stray\n')]]);
+const skillDir = `skills/${sk}`;
+await lockedState('locked-first-file-read-share', { clock: CLOCK, runs: 2, data: merge(old('skills'), stray(skillDir, '0.orig')), locks: [[`${skillDir}/0.orig`, 'Read']] });
+await lockedState('locked-last-file-read-share', { clock: CLOCK, runs: 2, data: merge(old('skills'), stray(skillDir, 'zzzz.orig')), locks: [[`${skillDir}/zzzz.orig`, 'Read']] });
+await lockedState('locked-pack-read-share', { clock: CLOCK, data: merge(old('agents'), oldEvery()), locks: [[`agents/${ag}/AGENT.md`, 'Read']] });
+await lockedState('locked-file-no-share-unreadable', { clock: CLOCK, data: merge(old('skills'), stray(skillDir, '0.orig')), locks: [[`${skillDir}/0.orig`, 'None']] });
+await lockedState('locked-last-file-cross-volume', { clock: CLOCK, data: merge(old('skills'), stray(skillDir, 'zzzz.orig')), locks: [[`${skillDir}/zzzz.orig`, 'Read']], crossVolume: true });
 state('no-data-dir', { noDataDir: true });
 state('empty-data-dir', {});
 state('no-plugin-manifest', { root: new Map([['defaults/plugin.json', null]]), data: oldEvery() });

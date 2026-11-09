@@ -512,8 +512,17 @@ pub fn absorb_kind_equal_to_shipped(
     Ok(Backup::new(data, now).move_target(&copy))
 }
 
-/// `cpSync(from, to, { recursive: true, force: false, errorOnExist: true })`.
+/// `cpSync(from, to, { recursive: true, force: false, errorOnExist: true })`: `dereference` and `verbatimSymlinks` stay off, so a
+/// symbolic link is created again at `to` pointing at its target resolved to an absolute path. A Windows junction is not a symlink
+/// to Node's copy: it is followed and copied as the folder it shows (recorded: `skill-with-junction`, `cross-volume-skill-with-junction`).
+/// The first error stops the copy and whatever was copied stays; a source that cannot be opened leaves no file behind.
 fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    if std::fs::symlink_metadata(from)?.is_symlink() {
+        let target = std::fs::read_link(from)?;
+        let resolved = if target.is_absolute() { target } else { from.parent().unwrap_or(Path::new("")).join(target) };
+        return std::os::unix::fs::symlink(resolved, to);
+    }
     if from.is_dir() {
         std::fs::create_dir_all(to)?;
         for entry in std::fs::read_dir(from)? {
@@ -522,8 +531,9 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
         }
         return Ok(());
     }
+    let mut source = std::fs::File::open(from)?;
     let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(to)?;
-    std::io::copy(&mut std::fs::File::open(from)?, &mut file).map(drop)
+    std::io::copy(&mut source, &mut file).map(drop)
 }
 
 /// `makeBackup(dataDir)`: the lazily claimed `backups/defaults-separation-<time>` folder that moved

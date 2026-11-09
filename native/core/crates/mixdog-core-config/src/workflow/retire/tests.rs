@@ -55,29 +55,90 @@ fn mask(path: &str) -> String {
     out
 }
 
-/// Node's `snapshot`: folders as `path/`, files with their bytes, sorted by UTF-16 code units.
-fn snapshot(dir: &Path) -> Vec<(String, Option<Vec<u8>>)> {
-    fn walk(current: &Path, prefix: &str, out: &mut Vec<(String, Option<Vec<u8>>)>) {
+/// A link entry of a snapshot, and a file another process holds without sharing (its bytes cannot be read), as the content they compare by.
+fn link_content(target: &str) -> Vec<u8> {
+    format!("\0link:{target}").into_bytes()
+}
+const UNREADABLE: &[u8] = b"\0unreadable:EBUSY";
+
+/// Node's `portable`: a link target relative to the data dir (`<data>/x`) or the second-volume folder (`<external>/x`).
+fn portable(target: &Path, data: &Path, external: Option<&Path>) -> String {
+    let text = target.to_string_lossy().replace('\\', "/");
+    let text = text.trim_start_matches("//?/").trim_start_matches("/??/").to_owned();
+    let under = |root: &Path| {
+        let root = root.to_string_lossy().replace('\\', "/");
+        (text == root || text.starts_with(&format!("{root}/"))).then(|| text[root.len()..].to_owned())
+    };
+    if let Some(rest) = under(data) {
+        return format!("<data>{rest}");
+    }
+    if let Some(rest) = external.and_then(under) {
+        return format!("<external>{rest}");
+    }
+    panic!("link target {text}");
+}
+
+/// Node's `snapshot`: folders as `path/`, files with their bytes, links as links, sorted by UTF-16 code units.
+fn snapshot(dir: &Path, data: &Path, external: Option<&Path>) -> Vec<(String, Option<Vec<u8>>)> {
+    fn walk(current: &Path, prefix: &str, data: &Path, external: Option<&Path>, out: &mut Vec<(String, Option<Vec<u8>>)>) {
         for entry in std::fs::read_dir(current).expect("read_dir") {
             let entry = entry.expect("entry");
             let name = entry.file_name().to_string_lossy().into_owned();
             let rel = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
-            if entry.file_type().expect("type").is_dir() {
+            let kind = entry.file_type().expect("type");
+            if kind.is_symlink() {
+                let target = std::fs::read_link(entry.path()).expect("link");
+                out.push((mask(&rel), Some(link_content(&portable(&target, data, external)))));
+            } else if kind.is_dir() {
                 out.push((format!("{}/", mask(&rel)), None));
-                walk(&entry.path(), &rel, out);
+                walk(&entry.path(), &rel, data, external, out);
             } else {
-                out.push((mask(&rel), Some(std::fs::read(entry.path()).expect("read"))));
+                out.push((mask(&rel), Some(std::fs::read(entry.path()).unwrap_or_else(|_| UNREADABLE.to_vec()))));
             }
         }
     }
     let mut out = Vec::new();
-    walk(dir, "", &mut out);
+    walk(dir, "", data, external, &mut out);
     out.sort_by_key(|(path, _)| path.encode_utf16().collect::<Vec<u16>>());
     out
 }
 
 fn recorded(snapshot: &Value) -> Vec<(String, Option<Vec<u8>>)> {
-    snapshot.as_array().expect("snapshot").iter().map(|entry| (entry["path"].as_str().expect("path").to_owned(), entry.get("content").map(bytes_of))).collect()
+    snapshot
+        .as_array()
+        .expect("snapshot")
+        .iter()
+        .map(|entry| {
+            let content = match (entry.get("link"), entry.get("content")) {
+                (Some(target), _) => Some(link_content(target.as_str().expect("link"))),
+                (None, Some(content)) if content.get("unreadable").is_some() => Some(UNREADABLE.to_vec()),
+                (None, content) => content.map(bytes_of),
+            };
+            (entry["path"].as_str().expect("path").to_owned(), content)
+        })
+        .collect()
+}
+
+/// A junction `link` -> `target` (creating a symbolic link needs a privilege; Node's recorder used junctions too).
+#[cfg(windows)]
+fn junction(link: &Path, target: &Path) {
+    // `mklink` takes backslash paths only.
+    let backslashed = |path: &Path| path.to_string_lossy().replace('/', "\\");
+    let made = std::process::Command::new("cmd").arg("/C").arg("mklink").arg("/J").arg(backslashed(link)).arg(backslashed(target)).output().expect("mklink");
+    assert!(made.status.success(), "mklink: {}{}", String::from_utf8_lossy(&made.stdout), String::from_utf8_lossy(&made.stderr));
+}
+
+/// The files another process held open while Node ran: open for reading, `Read` sharing others may read but not delete or rename,
+/// `None` sharing nobody may open.
+#[cfg(windows)]
+fn hold(path: &Path, share: &str) -> std::fs::File {
+    use std::os::windows::fs::OpenOptionsExt;
+    let mode = match share {
+        "Read" => 1, // FILE_SHARE_READ
+        "None" => 0,
+        other => panic!("share {other}"),
+    };
+    std::fs::OpenOptions::new().read(true).share_mode(mode).open(path).expect("lock")
 }
 
 const CHILD: &str = "MIXDOG_RETIRE_REPLAY_CHILD";
@@ -150,6 +211,32 @@ async fn replay_all() {
             std::fs::create_dir_all(&data).expect("data");
         }
         lay(&data, state["before"].as_object().expect("before"));
+        let windows_only = !state["links"].as_array().expect("links").is_empty() || state["crossVolume"] == true || !state["locks"].as_array().expect("locks").is_empty();
+        if windows_only && cfg!(not(windows)) {
+            // Recorded with junctions, a second volume and open handles of Windows: nothing to replay them on here.
+            println!("\u{1}DONE {name}");
+            continue;
+        }
+        #[cfg(windows)]
+        let (external, _holds) = {
+            for link in state["links"].as_array().expect("links") {
+                let (path, target) = (link[0].as_str().expect("path"), link[1].as_str().expect("target"));
+                junction(&data.join(path), &data.join(target));
+            }
+            // `backups` on another volume (the Public profile of the system drive): the rename into it fails with EXDEV.
+            let external = (state["crossVolume"] == true).then(|| {
+                let public = Path::new(&std::env::var_os("SystemDrive").expect("SystemDrive")).join("\\Users\\Public");
+                let drive = |path: &Path| path.to_string_lossy().chars().take(2).collect::<String>().to_lowercase();
+                assert_ne!(drive(&public), drive(&data), "{name}: needs a second volume (the recording renames across two)");
+                let folder = tempfile::Builder::new().prefix("mixdog-retire-").tempdir_in(public).expect("external");
+                junction(&data.join("backups"), folder.path());
+                folder
+            });
+            let holds: Vec<std::fs::File> = state["locks"].as_array().expect("locks").iter().map(|lock| hold(&data.join(lock[0].as_str().expect("path")), lock[1].as_str().expect("share"))).collect();
+            (external, holds)
+        };
+        #[cfg(not(windows))]
+        let external: Option<tempfile::TempDir> = None;
         let mut error = None;
         for (run, after) in state["after"].as_array().expect("after").iter().enumerate() {
             let paths = WorkflowPaths { root: root.clone(), data: data.clone() };
@@ -161,7 +248,11 @@ async fn replay_all() {
             .await
             .expect("lane job");
             error = outcome.err();
-            assert_eq!(snapshot(&data), recorded(after), "{name}: run {run}");
+            let outside = external.as_ref().map(|folder| folder.path());
+            assert_eq!(snapshot(&data, &data, outside), recorded(after), "{name}: run {run}");
+            if let Some(folder) = outside {
+                assert_eq!(snapshot(folder, &data, outside), recorded(&state["externalAfter"][run]), "{name}: run {run}, the other volume");
+            }
         }
         let node = state["error"].as_str().map(|text| text.strip_prefix("TypeError: ").unwrap_or(text).to_owned());
         assert_eq!(error, node, "{name}: what the pass throws");
