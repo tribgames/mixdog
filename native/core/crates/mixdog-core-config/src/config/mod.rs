@@ -246,6 +246,8 @@ struct Shared {
     /// What runs inside each adoption ([`Config::on_adoption`]), by registration id.
     adoptions: Mutex<Vec<(u64, Adoption)>>,
     next_adoption: AtomicU64,
+    /// Documents read from the file or rebuilt from it since the open ([`Config::loads`]).
+    loads: AtomicU64,
 }
 
 type Adoption = Arc<dyn Fn() + Send + Sync>;
@@ -336,6 +338,7 @@ impl Config {
             changed: tokio::sync::watch::channel(0).0,
             adoptions: Mutex::default(),
             next_adoption: AtomicU64::new(0),
+            loads: AtomicU64::new(0),
         };
         let current = shared.doc.load();
         for name in PUBLISHED_SUBTREES {
@@ -380,6 +383,13 @@ impl Config {
         self.shared.generation.load(Ordering::Acquire)
     }
 
+    /// Counts the file reads and the agent-section rebuilds (`reload*`, `loaded_agent`) since the open. A read of the
+    /// published document (`agent`, `full`, `get`) is not one. Unlike `revision` it also moves for a load that installs
+    /// an equal document.
+    pub fn loads(&self) -> u64 {
+        self.shared.loads.load(Ordering::Relaxed)
+    }
+
     /// The whole document, secrets included.
     pub fn full(&self) -> Arc<Doc> {
         self.shared.doc.load_full()
@@ -397,6 +407,7 @@ impl Config {
     /// (retired local providers and fields dropped, incomplete or superseded routes migrated,
     /// `providers` and `webSearchRoute` always present, …). The catalog is read as a lane job.
     pub async fn loaded_agent(&self) -> Result<Doc, ConfigError> {
+        self.shared.loads.fetch_add(1, Ordering::Relaxed);
         let agent = self.agent();
         let dir = self.shared.path.parent().map(Path::to_path_buf).unwrap_or_default();
         let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
@@ -607,6 +618,7 @@ impl Config {
     async fn reload_read(&self, in_pass: bool) -> Result<Applied, ConfigError> {
         loop {
             let seen = self.shared.generation.load(Ordering::Acquire);
+            self.shared.loads.fetch_add(1, Ordering::Relaxed);
             let next = self.shared.guard.read(self.lanes, in_pass).await?;
             let shared = self.shared.clone();
             let installed =

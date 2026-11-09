@@ -250,6 +250,9 @@ pub struct MemStore {
     pub head_reads: AtomicU64,
     /// Every stored header read (`read_header`).
     pub header_reads: AtomicU64,
+    /// Every copy of a thread's records, whichever read route took it (`records`): a read of the whole record cannot
+    /// avoid this, so counting here leaves no uncounted route.
+    pub record_reads: AtomicU64,
     /// The next barrier fails (rolled back).
     pub fail_next: Arc<AtomicBool>,
     /// The next read of a thread's model context fails.
@@ -269,6 +272,7 @@ pub struct MemStore {
 
 impl MemStore {
     pub fn records(&self, id: &ThreadId) -> Vec<(u64, Record)> {
+        self.record_reads.fetch_add(1, Ordering::SeqCst);
         lock(&self.logs)
             .get(id)
             .map(|log| lock(log).clone())

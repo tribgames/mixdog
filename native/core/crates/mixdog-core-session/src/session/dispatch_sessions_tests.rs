@@ -111,7 +111,12 @@ async fn a_run_stamp_of_a_held_session_reads_no_stored_record() {
     let directory = Arc::new(SessionDirectory::new(rig.deps()));
     let id = threads(&directory).create(hidden_header()).await.expect("created");
     let thread = ThreadId::from(id.as_str());
-    let (heads, headers) = (rig.store.head_reads.load(std::sync::atomic::Ordering::SeqCst), rig.store.header_reads.load(std::sync::atomic::Ordering::SeqCst));
+    // `record_reads` counts every copy of the stored records, whichever route (head, header, log id, context) took it.
+    let (heads, headers, records) = (
+        rig.store.head_reads.load(std::sync::atomic::Ordering::SeqCst),
+        rig.store.header_reads.load(std::sync::atomic::Ordering::SeqCst),
+        rig.store.record_reads.load(std::sync::atomic::Ordering::SeqCst),
+    );
     let stamps = crate::session::run_stamps::DirectoryRunStamps::new(directory.clone());
     let first = stamps.stamp_of(&thread).await;
     for _ in 0..5 {
@@ -119,6 +124,7 @@ async fn a_run_stamp_of_a_held_session_reads_no_stored_record() {
     }
     assert_eq!(rig.store.head_reads.load(std::sync::atomic::Ordering::SeqCst), heads, "a gate decision read a transcript");
     assert_eq!(rig.store.header_reads.load(std::sync::atomic::Ordering::SeqCst), headers, "a gate decision read a stored record");
+    assert_eq!(rig.store.record_reads.load(std::sync::atomic::Ordering::SeqCst), records, "a gate decision copied the stored records");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
