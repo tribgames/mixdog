@@ -48,6 +48,15 @@ export async function withPhoneApi(handlers, run) {
       call: router.call,
       readCatalog: (_catalog, method) => router.call(method, []),
       fire: router.fire,
+      // The lanes the page asks the core to push, as the phone's laneSubscription registers them (remote-shim-phone.ts).
+      laneSubscription: (lane, listeners, listener) => {
+        listeners.add(listener);
+        if (listeners.size === 1) ctx.activeLanes.add(lane);
+        return () => {
+          listeners.delete(listener);
+          if (listeners.size === 0) ctx.activeLanes.delete(lane);
+        };
+      },
     });
     router.install();
     return await run({ ctx, api: createRemoteApi(ctx), calls });
