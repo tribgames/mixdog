@@ -1069,7 +1069,7 @@ const NOT_REPLAYED: &[NotReplayed] = &[
     NotReplayed {
         path: "before.terminal",
         owners: &["phone-ph2-terminal"],
-        why: "Node's shell list (`termProfiles`, remote-methods.ts:1159): served to a revoked phone unchanged. The profiles come from the desktop host; the core's wire has no counterpart frame.",
+        why: "Node's shell list (`termProfiles`, remote-methods.ts:1159): served to a revoked phone unchanged. The core's counterpart is `terminal/profiles`, served by the mixdog-spawn host, which this harness does not compose; the core's list is compared with Node's recorded list exactly in the phone-terminal replay (apps/desktop/src/renderer/remote-protocol-terminal.slow.test.mjs, `termProfiles`).",
     },
     NotReplayed { path: "after.terminal", owners: &["phone-ph2-terminal"], why: "as before.terminal" },
     NotReplayed {

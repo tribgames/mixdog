@@ -63,9 +63,20 @@ type Published = Vec<(SectionName, Option<String>, SectionChange)>;
 struct SectionLog {
     inner: MockStatePublisher,
     pushed: tokio::sync::Notify,
+    /// A test's hold on the next activity publication: the publisher announces it has the publication in hand and does not publish it
+    /// until the gate opens (the section worker is blocked meanwhile, as a slow publisher would block it).
+    hold: std::sync::Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
 }
 
 impl SectionLog {
+    /// Holds the next activity publication. Returns the receiver that says the publication is in hand and the sender that opens the gate.
+    fn hold_next_activity(&self) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let (open_tx, open_rx) = std::sync::mpsc::channel();
+        *self.hold.lock().unwrap() = Some((held_tx, open_rx));
+        (held_rx, open_tx)
+    }
+
     fn published(&self) -> Published {
         self.inner.published()
     }
@@ -92,6 +103,13 @@ impl SectionLog {
 
 impl StatePublisher for SectionLog {
     fn publish(&self, section: SectionName, key: Option<String>, change: SectionChange) {
+        if section == SectionName::TerminalActivity {
+            let hold = self.hold.lock().unwrap().take();
+            if let Some((held, open)) = hold {
+                held.send(()).expect("the test waits for the held publication");
+                open.recv_timeout(Duration::from_secs(10)).expect("the test never opened the gate on the held activity publication");
+            }
+        }
         self.inner.publish(section, key, change);
         self.pushed.notify_waiters();
     }
@@ -269,9 +287,15 @@ async fn integrated_profile(service: &TerminalService) -> String {
         .to_owned()
 }
 
+/// One poll of a future, on the spot: what the future does before its first wait has been done when this returns.
+async fn poll_once<F: std::future::Future + Unpin>(future: &mut F) -> std::task::Poll<F::Output> {
+    std::future::poll_fn(|cx| std::task::Poll::Ready(std::pin::Pin::new(&mut *future).poll(cx))).await
+}
+
 /// Node forwards a disposed tab's end (`state: null`) before it answers the dispose (terminal-manager.ts:541, remote-relay-push-lanes.ts:150,
-/// remote-methods.ts:1284), so a phone has the activity event ahead of the reply. A publish reaches the connection's queue at once, so the
-/// section must already be published when the reply is: read with no wait.
+/// remote-methods.ts:1284), so a phone has the activity event ahead of the reply. The publication of the tab's end is held at the
+/// publisher: the dispose's first poll runs everything it does before its first wait, so it is pending exactly when the reply waits
+/// for the held publication, and it is ready (the reply sent with the event still held) when it does not.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_dispose_is_answered_after_the_activity_it_ended_is_published() {
     let manager = manager();
@@ -293,7 +317,14 @@ async fn a_dispose_is_answered_after_the_activity_it_ended_is_published() {
             .unwrap_or_default()
     };
     publisher.wait_for("the tab has a known activity", |_| keys() == ["term_end"]).await;
-    service.call(request("terminal/dispose", json!({ "tabId": "term_end" }), 1)).await.unwrap();
+    let (held, open) = publisher.hold_next_activity();
+    let mut reply = Box::pin(service.call(request("terminal/dispose", json!({ "tabId": "term_end" }), 1)));
+    assert!(poll_once(&mut reply).await.is_pending(), "the dispose was answered while the tab's end was still held back from the phone");
+    held.recv_timeout(Duration::from_secs(10)).expect("the tab's end never reached the publisher");
+    assert!(poll_once(&mut reply).await.is_pending(), "the dispose was answered while the tab's end was still held back from the phone");
+    assert_eq!(keys(), ["term_end"], "the tab's end is held, so the phone still sees the tab");
+    open.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), reply).await.expect("the dispose was never answered after the tab's end was published").unwrap();
     assert!(keys().is_empty(), "the tab's end was not published before the reply: {:?}", keys());
 }
 /// Node's `termActivity` walked its tab map, so the tabs came in creation order, not sorted by id.
