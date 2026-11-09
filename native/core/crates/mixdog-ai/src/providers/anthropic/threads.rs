@@ -234,7 +234,24 @@ struct Record {
     in_flight: bool,
     state: Option<State>,
     disabled_account: Option<String>,
+    /// The send (`send_group`) whose stream was cut mid-way: its next attempt is the same plan again.
+    retry: Option<Retry>,
 }
+
+/// What Node's one `send` keeps across its mid-stream attempts: the plan is the same object each time. A dropped
+/// continue is resent once as it was, after that it replays as a create; a replay stays a replay.
+#[derive(Clone)]
+struct Retry {
+    group: String,
+    /// The state the cut continue started from.
+    prior: Option<State>,
+    /// How many continues of this send were cut.
+    resends: u32,
+    replayed: bool,
+}
+
+/// Cut continues that are resent as they were before the next attempt replays (`attemptIndex >= 2`).
+const RESENDS_BEFORE_REPLAY: u32 = 2;
 
 #[derive(Default)]
 struct Generation {
@@ -303,6 +320,8 @@ pub struct PlanInput<'a> {
     pub cache_ttls: &'a str,
     pub now: u64,
     pub directive: Option<Directive>,
+    /// The logical send this attempt belongs to (`RequestOptions.send_group`); the attempts of a send share a plan.
+    pub send_group: Option<&'a str>,
 }
 
 /// Hash of every create-only and fixed field, the beta set and the per-layer cache TTLs.
@@ -385,6 +404,25 @@ fn create_body(body: &Value) -> Value {
     Value::Object(wire)
 }
 
+/// A cut continue replayed in place (`toCreate`): the wire keeps the continue's key order, `messages` and `thread`
+/// are overwritten where they stand and `system` and `tools` come back after them.
+fn replay_body(body: &Value, state: &State) -> Value {
+    let Value::Object(mut wire) = continue_body(body, state) else { unreachable!("continue_body builds an object") };
+    let full = object(body);
+    for key in ["messages"] {
+        if let Some(value) = full.get(key) {
+            wire.insert(key.into(), value.clone());
+        }
+    }
+    wire.insert("thread".into(), json!({ "type": "create" }));
+    for key in ["system", "tools"] {
+        if let Some(value) = full.get(key) {
+            wire.insert(key.into(), value.clone());
+        }
+    }
+    Value::Object(wire)
+}
+
 fn continue_body(body: &Value, state: &State) -> Value {
     let mut wire = object(body);
     let messages = wire.shift_remove("messages").unwrap_or(Value::Null);
@@ -460,18 +498,31 @@ impl Threads {
         let betas = with_beta(input.betas);
         let fingerprint = fingerprint(input.body, &betas, input.cache_ttls);
         let messages: Vec<Value> = input.body["messages"].as_array().cloned().unwrap_or_default();
-        let prior = record.and_then(|r| r.state.clone());
+        // The attempt after a cut stream of the same send continues that send's plan; any other send starts afresh
+        // (the previous id was consumed by the cut one).
+        let retry = record.and_then(|r| r.retry.clone()).filter(|r| input.send_group == Some(r.group.as_str()));
+        let prior = match &retry {
+            Some(retry) => retry.prior.clone(),
+            None => record.and_then(|r| r.state.clone()),
+        };
 
         let mut mode = Mode::Create;
         let mut wire = create_body(input.body);
+        let mut replayed = retry.as_ref().is_some_and(|r| r.replayed);
+        let resends = retry.as_ref().map_or(0, |r| r.resends);
         let blocker = if input.directive.is_some_and(|d| d.force == Force::Create) {
             Some("forced")
+        } else if retry.as_ref().is_some_and(|r| r.prior.is_some()) {
+            None
         } else {
             continue_blocker(prior.as_ref(), input.account, &fingerprint, &messages, input.now)
         };
         if let (None, Some(state)) = (blocker, prior.as_ref()) {
-            let candidate = continue_body(input.body, state);
-            if breakpoint_count(&candidate, input.body) <= MAX_BREAKPOINTS {
+            let candidate = if resends >= RESENDS_BEFORE_REPLAY { replay_body(input.body, state) } else { continue_body(input.body, state) };
+            if resends >= RESENDS_BEFORE_REPLAY {
+                replayed = true;
+                wire = candidate;
+            } else if breakpoint_count(&candidate, input.body) <= MAX_BREAKPOINTS {
                 mode = Mode::Continue;
                 wire = candidate;
             }
@@ -487,8 +538,9 @@ impl Threads {
         let generation_id = inner.next;
         let generation = inner.scopes.entry(input.scope.to_owned()).or_insert_with(|| Generation { id: generation_id, records: HashMap::new() });
         let generation_id = generation.id;
-        generation.records.insert(input.provider.to_owned(), Record { token, in_flight: true, state: None, disabled_account: None });
-        let replay = input.directive.is_some_and(|d| d.replay);
+        generation.records.insert(input.provider.to_owned(), Record { token, in_flight: true, state: None, disabled_account: None, retry: None });
+        let replay = replayed || input.directive.is_some_and(|d| d.replay);
+        let carried = if mode == Mode::Continue || retry.is_some() { prior.clone() } else { None };
         let after_replay = mode == Mode::Continue && prior.as_ref().is_some_and(|s| s.from_replay);
         let claim = Claim {
             threads: Arc::clone(self),
@@ -501,6 +553,10 @@ impl Threads {
             prefix_count: messages.len(),
             prefix_hash: prefix_hash(&messages, messages.len()),
             replay,
+            mode,
+            carried,
+            resends,
+            group: input.send_group.map(str::to_owned),
         };
         Plan { mode, body: wire, betas, blocker, after_replay, directive: input.directive, session: Some(ThreadSession::new(claim)) }
     }
@@ -528,9 +584,25 @@ struct Claim {
     prefix_count: usize,
     prefix_hash: String,
     replay: bool,
+    mode: Mode,
+    /// The state a cut attempt hands to the next one of the send (see [`Retry`]).
+    carried: Option<State>,
+    resends: u32,
+    group: Option<String>,
 }
 
 impl Claim {
+    /// The stream was cut after it began: the send's next attempt is this plan again.
+    fn abandon(&self) {
+        let mut inner = self.threads.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(group) = self.group.clone() else { return };
+        let Some(record) = self.owned(&mut inner) else { return };
+        if self.mode == Mode::Continue || self.replay {
+            let resends = self.resends + u32::from(self.mode == Mode::Continue);
+            record.retry = Some(Retry { group, prior: self.carried.clone(), resends, replayed: self.replay });
+        }
+    }
+
     /// The conversation's record while this send still owns it.
     fn owned<'a>(&self, inner: &'a mut Inner) -> Option<&'a mut Record> {
         let generation = inner.scopes.get_mut(&self.scope).filter(|g| g.id == self.generation)?;
@@ -778,14 +850,17 @@ impl Receipt {
 pub struct ThreadSession {
     claim: Claim,
     receipt: Receipt,
+    /// The response began (a chunk arrived) and its end was never decoded: a cut stream.
+    cut: bool,
 }
 
 impl ThreadSession {
     fn new(claim: Claim) -> Self {
-        Self { claim, receipt: Receipt::default() }
+        Self { claim, receipt: Receipt::default(), cut: false }
     }
 
     pub fn feed(&mut self, chunk: &[u8]) {
+        self.cut = true;
         self.receipt.feed(chunk, super::oauth::now_ms());
     }
 
@@ -793,6 +868,7 @@ impl ThreadSession {
     /// only an early terminal frame arrived, the rest of the body is read on in the background, for at most
     /// [`MESSAGE_STOP_WAIT_MS`], for the frame that confirms storage; the turn is not held for it.
     pub fn complete(mut self, body: Option<Box<dyn BodyStream>>) {
+        self.cut = false;
         if self.receipt.stopped_at != 0 {
             self.claim.commit(&self.receipt);
             return;
@@ -821,6 +897,9 @@ impl ThreadSession {
 
 impl Drop for ThreadSession {
     fn drop(&mut self) {
+        if self.cut {
+            self.claim.abandon();
+        }
         self.claim.settle();
     }
 }

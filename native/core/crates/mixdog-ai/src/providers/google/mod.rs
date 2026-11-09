@@ -83,7 +83,7 @@ pub fn gemini_with(
         GoogleCodec::gemini(codec::GEMINI_ORIGIN, traits),
         policy::gemini(),
         http,
-        Arc::new(ApiKeyAuth::new(api_key)),
+        Arc::new(ApiKeyAuth::rereading(api_key)),
         String::new(),
     )
     .with_cache(cache)

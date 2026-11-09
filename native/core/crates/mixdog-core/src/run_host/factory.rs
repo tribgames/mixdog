@@ -1513,6 +1513,66 @@ mod tests {
         let _ = AtomicI64::new(0);
     }
 
+    /// A provider's notice (the Gemini redirect) goes the whole way a client reads it: the stream event, the loop's
+    /// stage notice, the run host's shown event, the session's live row and the frame the thread's feed publishes (the
+    /// feed desktop and phone both follow). The message and tone are the Node recording's, and the row is the one the
+    /// real TUI/desktop notice surface made of it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_providers_notice_reaches_the_threads_clients_as_the_row_node_showed() {
+        let recorded: Value = serde_json::from_str(include_str!("../../../../fixtures/wire-anthropic-gemini/gemini.json")).expect("the Gemini recording");
+        let send = &recorded["scenarios"].as_array().unwrap().iter().find(|s| s["id"] == "pro25.boundary-at").expect("the redirect scenario")["sends"][0];
+        let (notice, row) = (&send["notices"][0], &send["noticeRows"][0]);
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([vec![
+                StreamEvent::Notice { message: notice["message"].as_str().unwrap().to_owned(), warn: notice["tone"] == "warn" },
+                StreamEvent::TextDelta("hello".into()),
+                StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+            ]])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let workspace = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+        // Woken by each step of the thread's actor; the frame is searched for before waiting.
+        let shown = tokio::time::timeout(std::time::Duration::from_secs(30), async { loop {
+            let stepped = handle.stepped().notified();
+            tokio::pin!(stepped);
+            stepped.as_mut().enable();
+            let found = rig.feeds.frames(id.as_str()).into_iter().find_map(|(_, _, params)| {
+                let text = row["text"].as_str().unwrap();
+                let mut stack = vec![params];
+                while let Some(value) = stack.pop() {
+                    match value {
+                        Value::Object(map) if map.get("text").and_then(Value::as_str) == Some(text) => return Some(Value::Object(map)),
+                        Value::Object(map) => stack.extend(map.into_iter().map(|(_, v)| v)),
+                        Value::Array(all) => stack.extend(all),
+                        _ => {}
+                    }
+                }
+                None
+            });
+            if let Some(found) = found {
+                break found;
+            }
+            stepped.await;
+        } })
+        .await
+        .expect("the thread's feed never published the provider's notice within 30 s");
+        assert_eq!((shown["text"].clone(), shown["tone"].clone()), (row["text"].clone(), row["tone"].clone()), "{shown}");
+    }
+
     /// A turn is assembled from the header the settings reconcile returns, not the one it started
     /// with: a gate that moved since the last turn reaches the request (`await reconcileTurnSettings()`).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

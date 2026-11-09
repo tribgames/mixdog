@@ -32,11 +32,18 @@ pub trait RequestAuth: Send + Sync {
 /// A static key sent in `x-goog-api-key` (Gemini API, Vertex express mode).
 pub struct ApiKeyAuth {
     key: String,
+    resend_on_401: bool,
 }
 
 impl ApiKeyAuth {
     pub fn new(key: impl Into<String>) -> Self {
-        Self { key: key.into() }
+        Self { key: key.into(), resend_on_401: false }
+    }
+
+    /// The Gemini API's key: a typed 401 re-reads the provider's key and sends the request once more with what it
+    /// finds (`gemini.mjs` `send`), which for a key held as given is the same key.
+    pub fn rereading(key: impl Into<String>) -> Self {
+        Self { key: key.into(), resend_on_401: true }
     }
 }
 
@@ -56,7 +63,7 @@ impl RequestAuth for ApiKeyAuth {
     }
 
     async fn rejected(&self, _: &Authorization) -> bool {
-        false
+        self.resend_on_401 && !self.key.trim().is_empty()
     }
 }
 

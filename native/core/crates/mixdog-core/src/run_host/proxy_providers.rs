@@ -305,6 +305,7 @@ mod tests {
             account_blocked: false,
             unsafe_to_retry: false,
             quota_limit: None,
+            notices: Vec::new(),
         }
     }
 

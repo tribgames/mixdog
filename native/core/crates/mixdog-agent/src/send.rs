@@ -436,7 +436,10 @@ impl Run {
         };
         let mut stream = match attempt {
             None => return Err(AgentError::Aborted),
-            Some(Err(error)) => return Ok(fail(error, builder, false, 0, false)),
+            Some(Err(error)) => {
+                self.show_notices(&error);
+                return Ok(fail(error, builder, false, 0, false));
+            }
             Some(Ok(stream)) => stream,
         };
         self.emit(RunEvent::Stage(Stage::Streaming));
@@ -449,6 +452,7 @@ impl Run {
             let event = match next {
                 None => break,
                 Some(Err(error)) => {
+                    self.show_notices(&error);
                     return Ok(fail(error, builder, true, shown_chars, reasoning_shown));
                 }
                 Some(Ok(event)) => event,
@@ -479,10 +483,7 @@ impl Run {
                     self.provider_state_changed = true;
                 }
                 // `onStageChange('notice', { tone, message })`: shown in the transcript, nothing else.
-                StreamEvent::Notice { message, warn } => {
-                    let tone = if *warn { Tone::Warn } else { Tone::Info };
-                    self.emit(RunEvent::Stage(Stage::Notice { message: message.clone(), tone }));
-                }
+                StreamEvent::Notice { message, warn } => self.show_notice(message, *warn),
                 _ => {}
             }
             let tool_done = matches!(event, StreamEvent::ToolCallDone(_));
@@ -502,6 +503,18 @@ impl Run {
         }
         self.last_streamed_chars = shown_chars;
         Ok(Ok(builder.finish()))
+    }
+
+    fn show_notice(&self, message: &str, warn: bool) {
+        let tone = if warn { Tone::Warn } else { Tone::Info };
+        self.emit(RunEvent::Stage(Stage::Notice { message: message.to_owned(), tone }));
+    }
+
+    /// The notices a failed request raised before it failed (`ProviderError::notices`).
+    fn show_notices(&self, error: &ProviderError) {
+        for (message, warn) in &error.notices {
+            self.show_notice(message, *warn);
+        }
     }
 
     async fn recover(&mut self, fail: Failure) -> Result<Recovery, AgentError> {

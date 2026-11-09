@@ -281,6 +281,7 @@ impl AnthropicAdapter {
             cache_ttls: &self.codec.cache_ttls(request),
             now: super::oauth::now_ms(),
             directive,
+            send_group: request.options.send_group.as_deref(),
         }))
     }
 

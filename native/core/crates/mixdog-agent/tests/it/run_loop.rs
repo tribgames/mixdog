@@ -865,6 +865,23 @@ async fn a_provider_notice_reaches_the_observer_as_a_stage_notice() {
     assert_eq!(notices, [("served as another model".to_owned(), Tone::Warn)]);
 }
 
+/// Node announces before it dispatches, so a request the provider refuses still showed the notice, ahead of the failure.
+#[tokio::test]
+async fn a_notice_raised_before_a_refused_request_is_still_shown() {
+    let mut refusal = ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted);
+    refusal.notices = vec![("served as another model".into(), true)];
+    let h = Harness::new(vec![Attempt::Reject(refusal)]);
+    let refused = h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await;
+    assert!(refused.is_err(), "the refusal ends the run");
+    let shown = h
+        .observer
+        .events()
+        .into_iter()
+        .filter(|e| matches!(e, RunEvent::Stage(Stage::Notice { message, tone: Tone::Warn }) if message == "served as another model"))
+        .count();
+    assert_eq!(shown, 1, "the notice of the refused request was shown once");
+}
+
 #[tokio::test]
 async fn steering_enters_after_the_tool_batch_and_before_the_next_request() {
     let h = Harness::new(vec![

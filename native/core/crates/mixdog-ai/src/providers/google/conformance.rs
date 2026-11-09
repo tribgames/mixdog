@@ -694,7 +694,7 @@ async fn a_failing_resend_after_a_cache_reset_persists_no_state() {
 }
 
 /// A 401 on the key drops every cache made under it from the process registry
-/// (Node `gemini.mjs:667`), and the key is not resent.
+/// (Node `gemini.mjs:667`); the send is resent once, as Node does.
 #[tokio::test]
 async fn a_rejected_key_drops_its_caches_from_the_registry() {
     use super::cache::layer::ExplicitCache;
@@ -704,6 +704,7 @@ async fn a_rejected_key_drops_its_caches_from_the_registry() {
     let create = r#"{"name":"cachedContents/c9","usageMetadata":{"totalTokenCount":3000}}"#;
     let http = Scripted::new(vec![
         respond(200, create),
+        respond(401, r#"{"error":{"code":401,"status":"UNAUTHENTICATED","message":"bad key"}}"#),
         respond(401, r#"{"error":{"code":401,"status":"UNAUTHENTICATED","message":"bad key"}}"#),
     ]);
     let registry = Arc::new(Registry::default());
@@ -737,7 +738,7 @@ async fn a_rejected_key_drops_its_caches_from_the_registry() {
     request.options.provider_state = Some(held);
     let (_, err) = collect(&adapter, request).await;
     assert!(err.is_some(), "401 surfaces");
-    assert_eq!(http.seen.lock().unwrap().len(), 2, "create and one send; a static key is not resent");
+    assert_eq!(http.seen.lock().unwrap().len(), 3, "create, the send, and Node's single resend with the re-read key");
     assert!(!registry.name_is_live("cachedContents/c9", NOW_MS));
 }
 
@@ -781,11 +782,11 @@ async fn gemini_adapter_streams_the_recorded_turn_and_passes_the_attempt_conform
 #[tokio::test]
 async fn a_rejected_static_key_is_reported_once() {
     let scenario = load("gemini", "error-401");
-    let http = Scripted::new(vec![respond(401, &scenario.content().served)]);
+    let http = Scripted::new(vec![respond(401, &scenario.content().served), respond(401, &scenario.content().served)]);
     let (_, err) = collect(&gemini_adapter(http.clone()), fixture_request("gemini-2.5-pro")).await;
     let err = err.expect("401");
     assert_eq!((err.kind, err.status), (ErrorKind::Auth, Some(401)));
-    assert_eq!(http.urls().len(), 1, "a static key cannot change; nothing is resent");
+    assert_eq!(http.urls().len(), 2, "Node re-reads the key and resends once (recorded: flash25.failed-first-send)");
 }
 
 #[tokio::test]

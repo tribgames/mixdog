@@ -6,10 +6,8 @@ use std::sync::Arc;
 
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::ErrorResponse;
-use mixdog_core_api::domain::provider::MessageSource;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderError;
-use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::WireCodec;
 use mixdog_core_api::domain::provider::WireDecoder;
 use mixdog_core_api::domain::provider::WireRequest;
@@ -32,6 +30,7 @@ use super::decoder::AnthropicDecoder;
 use super::fast_mode;
 use super::fast_mode::FastMode;
 use super::errors::classify_response;
+use super::reminders::split_tail_reminder;
 
 pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
@@ -219,11 +218,8 @@ impl AnthropicCodec {
         let options = &request.options;
         let scope = options.session_id.as_deref().filter(|s| !s.is_empty())?;
         let first_party = self.config.first_party_route();
-        let legacy_reminder = request
-            .messages
-            .last()
-            .is_some_and(|m| m.role == Role::User && m.source == Some(MessageSource::TailReminder))
-            && !(first_party && turn_scoped_model(&request.model));
+        // `carriesLegacyTailReminder`: a reminder with no text rides nothing, so it does not stop threading.
+        let legacy_reminder = !split_tail_reminder(&request.messages).1.is_empty() && !(first_party && turn_scoped_model(&request.model));
         (self.config.message_threads
             && first_party
             && options.transport_scope.as_deref().is_none_or(str::is_empty)

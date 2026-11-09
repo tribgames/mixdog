@@ -139,7 +139,8 @@ impl GoogleAdapter {
     }
 
     /// `_servedModel`: the direct Gemini API serves some ids as another model from a date on; the served id is the
-    /// request's model for the whole request (wire id, cache, settings), announced once per process.
+    /// request's model for the whole request (wire id, settings, cache, cost: the ledger books the send under it
+    /// and the response reports it, by `StreamEvent::ServedModel`), announced once per process.
     fn served(&self, request: Arc<ModelRequest>) -> (Arc<ModelRequest>, Option<Redirect>) {
         let (Target::Gemini { .. }, Some(clock)) = (self.codec.target(), self.clock.as_ref()) else {
             return (request, None);
@@ -293,8 +294,8 @@ struct Redirect {
 
 impl Redirect {
     /// The notice, once per requested id per process: Node announces on the first send that meets the id, to that
-    /// send's `onStageChange` (tone `warn`) and to stderr. The claim is made when the request has an answer to
-    /// stream, so an attempt that failed before any event could carry it leaves the notice to the retry.
+    /// send's `onStageChange` (tone `warn`) and to stderr. The claim is made here, before the request is built, as
+    /// in Node: the notice rides the stream when the request has one and the error when it fails.
     fn announce(&self) -> Option<StreamEvent> {
         static ANNOUNCED: Mutex<Vec<String>> = Mutex::new(Vec::new());
         let mut announced = ANNOUNCED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -342,6 +343,32 @@ impl ProviderAdapter for GoogleAdapter {
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         let (request, redirect) = self.served(self.routed(request));
+        // `_servedModel` announces, and claims the once-per-process notice, before the request is built or sent:
+        // a send that fails still showed it, and a later one does not show it again.
+        let notice = redirect.as_ref().and_then(Redirect::announce);
+        match self.attempt_served(request).await {
+            Ok(mut stream) => {
+                // The result's `model` is the served one, which the ledger books and the turn reports.
+                if let Some(redirect) = &redirect {
+                    stream.queue.push_front(Ok(StreamEvent::ServedModel(redirect.target.to_owned())));
+                }
+                if let Some(notice) = notice {
+                    stream.queue.push_front(Ok(notice));
+                }
+                Ok(Box::new(stream))
+            }
+            Err(mut error) => {
+                if let Some(StreamEvent::Notice { message, warn }) = notice {
+                    error.notices.push((message, warn));
+                }
+                Err(error)
+            }
+        }
+    }
+}
+
+impl GoogleAdapter {
+    async fn attempt_served(&self, request: Arc<ModelRequest>) -> Result<GoogleStream, ProviderError> {
         // State changes reach the session only as stream events: Node persists
         // `providerState` from a delivered result alone (`ask-turn-settle.mjs:147`),
         // never from a failed send, so no error carries one.
@@ -385,10 +412,7 @@ impl ProviderAdapter for GoogleAdapter {
             let rejected = response.read_all().await?;
             return Err(self.codec.classify_for(&rejected, &request, global));
         }
-        if let Some(notice) = redirect.and_then(|r| r.announce()) {
-            queue.push_front(Ok(notice));
-        }
-        Ok(Box::new(GoogleStream {
+        Ok(GoogleStream {
             body: response.body,
             decoder: self.codec.decoder(&request),
             queue,
@@ -402,7 +426,7 @@ impl ProviderAdapter for GoogleAdapter {
                 .find(|m| m.role != Role::System)
                 .is_some_and(|m| m.role == Role::Tool),
             produced_output: false,
-        }))
+        })
     }
 }
 
