@@ -10,10 +10,37 @@ if (process.env.FOOTER_WARM) {
 }
 const steps = process.env.FOOTER_STEPS ? JSON.parse(process.env.FOOTER_STEPS) : null;
 const T0 = Number(process.env.FOOTER_T0);
+const routeMetaUrl = pathToFileURL(join(process.env.FOOTER_TREE, 'src', 'vendor', 'statusline', 'src', 'gateway', 'route-meta.mjs')).href;
+// Node's own completion signals: the dynamic import the limits module started (the same module-map promise, so it
+// settles after the footer's own `.then`), then every refresh the footer deferred to setImmediate having run.
 const settle = async () => {
-  await new Promise((resolve) => setImmediate(resolve));
-  // The route-meta module of the limits loads by dynamic import; the next render is far later than that.
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await import(routeMetaUrl);
+  await globalThis.__footerIdle();
+};
+// The footer is stale-while-revalidate: a render returns the cached values and schedules the refreshes it needs, and
+// some depend on an earlier one (the OAuth arm check gates the quota segment). Each render therefore waits for the
+// refreshes it scheduled to complete (the signal above). The settled text is the first one that a render made after
+// the refreshes completed reproduces on the next such render.
+const settledText = async () => {
+  await renderStatusline(args);
+  await settle();
+  let previous = await renderStatusline(args);
+  for (;;) {
+    await settle();
+    const text = await renderStatusline(args);
+    if (text === previous) return text;
+    previous = text;
+  }
+};
+const startRouteMetaLoad = async () => {
+  // buildGatewayLimits throws until its route-meta module has loaded; the first call starts that load.
+  const meta = await import(pathToFileURL(join(process.env.FOOTER_TREE, 'src', 'runtime', 'agent', 'orchestrator', 'providers', 'statusline-route-meta.mjs')).href);
+  try {
+    meta.buildGatewayLimits({});
+  } catch {
+    /* loading */
+  }
+  await settle();
 };
 
 const stages = process.env.FOOTER_STAGES ? JSON.parse(process.env.FOOTER_STAGES) : null;
@@ -21,24 +48,12 @@ const stages = process.env.FOOTER_STAGES ? JSON.parse(process.env.FOOTER_STAGES)
 if (stages) {
   // One footer across changes to the event store: each stage applies its change, moves the clock on and renders the settled text.
   const { applyStage } = await import(new URL('./scenarios.mjs', import.meta.url).href);
-  const meta = await import(pathToFileURL(join(process.env.FOOTER_TREE, 'src', 'runtime', 'agent', 'orchestrator', 'providers', 'statusline-route-meta.mjs')).href);
-  try {
-    meta.buildGatewayLimits({});
-  } catch {
-    /* loading */
-  }
-  await new Promise((resolve) => setTimeout(resolve, 200));
+  await startRouteMetaLoad();
   const texts = [];
   for (const [index, stage] of stages.entries()) {
     applyStage(process.env.MIXDOG_DATA_DIR, stage);
     globalThis.__footerSetNow(T0 + 1000 * index);
-    let text = '';
-    for (let i = 0; i < 6; i += 1) {
-      text = await renderStatusline(args);
-      await new Promise((resolve) => setImmediate(resolve));
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    texts.push(text);
+    texts.push(await settledText());
   }
   process.stdout.write(JSON.stringify(texts));
 } else if (steps) {
@@ -53,20 +68,8 @@ if (stages) {
 } else {
   // buildGatewayLimits throws until its route-meta module has loaded; the first call starts that load, so the
   // footer is steady one refresh later. Start it here so the recorded text is the steady one.
-  const meta = await import(pathToFileURL(join(process.env.FOOTER_TREE, 'src', 'runtime', 'agent', 'orchestrator', 'providers', 'statusline-route-meta.mjs')).href);
-  try {
-    meta.buildGatewayLimits({});
-  } catch {
-    /* loading */
-  }
-  await new Promise((resolve) => setTimeout(resolve, 200));
+  await startRouteMetaLoad();
   // The footer refreshes its quota caches off the render call; the settled text is the one recorded.
-  let text = '';
-  for (let i = 0; i < 6; i += 1) {
-    text = await renderStatusline(args);
-    await new Promise((resolve) => setImmediate(resolve));
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  process.stdout.write(JSON.stringify(text));
+  process.stdout.write(JSON.stringify(await settledText()));
 }
 process.exit(0);
