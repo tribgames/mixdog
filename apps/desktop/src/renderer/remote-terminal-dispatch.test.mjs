@@ -29,5 +29,5 @@ test("a terminal reveal reaches the phone's listeners, well-formed only, once pe
   off();
   await open(reveal);
   await settle();
-  assert.equal(runs.length, 3);
+  assert.equal(runs.length, 5);
 });
