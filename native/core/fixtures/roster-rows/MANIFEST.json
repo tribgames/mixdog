@@ -1,0 +1,121 @@
+{
+  "command": "(cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/benchmarks/rust-core/recorders/record-roster-rows.mjs --tree <tree>",
+  "fileCount": 19,
+  "files": [
+    {
+      "bytes": 51218,
+      "path": ".mixdog/data/sessions/sess_42320_1794259728000_1794259728000_183bafe8839eaac62adf7e743b403805.log.jsonl",
+      "sha256": "581fcc3319c1723edd0f5e270b4a178598f4180d81c7aeefbb2d29a3f9207616"
+    },
+    {
+      "bytes": 51200,
+      "path": ".mixdog/data/sessions/sess_42320_1794259728001_1794259729000_1a733864c7a8ae1f050a926330d340f0.log.jsonl",
+      "sha256": "11c74ed9c2070e67b8e8ee23100b4b1a89bb9597456e0c1ab62c72fd6787a8f5"
+    },
+    {
+      "bytes": 47476,
+      "path": ".mixdog/data/sessions/sess_42320_1794259728002_1794259729000_2702dfa10b87e4fa19d71694143d6c1c.log.jsonl",
+      "sha256": "23b9460b67638c61933730fd0fe36b20cc52fcf53c11a621e1041914a125fd13"
+    },
+    {
+      "bytes": 161874,
+      "path": ".mixdog/data/sessions/sess_42320_1794259728003_1794259729000_50a1d3566570d80c1608039d1161a37a.log.jsonl",
+      "sha256": "d825fede7b833e2f5a1bd66c6f262d60be9e581479ecc6b74697ea090b342b2c"
+    },
+    {
+      "bytes": 51046,
+      "path": ".mixdog/data/sessions/sess_42320_1794259728004_1794259730000_d1f7114e0571686bb15e314603c0d869.log.jsonl",
+      "sha256": "04a52c6c953b4e58c0e40b17a3272203ea08b32e2e028b34307952b7e9468913"
+    },
+    {
+      "bytes": 51171,
+      "path": ".mixdog/data/sessions/sess_42320_1794259728005_1794259730000_1e7a172a8ad578dc15aba3f941bae83f.log.jsonl",
+      "sha256": "267109c2d3151af28a370cc0d4879df9b21a23c17229b05374441753fef0e598"
+    },
+    {
+      "bytes": 51177,
+      "path": ".mixdog/data/sessions/sess_42320_1794259728006_1794259730000_b0bc1a31cc5149c9e3d4af0a5d93e287.log.jsonl",
+      "sha256": "4724c1f9264598db1ad52da451c97424787e09bf65f09809cfff2a988582b11e"
+    },
+    {
+      "bytes": 51159,
+      "path": ".mixdog/data/sessions/sess_42320_1794259728007_1794259730000_0c8685eb78aef067f58fd974c08f9903.log.jsonl",
+      "sha256": "6cd73546f06f1e9b3e25e53cea2da683f0bee45bbd4ffcd1ba732c949ca53776"
+    },
+    {
+      "bytes": 50397,
+      "path": ".mixdog/data/sessions/sess_42320_1794259728008_1794259730000_753891e0e048b02817069c4a83781893.json",
+      "sha256": "17df832cd7877c428da04ebd8f69b90719de56486d80cc6011a1b4b65c78ee57"
+    },
+    {
+      "bytes": 58319,
+      "path": ".mixdog/data/sessions/sess_42320_1794259728009_1794259730000_5c99fa072e7f71e28539ab7cf839679c.log.jsonl",
+      "sha256": "6600db6e08d97e50bf8d211560b2eda27df53cd406b5ac232611e19029cf1866"
+    },
+    {
+      "bytes": 51156,
+      "path": ".mixdog/data/sessions/sess_42320_1794259728010_1794259730000_1a044f5ae2e91716106227caebbcc2a0.log.jsonl",
+      "sha256": "7a30fc907075d142d671e76740855f136873dc6d5470d81d1490982b63329fa1"
+    },
+    {
+      "bytes": 51541,
+      "path": ".mixdog/data/sessions/sess_42320_1794259728011_1794259730000_993c470d0f393f8a6aaab9be7ab30b8c.log.jsonl",
+      "sha256": "fa62941ae075c7f63cf9d84b4553810ff0fa35fd98d99385616da34fb76038ce"
+    },
+    {
+      "bytes": 48159,
+      "path": ".mixdog/data/sessions/sess_42320_1794259728012_1794259790000_abbe36bb89ffe99ee24012efd9093cd8.log.jsonl",
+      "sha256": "ebb5f912ad75cda8b4e8078257de11ade07ebb6a87bfed2ccd2830f6d1f394ed"
+    },
+    {
+      "bytes": 48090,
+      "path": ".mixdog/data/sessions/sess_42320_1794259728013_1794259850000_3eb92f5560d633eec063600065f03522.log.jsonl",
+      "sha256": "4c0dbfdab80188b3dfe6f5ef9969999371e1e3697e68ff63c89cb512ba5e6308"
+    },
+    {
+      "bytes": 48093,
+      "path": ".mixdog/data/sessions/sess_42320_1794259728014_1794259910000_5b09d5f2a9324efde08b04630648143d.log.jsonl",
+      "sha256": "b1f46ac7f66772a9831d35f87f260ee4f38861ba09ef67c2506a2c40d3c5cdc6"
+    },
+    {
+      "bytes": 48174,
+      "path": ".mixdog/data/sessions/sess_42320_1794259728015_1794259970000_6a3b6989e8b662f10e4c80c72774bf53.log.jsonl",
+      "sha256": "dde5f92b9c72f3eb100f069a7e78121ee5b7593a39d047637441549dcf6d4920"
+    },
+    {
+      "bytes": 55993,
+      "path": ".mixdog/data/sessions/sess_home_kestrel.log.jsonl",
+      "sha256": "25b403f0196156b0fd14b95c143fbaff80c863bd4e1f15e64bb6905055b868ca"
+    },
+    {
+      "bytes": 446383,
+      "path": "answers.json",
+      "sha256": "d2502db5336ef0225acc25af82e47749bc44b26423943b0858fe04249465883c"
+    },
+    {
+      "bytes": 981,
+      "path": "profile/desktop-session-metadata.json",
+      "sha256": "e1f5cfccccfb19d6b9df9bc7683966f1a563529c656c55adc6049bf0680ad20f"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-roster-rows.mjs",
+  "set": "roster-rows",
+  "totalBytes": 1423607
+}
