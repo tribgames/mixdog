@@ -27,6 +27,8 @@ async function main() {
         .then((writer) => (driver.writer = writer));
     },
     send: (payload) => driver.writer.send(JSON.stringify(payload)),
+    // The frame's own claim: it settles when the frame has left (the connector's per-call transmission signal).
+    sendTracked: (payload, done) => driver.writer.send(JSON.stringify(payload), (sent) => void sent.then(done)),
   };
   const trace = await playOracle(world, driver, ORACLE_SCENARIOS[name]);
   process.stdout.write(`\n@@TRACE@@${JSON.stringify(trace)}\n`);

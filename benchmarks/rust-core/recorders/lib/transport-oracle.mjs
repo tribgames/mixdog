@@ -14,14 +14,39 @@ export const oracleDialect = {
   readyFields: { hostName: 'Test PC' },
   stray: { oracle: 'stray' },
   onFrame(_leg, frame, log) {
-    log({ ev: 'pc-recv', frame });
+    // A large message is logged by its size: its records are the trace, not its padding.
+    log({ ev: 'pc-recv', frame: typeof frame.pad === 'string' ? { ...frame, pad: frame.pad.length } : frame });
   },
 };
 
 const IN = (n) => ({ oracle: 'in', n });
 const OUT = (n) => ({ oracle: 'out', n });
+/** A request frame of about 2 MB: three records (Node splits a message over 1 MiB into fragments of about 768 KiB). */
+const BIG = (n) => ({ id: 7, method: 'oracle/big', oracle: 'big', n, pad: 'x'.repeat(2_000_000) });
 
 export const ORACLE_SCENARIOS = {
+  // A message of three records over a slow socket: the page's send of it completes when its last record has left (Node: transport.send() resolves after
+  // the last record is sealed and admitted, remote-shim-calls.ts:148 -- the point a call's deadline restarts and its silence is measured), not at the
+  // first. The three records leave 400 ms apart (short enough that no keepalive ping interleaves, so the trace's order is the products' and not a race between concurrent seals).
+  'transport-large-message-slow-socket': [
+    { op: 'boot' },
+    { op: 'accept' },
+    { op: 'mark', name: 'ready' },
+    { op: 'hold-seal' },
+    { op: 'out-big', n: 1 },
+    { op: 'advance', ms: 400 },
+    { op: 'release-seal', count: 1 },
+    { op: 'mark', name: 'record-1-left' },
+    { op: 'advance', ms: 400 },
+    { op: 'release-seal', count: 1 },
+    { op: 'mark', name: 'record-2-left' },
+    { op: 'advance', ms: 400 },
+    { op: 'release-seal', count: 1 },
+    { op: 'mark', name: 'record-3-left' },
+    { op: 'release-seal' },
+    { op: 'advance', ms: 100 },
+    { op: 'mark', name: 'done' },
+  ],
   // Immediate-ACK opportunities (record pairs), an odd tail checked just before and exactly at the 25 ms delayed-ACK deadline, the page's own
   // sends answered by the PC's ack, the PC's ping, hiding with a tail outstanding, records arriving while hidden, and the wake.
   'transport-acks': [
@@ -105,7 +130,7 @@ export const ORACLE_SCENARIOS = {
 };
 
 /** Events that reach the wire or the page; everything else the world logs (indicator states, the core's record) is not traffic. */
-const TRAFFIC = new Set(['socket', 'close', 'ping', 'xcontrol', 'xrecord', 'pc-recv', 'pc-send', 'deliver', 'ready', 'out', 'fetch', 'hello', 'mark', 'pc-control']);
+const TRAFFIC = new Set(['send-complete', 'socket', 'close', 'ping', 'xcontrol', 'xrecord', 'pc-recv', 'pc-send', 'deliver', 'ready', 'out', 'fetch', 'hello', 'mark', 'pc-control']);
 
 /** driver: { boot(), send(payload) }. Returns the whole ordered trace, each entry with its virtual time since the script began. */
 export async function playOracle(world, driver, ops) {
@@ -131,6 +156,17 @@ export async function playOracle(world, driver, ops) {
         world.log({ ev: 'out', n: op.n });
         driver.send(OUT(op.n));
         await world.advance(0);
+        break;
+      case 'out-big':
+        world.log({ ev: 'out', n: `big-${op.n}` });
+        driver.sendTracked(BIG(op.n), () => world.log({ ev: 'send-complete' }));
+        await world.advance(0);
+        break;
+      case 'hold-seal':
+        world.holdSeal();
+        break;
+      case 'release-seal':
+        await world.releaseSeal(op.count);
         break;
       case 'pc-ack':
         world.log({ ev: 'pc-control', t: 'ack' });

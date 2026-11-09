@@ -1,5 +1,6 @@
 // A call's `sent` option is threaded to the writer's `send(text, sent)` of that call's own request frame -- wherever the method waits before
-// writing (the connection coming back, a digest) and whichever method writes -- and a call that never writes hands nothing over.
+// writing (the connection coming back, a digest) and whichever method writes -- and a call that never writes hands nothing over. Every wait
+// here is on an explicit signal: the connection's status, the transport's write hook, or the call's own settle.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
@@ -20,7 +21,8 @@ async function rig() {
   const open = net.open.bind(net);
   net.open = async (target, sink: TransportSink): Promise<TransportWriter> => {
     const writer = await open(target, sink);
-    return { ...writer, send: (text, sent) => (frames.push({ body: JSON.parse(text), sent }), writer.send(text)) };
+    // As a transport does: the claim of a request frame is given the completion of that frame (here, at once).
+    return { ...writer, send: (text, sent) => (frames.push({ body: JSON.parse(text), sent }), sent?.(Promise.resolve()), writer.send(text)) };
   };
   const connecting = connect({
     target: { id: 'local' },
@@ -40,65 +42,96 @@ async function rig() {
   };
   let conn = await handshake();
   const client = await connecting;
-  const answerNext = async (result: unknown = {}): Promise<number> => {
+  /** Resolves on the next status change to `state`. */
+  const statusIs = (state: string): Promise<void> =>
+    new Promise((resolve) => {
+      const off = client.on((event) => {
+        if (event.type === 'status' && event.status.state === state) (off(), resolve());
+      });
+    });
+  const answerNext = async (result: unknown = {}): Promise<{ id: number; method: string }> => {
     const frame = JSON.parse(await conn.nextSent());
     conn.serverSend({ id: frame.id, result });
-    return frame.id;
+    return frame;
   };
-  const lose = async (): Promise<void> => {
-    conn.serverClose(1006);
-    for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
-    frames.length = 0;
+  return {
+    client,
+    frames,
+    answerNext,
+    statusIs,
+    lose: (): Promise<void> => {
+      const down = statusIs('reconnecting');
+      conn.serverClose(1006);
+      return down;
+    },
+    reconnect: async () => {
+      const up = statusIs('ready');
+      conn = await handshake();
+      await up;
+    },
   };
-  return { client, frames, answerNext, lose, reconnect: async () => (conn = await handshake()) };
 }
 
 const CALL = 'thread/list';
+/** A claim that records what it was given; the promise it received is wrapped so awaiting the record does not wait for the frame. */
+const recorder = () => {
+  const got: Array<Promise<void>> = [];
+  return { got, claim: ((sent: Promise<void>) => void got.push(sent)) as SentClaim };
+};
 
-test('a call asked while the connection is down hands its own frame to its claim when the connection is back', async () => {
+test('a call asked while the connection is down writes nothing then, and hands its frame to its claim once the connection is back', async () => {
   const { client, frames, lose, reconnect, answerNext } = await rig();
   await lose();
-  const claimed: Array<Promise<void>> = [];
-  const call = client.call(CALL, {}, { sent: (promise) => claimed.push(promise) });
-  for (let i = 0; i < 10; i += 1) await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(frames.length, 0, 'nothing is written while the connection is down');
-  await reconnect();
+  const mine = recorder();
+  const call = client.call(CALL, {} as never, { sent: mine.claim });
   void call.catch(() => undefined);
+  await reconnect();
+  const initialized = frames.findIndex((frame) => frame.body.method === 'initialized');
+  const written = frames.findIndex((frame) => frame.body.method === CALL);
+  // `initialized` is the last frame of the new handshake: the call's frame, if it had been written while down, would precede it.
+  assert.ok(written > initialized && initialized >= 0, 'the call is written after the new connection is ready');
+  assert.ok(frames[written]?.sent, 'the frame carries this call\'s claim');
   await answerNext();
-  const mine = frames.find((frame) => frame.body.method === CALL);
-  assert.ok(mine?.sent, 'the frame carries this call\'s claim');
-  mine.sent(Promise.resolve());
-  assert.equal(claimed.length, 1);
+  assert.equal(mine.got.length, 1);
 });
 
-test('thread/resume and the blob upload (which digests first) pass their claim to their own frame', async () => {
+test('thread/resume passes its claim to its own frame', async () => {
   const { client, frames, answerNext } = await rig();
-  let resumed = 0;
-  void client.resumeThread('t1', { lastItems: 5 }, { sent: () => (resumed += 1) }).catch(() => undefined);
+  const mine = recorder();
+  const resumed = client.resumeThread('t1', { lastItems: 5 }, { sent: mine.claim });
+  void resumed.catch(() => undefined);
+  const frame = await answerNext({});
+  assert.equal(frame.method, 'thread/resume');
+  assert.equal(frames.find((f) => f.body.method === 'thread/resume')?.sent, mine.claim);
+  assert.equal(mine.got.length, 1);
+});
+
+test('a multi-chunk upload hands its claim to the last chunk, once: the upload has left when its last chunk has', async () => {
+  const { client, frames, answerNext } = await rig();
+  const chunk = options.initializeResult.limits.maxBlobPutChunkBytes as number;
+  const mine = recorder();
+  const uploaded = client.putBlob(new Uint8Array(chunk * 2 + 10), 'application/octet-stream', { sent: mine.claim });
+  void uploaded.catch(() => undefined);
   await answerNext({});
-  const resume = frames.find((frame) => frame.body.method === 'thread/resume');
-  assert.ok(resume?.sent, 'thread/resume carries the claim');
-  resume.sent(Promise.resolve());
-  assert.equal(resumed, 1);
-  let uploaded = 0;
-  void client.putBlob(new Uint8Array([1, 2, 3]), 'application/octet-stream', { sent: () => (uploaded += 1) }).catch(() => undefined);
+  assert.equal(mine.got.length, 0, 'the first chunk is not the end of the upload');
   await answerNext({});
-  const put = frames.find((frame) => frame.body.method === 'blob/put');
-  assert.ok(put?.sent, 'blob/put carries the claim');
-  put.sent(Promise.resolve());
-  assert.equal(uploaded, 1);
+  assert.equal(mine.got.length, 0, 'nor is the second');
+  await answerNext({});
+  assert.equal(mine.got.length, 1, 'the third and last chunk carries the claim');
+  const puts = frames.filter((f) => f.body.method === 'blob/put');
+  assert.equal(puts.length, 3);
+  assert.deepEqual(puts.map((f) => f.sent === mine.claim), [false, false, true]);
 });
 
 test('a call that never writes hands nothing over, and the next call\'s frame is claimed by that call alone', async () => {
   const { client, frames, answerNext } = await rig();
-  let refused = 0;
-  await assert.rejects(client.call('no/such/method' as never, {} as never, { sent: () => (refused += 1) }));
-  let second = 0;
-  void client.call(CALL, {}, { sent: () => (second += 1) }).catch(() => undefined);
-  await answerNext();
-  const mine = frames.find((frame) => frame.body.method === CALL);
-  assert.ok(mine?.sent);
-  mine.sent(Promise.resolve());
-  assert.equal(refused, 0);
-  assert.equal(second, 1);
+  const refused = recorder();
+  await assert.rejects(client.call('no/such/method' as never, {} as never, { sent: refused.claim }));
+  const second = recorder();
+  void client.call(CALL, {} as never, { sent: second.claim }).catch(() => undefined);
+  const frame = await answerNext();
+  assert.equal(frame.method, CALL);
+  assert.equal(frames.find((f) => f.body.method === CALL)?.sent, second.claim);
+  assert.equal(refused.got.length, 0);
+  assert.equal(second.got.length, 1);
 });

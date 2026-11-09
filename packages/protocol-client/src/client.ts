@@ -948,7 +948,10 @@ class Engine implements ProtocolClient<Json> {
     const chunk = this.server.limits.maxBlobPutChunkBytes;
     let offset = 0;
     do {
-      await this.run('blob/put', { digest, offset, bytesB64: toB64(bytes.subarray(offset, offset + chunk)) }, READ_C1, undefined, false, offset === 0 ? options?.sent : undefined);
+      // The upload is one message: it has left when its last chunk has (Node sends a large message as one application frame split into records,
+      // and the call's send completes after the last record, shared/remote-transport.ts splitRemoteTransportPayload / remote-shim-calls.ts:148).
+      const last = offset + chunk >= bytes.length;
+      await this.run('blob/put', { digest, offset, bytesB64: toB64(bytes.subarray(offset, offset + chunk)) }, READ_C1, undefined, false, last ? options?.sent : undefined);
       offset += chunk;
     } while (offset < bytes.length);
     return { blob: { digest, bytes: bytes.length, mediaType } };

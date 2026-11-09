@@ -13,9 +13,9 @@
       "sha256": "0a9f1fe513442f55e4c4305ed2e4d8b9214691fd47c3f90b5a6af3bcafb105b8"
     },
     {
-      "bytes": 11911,
+      "bytes": 13282,
       "path": "transport.json",
-      "sha256": "9c1c862a0a3592677a81204ddab5c8ad63b714dd81b3464ad6a91aa9560cd358"
+      "sha256": "fd10d403d45485500b51a1ec7e940e1a1d1c273e05f2084633925b35f0075489"
     }
   ],
   "product": {
@@ -38,5 +38,5 @@
   "recorder": "benchmarks/rust-core/recorders/record-phone-lifecycle.mjs",
   "scenarios": 52,
   "set": "phone-lifecycle",
-  "totalBytes": 147606
+  "totalBytes": 148977
 }

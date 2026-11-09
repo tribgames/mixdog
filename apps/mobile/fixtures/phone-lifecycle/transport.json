@@ -1,6 +1,87 @@
 {
   "note": "Node MXT transport oracle: per scenario, the whole ordered trace of what the connector put on the wire and handed to the page (decoded controls, records, cleartext pings, sockets) under a scripted stimulus, with virtual times. See benchmarks/rust-core/recorders/lib/transport-oracle.mjs.",
   "scenarios": {
+    "transport-large-message-slow-socket": [
+      {
+        "t": 0,
+        "ev": "socket",
+        "n": 1
+      },
+      {
+        "t": 0,
+        "ev": "ready"
+      },
+      {
+        "t": 0,
+        "ev": "mark",
+        "name": "ready"
+      },
+      {
+        "t": 0,
+        "ev": "out",
+        "n": "big-1"
+      },
+      {
+        "t": 400,
+        "ev": "xrecord",
+        "seq": 1
+      },
+      {
+        "t": 400,
+        "ev": "mark",
+        "name": "record-1-left"
+      },
+      {
+        "t": 800,
+        "ev": "xcontrol",
+        "kind": "ack",
+        "control": {
+          "v": 1,
+          "t": "ack",
+          "through": 1
+        }
+      },
+      {
+        "t": 800,
+        "ev": "mark",
+        "name": "record-2-left"
+      },
+      {
+        "t": 1200,
+        "ev": "xrecord",
+        "seq": 2
+      },
+      {
+        "t": 1200,
+        "ev": "mark",
+        "name": "record-3-left"
+      },
+      {
+        "t": 1200,
+        "ev": "send-complete"
+      },
+      {
+        "t": 1200,
+        "ev": "xrecord",
+        "seq": 3
+      },
+      {
+        "t": 1200,
+        "ev": "pc-recv",
+        "frame": {
+          "id": 7,
+          "method": "oracle/big",
+          "oracle": "big",
+          "n": 1,
+          "pad": 2000000
+        }
+      },
+      {
+        "t": 1300,
+        "ev": "mark",
+        "name": "done"
+      }
+    ],
     "transport-acks": [
       {
         "t": 0,
