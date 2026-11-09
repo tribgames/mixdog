@@ -104,6 +104,25 @@ impl mixdog_workspace::grants::SessionCatalog for NoneGone {
     }
 }
 
+/// A file is answered a window of code points at a time (one connection answer is capped), `nextChar` naming where the next starts;
+/// the pieces joined are the whole text.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_text_file_is_read_in_windows_that_join_to_the_whole() {
+    let env = env();
+    let text = "aé😀b".repeat(5);
+    std::fs::write(env.root.join("w.txt"), &text).unwrap();
+    let (mut joined, mut from) = (String::new(), 0u64);
+    loop {
+        let part = call(&env, "projectFs/readText", json!({ "root": env.root.to_string_lossy(), "rel": "w.txt", "fromChar": from, "maxChars": 7 })).await.unwrap();
+        joined.push_str(part["content"].as_str().unwrap());
+        match part.get("nextChar").and_then(Value::as_u64) {
+            Some(next) => from = next,
+            None => break,
+        }
+    }
+    assert_eq!(joined, text);
+}
+
 /// The paired device's side of the spec's `transfer/*` (SPEC.md R44): a path outside every project is described
 /// with a one-file grant (`transfer/grant/mint`), which `transfer/beginRead` redeems for exactly that file; the
 /// request is a relay connection (origin Relay), paired as "phone-1".
