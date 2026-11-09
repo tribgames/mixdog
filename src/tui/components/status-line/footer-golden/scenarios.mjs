@@ -35,6 +35,23 @@ const events = (rows) => ({
   'gateway-usage.local.jsonl': rows.map((row) => JSON.stringify(row)).join('\n') + '\n',
 });
 
+// The warm lifecycle: the footer rendered before any model list was asked for, right after a quick list resolved
+// (its background load still running) and after the full list — which awaits that load — resolved.
+export const LIFECYCLE = [
+  {
+    name: 'lifecycle: a models.dev name appears only once the model list has loaded',
+    cols: 120,
+    args: base('openai-oauth', 'review-model-123', { effort: '' }),
+    files: {
+      'modelsdev-catalog.json': JSON.stringify({
+        fetchedAt: T0,
+        data: { openai: { models: { 'review-model-123': { name: 'Review Catalog Name (New)', cost: { input: 1, output: 2 } } } } },
+      }),
+      'openai-oauth-models.json': JSON.stringify({ models: [{ id: 'review-model-123', displayName: 'Roster Name' }] }),
+    },
+  },
+];
+
 export const SCENARIOS = [
   {
     name: 'openai-oauth wide: 5H and 7D with resets',

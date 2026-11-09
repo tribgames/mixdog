@@ -236,7 +236,10 @@ export function createFooterInputs({
     };
     return {
       rosterRows,
-      catalogs: warmth.get(),
+      // Live: the catalogs become resident while a held read is still served.
+      get catalogs() {
+        return warmth.get();
+      },
       usageCache: readJson(join(dataDir, 'gateway-oauth-usage-cache.json')),
       accountId: accounts?.providers?.[provider]?.selectedId || 'default',
       config,

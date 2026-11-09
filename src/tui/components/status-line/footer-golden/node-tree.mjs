@@ -16,7 +16,7 @@ export function exportNodeTree(repo) {
   if (!commit.startsWith(REVISION)) throw new Error(`${REVISION} resolved to ${commit}`);
   const tree = mkdtempSync(join(tmpdir(), 'node-tree-'));
   process.on('exit', () => rmSync(tree, { recursive: true, force: true }));
-  const archive = spawnSync('git', ['-C', repo, 'archive', '--format=tar', commit, 'src', 'package.json'], {
+  const archive = spawnSync('git', ['-C', repo, 'archive', '--format=tar', commit, 'src', 'package.json', ':(exclude)*.test.mjs'], {
     maxBuffer: 1 << 30,
   });
   if (archive.status !== 0) throw new Error(`git archive failed: ${archive.stderr}`);
