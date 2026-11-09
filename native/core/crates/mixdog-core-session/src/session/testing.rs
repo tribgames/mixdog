@@ -240,6 +240,8 @@ pub struct MemStore {
     pub listed: AtomicBool,
     /// The next `create_log` tells `.0` it arrived, then waits for `.1` before it commits.
     pub create_gate: Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>,
+    /// The next commit to an open log tells `.0` it arrived, then waits for `.1` before it commits.
+    pub commit_gate: CommitGate,
 }
 
 impl MemStore {
@@ -255,9 +257,13 @@ impl MemStore {
     }
 }
 
+/// The next commit tells `.0` it arrived, then waits for `.1` before it commits.
+type CommitGate = Arc<Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>>;
+
 struct MemLog {
     log: Log,
     fail_next: Arc<AtomicBool>,
+    commit_gate: CommitGate,
 }
 
 impl SessionLog for MemLog {
@@ -266,6 +272,11 @@ impl SessionLog for MemLog {
         _lane: &InLane<DurabilityIo>,
         batch: &[CommitRecord],
     ) -> Result<Vec<u64>, BarrierError> {
+        let gate = lock(&self.commit_gate).take();
+        if let Some((arrived, go)) = gate {
+            arrived.notify_one();
+            let _ = go.recv();
+        }
         if self.fail_next.swap(false, Ordering::SeqCst) {
             return Err(BarrierError::Failed {
                 io_kind: "test".into(),
@@ -447,6 +458,7 @@ impl ThreadStore for MemStore {
         Ok(Box::new(MemLog {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
+            commit_gate: self.commit_gate.clone(),
         }))
     }
 
@@ -464,6 +476,7 @@ impl ThreadStore for MemStore {
         let mut log = MemLog {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
+            commit_gate: self.commit_gate.clone(),
         };
         let ordinal = log.commit(lane, std::slice::from_ref(session))?[0];
         Ok((Box::new(log), ordinal))
