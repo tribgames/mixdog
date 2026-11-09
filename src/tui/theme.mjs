@@ -19,9 +19,9 @@
  * parsed RGB tuples) invalidate when the active theme changes.
  *
  * The setting persists under `ui.theme` in mixdog-config.json; the core writes it
- * (`config/setTheme`), and boot reads the file directly.
+ * (`config/setTheme`), and boot reads the file directly (`readStoredThemeSetting` in theme-config.mjs; not
+ * re-exported here, so the desktop renderer can import this palette without Node's fs).
  */
-export { readStoredThemeSetting } from './theme-config.mjs';
 
 import { THEME_REGISTRY, THEME_ORDER, THEME_ALIASES, DEFAULT_THEME_ID, basicPalette } from './themes/index.mjs';
 import { BLACK_CIRCLE, RESULT_GUTTER_GLYPH, RESULT_GUTTER_CONT_GLYPH, RIGHT_ARROW, LEFT_ARROW } from './figures.mjs';
