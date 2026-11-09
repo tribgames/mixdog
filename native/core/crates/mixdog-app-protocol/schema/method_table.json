@@ -10357,6 +10357,24 @@
     },
     {
       "class": "C2",
+      "method": "browser/webrtcSignal",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "relay"
+      ],
+      "params": "v2::host::BrowserWebrtcSignalParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
       "method": "modelProxy/run",
       "mutation": {
         "kind": "none"
@@ -10420,6 +10438,11 @@
       "delivery": null,
       "method": "host/browser/surface",
       "params": "HostBrowserSurfaceParams"
+    },
+    {
+      "delivery": null,
+      "method": "host/browser/page",
+      "params": "HostBrowserPageParams"
     },
     {
       "delivery": null,
@@ -10657,6 +10680,11 @@
       "delivery": "connection",
       "method": "host/browser/viewFrames",
       "params": "HostBrowserViewFramesParams"
+    },
+    {
+      "delivery": "connection",
+      "method": "browser/webrtcSignal",
+      "params": "BrowserWebrtcSignalParams"
     },
     {
       "delivery": "connection",

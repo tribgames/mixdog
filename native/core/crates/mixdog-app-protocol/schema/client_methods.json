@@ -1402,6 +1402,16 @@
       ],
       "type": "object"
     },
+    "BrowserWebrtcSignalParams": {
+      "description": "A phone's live-view signal (`browser/webrtcSignal` request, Node's `browserRemoteWebrtcSignal` call) and the core's signal to that phone (the `browser/webrtcSignal` push, Node's `browserRemoteWebrtc` event). `signal` is the validated wire object of `mixdog-remote::webrtc::signal` (`ClientSignal` / `DesktopSignal`).",
+      "properties": {
+        "signal": true
+      },
+      "required": [
+        "signal"
+      ],
+      "type": "object"
+    },
     "CapabilityState": {
       "oneOf": [
         {
@@ -18303,6 +18313,14 @@
         "$ref": "#/definitions/BrowserCommandParams"
       },
       "result": true
+    },
+    "browser/webrtcSignal": {
+      "params": {
+        "$ref": "#/definitions/BrowserWebrtcSignalParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
     },
     "channel/call": {
       "params": {

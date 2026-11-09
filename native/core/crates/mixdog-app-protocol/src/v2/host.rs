@@ -530,6 +530,33 @@ pub struct HostBrowserViewFramesParams {
     pub request: JsonValue,
 }
 
+/// A phone's live-view signal (`browser/webrtcSignal` request, Node's `browserRemoteWebrtcSignal`
+/// call) and the core's signal to that phone (the `browser/webrtcSignal` push, Node's
+/// `browserRemoteWebrtc` event). `signal` is the validated wire object of
+/// `mixdog-remote::webrtc::signal` (`ClientSignal` / `DesktopSignal`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserWebrtcSignalParams {
+    pub signal: JsonValue,
+}
+
+/// `host/browser/page` (host → core notification): what a viewed browser page shows now — the
+/// document and the geometry its stream locked (Node's `source.page()` and
+/// `remoteMedia.geometryChanged`). `geometry` is `null` when the stream ended. The core's X17
+/// frames carry pixels only; the phone's input coordinates need this.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct HostBrowserPageParams {
+    pub tab_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_id: Option<String>,
+    /// `{generation, cssWidth, cssHeight, deviceScaleFactor, pixelWidth, pixelHeight}`.
+    pub geometry: Option<JsonValue>,
+}
+
 /// `host/browser/surface` (host → core notification): the window process's browser host asked its
 /// window to reveal or hide a session's browser surface (`browserRemoteOpen`). The core publishes
 /// it as `ui/openRequested { kind: "browser" }` so every attached client, paired phones included,
