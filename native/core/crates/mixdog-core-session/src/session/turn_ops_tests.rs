@@ -597,9 +597,9 @@ async fn a_manual_compactions_header_follows_the_reset_and_the_replacement_and_i
     tokio::select! {
         () = arrived.notified() => {}
         answered = &mut commit => panic!("answered before the header was durable: {answered:?}"),
-        () = tokio::time::sleep(std::time::Duration::from_secs(30)) => panic!("header batch never reached: {:?}", rig.store.records(&id)),
     }
-    assert!(tokio::time::timeout(std::time::Duration::from_millis(50), &mut commit).await.is_err(), "the commit answered while the header was held");
+    // The header's batch is at the gate (`header_gate`'s arrival signal): one poll, no clock, and the commit is still pending.
+    assert!(futures::poll!(&mut commit).is_pending(), "the commit answered while the header was held");
     release.send(()).expect("release");
     assert_eq!(commit.await.expect("answered"), super::turn_ops::CompactionCommit::Applied);
 
