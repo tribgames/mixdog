@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 6024,
+      "bytes": 6088,
       "path": "bounds.json",
-      "sha256": "7095d9631fef99c40a568fd6230dbf66c89207ad4101ef7a21d6b33555d17243"
+      "sha256": "1d38245399f8183d491b881f399c2795b74575d49290dac829d2bef24e076867"
     }
   ],
   "product": {
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-turn-git-bounds.mjs",
   "set": "turn-git-bounds",
-  "totalBytes": 6024
+  "totalBytes": 6088
 }

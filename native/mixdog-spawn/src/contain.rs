@@ -1,6 +1,10 @@
 //! Process-tree containment: one Windows job object or one POSIX process group per child, so a
 //! kill is one O(1) call that takes the whole tree.
 
+use std::future::Future;
+use std::sync::Arc;
+use std::time::Duration;
+
 use mixdog_core_api::domain::process::ExitStatus;
 
 /// How a wait for a tree to end finished.
@@ -415,6 +419,45 @@ mod imp {
     }
 }
 pub(crate) use imp::Containment;
+
+impl Containment {
+    /// Ends whatever is left of a killed command and returns once nothing runs in it, or `false`
+    /// when `within` passed first. A process created at the instant of a kill can join the job
+    /// after the kill passed it, so the kill is issued again while members remain: each round
+    /// waits for the operating system's own "no members" signal, never samples.
+    pub(crate) fn settle_killed(&self, round: Duration, rounds: u32) -> bool {
+        for _ in 0..rounds {
+            self.kill();
+            if self.wait_empty_within(round) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Blocks the calling (plain) thread on [`Containment::wait_empty`] for at most `within`.
+    fn wait_empty_within(&self, within: Duration) -> bool {
+        struct Unpark(std::thread::Thread);
+        impl std::task::Wake for Unpark {
+            fn wake(self: Arc<Self>) {
+                self.0.unpark();
+            }
+        }
+        let waker = std::task::Waker::from(Arc::new(Unpark(std::thread::current())));
+        let mut context = std::task::Context::from_waker(&waker);
+        let mut empty = std::pin::pin!(self.wait_empty());
+        let deadline = std::time::Instant::now() + within;
+        loop {
+            if empty.as_mut().poll(&mut context).is_ready() {
+                return true;
+            }
+            let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                return false;
+            };
+            std::thread::park_timeout(left);
+        }
+    }
+}
 
 #[cfg(all(test, unix))]
 mod tests {

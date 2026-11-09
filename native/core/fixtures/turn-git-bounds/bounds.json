@@ -1,4 +1,5 @@
 {
+ "gitCommand": "C:\\Program Files\\Git\\mingw64\\bin\\git.exe",
  "timeoutCases": [
   {
    "args": [
@@ -77,7 +78,7 @@
    "second": {
     "resolved": true,
     "hasBaselineTree": true,
-    "afterSeconds": 31,
+    "afterSeconds": 32,
     "startedGitOnlyAfterFirstTimedOut": true
    }
   },
@@ -102,7 +103,7 @@
     "generation": 1,
     "checkpointId": "cp-1"
    },
-   "afterSeconds": 34
+   "afterSeconds": 31
   },
   "apply": {
    "hung": {

@@ -22,7 +22,7 @@
 import { existsSync, mkdirSync, mkdtempSync, watch, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, stageSet, commitStage, writeSetManifest, writeText } from './lib/common.mjs';
 
 const args = parseArgs();
@@ -127,6 +127,10 @@ process.env.BOUNDS_LOG = log;
 process.env.NODE_OPTIONS = `--require ${JSON.stringify(preload)}`;
 
 const runner = await importFrom(tree, 'src/runtime/shared/git-runner.mjs');
+// The executable every timeout message names: the program git-runner-worker.mjs starts for this PATH.
+const { gitCommand } = await importFrom(tree, 'src/runtime/shared/git-launch.mjs');
+const GIT_COMMAND = gitCommand();
+if (!isAbsolute(GIT_COMMAND)) throw new Error(`git resolves to ${GIT_COMMAND}, not a path the messages can name`);
 const worktreeSnapshot = await importFrom(tree, 'src/runtime/shared/turn-worktree-snapshot.mjs');
 const turnSnapshot = await importFrom(tree, 'src/runtime/shared/turn-snapshot.mjs');
 const turnChanges = await importFrom(tree, 'src/runtime/shared/turn-changes.mjs');
@@ -174,7 +178,7 @@ const expectTimeout = (id, result, limitMs, verb) => {
   const hung = spawnOf(id);
   if (hung.verb !== verb) throw new Error(`${id}: hung ${hung.verb}, expected ${verb}`);
   if (result.ok || result.code !== 'ETIMEDOUT') throw new Error(`${id}: expected ETIMEDOUT, got ${JSON.stringify(result)}`);
-  if (!result.message.includes(`timed out after ${limitMs}ms`) || !result.message.includes(verb)) throw new Error(`${id}: ${result.message}`);
+  if (!result.message.startsWith(`${GIT_COMMAND} `) || !result.message.includes(`timed out after ${limitMs}ms`) || !result.message.includes(verb)) throw new Error(`${id}: ${result.message}`);
   if (result.ended - hung.t < limitMs - 200) throw new Error(`${id}: ended ${result.ended - hung.t} ms after its start, before ${limitMs} ms`);
   return hung;
 };
@@ -203,6 +207,7 @@ const killResult = await settle(runner.runGitOffThread(killArgs, { cwd: killDir,
 if (killResult.ok || killResult.code !== 'ETIMEDOUT') throw new Error(`real kill: ${JSON.stringify(killResult)}`);
 if (!existsSync(join(killDir, 'held.marker'))) throw new Error('real kill: the alias was never reached');
 rmSync(join(killDir, 'held.marker'));
+if (!killResult.message.startsWith(`${GIT_COMMAND} `)) throw new Error(`real kill: ${killResult.message}`);
 const realKill = { args: killArgs, timeoutMs: 5000, code: killResult.code, message: killResult.message, aliasReached: true, heldFileReleased: true };
 
 // ── B. the limits, each against the one call it names ───────────────────────
@@ -352,7 +357,7 @@ for (const sc of [
 if (realNodeOptions === undefined) delete process.env.NODE_OPTIONS;
 else process.env.NODE_OPTIONS = realNodeOptions;
 const stage = stageSet(join(FIXTURES_ROOT, 'turn-git-bounds'));
-writeText(join(stage, 'bounds.json'), `${JSON.stringify({ timeoutCases, realKill, measured, sourceLimits, finish: { settleMs: SETTLE_MS, abortAtMs: ABORT_AT_MS, scenarios: finishScenarios } }, null, 1)}\n`);
+writeText(join(stage, 'bounds.json'), `${JSON.stringify({ gitCommand: GIT_COMMAND, timeoutCases, realKill, measured, sourceLimits, finish: { settleMs: SETTLE_MS, abortAtMs: ABORT_AT_MS, scenarios: finishScenarios } }, null, 1)}\n`);
 writeSetManifest(stage, {
   set: 'turn-git-bounds',
   recorder: 'benchmarks/rust-core/recorders/record-turn-git-bounds.mjs',

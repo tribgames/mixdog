@@ -118,11 +118,25 @@ fn millis(value: &serde_json::Value) -> Duration {
     Duration::from_millis(value.as_u64().expect("milliseconds"))
 }
 
-/// Node names the git executable by path in its message; the review names it `git`.
+/// A message with the machine's git executable path replaced by `<GIT>`: the same step on
+/// Node's recording (its recorded `gitCommand`) and on the review's text (its own resolution).
+fn normalized(text: &str, git: &str) -> String {
+    assert!(text.starts_with(&format!("{git} ")), "{text:?} does not name {git}");
+    text.replace(git, "<GIT>")
+}
+
 fn recorded_text(message: &serde_json::Value) -> String {
-    let text = message.as_str().expect("a message");
-    let at = text.find("git.exe ").expect("the executable") + "git.exe ".len();
-    format!("git {}", &text[at..])
+    normalized(message.as_str().expect("a message"), bounds()["gitCommand"].as_str().expect("the recorded git"))
+}
+
+fn review_text(message: &str) -> String {
+    normalized(message, &super::git_command::git_command())
+}
+
+/// The program the review resolves is the one Node's recording resolved on this machine.
+#[test]
+fn the_review_names_the_git_node_names() {
+    assert_eq!(super::git_command::git_command(), bounds()["gitCommand"].as_str().unwrap());
 }
 
 fn strings(value: &serde_json::Value) -> Vec<String> {
@@ -163,7 +177,7 @@ async fn a_hung_git_fails_with_the_recorded_text_at_its_limit() {
         assert_eq!(case["code"], "ETIMEDOUT");
         let started = tokio::time::Instant::now();
         let error = git.run_with(&top, &args, Vec::new(), &GitOptions::timeout(limit)).await.err().expect("a wedged git fails");
-        assert_eq!(error, recorded_text(&case["message"]));
+        assert_eq!(review_text(&error), recorded_text(&case["message"]));
         assert_eq!(started.elapsed(), limit);
     }
     let named: Vec<_> = processes.limits.lock().unwrap().iter().map(|(_, l)| *l).collect();
@@ -173,9 +187,9 @@ async fn a_hung_git_fails_with_the_recorded_text_at_its_limit() {
     // The default is the capture limit, and the Undo's apply the longer one, as Node ran them.
     let args = strings(&cases[3]["args"]);
     let default = git.run(&top, &args, Vec::new()).await.err().expect("fails");
-    assert_eq!(default, format!("git {} timed out after {}ms", args.join(" "), recorded["sourceLimits"]["commandTimeoutMs"]));
+    assert_eq!(review_text(&default), normalized(&format!("{} {} timed out after {}ms", recorded["gitCommand"].as_str().unwrap(), args.join(" "), recorded["sourceLimits"]["commandTimeoutMs"]), recorded["gitCommand"].as_str().unwrap()));
     let applied = git.run_with(&top, &args, Vec::new(), &GitOptions::timeout(super::ports::APPLY_TIMEOUT)).await.err().expect("fails");
-    assert_eq!(applied, format!("git {} timed out after {}ms", args.join(" "), recorded["sourceLimits"]["applyTimeoutMs"]));
+    assert_eq!(review_text(&applied), normalized(&format!("{} {} timed out after {}ms", recorded["gitCommand"].as_str().unwrap(), args.join(" "), recorded["sourceLimits"]["applyTimeoutMs"]), recorded["gitCommand"].as_str().unwrap()));
 }
 
 /// Two captures of one root started together, the first one's git wedged: the one queued behind
@@ -226,7 +240,7 @@ impl ReviewGit for FirstWriteTreeWedges {
             wedge
         };
         if wedge {
-            return Err(format!("git {} timed out after {}ms", args.join(" "), self.limit_ms));
+            return Err(format!("{} {} timed out after {}ms", super::git_command::git_command(), args.join(" "), self.limit_ms));
         }
         self.inner.run_with(cwd, args, input, options).await
     }
@@ -299,7 +313,7 @@ async fn a_real_hung_git_is_killed_at_its_limit_with_its_tree() {
 
     let started = std::time::Instant::now();
     let error = git.run_with(&cwd.to_string_lossy(), &args, Vec::new(), &GitOptions::timeout(limit)).await.err().expect("the hung git is killed");
-    assert_eq!(error, recorded_text(&kill["message"]));
+    assert_eq!(review_text(&error), recorded_text(&kill["message"]));
     assert!(started.elapsed() >= limit, "killed before its limit");
     let held = cwd.join("held.marker");
     assert!(disk.stat(&held).await.unwrap().is_some(), "the alias was reached");
