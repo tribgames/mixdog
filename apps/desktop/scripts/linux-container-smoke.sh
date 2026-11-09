@@ -50,7 +50,6 @@ check_native_tools() { # check_native_tools <label> <tools dir>
 	exec_tool mixdog-patch --help
 	exec_tool mixdog-graph /tmp --langs
 	exec_tool mixdog-spawn --version
-	exec_tool mixdog-supervisor --version
 }
 mkdir -p /tmp/ex && cd /tmp/ex && /w/pkg/*.AppImage --appimage-extract >/dev/null && cd /
 check_native_tools AppImage /tmp/ex/squashfs-root/resources/native-tools

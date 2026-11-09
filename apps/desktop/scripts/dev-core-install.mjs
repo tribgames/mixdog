@@ -14,23 +14,24 @@ import { access, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { JS_RUNTIME_MANIFEST } from './stage-core.mjs';
+import { CORE_READS, devJsRuntimeManifest, JS_RUNTIME_MANIFEST } from './core-layout.mjs';
 
 const checkoutRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 export async function writeDevInstall({ exe, ortLibrary, packageRoot = checkoutRoot, program = process.execPath }) {
   const paths = { exe: resolve(exe), ortLibrary: resolve(ortLibrary), packageRoot: resolve(packageRoot), program: resolve(program) };
-  for (const [name, file] of Object.entries({
-    exe: paths.exe,
-    ortLibrary: paths.ortLibrary,
-    program: paths.program,
-    packageRoot: join(paths.packageRoot, 'src', 'skill-script-entry.mjs'),
-  })) {
+  for (const [name, file] of Object.entries({ exe: paths.exe, ortLibrary: paths.ortLibrary, program: paths.program })) {
     await access(file).catch(() => {
-      throw new Error(`--${name === 'ortLibrary' ? 'ort-library' : name === 'packageRoot' ? 'package-root' : name}: ${file} does not exist`);
+      throw new Error(`--${name === 'ortLibrary' ? 'ort-library' : name}: ${file} does not exist`);
     });
   }
-  const manifest = { program: paths.program, packageRoot: paths.packageRoot, electron: false, ortLibrary: paths.ortLibrary };
+  // The package root holds what the core reads from it, as in every installed layout.
+  for (const read of [...CORE_READS.files, ...CORE_READS.dirs]) {
+    await access(join(paths.packageRoot, read)).catch(() => {
+      throw new Error(`--package-root: ${join(paths.packageRoot, read)} does not exist`);
+    });
+  }
+  const manifest = devJsRuntimeManifest({ program: paths.program, packageRoot: paths.packageRoot, ortLibrary: paths.ortLibrary });
   const file = join(dirname(paths.exe), JS_RUNTIME_MANIFEST);
   await writeFile(file, `${JSON.stringify(manifest, null, 2)}\n`);
   return { file, manifest };

@@ -10,21 +10,24 @@
 //   core/mixdogd[.exe] and js-runtime.json     the manifest is core-layout's, the app interpreter exists
 //   runtime.asar.unpacked/node_modules         package root with everything `mixdogd` reads, the extension host /
 //                                              skill launcher dependency closure, the ONNX Runtime library + siblings
-//   server-cores/                              each platform's bundle.tgz matches servers.json and holds mixdogd, its
-//                                              js-runtime.json and the ONNX Runtime library that manifest names
+//   server-cores/                              servers.json lists exactly the server platforms; each bundle.tgz matches
+//                                              it, is unpacked, and its mixdogd matches; its payload passes
+//                                              verifyRemotePayload (the check stage-core ran before archiving it:
+//                                              js-runtime.json, interpreter, package root, closure, ONNX Runtime)
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, posix, resolve } from 'node:path';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { listPackage } from '@electron/asar';
 
-import { CORE_READS, desktopMixdogRoot, PACKAGE_DIR,remoteJsRuntimeManifest, UNPACKED_NODE_MODULES, verifyCoreInstall } from './core-layout.mjs';
+import { SERVER_PLATFORM_TARGETS } from '../src/main/ssh/server-manifest.mjs';
+import { CORE_READS, desktopMixdogRoot, PACKAGE_DIR, UNPACKED_NODE_MODULES, verifyCoreInstall, verifyRemotePayload } from './core-layout.mjs';
 
-/** The k1-release-tests deletion manifest, committed byte-for-byte (the original lives outside the repo, where CI
- *  cannot read it). There is no filtered copy: `parseDeletionList` is the only place that decides which sections
- *  delete, so the committed file cannot drift from the manifest except by being replaced by a newer manifest. */
+/** The K1 deletion manifest. This committed file is the single authority for what the cut deletes (see its
+ *  header); there is no filtered copy: `parseDeletionList` is the only place that decides which sections delete. */
 export const DEFAULT_DELETION_LIST = join(dirname(fileURLToPath(import.meta.url)), 'k1-deletion-manifest.txt');
 
 /** Paths of a deletion manifest (`## ` sections; only the ones that delete, not KEEP or MOVE, count). */
@@ -74,25 +77,40 @@ export function verifyStagedResources({ resources, platform, arch, deleted = par
   const manifest = JSON.parse(readFileSync(join(serversDir, 'servers.json'), 'utf8'));
   const problems = [];
   const bundles = new Map();
-  for (const [key, entry] of Object.entries(manifest.binaries)) {
+  // Exactly the platforms the desktop ships `mixdogd` for: an empty or short manifest is not a package.
+  const keys = Object.keys(manifest.binaries ?? {});
+  for (const key of Object.keys(SERVER_PLATFORM_TARGETS)) if (!keys.includes(key)) problems.push(`servers.json lists no ${key} bundle`);
+  for (const key of keys) if (!(key in SERVER_PLATFORM_TARGETS)) problems.push(`servers.json lists ${key}, which is not a server platform`);
+  for (const [key, entry] of Object.entries(manifest.binaries ?? {})) {
+    if (!(key in SERVER_PLATFORM_TARGETS)) continue;
     const bundle = join(serversDir, key, entry.bundle.file);
     if (!existsSync(bundle)) {
       problems.push(`${key}: ${bundle} is missing`);
       continue;
     }
-    const bytes = readFileSync(bundle);
-    if (createHash('sha256').update(bytes).digest('hex') !== entry.bundle.sha256) problems.push(`${key}: bundle.tgz does not match servers.json`);
-    const [serverPlatform, serverArch] = key.split('-');
-    const listing = spawnSync('tar', ['-tzf', bundle], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
-    if (listing.status !== 0) {
-      problems.push(`${key}: tar could not list the bundle: ${listing.stderr}`);
+    if (createHash('sha256').update(readFileSync(bundle)).digest('hex') !== entry.bundle.sha256) {
+      problems.push(`${key}: bundle.tgz does not match servers.json`);
       continue;
     }
-    const entries = new Set(listing.stdout.split(/\r?\n/).filter(Boolean).map((line) => line.replace(/^\.\//, '').replace(/\/$/, '')));
-    bundles.set(bundle, entries);
-    const wanted = remoteJsRuntimeManifest(serverPlatform, serverArch);
-    for (const file of ['mixdogd', 'payload/js-runtime.json', `payload/${posix.normalize(wanted.packageRoot)}/package.json`, ...(wanted.ortLibrary ? [`payload/${wanted.ortLibrary}`] : [])]) {
-      if (!entries.has(file)) problems.push(`${key}: bundle.tgz holds no ${file}`);
+    // The bundle is unpacked as the ssh install does and checked as the staging checked the payload before archiving it.
+    const unpacked = mkdtempSync(join(tmpdir(), 'verify-staged-bundle-'));
+    try {
+      const extraction = spawnSync('tar', ['-xzf', bundle, '-C', unpacked], { encoding: 'utf8' });
+      if (extraction.status !== 0) {
+        problems.push(`${key}: tar could not unpack the bundle: ${extraction.stderr}`);
+        continue;
+      }
+      const binary = join(unpacked, 'mixdogd');
+      if (!existsSync(binary)) problems.push(`${key}: bundle.tgz holds no mixdogd`);
+      else if (entry.sha256 && createHash('sha256').update(readFileSync(binary)).digest('hex') !== entry.sha256) problems.push(`${key}: the bundle's mixdogd does not match servers.json`);
+      try {
+        verifyRemotePayload({ key, payloadDir: join(unpacked, 'payload') });
+      } catch (error) {
+        problems.push(`${key}: ${error.message}`);
+      }
+      bundles.set(bundle, new Set(readdirSync(unpacked, { recursive: true }).map((path) => path.replaceAll('\\', '/'))));
+    } finally {
+      rmSync(unpacked, { recursive: true, force: true });
     }
   }
   if (problems.length) throw new Error(`server bundles are incomplete:\n- ${problems.join('\n- ')}`);

@@ -26,9 +26,18 @@ export const UNPACKED_NODE_MODULES = 'runtime.asar.unpacked/node_modules';
 export const PACKAGE_DIR = 'mixdog';
 export const ORT_PACKAGE = 'onnxruntime-node';
 
-/** What `mixdogd` reads from the package root as plain files (compose*.rs, run_host/rules*.rs, mixdog-store
- *  paths.rs, mixdog-cli main.rs). Directories must hold at least one file. The k1-assets slice owns the
- *  contents of the shipped directories; this is the one list the packaging checks. */
+/** What `mixdogd` reads from the package root as plain files. Directories must hold at least one file. The
+ *  k1-assets slice owns the contents of the shipped directories; this is the one list the packaging checks.
+ *  Derived from the core's reads of `<package root>/src` (`resource_root()`, mixdog-store paths.rs):
+ *   package.json                  compose_domains/rows.rs `package_version`
+ *   src/skill-script-entry.mjs    compose.rs; src/ext-host/worker.mjs  compose.rs, mixdog-cli main.rs
+ *   src/runtime/channels/data/voice-runtime-manifest.json   compose_flip.rs
+ *   src/rules          run_host/rules.rs (shared, routes, lead, agent-mode, agent)
+ *   src/output-styles  run_host/rules_lead.rs; compose_domains.rs; compose_mcp.rs
+ *   src/agents         compose_flip.rs / compose_mcp.rs `build_agents`; mixdog-core-prompt real_sources.rs
+ *   src/defaults       compose_mcp.rs `skill_roots` (the built-in skills)
+ *   src/orchestration  compose_domains/rows.rs `shipped_orchestration`
+ *   src/workflows      mixdog-core-config workflow/pack.rs `load_pack` / `list_packs` (WorkflowPaths.root = src) */
 export const CORE_READS = Object.freeze({
   files: [
     'package.json',
@@ -36,7 +45,7 @@ export const CORE_READS = Object.freeze({
     'src/ext-host/worker.mjs',
     'src/runtime/channels/data/voice-runtime-manifest.json',
   ],
-  dirs: ['src/rules', 'src/output-styles', 'src/agents', 'src/defaults', 'src/orchestration'],
+  dirs: ['src/rules', 'src/output-styles', 'src/agents', 'src/defaults', 'src/orchestration', 'src/workflows'],
 });
 
 /** The `MIXDOG_ROOT` the packaged desktop must give the core (`resource_root()` in mixdog-store paths.rs):
@@ -99,6 +108,22 @@ export function remoteJsRuntimeManifest(platform, arch) {
     electron: false,
     ...(onnxRuntimeSupported(platform, arch) ? { ortLibrary: ortLibraryIn('js/pkg/node_modules', platform, arch) } : {}),
   };
+}
+
+/** js-runtime.json of a dev build: the checkout is the package root, the interpreter and the ONNX Runtime library
+ *  (null where the target has none) are the absolute paths the developer names. */
+export const devJsRuntimeManifest = ({ program, packageRoot, ortLibrary }) => ({
+  program,
+  packageRoot,
+  electron: false,
+  ...(ortLibrary ? { ortLibrary } : {}),
+});
+
+/** A server payload (`payload/` of a bundle, before or after archiving) is complete: layout, interpreter,
+ *  extension-host closure, ONNX Runtime library. */
+export function verifyRemotePayload({ key, payloadDir }) {
+  const [platform, arch] = key.split('-');
+  verifyCoreInstall({ manifestDir: payloadDir, kind: 'remote', platform, arch });
 }
 
 /** Removes every platform/arch binary directory of the onnxruntime-node package except `platform`/`arch`
