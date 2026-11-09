@@ -64,10 +64,13 @@ impl TurnReviewApi for TurnReview {
         // The session's own deletion takes the marker, and its stored first-seen file contents,
         // with it.
         let (inner, id) = (self.inner.clone(), session_id.to_owned());
-        mixdog_rt::spawn("turn_review.forget_session", mixdog_rt::TaskClass::Work, async move {
+        let removal = mixdog_rt::spawn("turn_review.forget_session", mixdog_rt::TaskClass::Work, async move {
             inner.store.forget_session_change_history_marker(&id).await;
             inner.baselines.forget(&id).await;
         });
+        let mut forgets = self.inner.forgets.lock().unwrap_or_else(|e| e.into_inner());
+        forgets.retain(|task| !task.is_finished());
+        forgets.push(removal);
     }
 
     async fn turn_review_diff(&self, _worktree: &str, session_id: &str, read: ReviewRead) -> Reply {
