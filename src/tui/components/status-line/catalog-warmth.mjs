@@ -21,13 +21,17 @@ async function readCatalog(file, project) {
   }
 }
 
-export function createCatalogWarmth({ dataDir = () => resolvePluginData() } = {}) {
+/**
+ * `whenReady` is awaited before the files are read (a test's completion signal for the core's background load).
+ */
+export function createCatalogWarmth({ dataDir = () => resolvePluginData(), whenReady = null } = {}) {
   let catalogs = null;
   let warming = null;
   return {
     /** Loads the catalogs from the data dir (once at a time); resolves when they are resident. Never rejects. */
     warm() {
       warming ??= (async () => {
+        if (whenReady) await whenReady();
         const dir = dataDir();
         const [litellm, modelsDev] = await Promise.all([
           readCatalog(join(dir, 'litellm-catalog.json'), projectLitellmForHint),
@@ -47,5 +51,21 @@ export function createCatalogWarmth({ dataDir = () => resolvePluginData() } = {}
 }
 
 export const defaultCatalogWarmth = createCatalogWarmth();
-/** Called when the model lists have been loaded over the protocol. */
-export const markModelCatalogsWarm = () => defaultCatalogWarmth.warm();
+
+/**
+ * A model-list call that warms the catalogs where Node's list did (`collectProviderModels`): a quick read returns
+ * its rows at once and leaves the load running in the background (the catalogs become resident when it ends, not
+ * awaited here); a full read awaits the load, so the catalogs are resident when it resolves.
+ */
+export function listWithCatalogWarmth(list, warmth = defaultCatalogWarmth) {
+  return async (...args) => {
+    const models = await list(...args);
+    const options = args[0] && typeof args[0] === 'object' ? args[0] : {};
+    if (options.quick === true && options.force !== true) {
+      void warmth.warm();
+      return models;
+    }
+    await warmth.warm();
+    return models;
+  };
+}

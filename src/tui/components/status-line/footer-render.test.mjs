@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-import { SCENARIOS, T0 } from './footer-golden/scenarios.mjs';
+import { LIFECYCLE, SCENARIOS, T0 } from './footer-golden/scenarios.mjs';
 
 process.env.TZ = 'UTC';
 process.env.COLORTERM = 'truecolor';
@@ -37,7 +37,45 @@ function writeScenarioFiles(scenario) {
   return dir;
 }
 
-const NO_SHELLS = { count: 0, unconfirmed: 0, elapsedLabel: '' };
+const lifecycleGolden = JSON.parse(readFileSync(new URL('./footer-golden/node-lifecycle.golden.json', import.meta.url), 'utf8'));
+const { listWithCatalogWarmth } = await import('./catalog-warmth.mjs');
+
+for (const scenario of LIFECYCLE) {
+  test(`warm lifecycle equals Node's: ${scenario.name}`, async (t) => {
+    const dir = writeScenarioFiles(scenario);
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    // The core's background load ends at the gate; the full list call awaits the warming it started.
+    let open;
+    const gate = new Promise((resolve) => {
+      open = resolve;
+    });
+    const warmth = createCatalogWarmth({ dataDir: () => dir, whenReady: () => gate });
+    const inputs = createFooterInputs({ dataDir: dir, configDir: join(dir, 'config'), env: {}, now: () => T0, warmth });
+    const footer = createFooterRenderer({ routeMetaLoaded: true });
+    const { provider, model } = scenario.args;
+    const render = async () => {
+      const data = await inputs.read(provider, model);
+      const text = footer.render({ ...scenario.args, shellStatus: NO_SHELLS }, data, {
+        now: T0,
+        cols: scenario.cols,
+        processStartedAt: T0 - 200,
+        isPidAlive: () => true,
+      });
+      footer.flush();
+      return text;
+    };
+    const list = listWithCatalogWarmth(async () => [], warmth);
+    const texts = [await render()];
+    await list({ quick: true });
+    texts.push(await render());
+    open();
+    await list({});
+    texts.push(await render());
+    assert.deepEqual(texts, lifecycleGolden.scenarios.find((s) => s.name === scenario.name).expected);
+  });
+}
+
+const NO_SHELLS ={ count: 0, unconfirmed: 0, elapsedLabel: '' };
 
 for (const scenario of SCENARIOS) {
   const recorded = golden.scenarios.find((s) => s.name === scenario.name);
