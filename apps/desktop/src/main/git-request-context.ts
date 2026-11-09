@@ -3,7 +3,7 @@
 // renderer decides what fits the message.
 import { childEnvironment } from './child-environment';
 import { run, runWithStatus } from './git-runner';
-import { runGithubProcess } from '../../../../src/runtime/github/client.mjs';
+import { runGithubProcess } from '../shared/core-src/runtime/github/client.mjs';
 
 const FILE_PATCH_LIMIT = 40_000;
 const TEXT_LIMIT = 20_000;

@@ -2,7 +2,7 @@
 // with the conventional default pull-request queries.
 // gh owns auth (keyring) — no tokens ever touch this process.
 import { childEnvironment } from './child-environment';
-import { runGithubProcess } from '../../../../src/runtime/github/client.mjs';
+import { runGithubProcess } from '../shared/core-src/runtime/github/client.mjs';
 
 interface GhPrChecks {
   total: number;

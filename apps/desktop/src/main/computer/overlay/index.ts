@@ -6,7 +6,7 @@
  */
 import { globalShortcut, screen } from 'electron';
 
-import { getLinuxComputerReadiness } from '../../../../../../src/runtime/computer-bridge/linux-readiness.mjs';
+import { getLinuxComputerReadiness } from '../../../shared/core-src/runtime/computer-bridge/linux-readiness.mjs';
 import { usesGnomeHelper, watchGnomeStopSignal } from '../host/gnome-helper';
 import { computerUseCoordinator, type ComputerUseSnapshot } from '../session/coordinator';
 import { createComputerOverlayController, type ComputerUseOverlayControls } from './controls';

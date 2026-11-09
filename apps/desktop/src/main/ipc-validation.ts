@@ -76,7 +76,7 @@ import {
   type DesktopPetState,
   type DesktopPetTheme,
 } from '../shared/desktop-pet';
-import { HEARTBEAT_INTERVAL_CHOICES } from '../../../../src/runtime/shared/heartbeat-interval.mjs';
+import { HEARTBEAT_INTERVAL_CHOICES } from '../shared/core-src/runtime/shared/heartbeat-interval.mjs';
 import { type BrowserPermissionPolicy, normalizeBrowserPermissionPolicy } from '../shared/browser-permission-policy';
 import { requiredSessionId, requiredSessionIds } from './desktop-state';
 import { hasControlCharacter } from './ipc-control-chars';
@@ -454,14 +454,12 @@ const CAPABILITY_ARITY = {
   isSetupRequestActive: [2, 2],
   completeSetupRequest: [3, 3],
   agentControl: [0, 2],
-  taskControl: [0, 1],
   listStoppableShellJobs: [0, 0],
   stopShellJobs: [0, 0],
   listShellJobs: [0, 0],
   releaseShellJob: [1, 1],
   goalControl: [0, 1],
   toolsStatus: [0, 1],
-  selectTools: [1, 1],
   getSystemShell: [0, 0],
   setSystemShell: [1, 1],
   mcpStatus: [0, 0],
@@ -528,7 +526,6 @@ const CAPABILITY_ARITY = {
   getAgentAvatarImage: [1, 1],
   archivedAgentIdentities: [1, 1],
   getAgentConnectors: [1, 1],
-  listConnectors: [0, 0],
   listConnectorTools: [1, 1],
   setAgentConnectors: [2, 2],
   setAgentConnectorEnabled: [3, 3],
@@ -554,7 +551,6 @@ const CAPABILITY_ARITY = {
   saveAgentDefinition: [1, 1],
   deleteAgentDefinition: [1, 1],
   restoreAgentDefinition: [1, 1],
-  listThemes: [0, 0],
   getTheme: [0, 0],
   setTheme: [1, 2],
   setAgentRoute: [2, 2],

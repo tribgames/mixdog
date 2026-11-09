@@ -3,7 +3,7 @@
 // saved spot per display, else the bottom-right of the work area of the app
 // window's display; always clamped to a display's work area.
 import { readFileSync } from 'node:fs';
-import { writeJsonAtomicSync } from '../../../../src/runtime/shared/atomic-file.mjs';
+import { writeJsonAtomicSync } from '../shared/core-src/runtime/shared/atomic-file.mjs';
 import {
   DESKTOP_PET_ISLAND,
   DESKTOP_PET_ON_ISLAND_GAP,

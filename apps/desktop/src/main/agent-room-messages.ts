@@ -8,8 +8,8 @@ import {
   roomIdOfSession,
   roomMemberNamed,
   roomMemberOfSession,
-} from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
-import type { AgentRoomHost } from '../../../../src/runtime/shared/agent-room-host.mjs';
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
+import type { AgentRoomHost } from '../shared/core-src/runtime/shared/agent-room-host.mjs';
 import type { DesktopPromptContent, DesktopSubmitOptions } from '../shared/contract';
 import { roomMemberSwitchedOffError } from '../shared/room-error-codes';
 import type { createRoomLog } from './agent-room-log';

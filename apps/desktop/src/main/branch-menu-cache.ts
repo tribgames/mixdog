@@ -16,7 +16,7 @@ import { opendir, readFile, stat } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 
 // @ts-expect-error Plain-ESM runtime module without a declaration file.
-import { registryPath } from '../../../../src/runtime/shared/worktrees/registry.mjs';
+import { registryPath } from '../shared/core-src/runtime/shared/worktrees/registry.mjs';
 
 /** A file changed this close to a read's start may be one the read did not
  *  see yet (coarse or lagging file times): that answer is not reused. */

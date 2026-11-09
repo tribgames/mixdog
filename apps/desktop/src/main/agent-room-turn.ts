@@ -11,9 +11,9 @@ import {
   roomUsageLimit,
   rowsSinceCursor,
   withoutPassMarker,
-} from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
-import type { AgentRoomTurnDetail } from '../../../../src/runtime/shared/agent-room-host.mjs';
-import { PROMPT_ORIGIN_AGENT_REPORT as AGENT_REPORT_ORIGIN } from '../../../../src/runtime/shared/prompt-origin.mjs';
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
+import type { AgentRoomTurnDetail } from '../shared/core-src/runtime/shared/agent-room-host.mjs';
+import { PROMPT_ORIGIN_AGENT_REPORT as AGENT_REPORT_ORIGIN } from '../shared/core-src/runtime/shared/prompt-origin.mjs';
 import type { SessionSnapshot } from '../shared/contract';
 import type { AgentRoomRecord } from './agent-rooms';
 import { sessionFinalAnswer } from './session-final-answer';

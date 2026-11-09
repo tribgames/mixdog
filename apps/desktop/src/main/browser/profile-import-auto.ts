@@ -15,7 +15,7 @@
 import { existsSync, type FSWatcher, watch as watchFolder } from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
 import { basename, dirname } from 'node:path';
-import { writeJsonAtomicAsync } from '../../../../../src/runtime/shared/atomic-file.mjs';
+import { writeJsonAtomicAsync } from '../../shared/core-src/runtime/shared/atomic-file.mjs';
 import type { DesktopCookieAutoImportStatus } from '../../shared/contract';
 
 /** Let the app finish starting before the first run (a one-shot deadline). */

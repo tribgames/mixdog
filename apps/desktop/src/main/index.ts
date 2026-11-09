@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import * as nodeModule from 'node:module';
 import { constants as osConstants, freemem, homedir, hostname, setPriority, totalmem } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -69,7 +69,7 @@ import { readDesktopModelBootstrapSnapshot } from './model-bootstrap';
 import { AgentAwakeService } from './agent-awake';
 import { createBackgroundWindow } from './background-window';
 import { createDesktopTray, type DesktopTray } from './desktop-tray';
-import { createDesktopQuitSequence, DESKTOP_DAEMON_STOP_TIMEOUT_MS } from './quit-sequence';
+import { createDesktopQuitSequence } from './quit-sequence';
 import { loginShellOverrides, readLoginShellEnvironment, withHomebrewPath } from './login-shell-environment';
 import {
   answerSystemProxyRequest,
@@ -119,12 +119,13 @@ import { notifyHostListsChanged } from './host-lists-changed';
 import { createProtocolConnection } from './protocol/connection';
 import { loginUpdateOf } from './protocol/login-feed';
 import { readOrCreateHostId, createLocalHostRole } from './protocol/desktop-host-wiring';
-import { readLocalDiscovery, resolveTunnelEndpoint } from './protocol/discovery';
+import { resolveTunnelEndpoint } from './protocol/discovery';
 import { openCore } from './protocol/open-core';
+import { coreBinaryPath, coreEnvironment, resolveLocalCore } from './protocol/local-core';
 import { createOpenRequestedHandler } from './protocol/open-requested';
 import { createVisualizePublisher } from './protocol/visualize-publish';
 import type { VisualizeHostEvent } from '../shared/visualize';
-import { resolveRuntimeRoot } from '../../../../src/runtime/shared/runtime-root.mjs';
+import { resolveRuntimeRoot } from '../shared/core-src/runtime/shared/runtime-root.mjs';
 import { registerSshHostIpc } from './ipc-ssh-hosts';
 import { createBrowserHost, type BrowserHost } from './browser/host';
 import { BROWSER_PARTITION } from './browser/command';
@@ -154,8 +155,7 @@ import { installNativeMenu } from './menu';
 import { installDefaultContextMenu } from './context-menu';
 import { nativeT, refreshNativeUiLanguage } from './native-i18n';
 import { readHostWindowDisplayPreferences } from './host-display-preferences';
-import { DesktopSettingsStore } from './settings-store';
-import { mixdogDataDirectory } from './computer/shared/common';
+import { DesktopSettingsStore, desktopSettingsPort } from './settings-store';
 import { desktopUpdater, startAutoUpdater } from './updater';
 import { gcSupersededNativeToolCaches } from './native-runtime-cache-gc.mjs';
 import {
@@ -196,7 +196,6 @@ import {
   createRemoteTransportPeerEndpoint,
 } from './remote-transport/peer-link';
 import { createRemoteTransportPeerWindow } from './remote-transport/peer-window';
-import { modelProxyRuntimeLoader } from './model-proxy-host';
 import { fileSnapshots } from './file-snapshot';
 import { clampBoundsToWorkArea, persistWindowState, readWindowState } from './window-state';
 import {
@@ -342,11 +341,6 @@ if (app.isPackaged) {
       names: ['MIXDOG_SPAWN_SERVER_BIN'],
       path: join(nativeToolsDir, `mixdog-spawn${executableSuffix}`),
     },
-    {
-      kind: 'supervisor',
-      names: ['MIXDOG_SUPERVISOR_BIN'],
-      path: join(nativeToolsDir, `mixdog-supervisor${executableSuffix}`),
-    },
   ];
   const bundledKinds = [];
   for (const { kind, names, path } of nativeOverrides) {
@@ -478,26 +472,6 @@ if (process.env.MIXDOG_DESKTOP_PERF === '1') {
   });
 }
 
-function desktopServiceModulePath(): string {
-  return app.isPackaged
-    ? join(process.resourcesPath, 'app.asar.unpacked', 'out', 'main', 'daemon.cjs')
-    : join(import.meta.dirname, 'daemon.cjs');
-}
-
-function desktopServiceModuleUrl(): string {
-  const modulePath = desktopServiceModulePath();
-  const moduleUrl = pathToFileURL(modulePath);
-  let artifact = app.getVersion();
-  try {
-    const stat = statSync(modulePath);
-    artifact = `${artifact}:${stat.size}:${Math.trunc(stat.mtimeMs)}`;
-  } catch {
-    // The daemon reports the eventual import failure with the concrete path.
-  }
-  moduleUrl.searchParams.set('build', artifact);
-  return moduleUrl.href;
-}
-
 let diagnostics: DesktopDiagnostics | null = null;
 const earlyDiagnostics: Array<{ event: string; entry: Record<string, unknown>; at: string }> = [];
 function writeBootDiagnostic(event: string, entry: Record<string, unknown>): void {
@@ -550,7 +524,12 @@ const connectionDependencies: DesktopConnectionDependencies = {
     const resolve = connector
       ? () => resolveTunnelEndpoint(connector)
       : connection.kind === 'local'
-        ? () => readLocalDiscovery(resolveRuntimeRoot())
+        ? resolveLocalCore({
+            runtimeRoot: resolveRuntimeRoot(),
+            bin: coreBinaryPath(app.isPackaged, process.resourcesPath),
+            env: () => coreEnvironment(app.isPackaged, process.resourcesPath),
+            environmentReady: () => loginShellEnvironmentReady,
+          })
         : null;
     return resolve
       ? createProtocolConnection({
@@ -562,8 +541,6 @@ const connectionDependencies: DesktopConnectionDependencies = {
         })
       : null;
   },
-  moduleUrl: desktopServiceModuleUrl,
-  environmentReady: () => loginShellEnvironmentReady,
   sessionOptions: () => ({
     userDataPath: app.getPath('userData'),
     packaged: app.isPackaged,
@@ -573,12 +550,6 @@ const connectionDependencies: DesktopConnectionDependencies = {
     rendererDir: app.isPackaged
       ? join(process.resourcesPath, 'app.asar.unpacked', 'out', 'renderer')
       : join(import.meta.dirname, '../renderer'),
-  }),
-  // Model calls of every connected daemon run here, with this PC's credentials.
-  loadModelProxyRuntime: modelProxyRuntimeLoader({
-    packaged: app.isPackaged,
-    resourcesPath: process.resourcesPath,
-    appPath: app.getAppPath(),
   }),
   appVersion: app.getVersion(),
   remoteGraceMs: process.env.MIXDOG_REMOTE_CLIENT_GRACE_MS?.trim() || '',
@@ -790,11 +761,7 @@ function startDaemonService(): void {
 // Scheme privileges must be declared before the app is ready, otherwise the
 // media lane cannot stream or answer Range requests.
 registerMediaScheme();
-const settingsStore = new DesktopSettingsStore({
-  packaged: app.isPackaged,
-  resourcesPath: process.resourcesPath,
-  appPath: app.getAppPath(),
-});
+const settingsStore = new DesktopSettingsStore(desktopSettingsPort(localConnection));
 let mainWindow: BrowserWindow | null = null;
 let browserHost: BrowserHost | null = null;
 /** The always-on-top desktop pet (Settings → General → Desktop pet). */
@@ -1799,23 +1766,10 @@ function disposeDesktopResources(): Promise<void> {
       .finally(() => {
         if (timeout) clearTimeout(timeout);
       })
-      // The view is detached; an in-tree daemon still has to stop before the
-      // exit kills it mid-teardown (it would leave PostgreSQL running). The
-      // outcome is recorded: a quit that ends in the tree kill says why.
-      .then(async () => {
-        const transport = localConnection.transport();
-        const outcome = transport ? await transport.stopInTreeDaemon(DESKTOP_DAEMON_STOP_TIMEOUT_MS) : null;
-        diagnostics?.write('desktop-daemon-stop', outcome ? { ...outcome } : { request: 'no-transport' });
-        await diagnostics?.flush();
-      })
       .then(
         () => undefined,
         (error: unknown) => {
-          console.error('Failed to stop the Mixdog daemon during quit:', error);
-          diagnostics?.write('desktop-daemon-stop', {
-            request: 'threw',
-            error: error instanceof Error ? error.message : String(error),
-          });
+          console.error('Failed to detach from the Mixdog core during quit:', error);
         }
       );
   }
@@ -2925,11 +2879,6 @@ function startDesktopDiagnostics(appReadyAt: number): void {
   // The daemon handshake is already running (started before whenReady);
   // stamp its start into the timeline now that the sink exists.
   reportDaemonServiceStart();
-  void settingsStore.separateDefaults(mixdogDataDirectory()).catch((error: unknown) => {
-    diagnostics?.write('defaults-separation-failed', {
-      message: error instanceof Error ? error.message : String(error),
-    });
-  });
   for (const { event, entry, at } of earlyDiagnostics.splice(0)) {
     log.write(event, { ...entry, occurredAt: at });
   }
@@ -3125,11 +3074,12 @@ if (!app.requestSingleInstanceLock()) {
         });
       // A desktop flag changed by any other writer (a hand edit of the config
       // file included) applies here without a restart.
-      void settingsStore.watch(applyDesktopSettings).catch((error: unknown) => {
+      const settingsWatchFailed = (error: unknown): void => {
         diagnostics?.write('desktop-settings-watch-failed', {
           message: error instanceof Error ? error.message : String(error),
         });
-      });
+      };
+      void settingsStore.watch(applyDesktopSettings, settingsWatchFailed).catch(settingsWatchFailed);
       watchPowerAndNetwork();
       app.on('child-process-gone', (_event, details) => {
         diagnostics?.write('child-process-gone', {

@@ -7,7 +7,7 @@
  * relaunches the app on its way out instead of reviving a quitting window.
  */
 
-import { IN_TREE_DAEMON_STOP_GRACE_MS } from '../../../../src/standalone/daemon-stop-budget.mjs';
+import { IN_TREE_DAEMON_STOP_GRACE_MS } from '../shared/core-src/standalone/daemon-stop-budget.mjs';
 
 /** Bound on waiting for a daemon in this app's process tree to exit after its
  *  forced stop. A healthy daemon shutdown (PostgreSQL stop included) measures

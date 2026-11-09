@@ -17,12 +17,12 @@ import {
   roomMemberSessionId,
   roomSessionId,
   type roomTurnPrompt,
-} from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type {
   RoomDecision,
   RoomSupervisorInput,
-} from '../../../../src/runtime/agent/orchestrator/session/agent-room-supervisor.mjs';
-import { readJsonState, writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-room-supervisor.mjs';
+import { readJsonState, writeJsonAtomicAsync } from '../shared/core-src/runtime/shared/atomic-file.mjs';
 import { type AgentCatalogRow, MIXY_AGENT_ID, contactAgentRows } from '../shared/agent-contacts';
 import type {
   DesktopAgentRoomSummary,

@@ -10,7 +10,7 @@ import { FOREGROUND_LOCK_LINE_PREFIX } from './foreground-lock-host';
 import { RESPONSE_MARKER } from './program';
 import { computerNativeBinary, computerNativeEnvironment } from './native-host';
 import type { WorkerLedgers } from './worker-ledgers';
-import { createComputerLineDecoder } from '../../../../../../src/runtime/computer-bridge/limits.mjs';
+import { createComputerLineDecoder } from '../../../shared/core-src/runtime/computer-bridge/limits.mjs';
 
 const POINTER_LINE_PREFIX = '@@MIXDOG_POINTER@@';
 

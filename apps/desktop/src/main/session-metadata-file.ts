@@ -5,7 +5,7 @@
 // owner-only write.
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
+import { writeJsonAtomicAsync } from '../shared/core-src/runtime/shared/atomic-file.mjs';
 
 import { generatedSessionTitle, normalizeSessionTitle } from '../shared/session-title.mjs';
 import { isSessionId } from './desktop-state';

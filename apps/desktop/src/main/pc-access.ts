@@ -32,7 +32,7 @@
 // docs/remote-screen.md "PC access: install and enroll moments".
 import { constants as fsConstants } from 'node:fs';
 import { copyFile, readFile } from 'node:fs/promises';
-import { writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
+import { writeJsonAtomicAsync } from '../shared/core-src/runtime/shared/atomic-file.mjs';
 import type { DesktopPcAccessApproval, DesktopPcAccessReadiness } from '../shared/contract';
 import type { RemoteControllerKeyRecord, RemoteControllerKeysOwed } from '../shared/remote-controller-key';
 import { MAX_REMOTE_SCREEN_HELPER_KEYS } from '../shared/remote-webrtc';

@@ -1,8 +1,6 @@
-import { isAbsolute, join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { resolve } from 'node:path';
 
 import type { DesktopShellJobRow, DesktopAgentPoolRow, DesktopModelOption } from '../shared/contract';
-import { packagedRuntimeSourceRoot } from './runtime-layout';
 
 export interface DesktopProjectPreferences {
   version: 2;
@@ -231,43 +229,6 @@ export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
   });
 }
 
-/** Editor F12/references: the bundled code-graph dispatcher (same module the
- *  agent's code_graph tool uses; disk cache makes repeat queries ~ms). */
-export function codeGraphModuleUrl(packaged = false, resourcesPath = process.resourcesPath, appPath?: string): string {
-  const modulePath = packaged
-    ? join(
-        packagedRuntimeSourceRoot(resourcesPath),
-        'runtime',
-        'agent',
-        'orchestrator',
-        'tools',
-        'code-graph',
-        'dispatch.mjs'
-      )
-    : resolve(requiredApplicationPath(appPath), '../../src/runtime/agent/orchestrator/tools/code-graph/dispatch.mjs');
-  return pathToFileURL(modulePath).href;
-}
-
-/** Client for the machine-global daemon. The desktop is a VIEW over it,
- *  so a request for a session no local view holds is addressed to the daemon
- *  instead of being rejected. */
-export function sessionClientModuleUrl(
-  packaged = false,
-  resourcesPath = process.resourcesPath,
-  appPath?: string
-): string {
-  const modulePath = packaged
-    ? join(packagedRuntimeSourceRoot(resourcesPath), 'standalone', 'session-client.mjs')
-    : resolve(requiredApplicationPath(appPath), '../../src/standalone/session-client.mjs');
-  return pathToFileURL(modulePath).href;
-}
-
-function requiredApplicationPath(appPath: string | undefined): string {
-  if (typeof appPath !== 'string' || !appPath.trim() || !isAbsolute(appPath)) {
-    throw new TypeError('Electron application path must be an absolute path.');
-  }
-  return appPath;
-}
 
 export function normalizedProjectKey(projectPath: string): string {
   const absolute = resolve(projectPath).replace(/[\\/]+$/, '');

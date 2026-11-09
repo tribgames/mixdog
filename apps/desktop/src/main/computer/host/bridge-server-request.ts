@@ -14,7 +14,7 @@ import {
   MAX_COMPUTER_REQUEST_BYTES,
   MAX_COMPUTER_RESPONSE_BYTES,
   validateComputerReply,
-} from '../../../../../../src/runtime/computer-bridge/limits.mjs';
+} from '../../../shared/core-src/runtime/computer-bridge/limits.mjs';
 
 type Respond = (response: ServerResponse, status: number, body: Record<string, unknown>) => void;
 

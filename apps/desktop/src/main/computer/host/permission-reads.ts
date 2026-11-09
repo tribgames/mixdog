@@ -1,6 +1,6 @@
 /** The operating-system grants as this process holds them right now. */
 import { desktopCapturer, systemPreferences } from 'electron';
-import { getLinuxComputerReadiness } from '../../../../../../src/runtime/computer-bridge/linux-readiness.mjs';
+import { getLinuxComputerReadiness } from '../../../shared/core-src/runtime/computer-bridge/linux-readiness.mjs';
 import { linuxComputerPermissions, type ComputerPermissions } from '../shared/permissions';
 
 export function readComputerPermissions(): ComputerPermissions | Promise<ComputerPermissions> {

@@ -32,7 +32,7 @@ import { validatedHostDirectoryPath } from './host-directories';
 import { sessionRemoteMethods } from './remote-session-methods';
 import { optionalSessionId, requiredSessionId } from './desktop-state';
 import { submitFeedback } from './feedback-client';
-import { validateGithubRequest } from '../../../../src/runtime/github/contract.mjs';
+import { validateGithubRequest } from '../shared/core-src/runtime/github/contract.mjs';
 import type { TerminalSpawnProfile } from './terminal-contract';
 import {
   projectDisplayName,

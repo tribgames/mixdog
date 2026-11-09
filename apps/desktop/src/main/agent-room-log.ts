@@ -6,8 +6,8 @@ import {
   type RoomRow,
   roomRowsOfItems,
   roomSessionId,
-} from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
-import { plainPreviewText } from '../../../../src/runtime/shared/plain-preview.mjs';
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { plainPreviewText } from '../shared/core-src/runtime/shared/plain-preview.mjs';
 import type { AgentRoomDeps, AgentRoomRecord } from './agent-rooms';
 
 const RECENT_ROWS = 200;

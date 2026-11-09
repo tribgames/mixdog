@@ -10,7 +10,7 @@ import {
 } from '../shared/capture-attempts';
 import type { PixelUnavailable, ScreenshotCapture } from '../shared/types';
 import type { CaptureEngineHost } from './capture';
-import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
+import { computerErrorCode } from '../../../shared/core-src/runtime/computer-bridge/error-code.mjs';
 
 export type Bounds = { x: number; y: number; width: number; height: number };
 

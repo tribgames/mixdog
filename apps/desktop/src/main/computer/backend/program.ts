@@ -12,7 +12,7 @@ import { PS_RUNTIME, PS_WINDOW_CAPTURE } from './ps-runtime';
 import { PS_AUTHORIZATION } from './ps-authorization';
 import { PS_SEQUENCE } from './ps-sequence';
 import { MIXDOG_INPUT_TRANSPORT_CSHARP } from './native-source';
-import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS } from '../../../../../../src/runtime/computer-bridge/limits.mjs';
+import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS } from '../../../shared/core-src/runtime/computer-bridge/limits.mjs';
 
 export { RESPONSE_MARKER } from '../shared/common';
 

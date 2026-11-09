@@ -23,92 +23,24 @@ import type {
   SessionSnapshot,
   ToolApprovalDecision,
 } from '../shared/contract';
-import type {
-  DesktopService,
-  DesktopServiceMethod,
-  SerializableDesktopServiceOptions,
-} from './desktop-service-contract';
-import type { DesktopServiceInbound, DesktopServiceOutbound } from './desktop-service-protocol';
+import type { DesktopService, DesktopServiceMethod } from './desktop-service-contract';
 import type { CapabilityLane } from './protocol/capability-route';
 import type { OperationLane } from './protocol/desktop-operation-route';
 import type { ServiceLane } from './protocol/service-route';
 import { filterSessionIds } from './desktop-state';
-import { longRunningRequestTimeout } from './local-provider-install-timeout';
-import { createSnapshotDeltaDecoder, releaseHiddenSessionStateEntries } from './state-delta';
-import { isTerminalRemoteError } from './ssh/remote-bootstrap';
-import { codedErrorParams } from '../shared/coded-error';
-import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import { DESKTOP_NOTICE_EVENT, type DesktopNotice, readDesktopNotice } from '../shared/desktop-notice';
 import type { SessionFinalAnswer } from './session-final-answer';
 
-export interface DesktopTransport {
-  postMessage(message: DesktopServiceInbound): void;
-  close(): Promise<void>;
-  on(event: string, listener: (...args: any[]) => void): unknown;
-}
-
 interface DesktopServiceClientOptions {
-  /** The Node service leg. Absent for a connection whose core serves every method (`serviceLane`): there is nothing
-   *  to start, and `start()` settles at once. Removed with the Node lane at K1. */
-  connect?(): DesktopTransport;
-  sessionOptions(): SerializableDesktopServiceOptions;
   initialSnapshot?: SessionSnapshot;
-  /** The connection's core, when it has one: session capabilities are requests of that core, not calls of the Node
-   *  service. Removed with the Node lane at K1. */
-  capabilityLane?: CapabilityLane;
-  /** The connection's core, for desktop operations: `invokeDesktopOperation` is the core request of the operation
-   *  (desktop-operation-route.ts), not a call of the Node service. Removed with the Node lane at K1. */
-  operationLane?: OperationLane;
-  /** The connection's core, for the DesktopService methods (service-route.ts). Removed with the Node lane at K1. */
-  serviceLane?: ServiceLane;
-  requestTimeoutMs?: number;
-  startupTimeoutMs?: number;
-  restartBaseDelayMs?: number;
-  restartMaxDelayMs?: number;
-  restartStableMs?: number;
-  failureNoticeDelayMs?: number;
+  /** The connection's core: every session capability, desktop operation and service method is a request of it. */
+  capabilityLane: CapabilityLane;
+  operationLane: OperationLane;
+  serviceLane: ServiceLane;
   onDiagnostic?(event: string, data: Record<string, unknown>): void;
-  /** The daemon leg is ready to serve. `generation` counts attachments made by
-   *  this process: 1 is the first, and anything above it followed a daemon
-   *  REPLACEMENT, whose predecessor took every service it hosted — the relay
-   *  leg included — down with its process. */
-  onServiceReady?(context: { generation: number }): void;
 }
 
-interface PendingRequest {
-  method: DesktopServiceMethod;
-  resolve(value: unknown): void;
-  reject(error: Error): void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
-const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
-// Carrying an oversized conversation compacts it for the heir first — one
-// summarization pass over the whole transcript. That work outlives the
-// ordinary request deadline, which is sized for interactive calls.
-const INHERIT_SESSION_TIMEOUT_MS = 600_000;
-export const DEFAULT_STARTUP_TIMEOUT_MS = 15_000;
-const DEFAULT_RESTART_BASE_DELAY_MS = 250;
-const DEFAULT_RESTART_MAX_DELAY_MS = 5_000;
-const DEFAULT_RESTART_STABLE_MS = 30_000;
-/** Reconnects retry silently (backoff 250 ms -> 5 s, each attempt bounded by the
- *  15 s startup timeout, backoff reset after 30 s of stable service). Stalls of
- *  15-30 s recover on their own, so the notice waits twice the longest observed
- *  stall: by then at least a dozen attempts have failed and the outage is lasting. */
-const DEFAULT_FAILURE_NOTICE_DELAY_MS = 60_000;
-const PROCESS_FAILURE_NOTICE_TEXT = 'The service connection has been lost for a while. Still retrying automatically.';
-const PROCESS_FAILURE_TOAST_ID = 'service-connection-stopped';
 const HELD_NOTICE_LIMIT = 20;
-
-/** The daemon lane carries arguments as JSON, which turns an omitted trailing
- *  argument (`undefined`) into `null`. Receivers validate optional parameters
- *  against `undefined` (a save's encoding, a workspace file), so a trailing
- *  gap is dropped instead of arriving as an invalid `null`. */
-function wireArgs(args: unknown[]): unknown[] {
-  let end = args.length;
-  while (end > 0 && args[end - 1] === undefined) end -= 1;
-  return end === args.length ? args : args.slice(0, end);
-}
 
 export function displayExitCode(code: number): string {
   // 0xE0000008 is Chromium's kOomExceptionCode; 134 is a V8 fatal error (abort).
@@ -122,38 +54,6 @@ export function displayExitCode(code: number): string {
   return String(code);
 }
 
-class DesktopTransportExitError extends Error {
-  constructor(
-    readonly exitCode: number,
-    cause?: Error
-  ) {
-    super(cause?.message || `Mixdog service transport exited with code ${displayExitCode(exitCode)}.`);
-    this.name = 'DesktopTransportExitError';
-    if (cause) this.cause = cause;
-  }
-}
-
-/** The recovery toast is owned by this client: only one may ride a snapshot,
- *  and a recovered connection removes it. */
-function withoutProcessFailureToast(toasts: readonly unknown[]): unknown[] {
-  return toasts.filter(
-    (toast) => !toast || typeof toast !== 'object' || (toast as Record<string, unknown>).id !== PROCESS_FAILURE_TOAST_ID
-  );
-}
-
-function abortError(signal: AbortSignal | undefined): Error {
-  return signal?.reason instanceof Error ? signal.reason : new Error('Mixdog session request aborted.');
-}
-
-function responseError(error: { name: string; message: string; code?: string; details?: unknown }): Error {
-  const result = new Error(error.message);
-  result.name = error.name || 'Error';
-  if (error.code) (result as NodeJS.ErrnoException).code = error.code;
-  const details = codedErrorParams(error.code, error.details);
-  if (details) Object.assign(result, { details });
-  return result;
-}
-
 export class DesktopServiceClient implements DesktopService {
   private readonly listeners = new Set<(snapshot: SessionSnapshot) => void>();
   private readonly sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
@@ -163,176 +63,18 @@ export class DesktopServiceClient implements DesktopService {
   /** Notices that arrived while no window listened (one per key, bounded). */
   private heldNotices: DesktopNotice[] = [];
   private readonly sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
-  private readonly sessionStateDecoders = new Map<string, ReturnType<typeof createSnapshotDeltaDecoder>>();
-  private readonly pending = new Map<number, PendingRequest>();
-  private readonly decoder = createSnapshotDeltaDecoder();
-  private transport: DesktopTransport | null = null;
   private cachedSnapshot: SessionSnapshot;
-  private bootstrapSnapshot: SessionSnapshot;
-  private cachedSessions: DesktopSessionSummary[] | null = null;
-  private cachedAgentPool: DesktopAgentPoolRow[] | null = null;
-  /** The session list the CURRENT connection last pushed; null from a
-   *  disconnect or daemon replacement until its fresh list arrives. */
-  private liveSessions: DesktopSessionSummary[] | null = null;
-  private sessionCacheFresh = false;
-  private agentPoolCacheFresh = false;
   private visibleSessionIds: string[] = [];
   private visibleSessionVersion = 0;
-  private nextRequestId = 1;
-  private generation = 0;
-  private lastExitError: Error | null = null;
-  /** A failure only a fix on the server side resolves; reconnecting cannot help. */
-  private terminalError: Error | null = null;
-  private readyPromise: Promise<void> | null = null;
-  private readyResolve: (() => void) | null = null;
-  private readyReject: ((error: Error) => void) | null = null;
-  private startupTimer: ReturnType<typeof setTimeout> | null = null;
-  private restartTimer: ReturnType<typeof setTimeout> | null = null;
-  private stableTimer: ReturnType<typeof setTimeout> | null = null;
-  private failureNoticeTimer: ReturnType<typeof setTimeout> | null = null;
-  private consecutiveExitCount = 0;
-  private nextRestartAt = 0;
-  private disposing = false;
   private disposed = false;
-  private recovering = false;
-  private viewSyncSupported = false;
 
   constructor(private readonly options: DesktopServiceClientOptions) {
     this.cachedSnapshot = options.initialSnapshot ?? null;
-    this.bootstrapSnapshot = options.initialSnapshot ?? null;
   }
 
+  /** Settles at once: the connection's core connection is opened by the connection that owns this client. */
   start(): Promise<void> {
-    if (this.disposed || this.disposing) {
-      return Promise.reject(new Error('Mixdog desktop service client is disposed.'));
-    }
-    if (this.terminalError) return Promise.reject(this.terminalError);
-    if (!this.options.connect) return Promise.resolve();
-    if (this.readyPromise) return this.readyPromise;
-    this.readyPromise = new Promise<void>((resolve, reject) => {
-      this.readyResolve = resolve;
-      this.readyReject = reject;
-    });
-    this.armStartupTimer();
-    const readyPromise = this.readyPromise;
-    const restartDelayMs = Math.max(0, this.nextRestartAt - Date.now());
-    if (restartDelayMs > 0) {
-      this.restartTimer = setTimeout(() => {
-        this.restartTimer = null;
-        this.connectService();
-      }, restartDelayMs);
-      this.restartTimer.unref?.();
-    } else {
-      this.connectService();
-    }
-    return readyPromise;
-  }
-
-  /** The failure no reconnect fixes (a refused login, a changed host key, an
-   *  incompatible server), once one stopped the client; null otherwise. */
-  get terminalFailure(): Error | null {
-    return this.terminalError;
-  }
-
-  /** Try again now: a restart waiting out its backoff runs at once, and a
-   *  client stopped by a terminal failure starts over (its connector must
-   *  have been replaced first). An attachment in progress is left alone. */
-  retryNow(): Promise<void> {
-    if (this.disposed || this.disposing) {
-      return Promise.reject(new Error('Mixdog desktop service client is disposed.'));
-    }
-    this.terminalError = null;
-    this.consecutiveExitCount = 0;
-    this.nextRestartAt = 0;
-    if (this.restartTimer) {
-      clearTimeout(this.restartTimer);
-      this.restartTimer = null;
-      this.connectService();
-      return this.readyPromise ?? Promise.resolve();
-    }
-    if (this.readyPromise) return this.readyPromise;
-    if (this.transport) return Promise.resolve();
-    return this.start();
-  }
-
-  /** Drops the current attachment and attaches again now: the connector it
-   *  went through was replaced (a server connection opened anew). */
-  reattach(): Promise<void> {
-    const transport = this.transport;
-    if (transport) {
-      this.handleExit(transport, 1);
-      void transport.close().catch(() => {});
-    }
-    return this.retryNow();
-  }
-
-  private armStartupTimer(): void {
-    if (this.startupTimer) clearTimeout(this.startupTimer);
-    this.startupTimer = setTimeout(() => {
-      if (!this.readyReject) return;
-      const error = this.lastExitError ?? new Error('Mixdog service startup timed out.');
-      const transport = this.transport;
-      this.rejectStartup(error);
-      void transport?.close().catch(() => {});
-    }, this.options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS);
-    this.startupTimer.unref?.();
-  }
-
-  /** An older daemon is finishing its work. The new version cannot start until
-   *  it yields, so the startup deadline is suspended (no teardown, no failure
-   *  toast) until it yields. */
-  private handleUpgradeWait(message: Extract<DesktopServiceOutbound, { kind: 'upgrade-wait' }>): void {
-    if (message.state === 'waiting') {
-      if (this.startupTimer) clearTimeout(this.startupTimer);
-      this.startupTimer = null;
-      this.clearFailureNoticeTimer();
-      return;
-    }
-    if (this.readyReject) this.armStartupTimer();
-  }
-
-  private connectService(): void {
-    if (this.disposed || this.disposing) {
-      this.rejectStartup(new Error('Mixdog desktop service client is disposed.'));
-      return;
-    }
-    let transport: DesktopTransport;
-    try {
-      transport = this.options.connect!();
-    } catch (error) {
-      const failure = error instanceof Error ? error : new Error(String(error));
-      this.rejectStartup(failure);
-      return;
-    }
-    this.transport = transport;
-    this.generation += 1;
-    transport.on('message', (message: unknown) => this.handleMessage(transport, message));
-    transport.on('error', (type: unknown, detail: unknown) => {
-      // The detail carries the daemon's own line — the only description of
-      // what actually failed. Dropping it left boot-time transport errors
-      // unexplainable after the fact.
-      this.options.onDiagnostic?.('desktop-transport-error', {
-        type: String(type || ''),
-        detail: String(detail || ''),
-        generation: this.generation,
-      });
-    });
-    transport.on('diagnostic', (event: unknown, details: unknown) => {
-      this.options.onDiagnostic?.(
-        String(event || 'desktop-transport-diagnostic'),
-        details && typeof details === 'object' ? (details as Record<string, unknown>) : {}
-      );
-    });
-    transport.on('exit', (code: unknown, cause: unknown) =>
-      this.handleExit(transport, Number(code) || 0, cause instanceof Error ? cause : undefined)
-    );
-    try {
-      transport.postMessage({ kind: 'init', options: this.options.sessionOptions() });
-    } catch (error) {
-      const failure = error instanceof Error ? error : new Error(String(error));
-      this.rejectStartup(failure);
-      void transport.close().catch(() => {});
-    }
+    return this.disposed ? Promise.reject(new Error('Mixdog desktop service client is disposed.')) : Promise.resolve();
   }
 
   getSnapshot(): SessionSnapshot {
@@ -344,13 +86,9 @@ export class DesktopServiceClient implements DesktopService {
     return () => this.listeners.delete(listener);
   }
 
-  /** Work that dies with the daemon: sessions running turns or agents plus
-   *  the host's background shell jobs. Null while unknown: no list from the
-   *  current connection yet, or its view sync has not completed. */
+  /** Work that dies with the core: sessions running turns or agents plus the host's background shell jobs. */
   runningWorkCount(): number | null {
-    if (!this.liveSessions || this.recovering) return null;
-    const shell = (this.cachedSnapshot as { hostShellJobs?: { count?: unknown } } | null)?.hostShellJobs;
-    return this.liveSessions.filter((session) => session.working).length + (Number(shell?.count) || 0);
+    return null;
   }
 
   subscribeSessions(listener: (sessions: DesktopSessionSummary[]) => void): () => void {
@@ -368,12 +106,8 @@ export class DesktopServiceClient implements DesktopService {
     return () => this.sessionStateListeners.delete(listener);
   }
 
-  requestSessionStateResync(sessionId: string): void {
-    try {
-      this.transport?.postMessage({ kind: 'session-state-resync', sessionId });
-    } catch {
-      // Service reconnect owns the failed transport.
-    }
+  requestSessionStateResync(_sessionId: string): void {
+    // The core pushes session state as feed deltas; there is no per-session resync to ask for.
   }
 
   subscribeDesktopEvents(listener: (event: { name: string; value: unknown }) => void): () => void {
@@ -403,414 +137,22 @@ export class DesktopServiceClient implements DesktopService {
     );
   }
 
-  /** Both ways this process arrives at a live daemon: the first attach, and a
-   *  replacement behind a transport that never dropped. The generation the
-   *  host reads tells those apart; what has to happen after either is the
-   *  same, because a fresh daemon hosts none of its predecessor's services. */
-  private announceServiceReady(): void {
-    this.options.onServiceReady?.({ generation: this.generation });
-    if (this.visibleSessionIds.length === 0) return;
-    void this.sendRequest<boolean>('setVisibleSessions', [this.visibleSessionIds, ++this.visibleSessionVersion]).catch(
-      () => {
-        /* renderer registration remains cached for the next restart */
-      }
-    );
+  private invoke<T>(method: DesktopServiceMethod, args: unknown[] = [], _timeoutMs?: number, signal?: AbortSignal): Promise<T> {
+    return this.options.serviceLane.call<T>(method, args, signal);
   }
 
-  private handleMessage(transport: DesktopTransport, value: unknown): void {
-    if (transport !== this.transport || !value || typeof value !== 'object') return;
-    const message = value as DesktopServiceOutbound;
-    if (message.kind === 'ready') {
-      this.handleReady(message.viewSync === true);
-      return;
-    }
-    if (message.kind === 'upgrade-wait') {
-      this.handleUpgradeWait(message);
-      return;
-    }
-    if (message.kind === 'view-sync-complete') {
-      this.viewSyncSupported = true;
-      if (this.recovering) {
-        this.recovering = false;
-        this.clearFailureNoticeTimer();
-        this.publish(this.recoveredSnapshot(this.cachedSnapshot));
-      }
-      return;
-    }
-    if (message.kind === 'daemon-replaced') {
-      // A different process now answers this transport, hosting none of what
-      // the dead one did. That is exactly what a new attachment means here,
-      // so it counts as one: the host redials the relay off the raised
-      // generation and the renderer's registration is re-sent.
-      this.generation += 1;
-      this.liveSessions = null;
-      this.announceServiceReady();
-      return;
-    }
-    if (message.kind === 'state') {
-      this.handleStateFrame(transport, message);
-      return;
-    }
-    if (message.kind === 'sessions') {
-      const sessions = Array.isArray(message.sessions) ? message.sessions.slice() : [];
-      this.cachedSessions = sessions;
-      this.liveSessions = sessions;
-      this.sessionCacheFresh = true;
-      for (const listener of this.sessionListeners) listener(sessions.slice());
-      return;
-    }
-    if (message.kind === 'agent-pool') {
-      const agents = Array.isArray(message.agents) ? message.agents.slice() : [];
-      this.cachedAgentPool = agents;
-      this.agentPoolCacheFresh = true;
-      for (const listener of this.agentPoolListeners) listener(agents.slice());
-      return;
-    }
-    if (message.kind === 'desktop-event') {
-      const event = { name: String(message.name || ''), value: message.value };
-      if (!event.name) return;
-      if (event.name === DESKTOP_NOTICE_EVENT) this.receiveNotice(event.value);
-      for (const listener of this.desktopEventListeners) listener(event);
-      return;
-    }
-    if (message.kind === 'session-state') {
-      this.handleSessionStateFrame(transport, message);
-      return;
-    }
-    if (message.kind !== 'response') return;
-    const pending = this.pending.get(message.id);
-    if (!pending) return;
-    this.pending.delete(message.id);
-    clearTimeout(pending.timer);
-    if (message.ok) pending.resolve(message.value);
-    else pending.reject(responseError(message.error));
+  private invokeRead<T>(method: DesktopServiceMethod, args: unknown[] = [], signal?: AbortSignal): Promise<T> {
+    return this.invoke<T>(method, args, undefined, signal);
   }
 
-  private handleReady(viewSync: boolean): void {
-    this.viewSyncSupported = viewSync;
-    if (this.startupTimer) clearTimeout(this.startupTimer);
-    this.startupTimer = null;
-    this.nextRestartAt = 0;
-    if (this.stableTimer) clearTimeout(this.stableTimer);
-    this.stableTimer = setTimeout(() => {
-      this.stableTimer = null;
-      this.consecutiveExitCount = 0;
-    }, this.options.restartStableMs ?? DEFAULT_RESTART_STABLE_MS);
-    this.stableTimer.unref?.();
-    const resolve = this.readyResolve;
-    this.readyResolve = null;
-    this.readyReject = null;
-    resolve?.();
-    this.announceServiceReady();
-  }
-
-  private handleStateFrame(
-    transport: DesktopTransport,
-    message: Extract<DesktopServiceOutbound, { kind: 'state' }>
-  ): void {
-    const decoded = this.decoder.decode(message.wire);
-    if (!decoded.ok) {
-      transport.postMessage({ kind: 'state-resync' });
-      return;
-    }
-    const snapshot = decoded.snapshot as SessionSnapshot;
-    try {
-      if (this.recovering) {
-        if (!this.viewSyncSupported) {
-          this.recovering = false;
-          this.clearFailureNoticeTimer();
-        }
-        this.publish(this.recoveredSnapshot(snapshot));
-      } else {
-        this.publish(snapshot);
-      }
-    } finally {
-      // Acknowledge only after decode/publication. The transport keeps at most
-      // one frame in flight and collapses any intermediate publications.
-      try {
-        transport.postMessage({ kind: 'state-ack', sequence: message.sequence });
-      } catch {
-        // Service reconnect owns the failed transport.
-      }
-    }
-  }
-
-  private handleSessionStateFrame(
-    transport: DesktopTransport,
-    message: Extract<DesktopServiceOutbound, { kind: 'session-state' }>
-  ): void {
-    const sessionId = String(message.sessionId || '');
-    if (!sessionId) return;
-    let decoder = this.sessionStateDecoders.get(sessionId);
-    if (decoder) this.sessionStateDecoders.delete(sessionId);
-    else decoder = createSnapshotDeltaDecoder();
-    this.sessionStateDecoders.set(sessionId, decoder);
-    const decoded = decoder.decode(message.wire);
-    reportTranscriptRead(sessionId, message.readTraceId, decoded.ok ? 'main-received' : 'main-resync');
-    if (!decoded.ok) {
-      decoder.reset();
-      try {
-        transport.postMessage({ kind: 'session-state-resync', sessionId });
-      } catch {
-        // Service reconnect owns the failed transport.
-      }
-      return;
-    }
-    if (message.wire === null) this.sessionStateDecoders.delete(sessionId);
-    const update: DesktopSessionStateUpdate = {
-      sessionId,
-      snapshot: decoded.snapshot as SessionSnapshot,
-      ...(message.readTraceId ? { readTraceId: message.readTraceId } : {}),
-      frameSource: message.frameSource,
-      ...(message.laneEnd ? { laneEnd: message.laneEnd } : {}),
-      ...(typeof message.contentRevision === 'number' ? { contentRevision: message.contentRevision } : {}),
-    };
-    for (const listener of this.sessionStateListeners) listener(update);
-  }
-
-  private handleExit(transport: DesktopTransport, code: number, cause?: Error): void {
-    if (transport !== this.transport) return;
-    const startupPending = this.readyReject !== null;
-    this.transport = null;
-    this.liveSessions = null;
-    this.decoder.reset();
-    this.sessionStateDecoders.clear();
-    if (!startupPending) {
-      if (this.startupTimer) clearTimeout(this.startupTimer);
-      this.startupTimer = null;
-    }
-    if (this.stableTimer) clearTimeout(this.stableTimer);
-    this.stableTimer = null;
-    const error = new DesktopTransportExitError(code, cause);
-    this.lastExitError = error;
-    this.rejectPending(error);
-    if (this.disposing || this.disposed) return;
-    if (cause && isTerminalRemoteError(cause)) {
-      this.terminalError = cause;
-      this.recovering = false;
-      this.clearFailureNoticeTimer();
-      this.options.onDiagnostic?.('desktop-transport-terminal', {
-        code,
-        errorName: cause.name,
-        errorCode: String((cause as { code?: unknown }).code ?? ''),
-      });
-      this.publish(this.processFailureSnapshot(this.cachedSnapshot, cause.message));
-      this.rejectStartup(cause);
-      return;
-    }
-    this.consecutiveExitCount += 1;
-    const baseDelayMs = Math.max(0, this.options.restartBaseDelayMs ?? DEFAULT_RESTART_BASE_DELAY_MS);
-    const maxDelayMs = Math.max(baseDelayMs, this.options.restartMaxDelayMs ?? DEFAULT_RESTART_MAX_DELAY_MS);
-    const restartDelayMs = Math.min(maxDelayMs, baseDelayMs * 2 ** Math.min(this.consecutiveExitCount - 1, 10));
-    this.nextRestartAt = Date.now() + restartDelayMs;
-    this.options.onDiagnostic?.('desktop-transport-exit', {
-      code,
-      displayCode: displayExitCode(code),
-      restartCount: this.consecutiveExitCount,
-      restartDelayMs,
-    });
-    this.scheduleProcessFailure();
-    if (startupPending) {
-      // No desktop request has crossed the wire yet: keep every early caller
-      // queued behind the same readiness promise while the singleton winner
-      // finishes booting. Rejecting here surfaced a transient daemon handoff as
-      // an "Error invoking remote method" toast after updates.
-      if (this.restartTimer) clearTimeout(this.restartTimer);
-      this.restartTimer = setTimeout(() => {
-        this.restartTimer = null;
-        this.connectService();
-      }, restartDelayMs);
-      this.restartTimer.unref?.();
-      return;
-    }
-    this.readyPromise = null;
-    void this.start().catch((restartError) => {
-      if (this.disposing || this.disposed) return;
-      this.options.onDiagnostic?.('desktop-transport-restart-failed', {
-        errorName: restartError instanceof Error ? restartError.name : 'Error',
-      });
-    });
-  }
-
-  private rejectStartup(error: Error): void {
-    if (this.startupTimer) clearTimeout(this.startupTimer);
-    this.startupTimer = null;
-    if (this.restartTimer) clearTimeout(this.restartTimer);
-    this.restartTimer = null;
-    this.readyReject?.(error);
-    this.readyResolve = null;
-    this.readyReject = null;
-    this.readyPromise = null;
-  }
-
-  private rejectPending(error: Error): void {
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(error);
-    }
-    this.pending.clear();
-  }
-
-  private publish(snapshot: SessionSnapshot): void {
-    const next = this.snapshotWithBootstrap(snapshot);
-    this.cachedSnapshot = next;
-    for (const listener of this.listeners) listener(next);
-  }
-
-  private snapshotWithBootstrap(snapshot: SessionSnapshot): SessionSnapshot {
-    const bootstrap = this.bootstrapSnapshot;
-    if (!bootstrap || typeof bootstrap !== 'object') return snapshot;
-    const state = snapshot && typeof snapshot === 'object' ? (snapshot as Record<string, unknown>) : {};
-    if (String(state.provider || '').trim() && String(state.model || '').trim()) {
-      this.bootstrapSnapshot = null;
-      return snapshot;
-    }
-    // The service's first route-less frame is transport readiness, not an
-    // authoritative model reset. Retain the lightweight persisted route until
-    // the live session publishes its own provider/model pair.
-    return { ...bootstrap, ...state } as SessionSnapshot;
-  }
-
-  private scheduleProcessFailure(): void {
-    this.recovering = true;
-    if (this.failureNoticeTimer) return;
-    const delayMs = Math.max(0, this.options.failureNoticeDelayMs ?? DEFAULT_FAILURE_NOTICE_DELAY_MS);
-    if (delayMs === 0) {
-      this.publish(this.processFailureSnapshot(this.cachedSnapshot));
-      return;
-    }
-    this.failureNoticeTimer = setTimeout(() => {
-      this.failureNoticeTimer = null;
-      if (!this.recovering || this.disposed || this.disposing) return;
-      this.publish(this.processFailureSnapshot(this.cachedSnapshot));
-    }, delayMs);
-    this.failureNoticeTimer.unref?.();
-  }
-
-  private clearFailureNoticeTimer(): void {
-    if (this.failureNoticeTimer) clearTimeout(this.failureNoticeTimer);
-    this.failureNoticeTimer = null;
-  }
-
-  private recoveredSnapshot(snapshot: SessionSnapshot): SessionSnapshot {
-    if (!snapshot || typeof snapshot !== 'object') return snapshot;
-    const previous = snapshot as Record<string, unknown>;
-    const existingToasts = Array.isArray(previous.toasts) ? previous.toasts : [];
-    const toasts = withoutProcessFailureToast(existingToasts);
-    if (toasts.length === existingToasts.length) return snapshot;
-    return { ...previous, toasts } as SessionSnapshot;
-  }
-
-  private processFailureSnapshot(snapshot: SessionSnapshot, text = PROCESS_FAILURE_NOTICE_TEXT): SessionSnapshot {
-    const previous = snapshot && typeof snapshot === 'object' ? (snapshot as Record<string, unknown>) : {};
-    const existingToasts = Array.isArray(previous.toasts) ? previous.toasts : [];
-    return {
-      ...previous,
-      items: Array.isArray(previous.items) ? previous.items : [],
-      queued: [],
-      busy: false,
-      commandBusy: false,
-      toasts: [
-        ...withoutProcessFailureToast(existingToasts),
-        {
-          id: PROCESS_FAILURE_TOAST_ID,
-          tone: 'error',
-          lifetime: 'state',
-          text,
-        },
-      ].slice(-8),
-    } as SessionSnapshot;
-  }
-
-  private async invoke<T>(
-    method: DesktopServiceMethod,
-    args: unknown[] = [],
-    timeoutMs?: number,
-    signal?: AbortSignal
-  ): Promise<T> {
-    // A connection with a core sends the method there (service-route.ts); the Node service is not started for it.
-    const lane = this.options.serviceLane;
-    if (lane) return lane.call<T>(method, args, signal);
-    await this.start();
-    return await this.sendRequest<T>(method, args, timeoutMs, signal);
-  }
-
-  private async invokeRead<T>(method: DesktopServiceMethod, args: unknown[] = [], signal?: AbortSignal): Promise<T> {
-    if (this.options.serviceLane) return await this.invoke<T>(method, args, undefined, signal);
-    try {
-      return await this.invoke<T>(method, args, undefined, signal);
-    } catch (error) {
-      if (!(error instanceof DesktopTransportExitError) || this.disposed || this.disposing) throw error;
-      return await this.invoke<T>(method, args, undefined, signal);
-    }
-  }
-
-  private sendRequest<T>(
-    method: DesktopServiceMethod,
-    args: unknown[],
-    timeoutMs = this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
-    signal?: AbortSignal
-  ): Promise<T> {
-    const transport = this.transport;
-    if (!transport) {
-      return Promise.reject(this.lastExitError ?? new Error('Mixdog service is unavailable.'));
-    }
-    if (signal?.aborted) return Promise.reject(abortError(signal));
-    const id = this.nextRequestId++;
-    return new Promise<T>((resolve, reject) => {
-      // An aborted request leaves no pending entry; the service's late reply
-      // finds none and is dropped.
-      const onAbort = () => {
-        clearTimeout(timer);
-        this.pending.delete(id);
-        reject(abortError(signal));
-      };
-      const settled = () => signal?.removeEventListener('abort', onAbort);
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        settled();
-        // A desktop operation names itself: "invokeDesktopOperation" alone says nothing.
-        const operation = method === 'invokeDesktopOperation' && typeof args[0] === 'string' ? ` (${args[0]})` : '';
-        reject(new Error(`Mixdog session request timed out: ${method}${operation}.`));
-      }, timeoutMs);
-      signal?.addEventListener('abort', onAbort, { once: true });
-      this.pending.set(id, {
-        method,
-        resolve: (value) => {
-          settled();
-          resolve(value as T);
-        },
-        reject: (error) => {
-          settled();
-          reject(error);
-        },
-        timer,
-      });
-      try {
-        transport.postMessage({ kind: 'request', id, method, args: wireArgs(args) });
-      } catch (error) {
-        clearTimeout(timer);
-        this.pending.delete(id);
-        settled();
-        reject(error instanceof Error ? error : new Error(String(error)));
-      }
-    });
-  }
-
-  private async invokeAndPublish(method: DesktopServiceMethod, args: unknown[] = []): Promise<SessionSnapshot> {
-    const snapshot = await this.invoke<SessionSnapshot>(method, args);
-    // The core lane answers with the snapshot this process already holds: nothing new to publish.
-    if (!this.options.serviceLane) this.publish(snapshot);
-    return snapshot;
-  }
   startProject(projectPath: string): Promise<SessionSnapshot> {
-    return this.invokeAndPublish('startProject', [projectPath]);
+    return this.invoke<SessionSnapshot>('startProject', [projectPath]);
   }
   startProjectTask(projectPath: string): Promise<SessionSnapshot> {
-    return this.invokeAndPublish('startProjectTask', [projectPath]);
+    return this.invoke<SessionSnapshot>('startProjectTask', [projectPath]);
   }
   startTask(): Promise<SessionSnapshot> {
-    return this.invokeAndPublish('startTask');
+    return this.invoke<SessionSnapshot>('startTask');
   }
   listProjects(): Promise<DesktopProjectSummary[]> {
     return this.invokeRead('listProjects');
@@ -867,16 +209,8 @@ export class DesktopServiceClient implements DesktopService {
   codeGraphQuery(projectPath: string, mode: 'find_symbol' | 'references' | 'symbols', query: string): Promise<unknown> {
     return this.invokeRead('codeGraphQuery', [projectPath, mode, query]);
   }
-  async listSessions(): Promise<DesktopSessionSummary[]> {
-    if (this.options.serviceLane) return this.invoke('listSessions');
-    await this.start();
-    if (this.sessionCacheFresh && this.cachedSessions) {
-      this.sessionCacheFresh = false;
-      return this.cachedSessions.slice();
-    }
-    const sessions = await this.invokeRead<DesktopSessionSummary[]>('listSessions');
-    this.cachedSessions = Array.isArray(sessions) ? sessions.slice() : [];
-    return this.cachedSessions.slice();
+  listSessions(): Promise<DesktopSessionSummary[]> {
+    return this.invoke('listSessions');
   }
   markSessionRead(sessionId: string, messageCount: number, consumedUnread = false): Promise<boolean> {
     return this.invoke('markSessionRead', [sessionId, messageCount, consumedUnread]);
@@ -884,21 +218,11 @@ export class DesktopServiceClient implements DesktopService {
   searchSessionContent(query: string): Promise<DesktopSessionContentMatch[]> {
     return this.invokeRead('searchSessionContent', [query]);
   }
-  async listAgentPool(): Promise<DesktopAgentPoolRow[]> {
-    if (this.options.serviceLane) return this.invoke('listAgentPool');
-    await this.start();
-    if (this.agentPoolCacheFresh && this.cachedAgentPool) {
-      this.agentPoolCacheFresh = false;
-      return this.cachedAgentPool.slice();
-    }
-    const agents = await this.invokeRead<DesktopAgentPoolRow[]>('listAgentPool');
-    this.cachedAgentPool = Array.isArray(agents) ? agents.slice() : [];
-    return this.cachedAgentPool.slice();
+  listAgentPool(): Promise<DesktopAgentPoolRow[]> {
+    return this.invoke('listAgentPool');
   }
   renameSession(sessionId: string, title: string): Promise<unknown> {
-    const lane = this.options.capabilityLane;
-    if (lane) return lane.renameSession(sessionId, title);
-    return this.invoke('renameSession', [sessionId, title]);
+    return this.options.capabilityLane.renameSession(sessionId, title);
   }
   continueSessionInModel(sessionId: string, route: DesktopModelSelection): Promise<boolean> {
     return this.invoke('continueSessionInModel', [sessionId, route]);
@@ -910,27 +234,19 @@ export class DesktopServiceClient implements DesktopService {
     return this.invoke('cancelQuotaResume', [sessionId]);
   }
   stopShellJob(sessionId: string, taskId: string): Promise<DesktopShellStopResult> {
-    const lane = this.options.capabilityLane;
-    if (lane) return lane.stopShellJob(sessionId, taskId);
-    return this.invoke('stopShellJob', [sessionId, taskId]);
+    return this.options.capabilityLane.stopShellJob(sessionId, taskId);
   }
   releaseShellJob(sessionId: string, taskId: string): Promise<{ released: boolean; error?: string }> {
-    const lane = this.options.capabilityLane;
-    if (lane) return lane.releaseShellJob(sessionId, taskId);
-    return this.invoke('releaseShellJob', [sessionId, taskId]);
+    return this.options.capabilityLane.releaseShellJob(sessionId, taskId);
   }
   getQuotaAutoResume(): Promise<boolean> {
-    const lane = this.options.capabilityLane;
-    if (lane) return lane.getQuotaAutoResume();
-    return this.invoke('getQuotaAutoResume', []);
+    return this.options.capabilityLane.getQuotaAutoResume();
   }
   getTaskWorkspace(): Promise<string> {
     return this.invoke('getTaskWorkspace', []);
   }
   setQuotaAutoResume(enabled: boolean): Promise<boolean> {
-    const lane = this.options.capabilityLane;
-    if (lane) return lane.setQuotaAutoResume(enabled);
-    return this.invoke('setQuotaAutoResume', [enabled]);
+    return this.options.capabilityLane.setQuotaAutoResume(enabled);
   }
   readAttachmentImage(attachmentRef: string, maxBytes?: number): Promise<string | null> {
     return this.invokeRead('readAttachmentImage', maxBytes === undefined ? [attachmentRef] : [attachmentRef, maxBytes]);
@@ -953,21 +269,15 @@ export class DesktopServiceClient implements DesktopService {
     return this.invokeRead('readSessionFinalAnswer', [sessionId, startedAt], signal);
   }
   setSessionFavorite(sessionId: string, favorite: boolean): Promise<unknown> {
-    const lane = this.options.capabilityLane;
-    if (lane) return lane.setSessionFavorite(sessionId, favorite);
-    return this.invoke('setSessionFavorite', [sessionId, favorite]);
+    return this.options.capabilityLane.setSessionFavorite(sessionId, favorite);
   }
 
   setSessionProject(sessionId: string, projectPath: string): Promise<unknown> {
-    const lane = this.options.capabilityLane;
-    if (lane) return lane.setSessionProject(sessionId, projectPath);
-    return this.invoke('setSessionProject', [sessionId, projectPath]);
+    return this.options.capabilityLane.setSessionProject(sessionId, projectPath);
   }
 
   setSessionArchived(sessionId: string, archived: boolean): Promise<unknown> {
-    const lane = this.options.capabilityLane;
-    if (lane) return lane.setSessionArchived(sessionId, archived);
-    return this.invoke('setSessionArchived', [sessionId, archived]);
+    return this.options.capabilityLane.setSessionArchived(sessionId, archived);
   }
   openAgentHome(agentId: string): Promise<{ sessionId: string }> {
     return this.invoke('openAgentHome', [agentId]);
@@ -985,9 +295,7 @@ export class DesktopServiceClient implements DesktopService {
     return this.invoke('agentRoomAction', [action, args]);
   }
   deleteSession(sessionId: string): Promise<unknown> {
-    const lane = this.options.capabilityLane;
-    if (lane) return lane.deleteSession(sessionId);
-    return this.invoke('deleteSession', [sessionId]);
+    return this.options.capabilityLane.deleteSession(sessionId);
   }
   prefetchSession(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean> {
     return this.invokeRead('prefetchSession', [sessionId, transcriptItemLimit, ...(readTraceId ? [readTraceId] : [])]);
@@ -1000,10 +308,6 @@ export class DesktopServiceClient implements DesktopService {
   }
   setVisibleSessions(sessionIds: string[]): Promise<boolean> {
     this.visibleSessionIds = filterSessionIds(sessionIds);
-    const visible = new Set(this.visibleSessionIds);
-    releaseHiddenSessionStateEntries(visible, [this.sessionStateDecoders], (sessionId) =>
-      this.sessionStateDecoders.get(sessionId)?.reset()
-    );
     return this.invokeRead('setVisibleSessions', [this.visibleSessionIds, ++this.visibleSessionVersion]);
   }
   searchProjectFiles(
@@ -1035,7 +339,7 @@ export class DesktopServiceClient implements DesktopService {
     route?: DesktopModelSelection | null,
     options?: { compact: boolean } | null
   ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }> {
-    return this.invoke('inheritSession', [sourceSessionId, route ?? null, options ?? null], INHERIT_SESSION_TIMEOUT_MS);
+    return this.invoke('inheritSession', [sourceSessionId, route ?? null, options ?? null]);
   }
   submitToSession(
     sessionId: string,
@@ -1053,9 +357,7 @@ export class DesktopServiceClient implements DesktopService {
     // stalled daemon times its call out; the answer the user gave must wait
     // for that restart instead of surfacing as a failed, then cancelled, ask.
     // A core connection answers the server request the card shows (capability-route.ts `resolveToolApproval`).
-    const lane = this.options.capabilityLane;
-    if (lane) return lane.resolveToolApproval(sessionId, id, decision as unknown as Record<string, unknown>);
-    return this.invokeRead('resolveToolApprovalForSession', [sessionId, id, decision]);
+    return this.options.capabilityLane.resolveToolApproval(sessionId, id, decision as unknown as Record<string, unknown>);
   }
   listProviderModels(options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
     return this.invokeRead('listProviderModels', [options]);
@@ -1071,49 +373,25 @@ export class DesktopServiceClient implements DesktopService {
     args: unknown[] = [],
     sessionId?: string
   ): Promise<DesktopCapabilityResult<T>> {
-    const lane = this.options.capabilityLane;
-    if (lane) return lane.invoke<T>(capability, args, sessionId);
-    return this.invoke('invokeCapability', [capability, args, sessionId], longRunningRequestTimeout(capability, args));
+    return this.options.capabilityLane.invoke<T>(capability, args, sessionId);
   }
   readCapabilities(requests: ReadonlyArray<DesktopCapabilityReadRequest>): Promise<DesktopCapabilityReadResult[]> {
-    const lane = this.options.capabilityLane;
-    return lane ? lane.read(requests) : this.invokeRead('readCapabilities', [requests]);
+    return this.options.capabilityLane.read(requests);
   }
   /** An event this process raises for its own windows, as the Node service's broadcast reached them (a core connection
    *  has no Node service to send it). */
   emitDesktopEvent(name: string, value: unknown): void {
+    if (name === DESKTOP_NOTICE_EVENT) this.receiveNotice(value);
     for (const listener of [...this.desktopEventListeners]) listener({ name, value });
   }
   invokeDesktopOperation(method: string, args: unknown[] = []): Promise<unknown> {
-    const lane = this.options.operationLane;
-    if (lane) return lane.invoke(method, args);
-    return this.invoke('invokeDesktopOperation', [method, wireArgs(args)], longRunningRequestTimeout(method, args));
+    return this.options.operationLane.invoke(method, args);
   }
-  /** Fire-and-forget service call: no pending request (with its 120s timer)
-   *  per terminal keystroke or resize, and no wait for a reply behind
-   *  whatever session traffic is in flight. */
+  /** Fire-and-forget: no wait for the reply. */
   notifyDesktopOperation(method: string, args: unknown[] = []): void {
-    const lane = this.options.operationLane;
-    if (lane) {
-      void lane.invoke(method, args).catch(() => {
-        /* fire-and-forget: the caller never reads a reply */
-      });
-      return;
-    }
-    const transport = this.transport;
-    if (!transport) {
-      // Pre-ready (or mid-restart): fall back to the request lane, which waits
-      // for the transport instead of dropping the input.
-      void this.invoke('invokeDesktopOperation', [method, wireArgs(args)]).catch(() => {
-        /* input lost */
-      });
-      return;
-    }
-    try {
-      transport.postMessage({ kind: 'notify', method: 'invokeDesktopOperation', args: [method, wireArgs(args)] });
-    } catch {
-      /* the next keystroke re-syncs */
-    }
+    void this.options.operationLane.invoke(method, args).catch(() => {
+      /* fire-and-forget: the caller never reads a reply */
+    });
   }
   perfLog(line: string): void {
     void this.invoke('perfLog', [line]).catch(() => {
@@ -1122,22 +400,8 @@ export class DesktopServiceClient implements DesktopService {
   }
 
   async dispose(): Promise<void> {
-    if (this.disposed || this.disposing) return;
-    this.disposing = true;
-    if (this.restartTimer) clearTimeout(this.restartTimer);
-    this.restartTimer = null;
-    if (this.stableTimer) clearTimeout(this.stableTimer);
-    this.stableTimer = null;
-    this.clearFailureNoticeTimer();
-    const transport = this.transport;
-    this.transport = null;
+    if (this.disposed) return;
     this.disposed = true;
-    const disposedError = new Error('Mixdog desktop service client is disposed.');
-    this.readyReject?.(disposedError);
-    this.readyResolve = null;
-    this.readyReject = null;
-    this.rejectPending(disposedError);
-    this.readyPromise = null;
     this.listeners.clear();
     this.sessionListeners.clear();
     this.agentPoolListeners.clear();
@@ -1145,12 +409,5 @@ export class DesktopServiceClient implements DesktopService {
     this.noticeListeners.clear();
     this.sessionStateListeners.clear();
     this.visibleSessionIds = [];
-    if (transport) {
-      try {
-        await transport.close();
-      } catch {
-        /* process exit is the fallback */
-      }
-    }
   }
 }

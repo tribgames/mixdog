@@ -6,7 +6,7 @@ import {
   readJsonState,
   writeFileAtomicAsync,
   writeJsonAtomicAsync,
-} from '../../../../../src/runtime/shared/atomic-file.mjs';
+} from '../../shared/core-src/runtime/shared/atomic-file.mjs';
 
 type Unseal = (sealed: Buffer) => string;
 

@@ -6,7 +6,7 @@
 import {
   agentHomeSessionId,
   agentIdOfHomeSession,
-} from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { MIXY_AGENT_ID, contactAgentRows } from '../shared/agent-contacts';
 import { isSessionMissingError } from './session-final-answer';
 

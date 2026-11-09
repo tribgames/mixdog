@@ -1,8 +1,8 @@
-import { agentIdOfHomeSession } from '../../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { agentIdOfHomeSession } from '../../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import {
   roomMemberOfSession,
   roomSessionId,
-} from '../../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+} from '../../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import {
   MIXY_AGENT_ID,
   MIXY_DEFAULT_NAME,

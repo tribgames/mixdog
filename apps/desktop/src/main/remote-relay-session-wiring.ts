@@ -16,7 +16,7 @@ import type { RelayWebPush } from './remote-relay-web-push';
 import type { RelaySessionStateFanout } from './remote-relay-session-state';
 import { synchronizeRelayViews } from './remote-view-sync';
 import { someLegShowsSession } from './remote-transport/foreground';
-import { registerHeldRequestNotifier } from '../../../../src/runtime/shared/held-request-host.mjs';
+import { registerHeldRequestNotifier } from '../shared/core-src/runtime/shared/held-request-host.mjs';
 
 export interface RelaySessionWiringDeps {
   host: DesktopService;

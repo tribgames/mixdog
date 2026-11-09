@@ -18,8 +18,8 @@ import { recordCursorDiagnostic } from '../overlay/cursor-diagnostics';
 import { assertComputerWorkerCapacity, MAX_COMPUTER_WORKERS } from './worker-capacity';
 import { WINDOW_ARRIVALS_SESSION_ID } from '../shared/common';
 import type { PowerShellResponse } from '../shared/types';
-import { computerActionHas } from '../../../../../../src/runtime/computer-bridge/actions.mjs';
-import { MAX_COMPUTER_INTERNAL_REQUEST_BYTES } from '../../../../../../src/runtime/computer-bridge/limits.mjs';
+import { computerActionHas } from '../../../shared/core-src/runtime/computer-bridge/actions.mjs';
+import { MAX_COMPUTER_INTERNAL_REQUEST_BYTES } from '../../../shared/core-src/runtime/computer-bridge/limits.mjs';
 
 export { settleElevatedLedger } from './elevated-requests';
 

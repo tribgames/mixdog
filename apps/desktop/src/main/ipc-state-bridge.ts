@@ -10,7 +10,7 @@ import { isSessionId, requiredSessionId, requiredSessionIds } from './desktop-st
 import { SETTINGS_CHANGED_EVENT } from '../shared/settings-changed';
 import { ORCHESTRATION_MODE_EVENT } from '../shared/orchestration-mode';
 import { TURN_REVIEW_CHANGED_EVENT } from '../shared/turn-review-changed';
-import { registerDesktopNoticeSink } from '../../../../src/runtime/shared/desktop-notice-host.mjs';
+import { registerDesktopNoticeSink } from '../shared/core-src/runtime/shared/desktop-notice-host.mjs';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import type { DesktopService } from './desktop-service-contract';
 import { requiredTranscriptHistoryRequest, requiredTranscriptItemLimit } from './ipc-validation';

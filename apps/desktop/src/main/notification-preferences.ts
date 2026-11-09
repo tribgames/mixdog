@@ -13,7 +13,7 @@
 // paired afterwards.
 import { join } from 'node:path';
 
-import { readJsonStateSync, writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
+import { readJsonStateSync, writeJsonAtomicAsync } from '../shared/core-src/runtime/shared/atomic-file.mjs';
 import {
   type ConversationNotificationOverride,
   type ConversationNotificationSetting,

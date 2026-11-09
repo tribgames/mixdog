@@ -5,11 +5,11 @@
 // Sub-agent sessions keep their own runtime retention (sub-agent-retention.mjs).
 import { join } from 'node:path';
 
-import { readJsonState, updateJsonAtomic } from '../../../../src/runtime/shared/atomic-file.mjs';
+import { readJsonState, updateJsonAtomic } from '../shared/core-src/runtime/shared/atomic-file.mjs';
 import {
   agentDescendantIds,
   isAgentOnlySession,
-} from '../../../../src/runtime/agent/orchestrator/session/store-summary-visibility.mjs';
+} from '../shared/core-src/runtime/agent/orchestrator/session/store-summary-visibility.mjs';
 import type { DesktopSessionSummary } from '../shared/contract';
 
 const DAY_MS = 24 * 60 * 60 * 1000;

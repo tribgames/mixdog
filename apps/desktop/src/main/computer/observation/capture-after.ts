@@ -10,7 +10,7 @@ import { awaitSettledLayout } from './capture-launch-layout';
 import type { createOcrCapturePreferenceStore } from '../input/capability-policy';
 import type { ComputerCommand } from '../shared/types';
 import type { CaptureEngineHost } from './capture';
-import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
+import { computerErrorCode } from '../../../shared/core-src/runtime/computer-bridge/error-code.mjs';
 
 /** An input addressed through a semantic ref is answered by the accessibility
  *  tree it acted through; pixel-targeted or untargeted input and OCR keep the

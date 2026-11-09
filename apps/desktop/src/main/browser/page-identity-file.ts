@@ -5,7 +5,7 @@
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { writeFileAtomicAsync } from '../../../../../src/runtime/shared/atomic-file.mjs';
+import { writeFileAtomicAsync } from '../../shared/core-src/runtime/shared/atomic-file.mjs';
 import { safeStorageDecrypt, safeStorageEncrypt } from './browser-session-store';
 import type { BrowserPageIdentityStore } from './page-identity';
 
