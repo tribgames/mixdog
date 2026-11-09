@@ -2,12 +2,18 @@
 //! actions (`fixtures/turn-review-signal`, from `record-turn-review-signal.mjs` at `b6f10295a`).
 //!
 //! Node's `noteTurnReviewChanged` names no session: its desktop consumer forwards each delivery as the data-less
-//! `turn-review-changed` event and every open client rereads the review of the session it shows. The recording holds, per
-//! action, each delivery in order: the message the real desktop service emitted, and every client's whole reread answer. The
-//! replay runs the same actions through the real tools (`edit`, `apply_patch`, `git`), the real turn review over real Git and
-//! the real scm service; each delivery must be the publication `told_for` makes of the recorded message to each client that
-//! reread, and each client's reread must answer the recorded answer whole. `listeners.json` records the listener registry
-//! (subscribe, unsubscribe, removal and addition during a delivery) the same way.
+//! `turn-review-changed` event and every open window rereads the review of the session it shows. What equals Node's is
+//! therefore what the windows do. The recording holds, per action, the deliveries Node made and, from real windows (the
+//! product's `TurnReviewBar` behind the real service, main-process client, bridge and preload), every capability request they
+//! then made: which window, after how many deliveries, the whole request, the whole answer, and what the bar showed after.
+//!
+//! The replay runs the same actions through the real tools (`edit`, `apply_patch`, `git`), the real turn review over real Git
+//! and the real scm service, which publishes through the core's own `StateRuntime`. The core's answer to each recorded request
+//! must be the recorded answer whole, and the core's frames, folded by the checkout's renderer (`review-reread-replay.mjs`:
+//! its section store and its `TurnReviewBar`), must make the windows ask and show exactly what the recording holds. The step from
+//! a thread feed's `review/diff/updated` frame to a window's section store is `scopedSectionChanges`, the main process's fold of
+//! scoped-feed sections; nothing folds a thread feed's frames into the store today (see the report), so this replay stands that
+//! step in. `listeners.json` records the listener registry (subscribe, unsubscribe, removal and addition during a delivery).
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: real directories and a real git")]
 
 use std::collections::HashMap;
@@ -28,15 +34,23 @@ use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolIo;
 use mixdog_core_api::domain::tool::ToolPart;
+use mixdog_core_api::feed::Feed;
+use mixdog_core_api::feed::ScopedFeed;
+use mixdog_core_api::ids::FeedId;
+use mixdog_core_api::mock::EchoView;
+use mixdog_core_api::mock::FeedTap;
+use mixdog_core_api::mock::MockFeed;
 use mixdog_core_api::mock::MockLimits;
 use mixdog_core_api::mock::MockScopedFeeds;
-use mixdog_core_api::state::SectionChange;
-use mixdog_core_api::state::StatePublisher;
+use mixdog_core_api::mock::epoch;
 use mixdog_core_api::turn_review::ChangesRead;
 use mixdog_core_api::turn_review::ReviewRead;
 use mixdog_core_api::turn_review::TurnOpen;
 use mixdog_core_api::turn_review::TurnReviewApi;
 use mixdog_core_api::turn_review::TurnToken;
+use mixdog_core_base::state::ScopedSection;
+use mixdog_core_base::state::ScopedSections;
+use mixdog_core_base::state::StateRuntime;
 use mixdog_protocol::SectionName;
 use mixdog_protocol::ThreadId;
 use mixdog_protocol::ToolCallId;
@@ -80,36 +94,47 @@ impl ThreadWorktrees for NoHeaders {
     }
 }
 
-/// What a core's publisher does with a `reviewDiff` section: it keeps every publication, and the threads that clients
-/// hold open are its routes.
-#[derive(Default)]
-struct Clients {
-    open: Mutex<Vec<String>>,
-    published: Mutex<Vec<(SectionName, Option<String>, SectionChange)>>,
+/// A thread a client holds open: the `reviewDiff` route its owner opened on the thread's feed, and the client's end of that feed.
+struct OpenThread {
+    session: String,
+    ws: String,
+    _route: ScopedSection,
+    tap: FeedTap,
 }
 
-impl StatePublisher for Clients {
-    fn publish(&self, section: SectionName, key: Option<String>, change: SectionChange) {
-        self.published.lock().unwrap().push((section, key, change));
-    }
-
-    fn open_keys(&self, section: SectionName) -> Vec<String> {
-        assert_eq!(section, SectionName::ReviewDiff);
-        let mut open = self.open.lock().unwrap().clone();
-        open.sort();
-        open
-    }
-}
-
-/// The real turn review over real Git and real tools, and the scm service that publishes its signal.
+/// The real turn review over real Git and real tools, and the scm service that publishes its signal through the core's own
+/// publisher (`StateRuntime`: the route table, the feed state that numbers and encodes each section notification).
 struct World {
     review: TurnReview,
     shadow: Arc<ShadowRepos>,
-    clients: Arc<Clients>,
+    scoped: ScopedSections,
+    feeds: Arc<MockScopedFeeds>,
+    open: Vec<OpenThread>,
+    /// Each open thread's feed, for the counter of what the core had published when each delivery ended.
+    watched: Arc<Mutex<Vec<(String, Arc<dyn ScopedFeed>)>>>,
+    /// One entry per delivery: every watched feed's last sequence number once the delivery's listeners had all run.
+    deliveries: Arc<Mutex<Vec<Vec<(String, u64)>>>>,
     state: Arc<ReadState>,
     processes: Arc<mixdog_spawn::LocalProcessManager>,
     // Keeps the service (and so its listener) alive for the scenario.
     _service: Arc<ScmService>,
+}
+
+impl World {
+    /// A client opens the thread `session`: the route the thread's owner opens for its `reviewDiff` section, which is what makes the
+    /// thread a recipient (`open_keys`), and the client's subscription to that feed.
+    fn open_thread(&mut self, session: &str, ws: &str) {
+        let id = FeedId::from(format!("thread:{session}"));
+        let route = self.scoped.open(id.clone(), SectionName::ReviewDiff, session);
+        let feed = self.feeds.find(&id).expect("the section's feed");
+        let tap = FeedTap::attach(&feed);
+        self.watched.lock().unwrap().push((session.to_owned(), feed));
+        self.open.push(OpenThread { session: session.to_owned(), ws: ws.to_owned(), _route: route, tap });
+    }
+
+    fn delivered(&self) -> usize {
+        self.deliveries.lock().unwrap().len()
+    }
 }
 
 fn world(data: &Path) -> World {
@@ -120,19 +145,21 @@ fn world(data: &Path) -> World {
     let git: Arc<dyn ReviewGit> = Arc::new(ScmGit::new(scm.clone()));
     let shadow = Arc::new(ShadowRepos::new(data.join("turn-worktree-snapshots-v1"), git.clone(), disk.clone()));
     let review = TurnReview::new(Config::default(), tokens.cpu_interactive, data, disk, git, Arc::new(ScmWorktrees::new(shadow.clone())), Arc::new(CapturedBases::new()));
-    let clients = Arc::new(Clients::default());
-    let service = ScmService::new(
-        scm,
-        Arc::new(MockScopedFeeds::new(MockLimits::default())),
-        clients.clone(),
-        Arc::new(Open),
-        Arc::new(review.clone()),
-        Arc::new(NoHeaders),
-    );
+    let runtime = StateRuntime::new(Arc::new(MockFeed::new(FeedId::from("app"), epoch(1), Arc::new(EchoView), MockLimits::default())));
+    let feeds = Arc::new(MockScopedFeeds::new(MockLimits::default()));
+    let service = ScmService::new(scm, feeds.clone(), runtime.publisher.clone(), Arc::new(Open), Arc::new(review.clone()), Arc::new(NoHeaders));
+    // A listener of the test's own, registered after the service's: it runs in the same delivery, once the service has published.
+    let watched: Arc<Mutex<Vec<(String, Arc<dyn ScopedFeed>)>>> = Arc::default();
+    let deliveries: Arc<Mutex<Vec<Vec<(String, u64)>>>> = Arc::default();
+    let (seen, ends) = (watched.clone(), deliveries.clone());
+    shadow.on_review_changed(Arc::new(move || {
+        let positions = seen.lock().unwrap().iter().map(|(session, feed)| (session.clone(), feed.position().seq)).collect();
+        ends.lock().unwrap().push(positions);
+    }));
     // The composition root's wiring of the tools' read state to the review.
     let state = Arc::new(ReadState::new(None));
     follow_read_state(Arc::new(review.clone()), &state);
-    World { review, shadow, clients, state, processes, _service: service }
+    World { review, shadow, scoped: runtime.scoped_sections(feeds.clone()), feeds, open: Vec::new(), watched, deliveries, state, processes, _service: service }
 }
 
 fn plain(path: &Path) -> String {
@@ -166,33 +193,6 @@ fn context(world: &World, cwd: &Path, session: &str, call: usize) -> ToolContext
         options: Default::default(),
         review: Some(Arc::new(world.review.clone())),
     }
-}
-
-/// What a publication carries as JSON.
-fn decoded(change: &SectionChange) -> Value {
-    match change {
-        SectionChange::Set(body) => serde_json::from_slice(body).expect("a section value is JSON"),
-        other => panic!("a reread tell is a value, not {other:?}"),
-    }
-}
-
-/// The publication that carries one recorded Node notification to the client showing `session`. Node's window receives the desktop
-/// service's `{kind, name, value}` message; the core's section notification to a thread is `(section, thread, value)`. Two facts
-/// map between them: the event `turn-review-changed` is the `reviewDiff` section, and a Node value of `null` (the event carries
-/// nothing) is an empty object, a section value being an object. Anything else in a recorded message has no counterpart, so it fails.
-fn told_for(notification: &Value, session: &str) -> (SectionName, Option<String>, Value) {
-    let message = notification.as_object().expect("a recorded notification is an object");
-    assert_eq!(message.len(), 3, "a notification this replay does not know: {notification}");
-    assert_eq!(message["kind"], "desktop-event", "{notification}");
-    let section = match message["name"].as_str() {
-        Some("turn-review-changed") => SectionName::ReviewDiff,
-        other => panic!("a Node event with no section: {other:?}"),
-    };
-    let value = match &message["value"] {
-        Value::Null => serde_json::json!({}),
-        other => panic!("a Node value the core has no body for: {other}"),
-    };
-    (section, Some(session.to_owned()), value)
 }
 
 /// `<name>` tokens of a recorded value back to the scenario's directories.
@@ -236,20 +236,22 @@ async fn replay(scenario: &Value) {
     }
     let data = base.join("data");
     std::fs::create_dir_all(&data).unwrap();
-    let world = world(&data);
-    let review = &world.review;
+    let mut world = world(&data);
+    let review = world.review.clone();
     let at = |spec: &Value| match spec.get("path").and_then(Value::as_str) {
         Some(path) => roots[spec["ws"].as_str().unwrap()].join(path),
         None => roots[spec["ws"].as_str().unwrap()].clone(),
     };
     let mut tokens: HashMap<String, TurnToken> = HashMap::new();
     let mut revisions: HashMap<String, f64> = HashMap::new();
-    let mut clients: Vec<(String, String)> = Vec::new();
     let mut calls = 0;
-    let mut seen = 0;
+    // Per operation, what the core did that a window can observe: how many deliveries it had made when the operation's own action
+    // ended and after each answered request, and (below) the frames of each.
+    let mut made: Vec<(usize, usize, Vec<usize>)> = Vec::new();
     for (index, op) in scenario["ops"].as_array().unwrap().iter().enumerate() {
         let want = &scenario["results"][index];
         assert_eq!(want["op"], index);
+        let start = world.delivered();
         let session = op.get("session").and_then(Value::as_str).unwrap_or("");
         let checkpoint = op.get("checkpoint").and_then(Value::as_str).unwrap_or("");
         let ws_text = op.get("ws").and_then(Value::as_str).map(|ws| plain(&roots[ws])).unwrap_or_default();
@@ -265,10 +267,7 @@ async fn replay(scenario: &Value) {
                 std::fs::create_dir_all(target.parent().unwrap()).unwrap();
                 std::fs::write(target, op["content"]["text"].as_str().unwrap()).unwrap();
             }
-            "client" => {
-                clients.push((session.to_owned(), op["ws"].as_str().unwrap().to_owned()));
-                world.clients.open.lock().unwrap().push(session.to_owned());
-            }
+            "client" => world.open_thread(session, op["ws"].as_str().unwrap()),
             "begin" => {
                 let open = TurnOpen { checkpoint_id: checkpoint.to_owned(), continue_turn: false };
                 tokens.insert(session.to_owned(), review.begin_turn(&ws_text, session, open).await.expect("a turn"));
@@ -315,27 +314,89 @@ async fn replay(scenario: &Value) {
             }
             other => panic!("{label}: unknown op {other}"),
         }
-        // Each delivery is one publication to every open client, then every client rereads, and a reread may raise the next.
         world.shadow.review_signal_settled().await;
-        for (nth, delivery) in want["deliveries"].as_array().unwrap().iter().enumerate() {
-            // The recording names the clients that reread after this notification, and each one is told it once.
-            let rereads = delivery["rereads"].as_array().unwrap();
-            let published = world.clients.published.lock().unwrap().clone();
-            let group = published.get(seen..seen + rereads.len()).unwrap_or_else(|| panic!("{label}: delivery {nth} was never published"));
-            let told: Vec<(SectionName, Option<String>, Value)> = group.iter().map(|(section, key, change)| (*section, key.clone(), decoded(change))).collect();
-            let expected: Vec<(SectionName, Option<String>, Value)> = rereads.iter().map(|reread| told_for(&delivery["notification"], reread["session"].as_str().unwrap())).collect();
-            assert_eq!(told, expected, "{label}: delivery {nth}");
-            seen += rereads.len();
-            for reread in rereads {
-                let client = reread["session"].as_str().unwrap();
-                let ws = &clients.iter().find(|(session, _)| session == client).unwrap_or_else(|| panic!("{label}: no client {client}")).1;
-                let reply = review.turn_review_diff(&plain(&roots[ws.as_str()]), client, ReviewRead::default()).await;
-                assert_eq!(Value::Object(reply), restore(&reread["answer"], &roots), "{label}: delivery {nth}, client {client}");
-                world.shadow.review_signal_settled().await;
-            }
+        let before = world.delivered() - start;
+        // The windows then read in the order they asked, and a read may raise the next delivery. The requests, and what Node
+        // answered each, are the recording's; the core's own answer to each must be that answer whole.
+        let mut after_answer = Vec::new();
+        for request in want["requests"].as_array().unwrap() {
+            let client = request["client"].as_str().unwrap();
+            let ws = &world.open.iter().find(|thread| thread.session == client).unwrap_or_else(|| panic!("{label}: no window shows {client}")).ws;
+            assert_eq!(request["request"]["capability"], "getTurnReviewDiff", "{label}");
+            let options = &request["request"]["args"][0];
+            let read = ReviewRead { known: options["known"].as_str().map(str::to_owned), summary: options["summary"] == true };
+            let reply = review.turn_review_diff(&plain(&roots[ws.as_str()]), client, read).await;
+            assert_eq!(Value::Object(reply), restore(&request["answer"], &roots), "{label}: the read of {client} after delivery {}", request["after"]);
+            world.shadow.review_signal_settled().await;
+            after_answer.push(world.delivered() - start);
         }
-        assert_eq!(world.clients.published.lock().unwrap().len(), seen, "{label}: more deliveries than Node made");
+        assert_eq!(world.delivered() - start, want["deliveries"].as_u64().unwrap() as usize, "{label}: deliveries");
+        made.push((start, before, after_answer));
     }
+
+    // What the core published on each open thread's feed, as the thread's client received it, split into the deliveries.
+    let mut received: HashMap<String, Vec<Value>> = HashMap::new();
+    for thread in &world.open {
+        let published = world.watched.lock().unwrap().iter().find(|(session, _)| *session == thread.session).map(|(_, feed)| feed.position().seq).unwrap();
+        let seen = within(&format!("the {published} review/diff/updated frames of {}", thread.session), thread.tap.notifications_until(|seen| seen.iter().filter(|frame| frame["method"] == "review/diff/updated").count() as u64 >= published)).await;
+        received.insert(thread.session.clone(), seen.into_iter().filter(|frame| frame["method"] == "review/diff/updated").collect());
+    }
+    let mut delivery_frames: Vec<Vec<Value>> = Vec::new();
+    let mut last: HashMap<String, u64> = HashMap::new();
+    for positions in world.deliveries.lock().unwrap().iter() {
+        let mut positions = positions.clone();
+        positions.sort();
+        let mut frames = Vec::new();
+        for (session, upto) in positions {
+            let from = last.insert(session.clone(), upto).unwrap_or(0);
+            frames.extend(received[&session][from as usize..upto as usize].iter().cloned());
+        }
+        delivery_frames.push(frames);
+    }
+    let rust: Vec<Value> = made
+        .iter()
+        .map(|(start, before, after_answer)| {
+            let end = after_answer.last().copied().unwrap_or(*before);
+            serde_json::json!({ "before": before, "afterAnswer": after_answer, "deliveries": &delivery_frames[*start..*start + end] })
+        })
+        .collect();
+    let input = serde_json::json!({ "ops": scenario["ops"], "recorded": scenario["results"], "rust": rust });
+    let traces = windows_trace(&base, &input).await;
+    for (index, trace) in traces.as_array().expect("the replay answers a trace per operation").iter().enumerate() {
+        let want = &scenario["results"][index];
+        let expected = serde_json::json!({ "op": index, "deliveries": want["deliveries"], "requests": want["requests"], "shows": want["shows"] });
+        assert_eq!(*trace, expected, "{name}: op {index} {}: what the windows asked and showed", scenario["ops"][index]);
+    }
+    assert_eq!(traces.as_array().unwrap().len(), scenario["ops"].as_array().unwrap().len(), "{name}: a trace per operation");
+}
+
+/// A wait for the core's frames that fails by name at its deadline instead of hanging.
+async fn within<T>(what: &str, wait: impl std::future::Future<Output = T>) -> T {
+    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+    tokio::time::timeout(DEADLINE, wait).await.unwrap_or_else(|_| panic!("{what} did not arrive within {DEADLINE:?}"))
+}
+
+/// The windows of this checkout (`review-reread-replay.mjs`) given the core's deliveries: what each window asked, when, and showed.
+async fn windows_trace(scratch: &Path, input: &Value) -> Value {
+    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(300);
+    let checkout = PathBuf::from(plain(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..").canonicalize().unwrap()));
+    let file_url = |path: PathBuf| format!("{}{}", if cfg!(windows) { "file:///" } else { "file://" }, plain(&path).replace('\\', "/"));
+    let input_path = scratch.join("review-reread-input.json");
+    std::fs::write(&input_path, serde_json::to_vec(input).unwrap()).unwrap();
+    let child = tokio::process::Command::new("node")
+        .arg("--import")
+        .arg(file_url(checkout.join("apps/desktop/scripts/test-env.mjs")))
+        .arg("--import")
+        .arg(file_url(checkout.join("apps/desktop/scripts/test-tsx.mjs")))
+        .arg(checkout.join("benchmarks/rust-core/recorders/lib/review-reread-replay.mjs"))
+        .arg(&checkout)
+        .arg(&input_path)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout(DEADLINE, child).await.unwrap_or_else(|_| panic!("the windows replay (review-reread-replay.mjs) did not finish within {DEADLINE:?}")).expect("node starts");
+    assert!(output.status.success(), "the windows replay failed: {}", String::from_utf8_lossy(&output.stderr));
+    serde_json::from_slice(&output.stdout).unwrap_or_else(|error| panic!("the windows replay answered no trace ({error}): {}", String::from_utf8_lossy(&output.stdout)))
 }
 
 /// One recorded listener scenario's functions, handles and call log. What a listener does when it runs is the recording's data.

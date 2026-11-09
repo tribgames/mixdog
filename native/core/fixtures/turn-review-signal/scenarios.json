@@ -6,7 +6,8 @@
    {
     "op": "client",
     "session": "s0",
-    "ws": "w1"
+    "ws": "w1",
+    "checkpoint": "none"
    },
    {
     "op": "gitTool",
@@ -57,22 +58,26 @@
    {
     "op": "client",
     "session": "s1",
-    "ws": "w1"
+    "ws": "w1",
+    "checkpoint": "cp1"
    },
    {
     "op": "client",
     "session": "s2",
-    "ws": "w1"
+    "ws": "w1",
+    "checkpoint": "cp2"
    },
    {
     "op": "client",
     "session": "s3",
-    "ws": "w2"
+    "ws": "w2",
+    "checkpoint": "cp3"
    },
    {
     "op": "client",
     "session": "s4",
-    "ws": "ng"
+    "ws": "ng",
+    "checkpoint": "cp4"
    },
    {
     "op": "begin",
@@ -219,1268 +224,1732 @@
   "results": [
    {
     "op": 0,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [
+     {
+      "client": "s0",
+      "after": 0,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": false,
+         "summary": true
+        }
+       ],
+       "sessionId": "s0"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "s0",
+      "after": 0,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "summary": true
+        }
+       ],
+       "sessionId": "s0"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     }
+    ],
+    "shows": {
+     "s0": null
+    }
    },
    {
     "op": 1,
     "text": "exit 128\nfatal: not a git repository (or any of the parent directories): .git\n",
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null
+    }
    },
    {
     "op": 2,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null
+    }
    },
    {
     "op": 3,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null
+    }
    },
    {
     "op": 4,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null
+    }
    },
    {
     "op": 5,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null
+    }
    },
    {
     "op": 6,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null
+    }
    },
    {
     "op": 7,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null
+    }
    },
    {
     "op": 8,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [
+     {
+      "client": "s1",
+      "after": 0,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": false,
+         "summary": true
+        }
+       ],
+       "sessionId": "s1"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "s1",
+      "after": 0,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "64d9c8416bba6a4dca6bac9d18a53af7",
+         "summary": true
+        }
+       ],
+       "sessionId": "s1"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     }
+    ],
+    "shows": {
+     "s0": null,
+     "s1": null
+    }
    },
    {
     "op": 9,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [
+     {
+      "client": "s2",
+      "after": 0,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": false,
+         "summary": true
+        }
+       ],
+       "sessionId": "s2"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "s2",
+      "after": 0,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "64d9c8416bba6a4dca6bac9d18a53af7",
+         "summary": true
+        }
+       ],
+       "sessionId": "s2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     }
+    ],
+    "shows": {
+     "s0": null,
+     "s1": null,
+     "s2": null
+    }
    },
    {
     "op": 10,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [
+     {
+      "client": "s3",
+      "after": 0,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": false,
+         "summary": true
+        }
+       ],
+       "sessionId": "s3"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "s3",
+      "after": 0,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "64d9c8416bba6a4dca6bac9d18a53af7",
+         "summary": true
+        }
+       ],
+       "sessionId": "s3"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     }
+    ],
+    "shows": {
+     "s0": null,
+     "s1": null,
+     "s2": null,
+     "s3": null
+    }
    },
    {
     "op": 11,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [
+     {
+      "client": "s4",
+      "after": 0,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": false,
+         "summary": true
+        }
+       ],
+       "sessionId": "s4"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "s4",
+      "after": 0,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "64d9c8416bba6a4dca6bac9d18a53af7",
+         "summary": true
+        }
+       ],
+       "sessionId": "s4"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     }
+    ],
+    "shows": {
+     "s0": null,
+     "s1": null,
+     "s2": null,
+     "s3": null,
+     "s4": null
+    }
    },
    {
     "op": 12,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null,
+     "s1": null,
+     "s2": null,
+     "s3": null,
+     "s4": null
+    }
    },
    {
     "op": 13,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null,
+     "s1": null,
+     "s2": null,
+     "s3": null,
+     "s4": null
+    }
    },
    {
     "op": 14,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null,
+     "s1": null,
+     "s2": null,
+     "s3": null,
+     "s4": null
+    }
    },
    {
     "op": 15,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null,
+     "s1": null,
+     "s2": null,
+     "s3": null,
+     "s4": null
+    }
    },
    {
     "op": 16,
     "text": "## No commits yet on master\n?? a.txt\n?? sub/\n",
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s0",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "",
-         "patchTruncated": false,
-         "authoritative": false,
-         "agents": [],
-         "reason": "no-turn",
-         "historyTurns": 0,
-         "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-        }
-       },
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "4632a325a503b03b40f5f6961f22e8ea"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "be09d8cee586abd1682040df96b6a629"
-        }
-       },
-       {
-        "session": "s3",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "worktree",
-         "revertMode": "worktree",
-         "checkpointId": "cp3",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "fc26a6e3620bb49db01202f7a2fc3816"
-        }
-       },
-       {
-        "session": "s4",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp4",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 1,
+    "requests": [
+     {
+      "client": "s0",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "summary": true
+        }
+       ],
+       "sessionId": "s0"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "s1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "64d9c8416bba6a4dca6bac9d18a53af7",
+         "summary": true
+        }
+       ],
+       "sessionId": "s1"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "cp1",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 0,
+       "etag": "4632a325a503b03b40f5f6961f22e8ea"
+      }
+     },
+     {
+      "client": "s2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "64d9c8416bba6a4dca6bac9d18a53af7",
+         "summary": true
+        }
+       ],
+       "sessionId": "s2"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "cp2",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 0,
+       "etag": "be09d8cee586abd1682040df96b6a629"
+      }
+     },
+     {
+      "client": "s3",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "64d9c8416bba6a4dca6bac9d18a53af7",
+         "summary": true
+        }
+       ],
+       "sessionId": "s3"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "worktree",
+       "revertMode": "worktree",
+       "checkpointId": "cp3",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 0,
+       "etag": "fc26a6e3620bb49db01202f7a2fc3816"
+      }
+     },
+     {
+      "client": "s4",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "64d9c8416bba6a4dca6bac9d18a53af7",
+         "summary": true
+        }
+       ],
+       "sessionId": "s4"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "cp4",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 0,
+       "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
+      }
+     }
+    ],
+    "shows": {
+     "s0": null,
+     "s1": null,
+     "s2": null,
+     "s3": null,
+     "s4": null
+    }
    },
    {
     "op": 17,
     "text": "## No commits yet on master\n?? b.txt\n",
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s0",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "",
-         "patchTruncated": false,
-         "authoritative": false,
-         "agents": [],
-         "reason": "no-turn",
-         "historyTurns": 0,
-         "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-        }
-       },
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "4632a325a503b03b40f5f6961f22e8ea"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "be09d8cee586abd1682040df96b6a629"
-        }
-       },
-       {
-        "session": "s3",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "worktree",
-         "revertMode": "worktree",
-         "checkpointId": "cp3",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "fc26a6e3620bb49db01202f7a2fc3816"
-        }
-       },
-       {
-        "session": "s4",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp4",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 1,
+    "requests": [
+     {
+      "client": "s0",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "summary": true
+        }
+       ],
+       "sessionId": "s0"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "s1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "4632a325a503b03b40f5f6961f22e8ea",
+         "summary": true
+        }
+       ],
+       "sessionId": "s1"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "4632a325a503b03b40f5f6961f22e8ea"
+      }
+     },
+     {
+      "client": "s2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "be09d8cee586abd1682040df96b6a629",
+         "summary": true
+        }
+       ],
+       "sessionId": "s2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "be09d8cee586abd1682040df96b6a629"
+      }
+     },
+     {
+      "client": "s3",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "fc26a6e3620bb49db01202f7a2fc3816",
+         "summary": true
+        }
+       ],
+       "sessionId": "s3"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "fc26a6e3620bb49db01202f7a2fc3816"
+      }
+     },
+     {
+      "client": "s4",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "a9e6f3e390a70cc810685fb84b5ee50c",
+         "summary": true
+        }
+       ],
+       "sessionId": "s4"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
+      }
+     }
+    ],
+    "shows": {
+     "s0": null,
+     "s1": null,
+     "s2": null,
+     "s3": null,
+     "s4": null
+    }
    },
    {
     "op": 18,
     "text": "exit 128\nfatal: not a git repository (or any of the parent directories): .git\n",
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null,
+     "s1": null,
+     "s2": null,
+     "s3": null,
+     "s4": null
+    }
    },
    {
     "op": 19,
     "text": "Updated a.txt (1 replacement)",
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s0",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "",
-         "patchTruncated": false,
-         "authoritative": false,
-         "agents": [],
-         "reason": "no-turn",
-         "historyTurns": 0,
-         "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-        }
-       },
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "c2a8914e8ff878cfefd2fcef1fc1af60"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "be09d8cee586abd1682040df96b6a629"
-        }
-       },
-       {
-        "session": "s3",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "worktree",
-         "revertMode": "worktree",
-         "checkpointId": "cp3",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "fc26a6e3620bb49db01202f7a2fc3816"
-        }
-       },
-       {
-        "session": "s4",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp4",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 1,
+    "requests": [
+     {
+      "client": "s0",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "summary": true
+        }
+       ],
+       "sessionId": "s0"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "s1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "4632a325a503b03b40f5f6961f22e8ea",
+         "summary": true
+        }
+       ],
+       "sessionId": "s1"
+      },
+      "answer": {
+       "supported": true,
+       "files": [
+        {
+         "path": "a.txt",
+         "status": "M",
+         "additions": 1,
+         "deletions": 1
+        }
+       ],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "tracked",
+       "checkpointId": "cp1",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 0,
+       "patchOmitted": true,
+       "etag": "7de66be6d8cc229e48229a5a991d0691"
+      }
+     },
+     {
+      "client": "s2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "be09d8cee586abd1682040df96b6a629",
+         "summary": true
+        }
+       ],
+       "sessionId": "s2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "be09d8cee586abd1682040df96b6a629"
+      }
+     },
+     {
+      "client": "s3",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "fc26a6e3620bb49db01202f7a2fc3816",
+         "summary": true
+        }
+       ],
+       "sessionId": "s3"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "fc26a6e3620bb49db01202f7a2fc3816"
+      }
+     },
+     {
+      "client": "s4",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "a9e6f3e390a70cc810685fb84b5ee50c",
+         "summary": true
+        }
+       ],
+       "sessionId": "s4"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
+      }
+     }
+    ],
+    "shows": {
+     "s0": null,
+     "s1": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "s2": null,
+     "s3": null,
+     "s4": null
+    }
    },
    {
     "op": 20,
     "text": "  OK Modify a.txt — +1/-1",
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s0",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "",
-         "patchTruncated": false,
-         "authoritative": false,
-         "agents": [],
-         "reason": "no-turn",
-         "historyTurns": 0,
-         "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-        }
-       },
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "c2a8914e8ff878cfefd2fcef1fc1af60"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-one\n+ONE\n 2\n three\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "342731812c755c70efe3572b1509b87c"
-        }
-       },
-       {
-        "session": "s3",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "worktree",
-         "revertMode": "worktree",
-         "checkpointId": "cp3",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "fc26a6e3620bb49db01202f7a2fc3816"
-        }
-       },
-       {
-        "session": "s4",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp4",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 1,
+    "requests": [
+     {
+      "client": "s0",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "summary": true
+        }
+       ],
+       "sessionId": "s0"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "s1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "7de66be6d8cc229e48229a5a991d0691",
+         "summary": true
+        }
+       ],
+       "sessionId": "s1"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "7de66be6d8cc229e48229a5a991d0691"
+      }
+     },
+     {
+      "client": "s2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "be09d8cee586abd1682040df96b6a629",
+         "summary": true
+        }
+       ],
+       "sessionId": "s2"
+      },
+      "answer": {
+       "supported": true,
+       "files": [
+        {
+         "path": "a.txt",
+         "status": "M",
+         "additions": 1,
+         "deletions": 1
+        }
+       ],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "tracked",
+       "checkpointId": "cp2",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 0,
+       "patchOmitted": true,
+       "etag": "36613fb8178557eaefceb799dd2b7daa"
+      }
+     },
+     {
+      "client": "s3",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "fc26a6e3620bb49db01202f7a2fc3816",
+         "summary": true
+        }
+       ],
+       "sessionId": "s3"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "fc26a6e3620bb49db01202f7a2fc3816"
+      }
+     },
+     {
+      "client": "s4",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "a9e6f3e390a70cc810685fb84b5ee50c",
+         "summary": true
+        }
+       ],
+       "sessionId": "s4"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
+      }
+     }
+    ],
+    "shows": {
+     "s0": null,
+     "s1": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "s2": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "s3": null,
+     "s4": null
+    }
    },
    {
     "op": 21,
     "text": "apply_patch: applied 3 section(s)\n  OK Modify a.txt — +1/-1\n  OK Modify sub/inner.txt — +1/-1\n  OK Create n.txt — +1 Line",
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s0",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "",
-         "patchTruncated": false,
-         "authoritative": false,
-         "agents": [],
-         "reason": "no-turn",
-         "historyTurns": 0,
-         "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-        }
-       },
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 2,
-           "deletions": 2
-          },
-          {
-           "path": "n.txt",
-           "status": "A",
-           "additions": 1,
-           "deletions": 0
-          },
-          {
-           "path": "sub/inner.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\ndiff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-ONE\n+one\n 2\n three\ndiff --git a/n.txt b/n.txt\nnew file mode 100644\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1,1 @@\n+new\ndiff --git a/sub/inner.txt b/sub/inner.txt\n--- a/sub/inner.txt\n+++ b/sub/inner.txt\n@@ -1,1 +1,1 @@\n-inner\n+INNER\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "5d75f556efa743957cfb813499370307"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-one\n+ONE\n 2\n three\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "342731812c755c70efe3572b1509b87c"
-        }
-       },
-       {
-        "session": "s3",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "worktree",
-         "revertMode": "worktree",
-         "checkpointId": "cp3",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "fc26a6e3620bb49db01202f7a2fc3816"
-        }
-       },
-       {
-        "session": "s4",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp4",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      },
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s0",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "",
-         "patchTruncated": false,
-         "authoritative": false,
-         "agents": [],
-         "reason": "no-turn",
-         "historyTurns": 0,
-         "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-        }
-       },
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 2,
-           "deletions": 2
-          },
-          {
-           "path": "n.txt",
-           "status": "A",
-           "additions": 1,
-           "deletions": 0
-          },
-          {
-           "path": "sub/inner.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\ndiff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-ONE\n+one\n 2\n three\ndiff --git a/n.txt b/n.txt\nnew file mode 100644\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1,1 @@\n+new\ndiff --git a/sub/inner.txt b/sub/inner.txt\n--- a/sub/inner.txt\n+++ b/sub/inner.txt\n@@ -1,1 +1,1 @@\n-inner\n+INNER\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "5d75f556efa743957cfb813499370307"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-one\n+ONE\n 2\n three\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "342731812c755c70efe3572b1509b87c"
-        }
-       },
-       {
-        "session": "s3",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "worktree",
-         "revertMode": "worktree",
-         "checkpointId": "cp3",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "fc26a6e3620bb49db01202f7a2fc3816"
-        }
-       },
-       {
-        "session": "s4",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp4",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      },
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s0",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "",
-         "patchTruncated": false,
-         "authoritative": false,
-         "agents": [],
-         "reason": "no-turn",
-         "historyTurns": 0,
-         "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-        }
-       },
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 2,
-           "deletions": 2
-          },
-          {
-           "path": "n.txt",
-           "status": "A",
-           "additions": 1,
-           "deletions": 0
-          },
-          {
-           "path": "sub/inner.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\ndiff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-ONE\n+one\n 2\n three\ndiff --git a/n.txt b/n.txt\nnew file mode 100644\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1,1 @@\n+new\ndiff --git a/sub/inner.txt b/sub/inner.txt\n--- a/sub/inner.txt\n+++ b/sub/inner.txt\n@@ -1,1 +1,1 @@\n-inner\n+INNER\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "5d75f556efa743957cfb813499370307"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-one\n+ONE\n 2\n three\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "342731812c755c70efe3572b1509b87c"
-        }
-       },
-       {
-        "session": "s3",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "worktree",
-         "revertMode": "worktree",
-         "checkpointId": "cp3",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "fc26a6e3620bb49db01202f7a2fc3816"
-        }
-       },
-       {
-        "session": "s4",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp4",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 3,
+    "requests": [
+     {
+      "client": "s0",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "summary": true
+        }
+       ],
+       "sessionId": "s0"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "s1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "7de66be6d8cc229e48229a5a991d0691",
+         "summary": true
+        }
+       ],
+       "sessionId": "s1"
+      },
+      "answer": {
+       "supported": true,
+       "files": [
+        {
+         "path": "a.txt",
+         "status": "M",
+         "additions": 2,
+         "deletions": 2
+        },
+        {
+         "path": "n.txt",
+         "status": "A",
+         "additions": 1,
+         "deletions": 0
+        },
+        {
+         "path": "sub/inner.txt",
+         "status": "M",
+         "additions": 1,
+         "deletions": 1
+        }
+       ],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "tracked",
+       "checkpointId": "cp1",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 0,
+       "patchOmitted": true,
+       "etag": "e6a8756220a19797c27e1c754eca7d0d"
+      }
+     },
+     {
+      "client": "s2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "36613fb8178557eaefceb799dd2b7daa",
+         "summary": true
+        }
+       ],
+       "sessionId": "s2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "36613fb8178557eaefceb799dd2b7daa"
+      }
+     },
+     {
+      "client": "s3",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "fc26a6e3620bb49db01202f7a2fc3816",
+         "summary": true
+        }
+       ],
+       "sessionId": "s3"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "fc26a6e3620bb49db01202f7a2fc3816"
+      }
+     },
+     {
+      "client": "s4",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "a9e6f3e390a70cc810685fb84b5ee50c",
+         "summary": true
+        }
+       ],
+       "sessionId": "s4"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
+      }
+     },
+     {
+      "client": "s0",
+      "after": 3,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "summary": true
+        }
+       ],
+       "sessionId": "s0"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "s1",
+      "after": 3,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "e6a8756220a19797c27e1c754eca7d0d",
+         "summary": true
+        }
+       ],
+       "sessionId": "s1"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "e6a8756220a19797c27e1c754eca7d0d"
+      }
+     },
+     {
+      "client": "s2",
+      "after": 3,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "36613fb8178557eaefceb799dd2b7daa",
+         "summary": true
+        }
+       ],
+       "sessionId": "s2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "36613fb8178557eaefceb799dd2b7daa"
+      }
+     },
+     {
+      "client": "s3",
+      "after": 3,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "fc26a6e3620bb49db01202f7a2fc3816",
+         "summary": true
+        }
+       ],
+       "sessionId": "s3"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "fc26a6e3620bb49db01202f7a2fc3816"
+      }
+     },
+     {
+      "client": "s4",
+      "after": 3,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "a9e6f3e390a70cc810685fb84b5ee50c",
+         "summary": true
+        }
+       ],
+       "sessionId": "s4"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
+      }
+     }
+    ],
+    "shows": {
+     "s0": null,
+     "s1": "3 files changed+4-3Lead+4-3Ma.txt+2-2An.txt+1Msub/inner.txt+1-1",
+     "s2": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "s3": null,
+     "s4": null
+    }
    },
    {
     "op": 22,
     "text": "  OK Delete b.txt — -2",
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s0",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "",
-         "patchTruncated": false,
-         "authoritative": false,
-         "agents": [],
-         "reason": "no-turn",
-         "historyTurns": 0,
-         "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-        }
-       },
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 2,
-           "deletions": 2
-          },
-          {
-           "path": "n.txt",
-           "status": "A",
-           "additions": 1,
-           "deletions": 0
-          },
-          {
-           "path": "sub/inner.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\ndiff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-ONE\n+one\n 2\n three\ndiff --git a/n.txt b/n.txt\nnew file mode 100644\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1,1 @@\n+new\ndiff --git a/sub/inner.txt b/sub/inner.txt\n--- a/sub/inner.txt\n+++ b/sub/inner.txt\n@@ -1,1 +1,1 @@\n-inner\n+INNER\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "5d75f556efa743957cfb813499370307"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-one\n+ONE\n 2\n three\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "342731812c755c70efe3572b1509b87c"
-        }
-       },
-       {
-        "session": "s3",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "b.txt",
-           "status": "D",
-           "additions": 0,
-           "deletions": 2
-          }
-         ],
-         "patch": "diff --git a/b.txt b/b.txt\ndeleted file mode 100644\n--- a/b.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-bee\n-hive\n",
-         "snapshotKind": "worktree",
-         "revertMode": "worktree",
-         "checkpointId": "cp3",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "deb0ef9651814bffff8009770077b5d2"
-        }
-       },
-       {
-        "session": "s4",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp4",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 1,
+    "requests": [
+     {
+      "client": "s0",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "summary": true
+        }
+       ],
+       "sessionId": "s0"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "s1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "e6a8756220a19797c27e1c754eca7d0d",
+         "summary": true
+        }
+       ],
+       "sessionId": "s1"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "e6a8756220a19797c27e1c754eca7d0d"
+      }
+     },
+     {
+      "client": "s2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "36613fb8178557eaefceb799dd2b7daa",
+         "summary": true
+        }
+       ],
+       "sessionId": "s2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "36613fb8178557eaefceb799dd2b7daa"
+      }
+     },
+     {
+      "client": "s3",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "fc26a6e3620bb49db01202f7a2fc3816",
+         "summary": true
+        }
+       ],
+       "sessionId": "s3"
+      },
+      "answer": {
+       "supported": true,
+       "files": [
+        {
+         "path": "b.txt",
+         "status": "D",
+         "additions": 0,
+         "deletions": 2
+        }
+       ],
+       "patch": "",
+       "snapshotKind": "worktree",
+       "revertMode": "worktree",
+       "checkpointId": "cp3",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 0,
+       "patchOmitted": true,
+       "etag": "822c9b97055b099385390d76b0452a4d"
+      }
+     },
+     {
+      "client": "s4",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "a9e6f3e390a70cc810685fb84b5ee50c",
+         "summary": true
+        }
+       ],
+       "sessionId": "s4"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
+      }
+     }
+    ],
+    "shows": {
+     "s0": null,
+     "s1": "3 files changed+4-3Lead+4-3Ma.txt+2-2An.txt+1Msub/inner.txt+1-1",
+     "s2": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "s3": "1 file changed-2Turn-2Db.txt-2",
+     "s4": null
+    }
    },
    {
     "op": 23,
     "text": "OK moved.txt (renamed from n.txt, ~2 lines touched, engine=v4a-rename)\n",
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s0",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "",
-         "patchTruncated": false,
-         "authoritative": false,
-         "agents": [],
-         "reason": "no-turn",
-         "historyTurns": 0,
-         "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-        }
-       },
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 2,
-           "deletions": 2
-          },
-          {
-           "path": "moved.txt",
-           "status": "A",
-           "additions": 2,
-           "deletions": 1
-          },
-          {
-           "path": "sub/inner.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\ndiff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-ONE\n+one\n 2\n three\ndiff --git a/n.txt b/moved.txt\nnew file mode 100644\n--- /dev/null\n+++ b/moved.txt\n@@ -0,0 +1,1 @@\n+newer\ndiff --git a/sub/inner.txt b/sub/inner.txt\n--- a/sub/inner.txt\n+++ b/sub/inner.txt\n@@ -1,1 +1,1 @@\n-inner\n+INNER\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "a55efa98d9562fd6983f0051b89693f1"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-one\n+ONE\n 2\n three\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "342731812c755c70efe3572b1509b87c"
-        }
-       },
-       {
-        "session": "s3",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "b.txt",
-           "status": "D",
-           "additions": 0,
-           "deletions": 2
-          }
-         ],
-         "patch": "diff --git a/b.txt b/b.txt\ndeleted file mode 100644\n--- a/b.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-bee\n-hive\n",
-         "snapshotKind": "worktree",
-         "revertMode": "worktree",
-         "checkpointId": "cp3",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "deb0ef9651814bffff8009770077b5d2"
-        }
-       },
-       {
-        "session": "s4",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp4",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 1,
+    "requests": [
+     {
+      "client": "s0",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "summary": true
+        }
+       ],
+       "sessionId": "s0"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "s1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "e6a8756220a19797c27e1c754eca7d0d",
+         "summary": true
+        }
+       ],
+       "sessionId": "s1"
+      },
+      "answer": {
+       "supported": true,
+       "files": [
+        {
+         "path": "a.txt",
+         "status": "M",
+         "additions": 2,
+         "deletions": 2
+        },
+        {
+         "path": "moved.txt",
+         "status": "A",
+         "additions": 2,
+         "deletions": 1
+        },
+        {
+         "path": "sub/inner.txt",
+         "status": "M",
+         "additions": 1,
+         "deletions": 1
+        }
+       ],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "tracked",
+       "checkpointId": "cp1",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 0,
+       "patchOmitted": true,
+       "etag": "936ce1ef68fc8b68f5ce98473ddb5e51"
+      }
+     },
+     {
+      "client": "s2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "36613fb8178557eaefceb799dd2b7daa",
+         "summary": true
+        }
+       ],
+       "sessionId": "s2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "36613fb8178557eaefceb799dd2b7daa"
+      }
+     },
+     {
+      "client": "s3",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "822c9b97055b099385390d76b0452a4d",
+         "summary": true
+        }
+       ],
+       "sessionId": "s3"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "822c9b97055b099385390d76b0452a4d"
+      }
+     },
+     {
+      "client": "s4",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "a9e6f3e390a70cc810685fb84b5ee50c",
+         "summary": true
+        }
+       ],
+       "sessionId": "s4"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
+      }
+     }
+    ],
+    "shows": {
+     "s0": null,
+     "s1": "3 files changed+5-4Lead+5-4Ma.txt+2-2Amoved.txt+2-1Msub/inner.txt+1-1",
+     "s2": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "s3": "1 file changed-2Turn-2Db.txt-2",
+     "s4": null
+    }
    },
    {
     "op": 24,
     "text": "Error: apply_patch: V4A parse failed — V4A hunk a.txt: context not found: (no anchor); expected first old line: \"absent\"; nearest line 3: \"three\"; use exact current context or a broader @@ anchor; no stubs. Copy the context lines verbatim from the excerpt below — do not retype them from memory.\ncurrent file lines 1-3 (verbatim — build the retry from these):\n    1| one\n    2| 2\n    3| three",
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null,
+     "s1": "3 files changed+5-4Lead+5-4Ma.txt+2-2Amoved.txt+2-1Msub/inner.txt+1-1",
+     "s2": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "s3": "1 file changed-2Turn-2Db.txt-2",
+     "s4": null
+    }
    },
    {
     "op": 25,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null,
+     "s1": "3 files changed+5-4Lead+5-4Ma.txt+2-2Amoved.txt+2-1Msub/inner.txt+1-1",
+     "s2": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "s3": "1 file changed-2Turn-2Db.txt-2",
+     "s4": null
+    }
    },
    {
     "op": 26,
     "text": "## No commits yet on master\n?? a.txt\n?? moved.txt\n?? sub/\n",
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s0",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "",
-         "patchTruncated": false,
-         "authoritative": false,
-         "agents": [],
-         "reason": "no-turn",
-         "historyTurns": 0,
-         "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-        }
-       },
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 2,
-           "deletions": 2
-          },
-          {
-           "path": "moved.txt",
-           "status": "A",
-           "additions": 2,
-           "deletions": 1
-          },
-          {
-           "path": "sub/inner.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\ndiff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-ONE\n+one\n 2\n three\ndiff --git a/n.txt b/moved.txt\nnew file mode 100644\n--- /dev/null\n+++ b/moved.txt\n@@ -0,0 +1,1 @@\n+newer\ndiff --git a/sub/inner.txt b/sub/inner.txt\n--- a/sub/inner.txt\n+++ b/sub/inner.txt\n@@ -1,1 +1,1 @@\n-inner\n+INNER\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "a55efa98d9562fd6983f0051b89693f1"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-one\n+ONE\n 2\n three\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "342731812c755c70efe3572b1509b87c"
-        }
-       },
-       {
-        "session": "s3",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "b.txt",
-           "status": "D",
-           "additions": 0,
-           "deletions": 2
-          }
-         ],
-         "patch": "diff --git a/b.txt b/b.txt\ndeleted file mode 100644\n--- a/b.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-bee\n-hive\n",
-         "snapshotKind": "worktree",
-         "revertMode": "worktree",
-         "checkpointId": "cp3",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "deb0ef9651814bffff8009770077b5d2"
-        }
-       },
-       {
-        "session": "s4",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp4",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 1,
+    "requests": [
+     {
+      "client": "s0",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "summary": true
+        }
+       ],
+       "sessionId": "s0"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "s1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "936ce1ef68fc8b68f5ce98473ddb5e51",
+         "summary": true
+        }
+       ],
+       "sessionId": "s1"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "936ce1ef68fc8b68f5ce98473ddb5e51"
+      }
+     },
+     {
+      "client": "s2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "36613fb8178557eaefceb799dd2b7daa",
+         "summary": true
+        }
+       ],
+       "sessionId": "s2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "36613fb8178557eaefceb799dd2b7daa"
+      }
+     },
+     {
+      "client": "s3",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "822c9b97055b099385390d76b0452a4d",
+         "summary": true
+        }
+       ],
+       "sessionId": "s3"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "822c9b97055b099385390d76b0452a4d"
+      }
+     },
+     {
+      "client": "s4",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "a9e6f3e390a70cc810685fb84b5ee50c",
+         "summary": true
+        }
+       ],
+       "sessionId": "s4"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
+      }
+     }
+    ],
+    "shows": {
+     "s0": null,
+     "s1": "3 files changed+5-4Lead+5-4Ma.txt+2-2Amoved.txt+2-1Msub/inner.txt+1-1",
+     "s2": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "s3": "1 file changed-2Turn-2Db.txt-2",
+     "s4": null
+    }
    },
    {
     "op": 27,
@@ -1519,428 +1988,524 @@
      "authoritative": true,
      "complete": true
     },
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s0",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "",
-         "patchTruncated": false,
-         "authoritative": false,
-         "agents": [],
-         "reason": "no-turn",
-         "historyTurns": 0,
-         "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-        }
-       },
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 2,
-           "deletions": 2
-          },
-          {
-           "path": "moved.txt",
-           "status": "A",
-           "additions": 2,
-           "deletions": 1
-          },
-          {
-           "path": "sub/inner.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\ndiff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-ONE\n+one\n 2\n three\ndiff --git a/n.txt b/moved.txt\nnew file mode 100644\n--- /dev/null\n+++ b/moved.txt\n@@ -0,0 +1,1 @@\n+newer\ndiff --git a/sub/inner.txt b/sub/inner.txt\n--- a/sub/inner.txt\n+++ b/sub/inner.txt\n@@ -1,1 +1,1 @@\n-inner\n+INNER\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "a55efa98d9562fd6983f0051b89693f1"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-one\n+ONE\n 2\n three\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "342731812c755c70efe3572b1509b87c"
-        }
-       },
-       {
-        "session": "s3",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "b.txt",
-           "status": "D",
-           "additions": 0,
-           "deletions": 2
-          }
-         ],
-         "patch": "diff --git a/b.txt b/b.txt\ndeleted file mode 100644\n--- a/b.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-bee\n-hive\n",
-         "snapshotKind": "worktree",
-         "revertMode": "worktree",
-         "checkpointId": "cp3",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "deb0ef9651814bffff8009770077b5d2"
-        }
-       },
-       {
-        "session": "s4",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp4",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 1,
+    "requests": [
+     {
+      "client": "s0",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "summary": true
+        }
+       ],
+       "sessionId": "s0"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "s1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "936ce1ef68fc8b68f5ce98473ddb5e51",
+         "summary": true
+        }
+       ],
+       "sessionId": "s1"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "936ce1ef68fc8b68f5ce98473ddb5e51"
+      }
+     },
+     {
+      "client": "s2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "36613fb8178557eaefceb799dd2b7daa",
+         "summary": true
+        }
+       ],
+       "sessionId": "s2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "36613fb8178557eaefceb799dd2b7daa"
+      }
+     },
+     {
+      "client": "s3",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "822c9b97055b099385390d76b0452a4d",
+         "summary": true
+        }
+       ],
+       "sessionId": "s3"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "822c9b97055b099385390d76b0452a4d"
+      }
+     },
+     {
+      "client": "s4",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "a9e6f3e390a70cc810685fb84b5ee50c",
+         "summary": true
+        }
+       ],
+       "sessionId": "s4"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
+      }
+     }
+    ],
+    "shows": {
+     "s0": null,
+     "s1": "3 files changed+5-4Lead+5-4Ma.txt+2-2Amoved.txt+2-1Msub/inner.txt+1-1",
+     "s2": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "s3": "1 file changed-2Turn-2Db.txt-2",
+     "s4": null
+    }
    },
    {
     "op": 28,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null,
+     "s1": "3 files changed+5-4Lead+5-4Ma.txt+2-2Amoved.txt+2-1Msub/inner.txt+1-1",
+     "s2": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "s3": "1 file changed-2Turn-2Db.txt-2",
+     "s4": null
+    }
    },
    {
     "op": 29,
     "completed": true,
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s0",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "",
-         "patchTruncated": false,
-         "authoritative": false,
-         "agents": [],
-         "reason": "no-turn",
-         "historyTurns": 0,
-         "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-        }
-       },
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 2,
-           "deletions": 2
-          },
-          {
-           "path": "moved.txt",
-           "status": "A",
-           "additions": 2,
-           "deletions": 1
-          },
-          {
-           "path": "sub/inner.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\ndiff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-ONE\n+one\n 2\n three\ndiff --git a/n.txt b/moved.txt\nnew file mode 100644\n--- /dev/null\n+++ b/moved.txt\n@@ -0,0 +1,1 @@\n+newer\ndiff --git a/sub/inner.txt b/sub/inner.txt\n--- a/sub/inner.txt\n+++ b/sub/inner.txt\n@@ -1,1 +1,1 @@\n-inner\n+INNER\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "a55efa98d9562fd6983f0051b89693f1"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-one\n+ONE\n 2\n three\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "342731812c755c70efe3572b1509b87c"
-        }
-       },
-       {
-        "session": "s3",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "b.txt",
-           "status": "D",
-           "additions": 0,
-           "deletions": 2
-          }
-         ],
-         "patch": "diff --git a/b.txt b/b.txt\ndeleted file mode 100644\n--- a/b.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-bee\n-hive\n",
-         "snapshotKind": "worktree",
-         "revertMode": "worktree",
-         "checkpointId": "cp3",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 1,
-         "etag": "4215dcbcf537dfbea6ec792939763b8c"
-        }
-       },
-       {
-        "session": "s4",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp4",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 1,
+    "requests": [
+     {
+      "client": "s0",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "summary": true
+        }
+       ],
+       "sessionId": "s0"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "s1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "936ce1ef68fc8b68f5ce98473ddb5e51",
+         "summary": true
+        }
+       ],
+       "sessionId": "s1"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "936ce1ef68fc8b68f5ce98473ddb5e51"
+      }
+     },
+     {
+      "client": "s2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "36613fb8178557eaefceb799dd2b7daa",
+         "summary": true
+        }
+       ],
+       "sessionId": "s2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "36613fb8178557eaefceb799dd2b7daa"
+      }
+     },
+     {
+      "client": "s3",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "822c9b97055b099385390d76b0452a4d",
+         "summary": true
+        }
+       ],
+       "sessionId": "s3"
+      },
+      "answer": {
+       "supported": true,
+       "files": [
+        {
+         "path": "b.txt",
+         "status": "D",
+         "additions": 0,
+         "deletions": 2
+        }
+       ],
+       "patch": "",
+       "snapshotKind": "worktree",
+       "revertMode": "worktree",
+       "checkpointId": "cp3",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 1,
+       "patchOmitted": true,
+       "etag": "dabb84a5792f155c5b12cb882dcb1e69"
+      }
+     },
+     {
+      "client": "s4",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "a9e6f3e390a70cc810685fb84b5ee50c",
+         "summary": true
+        }
+       ],
+       "sessionId": "s4"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
+      }
+     }
+    ],
+    "shows": {
+     "s0": null,
+     "s1": "3 files changed+5-4Lead+5-4Ma.txt+2-2Amoved.txt+2-1Msub/inner.txt+1-1",
+     "s2": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "s3": "1 file changed-2Turn-2Db.txt-2",
+     "s4": null
+    }
    },
    {
     "op": 30,
     "completed": true,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null,
+     "s1": "3 files changed+5-4Lead+5-4Ma.txt+2-2Amoved.txt+2-1Msub/inner.txt+1-1",
+     "s2": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "s3": "1 file changed-2Turn-2Db.txt-2",
+     "s4": null
+    }
    },
    {
     "op": 31,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null,
+     "s1": "3 files changed+5-4Lead+5-4Ma.txt+2-2Amoved.txt+2-1Msub/inner.txt+1-1",
+     "s2": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "s3": "1 file changed-2Turn-2Db.txt-2",
+     "s4": null
+    }
    },
    {
     "op": 32,
     "completed": true,
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s0",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "",
-         "patchTruncated": false,
-         "authoritative": false,
-         "agents": [],
-         "reason": "no-turn",
-         "historyTurns": 0,
-         "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-        }
-       },
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 2,
-           "deletions": 2
-          },
-          {
-           "path": "moved.txt",
-           "status": "A",
-           "additions": 2,
-           "deletions": 1
-          },
-          {
-           "path": "sub/inner.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\ndiff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-ONE\n+one\n 2\n three\ndiff --git a/n.txt b/moved.txt\nnew file mode 100644\n--- /dev/null\n+++ b/moved.txt\n@@ -0,0 +1,1 @@\n+newer\ndiff --git a/sub/inner.txt b/sub/inner.txt\n--- a/sub/inner.txt\n+++ b/sub/inner.txt\n@@ -1,1 +1,1 @@\n-inner\n+INNER\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 1,
-         "etag": "aeef50bc3efb72ee0b7f551ff4fc1f06"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-one\n+ONE\n 2\n three\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 1,
-         "etag": "7353993cfa3a88b19266f53c514bda7f"
-        }
-       },
-       {
-        "session": "s3",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "b.txt",
-           "status": "D",
-           "additions": 0,
-           "deletions": 2
-          }
-         ],
-         "patch": "diff --git a/b.txt b/b.txt\ndeleted file mode 100644\n--- a/b.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-bee\n-hive\n",
-         "snapshotKind": "worktree",
-         "revertMode": "worktree",
-         "checkpointId": "cp3",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 1,
-         "etag": "4215dcbcf537dfbea6ec792939763b8c"
-        }
-       },
-       {
-        "session": "s4",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp4",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 1,
+    "requests": [
+     {
+      "client": "s0",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "summary": true
+        }
+       ],
+       "sessionId": "s0"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "s1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "936ce1ef68fc8b68f5ce98473ddb5e51",
+         "summary": true
+        }
+       ],
+       "sessionId": "s1"
+      },
+      "answer": {
+       "supported": true,
+       "files": [
+        {
+         "path": "a.txt",
+         "status": "M",
+         "additions": 2,
+         "deletions": 2
+        },
+        {
+         "path": "moved.txt",
+         "status": "A",
+         "additions": 2,
+         "deletions": 1
+        },
+        {
+         "path": "sub/inner.txt",
+         "status": "M",
+         "additions": 1,
+         "deletions": 1
+        }
+       ],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "tracked",
+       "checkpointId": "cp1",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 1,
+       "patchOmitted": true,
+       "etag": "54d46e656f68c3ae1e82b37a07ff0822"
+      }
+     },
+     {
+      "client": "s2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "36613fb8178557eaefceb799dd2b7daa",
+         "summary": true
+        }
+       ],
+       "sessionId": "s2"
+      },
+      "answer": {
+       "supported": true,
+       "files": [
+        {
+         "path": "a.txt",
+         "status": "M",
+         "additions": 1,
+         "deletions": 1
+        }
+       ],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "tracked",
+       "checkpointId": "cp2",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 1,
+       "patchOmitted": true,
+       "etag": "fe5e5a389bca0fbc675541008daca83d"
+      }
+     },
+     {
+      "client": "s3",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "dabb84a5792f155c5b12cb882dcb1e69",
+         "summary": true
+        }
+       ],
+       "sessionId": "s3"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "dabb84a5792f155c5b12cb882dcb1e69"
+      }
+     },
+     {
+      "client": "s4",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "a9e6f3e390a70cc810685fb84b5ee50c",
+         "summary": true
+        }
+       ],
+       "sessionId": "s4"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
+      }
+     }
+    ],
+    "shows": {
+     "s0": null,
+     "s1": "3 files changed+5-4Lead+5-4Ma.txt+2-2Amoved.txt+2-1Msub/inner.txt+1-1",
+     "s2": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "s3": "1 file changed-2Turn-2Db.txt-2",
+     "s4": null
+    }
    },
    {
     "op": 33,
     "completed": true,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null,
+     "s1": "3 files changed+5-4Lead+5-4Ma.txt+2-2Amoved.txt+2-1Msub/inner.txt+1-1",
+     "s2": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "s3": "1 file changed-2Turn-2Db.txt-2",
+     "s4": null
+    }
    },
    {
     "op": 34,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null,
+     "s1": "3 files changed+5-4Lead+5-4Ma.txt+2-2Amoved.txt+2-1Msub/inner.txt+1-1",
+     "s2": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "s3": "1 file changed-2Turn-2Db.txt-2",
+     "s4": null
+    }
    },
    {
     "op": 35,
     "completed": true,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "s0": null,
+     "s1": "3 files changed+5-4Lead+5-4Ma.txt+2-2Amoved.txt+2-1Msub/inner.txt+1-1",
+     "s2": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "s3": "1 file changed-2Turn-2Db.txt-2",
+     "s4": null
+    }
    }
   ]
  },
@@ -1962,30 +2527,32 @@
    },
    {
     "op": "client",
-    "session": "s1",
-    "ws": "w1"
+    "session": "u1",
+    "ws": "w1",
+    "checkpoint": "cp1"
    },
    {
     "op": "client",
-    "session": "s2",
-    "ws": "w1"
+    "session": "u2",
+    "ws": "w1",
+    "checkpoint": "cp2"
    },
    {
     "op": "begin",
     "ws": "w1",
-    "session": "s1",
+    "session": "u1",
     "checkpoint": "cp1"
    },
    {
     "op": "begin",
     "ws": "w1",
-    "session": "s2",
+    "session": "u2",
     "checkpoint": "cp2"
    },
    {
     "op": "edit",
     "ws": "w1",
-    "session": "s1",
+    "session": "u1",
     "path": "a.txt",
     "old": "y",
     "new": "Y"
@@ -1993,713 +2560,988 @@
    {
     "op": "patch",
     "ws": "w1",
-    "session": "s1",
+    "session": "u1",
     "patch": "*** Begin Patch\n*** Add File: n.txt\n+new\n*** End Patch\n"
    },
    {
     "op": "revert",
     "ws": "w1",
-    "session": "s1",
+    "session": "u1",
     "file": "a.txt",
     "checkpoint": "cp1"
    },
    {
     "op": "revert",
     "ws": "w1",
-    "session": "s1",
+    "session": "u1",
     "checkpoint": "cp1"
    },
    {
     "op": "edit",
     "ws": "w1",
-    "session": "s1",
+    "session": "u1",
     "path": "a.txt",
     "old": "x",
     "new": "Z"
    },
    {
     "op": "complete",
-    "session": "s1"
+    "session": "u1"
    },
    {
     "op": "changes",
-    "session": "s1",
+    "session": "u1",
     "checkpoint": "cp1"
    },
    {
     "op": "undo",
-    "session": "s1",
+    "session": "u1",
     "checkpoint": "cp1"
    },
    {
     "op": "changes",
-    "session": "s1",
+    "session": "u1",
     "checkpoint": "cp1"
    },
    {
     "op": "redo",
-    "session": "s1",
+    "session": "u1",
     "checkpoint": "cp1"
    }
   ],
   "results": [
    {
     "op": 0,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {}
    },
    {
     "op": 1,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {}
    },
    {
     "op": 2,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [
+     {
+      "client": "u1",
+      "after": 0,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": false,
+         "summary": true
+        }
+       ],
+       "sessionId": "u1"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "u1",
+      "after": 0,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "64d9c8416bba6a4dca6bac9d18a53af7",
+         "summary": true
+        }
+       ],
+       "sessionId": "u1"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     }
+    ],
+    "shows": {
+     "u1": null
+    }
    },
    {
     "op": 3,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [
+     {
+      "client": "u2",
+      "after": 0,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": false,
+         "summary": true
+        }
+       ],
+       "sessionId": "u2"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "u2",
+      "after": 0,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "64d9c8416bba6a4dca6bac9d18a53af7",
+         "summary": true
+        }
+       ],
+       "sessionId": "u2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     }
+    ],
+    "shows": {
+     "u1": null,
+     "u2": null
+    }
    },
    {
     "op": 4,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "u1": null,
+     "u2": null
+    }
    },
    {
     "op": 5,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "u1": null,
+     "u2": null
+    }
    },
    {
     "op": 6,
     "text": "Updated a.txt (1 replacement)",
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n x\n-y\n+Y\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "e5865a8aabcb5743686e779a0233b1db"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "be09d8cee586abd1682040df96b6a629"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 1,
+    "requests": [
+     {
+      "client": "u1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "64d9c8416bba6a4dca6bac9d18a53af7",
+         "summary": true
+        }
+       ],
+       "sessionId": "u1"
+      },
+      "answer": {
+       "supported": true,
+       "files": [
+        {
+         "path": "a.txt",
+         "status": "M",
+         "additions": 1,
+         "deletions": 1
+        }
+       ],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "tracked",
+       "checkpointId": "cp1",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 0,
+       "patchOmitted": true,
+       "etag": "7de66be6d8cc229e48229a5a991d0691"
+      }
+     },
+     {
+      "client": "u2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "64d9c8416bba6a4dca6bac9d18a53af7",
+         "summary": true
+        }
+       ],
+       "sessionId": "u2"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "cp2",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 0,
+       "etag": "be09d8cee586abd1682040df96b6a629"
+      }
+     }
+    ],
+    "shows": {
+     "u1": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "u2": null
+    }
    },
    {
     "op": 7,
     "text": "  OK Create n.txt — +1 Line",
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          },
-          {
-           "path": "n.txt",
-           "status": "A",
-           "additions": 1,
-           "deletions": 0
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n x\n-y\n+Y\ndiff --git a/n.txt b/n.txt\nnew file mode 100644\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1,1 @@\n+new\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "636ab85208d5a9e0dc4eb9074d277d25"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "be09d8cee586abd1682040df96b6a629"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 1,
+    "requests": [
+     {
+      "client": "u1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "7de66be6d8cc229e48229a5a991d0691",
+         "summary": true
+        }
+       ],
+       "sessionId": "u1"
+      },
+      "answer": {
+       "supported": true,
+       "files": [
+        {
+         "path": "a.txt",
+         "status": "M",
+         "additions": 1,
+         "deletions": 1
+        },
+        {
+         "path": "n.txt",
+         "status": "A",
+         "additions": 1,
+         "deletions": 0
+        }
+       ],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "tracked",
+       "checkpointId": "cp1",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 0,
+       "patchOmitted": true,
+       "etag": "bbb40fc83575eb68a47a48ef22ba6544"
+      }
+     },
+     {
+      "client": "u2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "be09d8cee586abd1682040df96b6a629",
+         "summary": true
+        }
+       ],
+       "sessionId": "u2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "be09d8cee586abd1682040df96b6a629"
+      }
+     }
+    ],
+    "shows": {
+     "u1": "2 files changed+2-1Lead+2-1Ma.txt+1-1An.txt+1",
+     "u2": null
+    }
    },
    {
     "op": 8,
     "ok": true,
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "n.txt",
-           "status": "A",
-           "additions": 1,
-           "deletions": 0
-          }
-         ],
-         "patch": "diff --git a/n.txt b/n.txt\nnew file mode 100644\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1,1 @@\n+new\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "420e54d2f4391c9ff33e89b05e425912"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "be09d8cee586abd1682040df96b6a629"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      },
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "n.txt",
-           "status": "A",
-           "additions": 1,
-           "deletions": 0
-          }
-         ],
-         "patch": "diff --git a/n.txt b/n.txt\nnew file mode 100644\n--- /dev/null\n+++ b/n.txt\n@@ -0,0 +1,1 @@\n+new\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "420e54d2f4391c9ff33e89b05e425912"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "be09d8cee586abd1682040df96b6a629"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 2,
+    "requests": [
+     {
+      "client": "u1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "bbb40fc83575eb68a47a48ef22ba6544",
+         "summary": true
+        }
+       ],
+       "sessionId": "u1"
+      },
+      "answer": {
+       "supported": true,
+       "files": [
+        {
+         "path": "n.txt",
+         "status": "A",
+         "additions": 1,
+         "deletions": 0
+        }
+       ],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "tracked",
+       "checkpointId": "cp1",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 0,
+       "patchOmitted": true,
+       "etag": "0a3c48cb7c1f48a3c8070ed6c4d88d70"
+      }
+     },
+     {
+      "client": "u2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "be09d8cee586abd1682040df96b6a629",
+         "summary": true
+        }
+       ],
+       "sessionId": "u2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "be09d8cee586abd1682040df96b6a629"
+      }
+     },
+     {
+      "client": "u1",
+      "after": 2,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "0a3c48cb7c1f48a3c8070ed6c4d88d70",
+         "summary": true
+        }
+       ],
+       "sessionId": "u1"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "0a3c48cb7c1f48a3c8070ed6c4d88d70"
+      }
+     },
+     {
+      "client": "u2",
+      "after": 2,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "be09d8cee586abd1682040df96b6a629",
+         "summary": true
+        }
+       ],
+       "sessionId": "u2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "be09d8cee586abd1682040df96b6a629"
+      }
+     }
+    ],
+    "shows": {
+     "u1": "1 file changed+1Lead+1An.txt+1",
+     "u2": null
+    }
    },
    {
     "op": 9,
     "ok": true,
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "4632a325a503b03b40f5f6961f22e8ea"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "be09d8cee586abd1682040df96b6a629"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      },
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "4632a325a503b03b40f5f6961f22e8ea"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "be09d8cee586abd1682040df96b6a629"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 2,
+    "requests": [
+     {
+      "client": "u1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "0a3c48cb7c1f48a3c8070ed6c4d88d70",
+         "summary": true
+        }
+       ],
+       "sessionId": "u1"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "cp1",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 0,
+       "etag": "4632a325a503b03b40f5f6961f22e8ea"
+      }
+     },
+     {
+      "client": "u2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "be09d8cee586abd1682040df96b6a629",
+         "summary": true
+        }
+       ],
+       "sessionId": "u2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "be09d8cee586abd1682040df96b6a629"
+      }
+     },
+     {
+      "client": "u1",
+      "after": 2,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "4632a325a503b03b40f5f6961f22e8ea",
+         "summary": true
+        }
+       ],
+       "sessionId": "u1"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "4632a325a503b03b40f5f6961f22e8ea"
+      }
+     },
+     {
+      "client": "u2",
+      "after": 2,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "be09d8cee586abd1682040df96b6a629",
+         "summary": true
+        }
+       ],
+       "sessionId": "u2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "be09d8cee586abd1682040df96b6a629"
+      }
+     }
+    ],
+    "shows": {
+     "u1": null,
+     "u2": null
+    }
    },
    {
     "op": 10,
     "text": "Updated a.txt (1 replacement)",
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n-x\n+Z\n y\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "0608e58636275ca5808ca1b9f1bf1bea"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "be09d8cee586abd1682040df96b6a629"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 1,
+    "requests": [
+     {
+      "client": "u1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "4632a325a503b03b40f5f6961f22e8ea",
+         "summary": true
+        }
+       ],
+       "sessionId": "u1"
+      },
+      "answer": {
+       "supported": true,
+       "files": [
+        {
+         "path": "a.txt",
+         "status": "M",
+         "additions": 1,
+         "deletions": 1
+        }
+       ],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "tracked",
+       "checkpointId": "cp1",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 0,
+       "patchOmitted": true,
+       "etag": "7de66be6d8cc229e48229a5a991d0691"
+      }
+     },
+     {
+      "client": "u2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "be09d8cee586abd1682040df96b6a629",
+         "summary": true
+        }
+       ],
+       "sessionId": "u2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "be09d8cee586abd1682040df96b6a629"
+      }
+     }
+    ],
+    "shows": {
+     "u1": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "u2": null
+    }
    },
    {
     "op": 11,
     "completed": true,
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n-x\n+Z\n y\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 1,
-         "etag": "2a31f025583868921f4033e0ac07b9fe"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "be09d8cee586abd1682040df96b6a629"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 1,
+    "requests": [
+     {
+      "client": "u1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "7de66be6d8cc229e48229a5a991d0691",
+         "summary": true
+        }
+       ],
+       "sessionId": "u1"
+      },
+      "answer": {
+       "supported": true,
+       "files": [
+        {
+         "path": "a.txt",
+         "status": "M",
+         "additions": 1,
+         "deletions": 1
+        }
+       ],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "tracked",
+       "checkpointId": "cp1",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 1,
+       "patchOmitted": true,
+       "etag": "6f8b8b03ffabb7f37964df1b8a0068ef"
+      }
+     },
+     {
+      "client": "u2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "be09d8cee586abd1682040df96b6a629",
+         "summary": true
+        }
+       ],
+       "sessionId": "u2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "be09d8cee586abd1682040df96b6a629"
+      }
+     }
+    ],
+    "shows": {
+     "u1": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "u2": null
+    }
    },
    {
     "op": 12,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "u1": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "u2": null
+    }
    },
    {
     "op": 13,
     "ok": true,
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 1,
-         "etag": "7875380fbe74f2e6da468d6b4e1b60c3"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "be09d8cee586abd1682040df96b6a629"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      },
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 1,
-         "etag": "7875380fbe74f2e6da468d6b4e1b60c3"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "be09d8cee586abd1682040df96b6a629"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 2,
+    "requests": [
+     {
+      "client": "u1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "6f8b8b03ffabb7f37964df1b8a0068ef",
+         "summary": true
+        }
+       ],
+       "sessionId": "u1"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "cp1",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 1,
+       "etag": "7875380fbe74f2e6da468d6b4e1b60c3"
+      }
+     },
+     {
+      "client": "u2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "be09d8cee586abd1682040df96b6a629",
+         "summary": true
+        }
+       ],
+       "sessionId": "u2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "be09d8cee586abd1682040df96b6a629"
+      }
+     },
+     {
+      "client": "u1",
+      "after": 2,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "7875380fbe74f2e6da468d6b4e1b60c3",
+         "summary": true
+        }
+       ],
+       "sessionId": "u1"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "7875380fbe74f2e6da468d6b4e1b60c3"
+      }
+     },
+     {
+      "client": "u2",
+      "after": 2,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "be09d8cee586abd1682040df96b6a629",
+         "summary": true
+        }
+       ],
+       "sessionId": "u2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "be09d8cee586abd1682040df96b6a629"
+      }
+     }
+    ],
+    "shows": {
+     "u1": null,
+     "u2": null
+    }
    },
    {
     "op": 14,
-    "deliveries": []
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "u1": null,
+     "u2": null
+    }
    },
    {
     "op": 15,
     "ok": true,
-    "deliveries": [
+    "notifications": [
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n-x\n+Z\n y\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 1,
-         "etag": "2a31f025583868921f4033e0ac07b9fe"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "be09d8cee586abd1682040df96b6a629"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      },
      {
-      "notification": {
-       "kind": "desktop-event",
-       "name": "turn-review-changed",
-       "value": null
-      },
-      "rereads": [
-       {
-        "session": "s1",
-        "answer": {
-         "supported": true,
-         "files": [
-          {
-           "path": "a.txt",
-           "status": "M",
-           "additions": 1,
-           "deletions": 1
-          }
-         ],
-         "patch": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n-x\n+Z\n y\n",
-         "snapshotKind": "tool",
-         "revertMode": "tracked",
-         "checkpointId": "cp1",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 1,
-         "etag": "2a31f025583868921f4033e0ac07b9fe"
-        }
-       },
-       {
-        "session": "s2",
-        "answer": {
-         "supported": true,
-         "files": [],
-         "patch": "",
-         "snapshotKind": "tool",
-         "revertMode": "",
-         "checkpointId": "cp2",
-         "patchTruncated": false,
-         "authoritative": true,
-         "agents": [],
-         "generation": 1,
-         "historyTurns": 0,
-         "etag": "be09d8cee586abd1682040df96b6a629"
-        }
-       }
-      ]
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
      }
-    ]
+    ],
+    "deliveries": 2,
+    "requests": [
+     {
+      "client": "u1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "7875380fbe74f2e6da468d6b4e1b60c3",
+         "summary": true
+        }
+       ],
+       "sessionId": "u1"
+      },
+      "answer": {
+       "supported": true,
+       "files": [
+        {
+         "path": "a.txt",
+         "status": "M",
+         "additions": 1,
+         "deletions": 1
+        }
+       ],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "tracked",
+       "checkpointId": "cp1",
+       "patchTruncated": false,
+       "authoritative": true,
+       "agents": [],
+       "generation": 1,
+       "historyTurns": 1,
+       "patchOmitted": true,
+       "etag": "6f8b8b03ffabb7f37964df1b8a0068ef"
+      }
+     },
+     {
+      "client": "u2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "be09d8cee586abd1682040df96b6a629",
+         "summary": true
+        }
+       ],
+       "sessionId": "u2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "be09d8cee586abd1682040df96b6a629"
+      }
+     },
+     {
+      "client": "u1",
+      "after": 2,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "6f8b8b03ffabb7f37964df1b8a0068ef",
+         "summary": true
+        }
+       ],
+       "sessionId": "u1"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "6f8b8b03ffabb7f37964df1b8a0068ef"
+      }
+     },
+     {
+      "client": "u2",
+      "after": 2,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "be09d8cee586abd1682040df96b6a629",
+         "summary": true
+        }
+       ],
+       "sessionId": "u2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "be09d8cee586abd1682040df96b6a629"
+      }
+     }
+    ],
+    "shows": {
+     "u1": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "u2": null
+    }
    }
   ]
  }

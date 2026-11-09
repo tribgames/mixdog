@@ -1,5 +1,5 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-turn-review-signal.mjs --tree <tree> --patch-bin <mixdog-patch built from this checkout>",
+  "command": "node --import <tree>/apps/desktop/scripts/test-env.mjs --import <tree>/apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-turn-review-signal.mjs --tree <tree> --patch-bin <mixdog-patch built from this checkout>",
   "fileCount": 2,
   "files": [
     {
@@ -8,9 +8,9 @@
       "sha256": "334135a08989adc621e2135115842bc1c0cd06554956c325248fa8da8e50c0ea"
     },
     {
-      "bytes": 67238,
+      "bytes": 73995,
       "path": "scenarios.json",
-      "sha256": "111dbc4780b0d67fc4028d864db51157cd05a5d9eec8b63c3c724345067781cb"
+      "sha256": "b74ae1916be1f29f2dd2231b972d093cc2a7dd845e153187cfe761a738c46f23"
     }
   ],
   "listenerScenarios": 4,
@@ -35,5 +35,5 @@
   "recorder": "benchmarks/rust-core/recorders/record-turn-review-signal.mjs",
   "scenarios": 2,
   "set": "turn-review-signal",
-  "totalBytes": 73742
+  "totalBytes": 80499
 }

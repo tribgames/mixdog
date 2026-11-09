@@ -4299,6 +4299,7 @@ dependencies = [
  "mixdog-agent",
  "mixdog-app-protocol",
  "mixdog-core-api",
+ "mixdog-core-base",
  "mixdog-js",
  "mixdog-protocol",
  "mixdog-rt",
