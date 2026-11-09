@@ -15,7 +15,7 @@ use super::{HandoffQuestionsHub, RuntimeHooks};
 use crate::session::delegated_host::{Answered, Delegated, DelegatedApprovalHost};
 
 #[derive(Default)]
-struct Feed(Mutex<Vec<(String, Vec<Value>)>>);
+struct Feed(Mutex<Vec<(String, Vec<Value>)>>, tokio::sync::Notify);
 
 #[async_trait]
 impl ThreadState for Feed {
@@ -31,6 +31,7 @@ impl ThreadState for Feed {
     async fn publish(&self, thread: &ThreadId, section: Section) -> Result<(), PortError> {
         let Section::Approvals(ThreadApprovals { handoff_questions: Some(questions), .. }) = section else { panic!("only handoff questions are published") };
         self.0.lock().unwrap().push((thread.as_str().to_owned(), questions));
+        self.1.notify_waiters();
         Ok(())
     }
 }
@@ -39,10 +40,9 @@ fn question(id: &str, to: &str) -> Delegated {
     Delegated { id: id.into(), session_id: to.into(), request: json!({ "id": id, "kind": "question", "sessionId": "task" }), answer: Arc::new(|answered: &Answered| answered.approved) }
 }
 
-async fn settle() {
-    for _ in 0..4 {
-        tokio::task::yield_now().await;
-    }
+/// Returns once the feed's last publication is want.
+async fn shown(feed: &Feed, want: Option<(String, Vec<Value>)>) {
+    crate::session::testing::eventually_on(&[&feed.1], || (last(feed) == want).then_some(())).await;
 }
 
 fn last(feed: &Feed) -> Option<(String, Vec<Value>)> {
@@ -60,12 +60,14 @@ async fn a_runtime_shows_the_questions_waiting_for_it_and_those_that_come_until_
     // Waiting before the runtime exists: adopted when it starts.
     host.delegate_approval(question("q1", "home"));
     hub.started(&thread);
-    settle().await;
-    assert_eq!(last(&feed), Some(("home".into(), vec![json!({ "id": "q1", "kind": "question", "sessionId": "task" })])));
+    let q1 = json!({ "id": "q1", "kind": "question", "sessionId": "task" });
+    shown(&feed, Some(("home".into(), vec![q1.clone()]))).await;
+    assert_eq!(last(&feed), Some(("home".into(), vec![q1.clone()])));
 
     host.delegate_approval(question("q2", "home"));
     host.delegate_approval(question("elsewhere", "other"));
-    settle().await;
+    let q2 = json!({ "id": "q2", "kind": "question", "sessionId": "task" });
+    shown(&feed, Some(("home".into(), vec![q1, q2.clone()]))).await;
     let ids = |feed: &Feed| last(feed).unwrap().1.iter().map(|request| request["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
     assert_eq!(ids(&feed), ["q1", "q2"]);
 
@@ -73,13 +75,12 @@ async fn a_runtime_shows_the_questions_waiting_for_it_and_those_that_come_until_
     let answered = Answered { approved: true, ..Answered::default() };
     assert_eq!(hub.finish_question(&thread, "q1", &answered), Some(true));
     assert_eq!(hub.finish_question(&thread, "q1", &answered), None);
-    settle().await;
+    shown(&feed, Some(("home".into(), vec![q2]))).await;
     assert_eq!(ids(&feed), ["q2"]);
 
     // Stopped: nothing more is shown, and the copies were dropped silently.
     hub.stopped(&thread);
     host.delegate_approval(question("q3", "home"));
-    settle().await;
     assert_eq!(ids(&feed), ["q2"]);
     assert_eq!(hub.finish_question(&thread, "q2", &answered), None);
 }
