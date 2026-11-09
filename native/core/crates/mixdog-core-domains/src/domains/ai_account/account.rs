@@ -127,6 +127,16 @@ fn str_param<'a>(params: &'a Value, key: &str) -> &'a str {
     params.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
+/// The provider and lease of an `account/refreshProviderSetup` that renews a credential first.
+fn renewal_of(params: &Value) -> Result<Option<(&str, u64)>, CoreError> {
+    let Some(provider) = params.get("renewCredential").and_then(Value::as_str) else { return Ok(None) };
+    let minimum = params
+        .get("minimumValidityMs")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| invalid("minimumValidityMs", "a number of milliseconds with renewCredential"))?;
+    Ok(Some((provider, minimum)))
+}
+
 fn options_of(params: &Value) -> Value {
     match params.get("options") {
         Some(v) if !v.is_null() => v.clone(),
@@ -332,6 +342,10 @@ impl AccountService {
                 .map_err(into)?,
             "account/refreshProviderSetup" => {
                 let flag = |k: &str| params.get(k) == Some(&Value::Bool(true));
+                // The credential is renewed first, so the setup read below reports its new expiry.
+                if let Some((provider, minimum)) = renewal_of(params)? {
+                    admin.renew_provider_credential(provider, minimum).await.map_err(into)?;
+                }
                 self.setup
                     .get(flag("force"), flag("refresh"), flag("unlockKeychain"), flag("recheckKeychain"))
                     .await
@@ -446,6 +460,14 @@ mod section_tests {
         );
         let SectionChange::Set(bytes) = &published[3].2 else { panic!("a small value is carried whole") };
         assert_eq!(serde_json::from_slice::<Value>(bytes).unwrap(), json!({ "providers": [1] }));
+    }
+
+    #[test]
+    fn a_credential_renewal_names_its_provider_and_lease() {
+        assert_eq!(renewal_of(&json!({ "force": true })).unwrap(), None, "a plain refresh renews nothing");
+        assert_eq!(renewal_of(&json!({ "renewCredential": "anthropic-oauth", "minimumValidityMs": 3_600_000 })).unwrap(), Some(("anthropic-oauth", 3_600_000)));
+        assert!(renewal_of(&json!({ "renewCredential": "anthropic-oauth" })).is_err(), "a renewal needs its lease");
+        assert!(renewal_of(&json!({ "renewCredential": "anthropic-oauth", "minimumValidityMs": -1 })).is_err());
     }
 
     #[test]
