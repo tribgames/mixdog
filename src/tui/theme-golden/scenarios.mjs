@@ -38,8 +38,12 @@
 //   loadLatestMixdogConfigFromBackup    marker → scoped lookup, else legacy ..... marker states / legacy states
 //   loadLegacyMixdogConfigFromBackup    damaged or unreadable config skipped .... 'a legacy backup with a damaged / an unreadable config…'
 //                                       incomplete skipped ...................... 'a legacy backup that is incomplete…'
-// Not recordable here: win32 lower-casing of the data dir key (normalizeDataDir) — the recording and the replay run on the
-// same platform, so both take the same branch — and the per-process lookup cache (a TUI boot reads once).
+//   normalizeDataDir (win32 lower-cases) manifest names the dir in other letter case / another folder ..... the 'win32:' states
+//                                       (recorded on win32; on other platforms the same spellings are different folders and
+//                                       the 'win32:' states are not part of the run)
+//   data dir named in other case ......... 'win32: a data dir named in other letter case finds the same scope folder'
+//   legacy marker name hash is of the exact spelling (not normalized) ... 'win32: a legacy marker named for … other case…'
+// Not part of the states: the per-process restore-lookup cache (a TUI boot reads once).
 // `setup({ dataDir, backupRoot })` builds the state (backup paths depend on the data dir, so they are built per run).
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -108,7 +112,64 @@ export function themeLayout(base, scenario) {
 const NAME_OLD ='2026-01-01T00-00-00-000Z-0000000001-pre-config-write';
 const NAME_NEW = '2026-02-01T00-00-00-000Z-0000000002-post-config-write';
 
-export const SCENARIOS = [
+/** The data dir a scenario builds, and the spelling of it the environment names it by when the config is read. */
+export function themePaths(base, scenario) {
+  const dataDir = join(base, scenario.dataDirName || 'data');
+  return { dataDir, readDir: scenario.readAs ? scenario.readAs(dataDir) : dataDir };
+}
+const upper = (path) => path.toUpperCase();
+
+// States whose result depends on the platform's path rules (the data dir key is lower-cased on win32 only): recorded
+// and replayed on the platform they name.
+const PLATFORM_SCENARIOS = [
+  {
+    name: 'win32: a manifest naming the data dir in other letter case is the same data dir',
+    platform: 'win32',
+    dataDirName: 'MixedCaseData',
+    setup: ({ dataDir, backupRoot }) => {
+      put(join(dataDir, MARKER), { instanceId: 'inst-1' });
+      backup(scopeDir(dataDir, backupRoot), NAME_NEW, { dataDir: upper(dataDir), instanceId: 'inst-1', config: complete('dracula') });
+    },
+  },
+  {
+    name: 'win32: a manifest naming another folder is not the data dir whatever the case',
+    platform: 'win32',
+    dataDirName: 'MixedCaseData',
+    setup: ({ dataDir, backupRoot }) => {
+      put(join(dataDir, MARKER), { instanceId: 'inst-1' });
+      backup(scopeDir(dataDir, backupRoot), NAME_NEW, { dataDir: upper(`${dataDir}Other`), instanceId: 'inst-1', config: complete('dracula') });
+    },
+  },
+  {
+    name: 'win32: a data dir named in other letter case finds the same scope folder',
+    platform: 'win32',
+    dataDirName: 'MixedCaseData',
+    readAs: upper,
+    setup: ({ dataDir, backupRoot }) => {
+      put(join(dataDir, MARKER), { instanceId: 'inst-1' });
+      backup(scopeDir(dataDir, backupRoot), NAME_NEW, { dataDir, instanceId: 'inst-1', config: complete('dracula') });
+    },
+  },
+  {
+    name: 'win32: a legacy backup naming the data dir in other letter case is restored',
+    platform: 'win32',
+    dataDirName: 'MixedCaseData',
+    setup: ({ dataDir, backupRoot }) => {
+      backup(backupRoot, NAME_NEW, { dataDir: upper(dataDir), config: complete('rosepine') });
+    },
+  },
+  {
+    name: 'win32: a legacy marker named for the data dir spelled in other case is not found by name',
+    platform: 'win32',
+    dataDirName: 'MixedCaseData',
+    setup: ({ dataDir, backupRoot }) => {
+      put(join(backupRoot, `.initialized-${createHash('sha256').update(upper(dataDir)).digest('hex').slice(0, 16)}.json`), {});
+      backup(backupRoot, NAME_NEW, { dataDir: join(dataDir, 'elsewhere'), config: complete('dracula') });
+    },
+  },
+];
+
+const COMMON_SCENARIOS = [
   { name: 'a readable config names the theme', setup: ({ dataDir }) => put(join(dataDir, CONFIG), { ui: { theme: 'nord' } }) },
   { name: 'a config with a byte order mark', setup: ({ dataDir }) => put(join(dataDir, CONFIG), `\ufeff${JSON.stringify({ ui: { theme: 'nord' } })}`) },
   { name: 'a config without ui has no theme', setup: ({ dataDir }) => put(join(dataDir, CONFIG), { agent: {} }) },
@@ -444,3 +505,8 @@ export const SCENARIOS = [
     },
   },
 ];
+
+/** The common states and those of the platform recording or replaying them. */
+export const SCENARIOS = [...COMMON_SCENARIOS, ...PLATFORM_SCENARIOS].filter(
+  (scenario) => !scenario.platform || scenario.platform === process.platform
+);
