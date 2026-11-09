@@ -237,10 +237,8 @@ impl DomainService for TerminalService {
             "terminal/ensure" => {
                 let params: TerminalEnsureParams = decode(&req.params)?;
                 let options = &params.options;
-                let profile = match options.get("profile").and_then(Value::as_str) {
-                    Some(id) => self.tabs.resolve_profile(id).await,
-                    None => None,
-                };
+                // No choice spawns the detected OS default (Node's `resolveShellProfile('')`): pwsh before Windows PowerShell.
+                let profile = self.tabs.resolve_profile(options.get("profile").and_then(Value::as_str).unwrap_or("")).await;
                 let request = EnsureRequest {
                     cwd: options.get("cwd").and_then(Value::as_str).map(str::to_owned),
                     profile,

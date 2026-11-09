@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 // What the phone's terminal and folder-watch calls and pushes answer at the Node baseline (b6f10295a): the real remote methods
 // (`createRemoteMethods` and `executeRemoteFrame`, the frame a phone sends), over the real desktop operations (a real TerminalManager
-// on a scripted PTY, the real shell-profile detection and folder-watch registry), with the real relay push lanes projecting the
+// on Node's real PTY (ConPTY) and the machine's own shell, the real shell-profile detection and folder-watch registry), with the real relay push lanes projecting the
 // events. The script is lib/phone-terminal-script.mjs; apps/mobile replays it through the protocol adapter against a built mixdogd.
 //
-//   node --import <apps/desktop/scripts/test-env.mjs> --import <apps/desktop/scripts/test-tsx.mjs> --import lib/fake-pty-register.mjs \
-//        benchmarks/rust-core/recorders/record-phone-terminal.mjs --tree <git archive of b6f10295a with node_modules>
+//   node benchmarks/rust-core/recorders/record-phone-terminal.mjs --tree <git archive of b6f10295a with node_modules>
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { REPO_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
@@ -17,30 +16,38 @@ import { play, sizeClaimScript, terminalScript } from './lib/phone-terminal-scri
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const ROOT = 'D:\\mixdog-build\\tmp\\ph2-terminal';
 const CONNECTION = 'conn-1';
+const TRACE_START = '@@TRACE@@';
+const TRACE_END = '@@END@@';
 const args = parseArgs();
 const tree = resolveTree(args);
 
 if (!args.has('child')) {
-  // The PTY module is replaced by a loader hook, which only a fresh process can take.
+  // The recording runs in a process of its own (the test environment's loader hooks only a fresh process takes). Node's real PTY
+  // (ConPTY) leaves that process alive at exit, so the parent waits for the trace's end marker, which is the child's own completion
+  // signal, and then ends the child it started.
   const here = fileURLToPath(import.meta.url);
   const hook = (rel) => pathToFileURL(join(REPO_ROOT, rel)).href;
-  const child = spawnSync(
+  const child = spawn(
     process.execPath,
-    [
-      '--import', hook('apps/desktop/scripts/test-env.mjs'),
-      '--import', hook('apps/desktop/scripts/test-tsx.mjs'),
-      '--import', hook('benchmarks/rust-core/recorders/lib/fake-pty-register.mjs'),
-      here, '--tree', tree, '--child',
-    ],
-    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }
+    ['--import', hook('apps/desktop/scripts/test-env.mjs'), '--import', hook('apps/desktop/scripts/test-tsx.mjs'), here, '--tree', tree, '--child'],
+    { stdio: ['ignore', 'pipe', 'pipe'] }
   );
-  const at = child.stdout.lastIndexOf('@@TRACE@@');
-  if (child.status !== 0 || at < 0) throw new Error(`recording failed (${child.status}):\n${child.stdout.slice(-2000)}\n${child.stderr.slice(-4000)}`);
-  const trace = JSON.parse(child.stdout.slice(at + '@@TRACE@@'.length));
+  const trace = await new Promise((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8').on('data', (chunk) => {
+      stdout += chunk;
+      const end = stdout.indexOf(TRACE_END);
+      if (end < 0) return;
+      resolve(JSON.parse(stdout.slice(stdout.lastIndexOf(TRACE_START, end) + TRACE_START.length, end)));
+    });
+    child.stderr.setEncoding('utf8').on('data', (chunk) => (stderr += chunk));
+    child.once('exit', (status) => reject(new Error(`recording failed (${status}):\n${stdout.slice(-2000)}\n${stderr.slice(-4000)}`)));
+  }).finally(() => child.kill());
   const finalOut = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-terminal');
   const out = stageSet(finalOut);
   writeJson(join(out, 'golden.json'), {
-    note: 'Node terminal and folder-watch calls and pushes as a phone sees them: per call its answer or error text, per push kind the events its listeners got, in order. Shell text is reduced to the facts the script controls.',
+    note: 'Node terminal and folder-watch calls and pushes as a phone sees them: per call its answer or error text, per push kind the events its listeners got, in order. Terminal text is Node\'s real ConPTY text, exact except after the first resize (see lib/phone-terminal-script.mjs).',
     root: ROOT,
     trace,
   });
@@ -185,10 +192,12 @@ const trace = JSON.parse(JSON.stringify(await play(script, driver)));
 for (const list of Object.values(events)) if (Array.isArray(list)) list.length = 0;
 const claimScript = sizeClaimScript(ROOT);
 const claimTrace = await play(claimScript, driver);
+// The tabs' disposals hold timers on the virtual clock; run them so every shell is ended before the clock is released.
+mock.timers.runAll();
 mock.timers.reset();
 trace.claims = { steps: claimTrace.steps, sizeOwner: claimTrace.sizeOwner };
 clearInterval(keepAlive);
 await operations.dispose();
 lanes.dispose();
-process.stdout.write(`\n@@TRACE@@${JSON.stringify(trace)}\n`);
-process.exit(0);
+process.stdout.write(`\n${TRACE_START}${JSON.stringify(trace)}${TRACE_END}\n`);
+// The parent ends this process once it has read the end marker.

@@ -663,9 +663,9 @@ async fn a_size_claim_lapses_after_its_lease_unless_renewed() {
     rig.tabs.dispose(id);
 }
 /// A rig on the manual lease clock (debug builds, `MIXDOG_TERMINAL_LEASE_CLOCK` set to a directory) and one tab.
-/// The directory is the replay's handle on the clock; these tests step the clock directly, so it stays empty.
+/// The tests step the clock through the socket the core publishes in that directory, as the replay does.
 #[cfg(debug_assertions)]
-async fn manual_lease_rig(name: &str) -> (Rig, String) {
+async fn manual_lease_rig(name: &str) -> (Rig, String, LeaseClock) {
     let clock_dir = std::env::temp_dir().join(format!("mixdog-lease-clock-{}-{name}", std::process::id()));
     std::fs::create_dir_all(&clock_dir).unwrap();
     // SAFETY: set before this test's tabs exist; the test binary runs each test in its own process under nextest.
@@ -673,20 +673,40 @@ async fn manual_lease_rig(name: &str) -> (Rig, String) {
     let rig = rig(name).await;
     let attached = rig.tabs.ensure(Some("term_manual"), rig.request()).await.unwrap();
     let id = attached.id.clone();
-    (rig, id)
+    // The seam as the replay uses it: the port the core published in the directory, then the socket.
+    let port: u16 = std::fs::read_to_string(clock_dir.join("port")).unwrap().parse().unwrap();
+    let stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    (rig, id, LeaseClock { reader: std::io::BufReader::new(stream) })
+}
+/// The replay's end of the manual lease clock: a command line out, the core's answer line back (a blocking read).
+#[cfg(debug_assertions)]
+struct LeaseClock {
+    reader: std::io::BufReader<std::net::TcpStream>,
+}
+#[cfg(debug_assertions)]
+impl LeaseClock {
+    fn send(&mut self, line: &str) -> String {
+        use std::io::{BufRead, Write};
+        writeln!(self.reader.get_mut(), "{line}").unwrap();
+        let mut answer = String::new();
+        self.reader.read_line(&mut answer).unwrap();
+        answer.trim_end().to_owned()
+    }
+    fn advance(&mut self, ms: u64) -> String {
+        self.send(&format!("advance {ms}"))
+    }
 }
 /// A claim renewed at 10 s holds until 40 s and lapses at that edge, to the instant.
 #[cfg(debug_assertions)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_manual_lease_clock_moves_the_edge_with_a_renewal() {
-    let (rig, id) = manual_lease_rig("manual-renewal").await;
-    let ms = std::time::Duration::from_millis;
+    let (rig, id, mut clock) = manual_lease_rig("manual-renewal").await;
     rig.tabs.resize(&id, 50, 20, "A");
-    assert_eq!(rig.tabs.advance_lease_clock(ms(10_000)), 0);
+    assert_eq!(clock.advance(10_000), "lapsed 0");
     rig.tabs.resize(&id, 50, 20, "A");
-    assert_eq!(rig.tabs.advance_lease_clock(ms(29_999)), 0, "a renewal at 10 s holds until 40 s");
+    assert_eq!(clock.advance(29_999), "lapsed 0", "a renewal at 10 s holds until 40 s");
     assert!(rig.tabs.size_owner(&id).is_some());
-    assert_eq!(rig.tabs.advance_lease_clock(ms(1)), 1, "the renewed lease lapses at 40 s, to the instant");
+    assert_eq!(clock.advance(1), "lapsed 1", "the renewed lease lapses at 40 s, to the instant");
     assert_eq!(rig.tabs.size_owner(&id), None);
     rig.tabs.dispose(&id);
 }
@@ -694,12 +714,23 @@ async fn the_manual_lease_clock_moves_the_edge_with_a_renewal() {
 #[cfg(debug_assertions)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_manual_lease_clock_lapses_an_unrenewed_claim_at_exactly_30_seconds() {
-    let (rig, id) = manual_lease_rig("manual-edge").await;
-    let ms = std::time::Duration::from_millis;
+    let (rig, id, mut clock) = manual_lease_rig("manual-edge").await;
     rig.tabs.resize(&id, 50, 20, "A");
-    assert_eq!(rig.tabs.advance_lease_clock(ms(29_999)), 0, "an unrenewed claim holds until its 30 s edge");
-    assert_eq!(rig.tabs.advance_lease_clock(ms(1)), 1, "and lapses at the 30 s edge");
+    assert_eq!(clock.advance(29_999), "lapsed 0", "an unrenewed claim holds until its 30 s edge");
+    assert_eq!(clock.advance(1), "lapsed 1", "and lapses at the 30 s edge");
     assert_eq!(rig.tabs.size_owner(&id), None);
+    rig.tabs.dispose(&id);
+}
+/// A line that is not `advance <ms>` is refused and moves nothing; the clock answers the next command on the same connection.
+#[cfg(debug_assertions)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_manual_lease_clock_refuses_what_is_not_an_advance() {
+    let (rig, id, mut clock) = manual_lease_rig("manual-refuse").await;
+    rig.tabs.resize(&id, 50, 20, "A");
+    assert_eq!(clock.send("advance soon"), "refused");
+    assert_eq!(clock.send("rewind 1"), "refused");
+    assert_eq!(clock.advance(29_999), "lapsed 0", "the refused lines moved no time");
+    assert_eq!(clock.advance(1), "lapsed 1");
     rig.tabs.dispose(&id);
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
