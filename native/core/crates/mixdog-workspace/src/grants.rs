@@ -38,6 +38,8 @@ pub trait SessionCatalog: Send + Sync {
     async fn has(&self, session_id: &str) -> WsResult<bool>;
 }
 
+type Table = Mutex<Vec<(String, Grant)>>;
+
 struct Grant {
     path: PathBuf,
     session_id: String,
@@ -56,8 +58,10 @@ pub struct Granted {
 pub struct GrantStore {
     clock: Arc<dyn IdleClock>,
     catalog: Arc<dyn SessionCatalog>,
-    /// Per credential, insertion ordered: the most recently used last.
-    devices: Mutex<HashMap<String, Vec<(String, Grant)>>>,
+    /// Per credential, the device's table of grants (insertion ordered: the most recently used last).
+    devices: Mutex<HashMap<String, Arc<Table>>>,
+    /// The table each connection took when it first used a grant: Node's method table holds the device's table object from then on.
+    bound: Mutex<HashMap<u64, Arc<Table>>>,
     /// Conversations the published catalog has contained: only these can be "gone" (Node: `seenSessions.has(id) && !catalog.has(id)`,
     /// `seenSessions` filled by `retainCatalog` on each publication, `file-downloads.ts:472`).
     seen: Mutex<HashSet<String>>,
@@ -89,12 +93,25 @@ fn required(value: &str, name: &str, maximum: usize) -> WsResult<String> {
 
 impl GrantStore {
     pub fn new(clock: Arc<dyn IdleClock>, catalog: Arc<dyn SessionCatalog>) -> Self {
-        Self { clock, catalog, devices: Mutex::default(), seen: Mutex::default() }
+        Self { clock, catalog, devices: Mutex::default(), bound: Mutex::default(), seen: Mutex::default() }
     }
 
-    /// Unpair (`dropFileGrants`): every grant the device holds ends.
+    /// Unpair (`dropFileGrants`): the device's table is dropped, so a connection of it that arrives afterwards starts with no grant.
+    /// A connection that already took the table keeps it for as long as it lives, as Node's method table keeps the object
+    /// (`remote-relay-device-methods.ts` `methodsFor` / `dropFileGrants`); the relay ends such a connection when it removed the pairing.
     pub fn revoke_device(&self, credential: &str) {
         self.devices.lock().expect("grants").remove(credential);
+    }
+
+    /// The connection ended: it holds no table any more.
+    pub fn release(&self, connection: u64) {
+        self.bound.lock().expect("grants").remove(&connection);
+    }
+
+    /// The table of `credential` this connection holds, taken now if it has none.
+    fn table(&self, credential: &str, connection: u64) -> Arc<Table> {
+        let mut bound = self.bound.lock().expect("grants");
+        bound.entry(connection).or_insert_with(|| self.devices.lock().expect("grants").entry(credential.to_owned()).or_default().clone()).clone()
     }
 
     async fn conversation_gone(&self, session_id: &str) -> WsResult<bool> {
@@ -106,11 +123,11 @@ impl GrantStore {
 
     /// `rememberFileGrant(absolutePath, sessionId)`: the live grant of this device for this file and conversation
     /// is renewed and keeps its token; otherwise a new token is made and the device's oldest go past the cap.
-    pub async fn mint(&self, credential: &str, path: &Path, session_id: &str) -> WsResult<String> {
+    pub async fn mint(&self, credential: &str, connection: u64, path: &Path, session_id: &str) -> WsResult<String> {
         let gone = self.conversation_gone(session_id).await?;
         let now = self.clock.now();
-        let mut devices = self.devices.lock().expect("grants");
-        let grants = devices.entry(credential.to_owned()).or_default();
+        let table = self.table(credential, connection);
+        let mut grants = table.lock().expect("grants");
         let mut at = 0;
         while at < grants.len() {
             if grants[at].1.session_id != session_id || !same_path(&grants[at].1.path, path) {
@@ -140,12 +157,13 @@ impl GrantStore {
     /// `grantedFile(accessToken, projectPath, relPath)`, check for check as Node orders them: the token
     /// (1..=128 characters), the grant being held, alive and its conversation present, then the two path
     /// arguments, then the requested path being exactly the granted file.
-    pub async fn redeem(&self, credential: &str, token: &str, project_path: &str, rel_path: &str) -> WsResult<Granted> {
+    pub async fn redeem(&self, credential: &str, connection: u64, token: &str, project_path: &str, rel_path: &str) -> WsResult<Granted> {
         let token = required(token, "file access token", 128)?;
         let key = key_of(&token);
         let session_id = {
-            let devices = self.devices.lock().expect("grants");
-            devices.get(credential).and_then(|grants| grants.iter().find(|(held, _)| *held == key)).map(|(_, grant)| grant.session_id.clone())
+            let grants = self.table(credential, connection);
+            let grants = grants.lock().expect("grants");
+            grants.iter().find(|(held, _)| *held == key).map(|(_, grant)| grant.session_id.clone())
         };
         let gone = match &session_id {
             Some(session_id) => self.conversation_gone(session_id).await?,
@@ -153,8 +171,8 @@ impl GrantStore {
         };
         let now = self.clock.now();
         let granted = {
-            let mut devices = self.devices.lock().expect("grants");
-            let grants = devices.entry(credential.to_owned()).or_default();
+            let table = self.table(credential, connection);
+            let mut grants = table.lock().expect("grants");
             let at = grants.iter().position(|(held, _)| *held == key);
             let live = at.is_some_and(|at| grants[at].1.expires_at > now && !gone);
             if !live {
@@ -256,7 +274,7 @@ mod tests {
         };
         macro_rules! mint {
             ($name:expr, $path:expr, $session:expr) => {{
-                let token = store.mint("dev", &$path, $session).await.unwrap();
+                let token = store.mint("dev", 1, &$path, $session).await.unwrap();
                 tokens.insert($name.to_owned(), token);
             }};
         }
@@ -298,61 +316,61 @@ mod tests {
         assert_eq!(step["ok"]["same"], same(&tokens, "a-s1", "a-s1b"));
 
         let step = next("redeem with the folder and name");
-        check(&step, store.redeem("dev", &tok(&tokens, "a"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
+        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
         // Windows compares file names without case; elsewhere the names differ.
         let step = next("redeem with the folder and the name in another case");
-        let got = store.redeem("dev", &tok(&tokens, "a"), base.to_str().unwrap(), "A.TXT").await;
+        let got = store.redeem("dev", 1, &tok(&tokens, "a"), base.to_str().unwrap(), "A.TXT").await;
         if cfg!(windows) {
             check(&step, got, &base, "a.txt");
         } else {
             assert_eq!(got.unwrap_err().message, "The selected-file permission does not match this path.");
         }
         let step = next("redeem with a relative path inside the folder");
-        check(&step, store.redeem("dev", &tok(&tokens, "a"), base.to_str().unwrap(), "sub/../a.txt").await, &base, "a.txt");
+        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), base.to_str().unwrap(), "sub/../a.txt").await, &base, "a.txt");
         let step = next("redeem for another file");
-        check(&step, store.redeem("dev", &tok(&tokens, "a"), base.to_str().unwrap(), "b.txt").await, &base, "b.txt");
+        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), base.to_str().unwrap(), "b.txt").await, &base, "b.txt");
         let step = next("redeem for the parent folder");
         let parent = base.parent().unwrap().to_str().unwrap().to_owned();
-        check(&step, store.redeem("dev", &tok(&tokens, "a"), &parent, "outside/a.txt").await, &base, "a.txt");
+        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), &parent, "outside/a.txt").await, &base, "a.txt");
         let step = next("redeem an unknown token");
-        check(&step, store.redeem("dev", "no-such-token", base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
+        check(&step, store.redeem("dev", 1, "no-such-token", base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
         let step = next("redeem an empty token");
-        check(&step, store.redeem("dev", "", base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
+        check(&step, store.redeem("dev", 1, "", base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
         let step = next("redeem a token longer than 128");
-        check(&step, store.redeem("dev", &"x".repeat(129), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
+        check(&step, store.redeem("dev", 1, &"x".repeat(129), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
         // "a token that is not a string" cannot be sent: the request decoder refuses it before the store.
         next("redeem a token that is not a string");
         let step = next("redeem with an empty project path");
-        check(&step, store.redeem("dev", &tok(&tokens, "a"), "", "a.txt").await, &base, "a.txt");
+        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), "", "a.txt").await, &base, "a.txt");
         let step = next("redeem with an empty rel path");
-        check(&step, store.redeem("dev", &tok(&tokens, "a"), base.to_str().unwrap(), "").await, &base, "a.txt");
+        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), base.to_str().unwrap(), "").await, &base, "a.txt");
 
         advance(59);
         let step = next("redeem after 59 minutes");
-        check(&step, store.redeem("dev", &tok(&tokens, "a"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
+        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
         mint!("a3", file("a.txt"), "");
         let step = next("mint a.txt again at 59 minutes: the same token, one more hour");
         assert_eq!(step["ok"]["same"], same(&tokens, "a", "a3"));
         advance(59);
         let step = next("redeem 118 minutes in: alive through the renewal");
-        check(&step, store.redeem("dev", &tok(&tokens, "a"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
+        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
         advance(61);
         let step = next("redeem past the hour after the renewal");
-        check(&step, store.redeem("dev", &tok(&tokens, "a"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
+        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
         let step = next("redeem it again: the grant was deleted");
-        check(&step, store.redeem("dev", &tok(&tokens, "a"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
+        check(&step, store.redeem("dev", 1, &tok(&tokens, "a"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
         mint!("a4", file("a.txt"), "");
         let step = next("mint a.txt after it expired: a new token");
         assert_eq!(step["ok"]["same"], same(&tokens, "a", "a4"));
 
         mint!("a-s1", file("a.txt"), "s1");
         let step = next("redeem the conversation token while its conversation lives");
-        check(&step, store.redeem("dev", &tok(&tokens, "a-s1"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
+        check(&step, store.redeem("dev", 1, &tok(&tokens, "a-s1"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
         // Node's download service has seen the conversation in a published catalog before it leaves it.
         mixdog_core_api::state::CatalogObserver::published(&store, &["s1"]);
         catalog.0.lock().unwrap().insert("s1".to_owned());
         let step = next("redeem the conversation token once the conversation is gone");
-        check(&step, store.redeem("dev", &tok(&tokens, "a-s1"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
+        check(&step, store.redeem("dev", 1, &tok(&tokens, "a-s1"), base.to_str().unwrap(), "a.txt").await, &base, "a.txt");
         mint!("a-s1c", file("a.txt"), "s1");
         let step = next("mint for the gone conversation: a new token");
         assert_eq!(step["ok"]["same"], same(&tokens, "a-s1", "a-s1c"));
@@ -364,7 +382,7 @@ mod tests {
         let redeem_file = |token: String, file: &'static str| {
             let base = base.clone();
             let store = &store;
-            async move { store.redeem("dev", &token, base.to_str().unwrap(), file).await }
+            async move { store.redeem("dev", 1, &token, base.to_str().unwrap(), file).await }
         };
         let step = next("the newest hundred are held: the first of them");
         check(&step, redeem_file(tok(&tokens, "f0"), "f0.txt").await, &base, "f0.txt");
@@ -372,7 +390,7 @@ mod tests {
         check(&step, redeem_file(tok(&tokens, "f99"), "f99.txt").await, &base, "f99.txt");
         let step = next("a grant older than those hundred is gone");
         check(&step, redeem_file(tok(&tokens, "a4"), "a.txt").await, &base, "a.txt");
-        let token = store.mint("dev", &file("f100.txt"), "").await.unwrap();
+        let token = store.mint("dev", 1, &file("f100.txt"), "").await.unwrap();
         tokens.insert("f100".to_owned(), token);
         let step = next("one more evicts the oldest remaining (f0)");
         check(&step, redeem_file(tok(&tokens, "f0"), "f0.txt").await, &base, "f0.txt");
@@ -391,10 +409,10 @@ mod tests {
         catalog.0.lock().unwrap().insert("s1".to_owned());
         let store = GrantStore::new(clock, catalog);
         let dir = std::env::temp_dir().join("outside");
-        let token = store.mint("dev", &dir.join("a.txt"), "s1").await.unwrap();
-        assert!(store.redeem("dev", &token, dir.to_str().unwrap(), "a.txt").await.is_ok(), "never listed: not gone");
+        let token = store.mint("dev", 1, &dir.join("a.txt"), "s1").await.unwrap();
+        assert!(store.redeem("dev", 1, &token, dir.to_str().unwrap(), "a.txt").await.is_ok(), "never listed: not gone");
         mixdog_core_api::state::CatalogObserver::published(&store, &["s1"]);
-        let gone = store.redeem("dev", &token, dir.to_str().unwrap(), "a.txt").await.unwrap_err();
+        let gone = store.redeem("dev", 1, &token, dir.to_str().unwrap(), "a.txt").await.unwrap_err();
         assert_eq!(gone.reason.code(), GRANT_UNAVAILABLE_CODE);
     }
 
@@ -403,11 +421,28 @@ mod tests {
         let clock = Arc::new(Manual(Instant::now(), AtomicU64::new(0)));
         let store = GrantStore::new(clock, Arc::new(Catalog::default()));
         let file = std::env::temp_dir().join("outside").join("a.txt");
-        let token = store.mint("phone-a", &file, "").await.unwrap();
+        let token = store.mint("phone-a", 1, &file, "").await.unwrap();
         let dir = std::env::temp_dir().join("outside");
-        assert!(store.redeem("phone-a", &token, dir.to_str().unwrap(), "a.txt").await.is_ok());
-        let other = store.redeem("phone-b", &token, dir.to_str().unwrap(), "a.txt").await.unwrap_err();
+        assert!(store.redeem("phone-a", 1, &token, dir.to_str().unwrap(), "a.txt").await.is_ok());
+        let other = store.redeem("phone-b", 2, &token, dir.to_str().unwrap(), "a.txt").await.unwrap_err();
         assert_eq!(other.reason.code(), GRANT_UNAVAILABLE_CODE);
+    }
+
+    /// `dropFileGrants` (`remote-relay-device-methods.ts`) deletes the device's table, and a connection already holding the table object
+    /// keeps using it (the unpair recording `unpair-access.json`, `link.read` after: the attached phone still reads, a new connection is refused).
+    #[tokio::test]
+    async fn an_unpair_leaves_an_attached_connection_its_grants_and_a_new_connection_none() {
+        let clock = Arc::new(Manual(Instant::now(), AtomicU64::new(0)));
+        let store = GrantStore::new(clock, Arc::new(Catalog::default()));
+        let dir = std::env::temp_dir().join("outside");
+        let token = store.mint("phone-a", 1, &dir.join("a.txt"), "").await.unwrap();
+        store.revoke_device("phone-a");
+        assert!(store.redeem("phone-a", 1, &token, dir.to_str().unwrap(), "a.txt").await.is_ok(), "the attached connection keeps its table");
+        let fresh = store.redeem("phone-a", 2, &token, dir.to_str().unwrap(), "a.txt").await.unwrap_err();
+        assert_eq!(fresh.reason.code(), GRANT_UNAVAILABLE_CODE);
+        store.release(1);
+        let released = store.redeem("phone-a", 1, &token, dir.to_str().unwrap(), "a.txt").await.unwrap_err();
+        assert_eq!(released.reason.code(), GRANT_UNAVAILABLE_CODE, "a connection that ended holds nothing");
     }
 
     #[test]

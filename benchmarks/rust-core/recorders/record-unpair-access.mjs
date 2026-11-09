@@ -26,19 +26,84 @@ const { viewSyncHost } = await importFrom(tree, 'apps/desktop/src/main/test-supp
 const CRED = 'aaaaaaa1';
 const TOKEN = 'fcm-token-'.padEnd(40, 'x');
 const PUBLIC_KEY = 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM';
-// Resolves when predicate holds, re-checked each time a frame arrives on either side; a condition that never comes is the caller's hang.
+// Resolves when predicate holds, re-checked each time a frame arrives on either side. A condition that does not come within
+// UNTIL_DEADLINE_MS, or a desktop leg that ends while it waits, rejects with what (the handshake, reply or feed that is missing).
+const UNTIL_DEADLINE_MS = 60_000;
 const changes = new EventEmitter();
-const until = (predicate) =>
-  new Promise((resolve) => {
+const until = (predicate, what) =>
+  new Promise((resolve, reject) => {
+    const settle = () => {
+      clearTimeout(timer);
+      changes.off('change', check);
+      changes.off('leg-ended', ended);
+    };
     const check = () => {
       if (!predicate()) return;
-      changes.off('change', check);
+      settle();
       resolve();
     };
+    const ended = () => {
+      settle();
+      reject(new Error('the desktop leg ended while waiting for: ' + what));
+    };
+    const timer = setTimeout(() => {
+      settle();
+      reject(new Error('nothing arrived within ' + UNTIL_DEADLINE_MS + ' ms: ' + what));
+    }, UNTIL_DEADLINE_MS);
     changes.on('change', check);
+    changes.on('leg-ended', ended);
     check();
   });
 
+// The only values that differ between two Node recordings of this script (proved by running it twice: the two fixtures are
+// byte-identical once these are replaced): clock times, ids Node generates, this run's temporary directory (alone, or as the prefix
+// of the file's path) and the Web Push key generated per install. A varying value is replaced by `<key#n>`, numbered by first
+// appearance among the values of that key, over the frames in `ORDER`; the directory prefix by `<dir>`. Everything else is kept.
+const VARYING = {
+  time: ['updatedAt', 'activityAt', 'expiresAt', 'mtimeMs'],
+  generated: ['grantId', 'transferId', 'assetId', 'version', 'accessToken'],
+  directory: ['cwd', 'projectPath'],
+  directoryPrefix: ['absolutePath'],
+};// The frames of a scenario in the order they were made; `canon` walks them in this order and each object's keys in order.
+const ORDER = [
+  'setup.setNotificationPreferences', 'setup.registerNativePush', 'setup.registerPushSubscription',
+  'before.chat', 'before.terminal', 'before.settings', 'before.notifications', 'before.webPush',
+  'before.files.grant', 'before.files.transfer', 'before.files.unbegun', 'before.link.resolve', 'before.link.read',
+  'after.chat', 'after.terminal', 'after.settings', 'after.notifications', 'after.webPush',
+  'after.files.range', 'after.files.begin', 'after.link.read', 'after.screen', 'after.secondConnection.screen',
+  'after.notificationsAfterForget', 'after.removeNativePush', 'after.removePushSubscription',
+];
+const at = (root, path) => path.split('.').reduce((node, key) => node?.[key], root);
+function canon(scenarioBody, dir) {
+  const seen = new Map();
+  const token = (key, value) => {
+    const known = seen.get(key) ?? seen.set(key, []).get(key);
+    if (!known.some((held) => held === JSON.stringify(value))) known.push(JSON.stringify(value));
+    return `<${key}#${known.indexOf(JSON.stringify(value))}>`;
+  };
+  const replaced = (path, key, value) => {
+    if (VARYING.time.includes(key) && typeof value === 'number') return token(key, value);
+    if (VARYING.generated.includes(key) && typeof value === 'string') return token(key, value);
+    if (VARYING.directory.includes(key) && value === dir) return '<dir>';
+    if (VARYING.directoryPrefix.includes(key) && typeof value === 'string' && value.startsWith(dir)) return `<dir>${value.slice(dir.length)}`;
+    // The Web Push public key is generated once per install; the same key answers before and after.
+    if (path.endsWith('.webPush') && key === 'value') return token('webPushKey', value);
+    return undefined;
+  };
+  const walk = (node, path) => {
+    if (Array.isArray(node)) return node.map((item) => walk(item, path));
+    if (node === null || typeof node !== 'object') return node;
+    return Object.fromEntries(Object.entries(node).map(([key, value]) => [key, replaced(path, key, value) ?? walk(value, path)]));
+  };
+  const out = structuredClone(scenarioBody);
+  for (const path of ORDER) {
+    const parts = path.split('.');
+    const holder = at(out, parts.slice(0, -1).join('.'));
+    holder[parts.at(-1)] = walk(at(scenarioBody, path), path);
+  }
+  out.feedEvents = scenarioBody.feedEvents === null ? null : scenarioBody.feedEvents.map((frame, index) => walk(frame, `feedEvents.${index}`));
+  return out;
+}
 async function scenario(name, relayConfirms) {
   const f = await viewSyncHost();
   const dir = f.options.userDataPath;
@@ -47,9 +112,11 @@ async function scenario(name, relayConfirms) {
   const previousUrl = process.env.MIXDOG_RELAY_URL;
   process.env.MIXDOG_RELAY_URL = `ws://127.0.0.1:${server.address().port}`;
   let leg = null;
+  let tearingDown = false;
   const fromDesktop = [];
   server.on('connection', (socket) => {
     leg = socket;
+    socket.on('close', () => { if (!tearingDown) changes.emit('leg-ended'); });
     socket.send(JSON.stringify({ type: 'relay-capabilities', nativePush: 1, nativePushPlatforms: ['fcm'], webPush: 1 }));
     socket.on('message', (raw) => {
       const frame = JSON.parse(String(raw));
@@ -147,51 +214,44 @@ async function scenario(name, relayConfirms) {
     const grant = await call('fileDownloadAuthorize', [request]);
     const transfer = await call('fileDownloadBegin', [grant.value.grantId]);
     const unbegun = await call('fileDownloadAuthorize', [request]);
-    before.files = { granted: grant.ok && transfer.ok && unbegun.ok };
-    fromDesktop.length = 0;
+    before.files = { grant, transfer, unbegun };
+    // The device's selected-file grant (`resolveLocalPaths`, a file outside every project) and a read through it.
+    const resolve = await call('resolveLocalPaths', [[download]]);
+    const row = resolve.value[0];
+    const readLink = [row.projectPath, row.relPath, row.accessToken];
+    before.link = { resolve, read: await call('readProjectFile', readLink) };    fromDesktop.length = 0;
     let revokeOutcome = 'resolved';
     await invoke('remoteAccessRevokeClient', CRED).catch((error) => { revokeOutcome = `rejected: ${error.message}`; });
     // A confirmed unpair has the desktop re-read the roster; a refused one has nothing more to send.
     if (relayConfirms) await until(() => fromDesktop.some((frame) => frame.type === 'list-clients'), 'the roster is re-read');
     const envelopesAtUnpair = fromDesktop.map((frame) => frame.type);
-    // A frame whose body depends on this machine is kept as whether it changed; a refusal is kept whole.
-    // The bodies depend on this machine (names, paths, times), so a group is kept as whether the same call answered the same,
-    // and as what it answered when it did not; the device lists are kept as ids only.
-    const project = (group, m) => {
-      if (!m.ok) return { ok: false, error: m.error };
-      if (group === 'notifications') return { ok: true, devices: m.value.devices.map((d) => d.id), preferences: Object.keys(m.value.preferences) };
-      return { ok: true, value: JSON.parse(JSON.stringify(m.value, (k, v) => (k === 'updatedAt' || k === 'activityAt' ? undefined : v))) };
-    };
-    const shape = (group, b, a) => {
-      const [pb, pa] = [project(group, b), project(group, a)];
-      return { before: group === 'notifications' ? pb : pb.ok, after: JSON.stringify(pb) === JSON.stringify(pa) ? 'same' : pa };
-    };
     const connected = !relayConfirms;
     const second = await openPhone('p2');
     const ask = relayConfirms ? second.call : call;
     const after = {};
-    for (const [group, method, params] of groups) after[group] = shape(group, before[group], await ask(method, params));
+    for (const [group, method, params] of groups) after[group] = await ask(method, params);
     // Files: the transfer and the grant the device held end with its unpair, for the same device on any connection.
     after.files = {
-      range: project('files', await ask('fileDownloadRange', [transfer.value.transferId, 0, 4, transfer.value.version])),
-      begin: project('files', await ask('fileDownloadBegin', [unbegun.value.grantId])),
+      range: await ask('fileDownloadRange', [transfer.value.transferId, 0, 4, transfer.value.version]),
+      begin: await ask('fileDownloadBegin', [unbegun.value.grantId]),
     };
+    after.link = { read: await ask('readProjectFile', readLink) };
     after.screen = await (relayConfirms ? second.screen : screen)();
     after.secondConnection = { screen: await second.screen() };
-    const prefs = await ask('getNotificationPreferences', []);
-    after.notificationsAfterForget = { ok: prefs.ok, scope: prefs.value.preferences[CRED]?.scope ?? null };
+    after.notificationsAfterForget = await ask('getNotificationPreferences', []);
     after.removeNativePush = await ask('removeNativePush', [TOKEN]);
     after.removePushSubscription = await ask('removePushSubscription', ['https://push.example/x']);
-    let feedEvent = null;
+    let feedEvents = null;
     if (!relayConfirms) {
       const seen = phone.messages.length;
       f.put('s1', 'after');
       await until(() => phone.messages.length > seen, 'the session feed reaches the phone');
       await call('listSessions', []);
-      feedEvent = phone.messages.slice(seen).filter((m) => m.id === undefined).map((m) => Object.keys(m).sort().join(','));
+      // Only the frames that answer no call (no id) are the feed; every one is kept whole.
+      feedEvents = phone.messages.slice(seen).filter((m) => m.id === undefined);
     }
-    return { name, relayConfirms, revokeOutcome, envelopesAtUnpair, desktopClosedPhone: phone.closedByDesktop, phoneStillAttached: connected, after, feedEvent };
-  } finally {
+    return canon({ name, relayConfirms, revokeOutcome, envelopesAtUnpair, desktopClosedPhone: phone.closedByDesktop, phoneStillAttached: connected, setup, before, after, feedEvents }, dir);  } finally {
+    tearingDown = true;
     await service?.dispose();
     leg?.terminate();
     await new Promise((r) => server.close(r));
@@ -203,7 +263,7 @@ async function scenario(name, relayConfirms) {
 const out = [];
 out.push(await scenario('the relay did not remove the pairing', false));
 out.push(await scenario('the relay removed the pairing', true));
-writeJson(join(stage, 'unpair-access.json'), { domain: 'unpair-access', recorder, credential: CRED, token: TOKEN, scenarios: out });
+writeJson(join(stage, 'unpair-access.json'), { domain: 'unpair-access', recorder, credential: CRED, token: TOKEN, order: ORDER, remapped: VARYING, scenarios: out });
 writeSetManifest(stage, {
   set: 'unpair-access',
   recorder,

@@ -670,7 +670,7 @@ mod tests {
         let range = t.read_range("dev-a", &opened.transfer_id, 0, 64).unwrap();
         assert_eq!((range.length, range.eof), (64, false));
         assert_eq!(STANDARD.decode(&range.data).unwrap(), b"0123456789abcdef".repeat(4));
-        assert_eq!(t.read_range("dev-b", &opened.transfer_id, 0, 8).unwrap_err().reason, Reason::Expired);
+        assert_eq!(t.read_range("dev-b", &opened.transfer_id, 0, 8).unwrap_err().reason, Reason::DownloadExpired);
         assert_eq!(
             t.read_range("dev-a", &opened.transfer_id, 1000, 8).unwrap_err().message,
             "offset is past the end of the file."
