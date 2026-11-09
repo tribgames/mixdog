@@ -250,7 +250,9 @@ async function scenario(name, relayConfirms) {
       // Only the frames that answer no call (no id) are the feed; every one is kept whole.
       feedEvents = phone.messages.slice(seen).filter((m) => m.id === undefined);
     }
-    return canon({ name, relayConfirms, revokeOutcome, envelopesAtUnpair, desktopClosedPhone: phone.closedByDesktop, phoneStillAttached: connected, setup, before, after, feedEvents }, dir);  } finally {
+    const body = { name, relayConfirms, revokeOutcome, envelopesAtUnpair, desktopClosedPhone: phone.closedByDesktop, phoneStillAttached: connected, setup, before, after, feedEvents };
+    // --raw <file>: keep this run's frames exactly as Node produced them (no remapping), to compare two runs.
+    return args.get('raw') ? { dir, body } : canon(body, dir);  } finally {
     tearingDown = true;
     await service?.dispose();
     leg?.terminate();
@@ -263,6 +265,11 @@ async function scenario(name, relayConfirms) {
 const out = [];
 out.push(await scenario('the relay did not remove the pairing', false));
 out.push(await scenario('the relay removed the pairing', true));
+if (args.get('raw')) {
+  await writeFile(args.get('raw'), JSON.stringify(out));
+  console.log('raw run written');
+  process.exit(0);
+}
 writeJson(join(stage, 'unpair-access.json'), { domain: 'unpair-access', recorder, credential: CRED, token: TOKEN, order: ORDER, remapped: VARYING, scenarios: out });
 writeSetManifest(stage, {
   set: 'unpair-access',
