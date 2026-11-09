@@ -240,6 +240,19 @@ impl DaemonLog {
         })
     }
 
+    /// The destination of Node stderr lines while the daemon's own stderr is not redirected (before ready, and for good under
+    /// `MIXDOG_DAEMON_ALLOW_STDERR=1`): the memory worker's stderr is a pipe the spawner mirrors into its proxy log whatever the daemon's
+    /// readiness (`daemon-spawn.mjs:108-116`), and every daemon line is written bare to the descriptor.
+    pub fn memory_sink(&self) -> mixdog_rt::node_log::Sink {
+        use mixdog_rt::node_log::Origin;
+        let daemon = self.clone();
+        let memory = locked(&self.shared.memory).clone().unwrap_or_else(|| self.clone());
+        Arc::new(move |origin, _, line| match origin {
+            Origin::MemoryWorker => memory.raw(line),
+            Origin::Daemon => (daemon.shared.stderr)(&mixdog_rt::node_log::bare(line)),
+        })
+    }
+
     /// `console_warn` as a seam a `Fn(&str)` consumer takes.
     pub fn console_warn_sink(&self) -> Arc<dyn Fn(&str) + Send + Sync> {
         let log = self.clone();
@@ -698,6 +711,44 @@ mod tests {
                 row.to_owned()
             })
             .collect()
+    }
+
+    /// The memory worker's stderr and the daemon's own, as Node's real spawner and daemon log left them (`fixtures/daemon-redirect/record-memory.mjs`):
+    /// the worker's chunks become `memory-runtime-proxy.log` rows whether the daemon is before ready or past it with `MIXDOG_DAEMON_ALLOW_STDERR=1`
+    /// (which skips only `installRedirect`), and the daemon's own lines stay bare on its descriptor in both. Replayed through [`DaemonLog::memory_sink`],
+    /// the sink installed before the core composes.
+    #[tokio::test]
+    async fn the_memory_workers_stderr_is_mirrored_before_ready_and_under_the_opt_out_as_nodes_spawner_did() {
+        use mixdog_rt::node_log::Channel::Stderr;
+        use mixdog_rt::node_log::Origin::Daemon;
+        use mixdog_rt::node_log::Origin::MemoryWorker;
+        let golden: Value = serde_json::from_str(include_str!("../../../fixtures/daemon-redirect/memory-golden.json")).unwrap();
+        // The worker's pipe chunks, as the recording's stub wrote them.
+        let chunks = ["[memory] first\n", "[memory] second\n[memory] third\n", "[memory] padded   \n\n", "[memory] after worker ready\n"];
+        for (scenario, past_ready) in [("before-ready", false), ("allow-stderr", true)] {
+            let dir = tempfile::tempdir().unwrap();
+            let fd2 = Arc::new(Mutex::new(String::new()));
+            let into = fd2.clone();
+            let sink: StderrSink = Arc::new(move |text| locked(&into).push_str(text));
+            let log = DaemonLog::with_parts(Arc::new(DiskLogFile::new(dir.path().join("daemon.log"))), tokens().maintenance_io, CancellationToken::new(), Arc::new(system_now_ms), sink.clone());
+            let memory = DaemonLog::with_parts(Arc::new(DiskLogFile::new(dir.path().join("memory-runtime-proxy.log"))), tokens().maintenance_io, CancellationToken::new(), Arc::new(system_now_ms), sink);
+            log.attach_memory_log(memory);
+            let node = log.memory_sink();
+            if past_ready {
+                log.enable_file_logging();
+            }
+            log.log("daemon line");
+            node(Daemon, Stderr, "[mod] daemon raw");
+            for chunk in chunks {
+                node(MemoryWorker, Stderr, chunk);
+            }
+            log.flush().await;
+            let read = |name: &str| mixdog_statefile::read_content(&dir.path().join(name)).unwrap().map(|bytes| String::from_utf8(bytes).unwrap());
+            let want = &golden[scenario];
+            assert_eq!(*locked(&fd2), want["daemonStderr"].as_str().unwrap(), "{scenario}: the daemon's descriptor");
+            assert_eq!(read("daemon.log").map(|text| mask_stamps(&text)).as_deref(), want["daemonLog"].as_str(), "{scenario}: daemon.log");
+            assert_eq!(mask_stamps(&read("memory-runtime-proxy.log").unwrap()), want["memoryProxyLog"].as_str().unwrap(), "{scenario}: memory-runtime-proxy.log");
+        }
     }
 
     /// A cancelled run leaves its drainer unstarted; flush returns instead of waiting on it.

@@ -157,6 +157,8 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     let stop = mixdog_rt::CancellationToken::new();
     let log = daemon_log::DaemonLog::new(data_dir.join("daemon.log"), tokens.maintenance_io, stop.clone());
     log.attach_memory_log(daemon_log::DaemonLog::new(data_dir.join("memory-runtime-proxy.log"), tokens.maintenance_io, stop.clone()));
+    // The memory worker starts during composition and mirrors its stderr into its proxy log from its first line, ready or not.
+    mixdog_rt::node_log::install(log.memory_sink());
     let ready_log = log.clone();
     let sweep_dir = data_dir.clone();
     let config = compose::ComposeConfig {
@@ -206,7 +208,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     // the log, and a line Node writes to its stderr lands where its redirect put it (`mixdog_rt::node_log`): the memory worker's in its own
     // proxy log, every other in `daemon.log`, each as a `[<ISO>] ` row.
     ready_log.enable_file_logging();
-    // `MIXDOG_DAEMON_ALLOW_STDERR=1` leaves stderr alone (daemon-log.mjs `installRedirect`).
+    // `MIXDOG_DAEMON_ALLOW_STDERR=1` skips only `installRedirect` (daemon-log.mjs:162): the daemon's lines stay bare, the memory mirror keeps its sink (installed above).
     if std::env::var("MIXDOG_DAEMON_ALLOW_STDERR").as_deref() != Ok("1") {
         mixdog_rt::node_log::install(ready_log.node_sink());
     }
