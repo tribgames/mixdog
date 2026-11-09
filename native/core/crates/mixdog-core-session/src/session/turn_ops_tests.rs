@@ -26,6 +26,21 @@ use super::tests::start_routed_thread;
 use super::tests::start_thread;
 use super::tests::turn;
 
+/// The context's rows once one of them carries its turn's completion, woken by each store commit; the wait is registered
+/// before the read so a commit between the read and the wait is not missed.
+async fn rows_with_completion(rig: &Rig, context: &super::run::ModelContext) -> Vec<Value> {
+    loop {
+        let committed = rig.store.committed.notified();
+        tokio::pin!(committed);
+        committed.as_mut().enable();
+        let rows: Vec<Value> = context.read().await.expect("context").into_iter().map(|(_, message)| message).collect();
+        if rows.iter().any(|message| message.pointer("/meta/transcript/completion").is_some()) {
+            return rows;
+        }
+        committed.await;
+    }
+}
+
 fn request(method: &'static str, params: Value, op: &str) -> CoreRequest {
     CoreRequest {
         method: Method(method),
@@ -720,13 +735,7 @@ async fn a_failed_turn_records_its_completion_and_a_plain_retry_start_carries_th
     eventually_on(&[&handle.cell.stepped], || (super::testing::lock(&stamped).len() == 1).then_some(())).await;
 
     let context = directory.model_context(&handle.id);
-    let messages = loop {
-        let rows: Vec<Value> = context.read().await.expect("context").into_iter().map(|(_, message)| message).collect();
-        if rows.iter().any(|message| message.pointer("/meta/transcript/completion").is_some()) {
-            break rows;
-        }
-        tokio::task::yield_now().await;
-    };
+    let messages = rows_with_completion(&rig, &context).await;
     let completion = messages.last().expect("rows").pointer("/meta/transcript/completion").cloned().expect("completion");
     // The record is built from the run's failure: Node's `turnFailureRecord` of an exhausted quota with the reset the
     // provider named (`fixtures/turn-failure`, "quota with a provider-named reset").
@@ -763,13 +772,7 @@ async fn a_failure_without_an_end_item_records_its_end_and_the_history_shows_it_
     eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
 
     let context = directory.model_context(&handle.id);
-    let messages = loop {
-        let rows: Vec<Value> = context.read().await.expect("context").into_iter().map(|(_, message)| message).collect();
-        if rows.iter().any(|message| message.pointer("/meta/transcript/completion").is_some()) {
-            break rows;
-        }
-        tokio::task::yield_now().await;
-    };
+    let messages = rows_with_completion(&rig, &context).await;
     let mut completion = messages.last().expect("rows").pointer("/meta/transcript/completion").cloned().expect("completion");
     assert!(completion["attemptId"].as_str().is_some_and(|id| !id.is_empty()), "a fresh attempt id");
     completion.as_object_mut().expect("object").shift_remove("attemptId");

@@ -24,6 +24,9 @@ pub struct TurnLiveness {
     /// Set under the lock when the guard drops, so a late update of the follower cannot bring the entry back.
     closed: Arc<Mutex<bool>>,
     _dispatched: Dispatched,
+    /// The follower task, for the tests to await.
+    #[cfg(test)]
+    watcher: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl TurnLiveness {
@@ -42,13 +45,30 @@ impl TurnLiveness {
             }
         };
         publish(progress.borrow().stage(), &cancel);
-        drop(mixdog_rt::spawn("turn-liveness", mixdog_rt::TaskClass::Work, async move {
+        let watcher = mixdog_rt::spawn("turn-liveness", mixdog_rt::TaskClass::Work, async move {
             // Ends when the run's progress sender is dropped (the drive is over).
             while progress.changed().await.is_ok() {
                 publish(progress.borrow().stage(), &cancel);
             }
-        }));
-        Self { liveness: liveness.clone(), _dispatched: liveness.dispatched(&id), id, closed }
+        });
+        #[cfg(not(test))]
+        drop(watcher);
+        Self {
+            liveness: liveness.clone(),
+            _dispatched: liveness.dispatched(&id),
+            id,
+            closed,
+            #[cfg(test)]
+            watcher: Mutex::new(Some(watcher)),
+        }
+    }
+
+    /// Returns once the follower has published every progress change and ended, which it does when
+    /// the run's progress sender is gone.
+    #[cfg(test)]
+    async fn watcher_ended(&self) {
+        let watcher = self.watcher.lock().unwrap_or_else(PoisonError::into_inner).take().expect("awaited once");
+        watcher.await.unwrap();
     }
 }
 
@@ -74,16 +94,6 @@ mod tests {
         }
     }
 
-    async fn working(liveness: &RuntimeLiveness, id: &str, want: bool) {
-        for _ in 0..1_000 {
-            if liveness.in_flight_session_activity().working.contains(id) == want {
-                return;
-            }
-            tokio::task::yield_now().await;
-        }
-        panic!("{id} never became working = {want}");
-    }
-
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_run_is_working_while_its_stage_is_in_flight_and_gone_when_the_guard_drops() {
         // egin spawns its watcher on the lane runtime: installed here as every test of the tree that spawns does.
@@ -97,9 +107,12 @@ mod tests {
         assert!(liveness.in_flight_session_activity().working.contains("t1"));
         publisher.ask_start();
         publisher.stage("streaming");
-        working(&liveness, "t1", true).await;
+        // The sender is gone, so the follower ends once it has published the stage.
+        drop(publisher);
+        guard.watcher_ended().await;
+        assert!(liveness.in_flight_session_activity().working.contains("t1"));
         drop(guard);
-        working(&liveness, "t1", false).await;
+        assert!(!liveness.in_flight_session_activity().working.contains("t1"));
         assert!(liveness.in_flight_session_activity().agent_working.is_empty());
     }
 }

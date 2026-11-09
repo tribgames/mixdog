@@ -529,12 +529,15 @@ mod tests {
         fail: AtomicBool,
         gated: AtomicBool,
         release: Notify,
+        /// Holds a permit once a measurement has begun.
+        began: Notify,
     }
 
     #[async_trait]
     impl QuotaMeasure for Counting {
         async fn measure(&self, _: &str) -> Result<Measured, String> {
             self.measurements.fetch_add(1, Ordering::SeqCst);
+            self.began.notify_one();
             if self.gated.load(Ordering::SeqCst) {
                 self.release.notified().await;
             }
@@ -565,7 +568,7 @@ mod tests {
     async fn one_measurement_serves_a_window_as_nodes_pc_runtime_shares_it() {
         let twin = twin();
         for scenario in twin["quotaScenarios"].as_array().unwrap() {
-            let counting = Arc::new(Counting { measurements: AtomicUsize::new(0), fail: AtomicBool::new(false), gated: AtomicBool::new(false), release: Notify::new() });
+            let counting = Arc::new(Counting { measurements: AtomicUsize::new(0), fail: AtomicBool::new(false), gated: AtomicBool::new(false), release: Notify::new(), began: Notify::new() });
             let clock = Arc::new(AtomicI64::new(1_000));
             let probe = PcQuotaProbe::new(counting.clone(), Arc::new({
                 let clock = clock.clone();
@@ -584,15 +587,11 @@ mod tests {
                     }
                     "ask" => vec![outcome(&probe.usable(&at("provider"), step["model"].as_str().unwrap()).await)],
                     "burst" => {
-                        let before = counting.measurements.load(Ordering::SeqCst);
                         counting.gated.store(true, Ordering::SeqCst);
                         let provider = at("provider");
                         let asks = futures::future::join_all(step["models"].as_array().unwrap().iter().map(|model| probe.usable(&provider, model.as_str().unwrap())));
                         let release = async {
-                            while counting.measurements.load(Ordering::SeqCst) == before {
-                                tokio::task::yield_now().await;
-                            }
-                            tokio::task::yield_now().await;
+                            counting.began.notified().await;
                             counting.release.notify_one();
                         };
                         let (results, ()) = futures::future::join(asks, release).await;

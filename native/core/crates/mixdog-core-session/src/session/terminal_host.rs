@@ -81,6 +81,7 @@ mod tests {
 
     use super::super::FeedFactory;
     use super::super::testing::RecFeeds;
+    use super::super::testing::eventually_on;
     use super::*;
 
     struct Stored(Option<Header>);
@@ -176,17 +177,11 @@ mod tests {
             let (feeds_ref, waits) = (&feeds, waits.clone());
             let reveal = host.reveal("s1", &target, std::slice::from_ref(&target));
             let claim = async {
-                for _ in 0..200 {
-                    if let Some((_, _, params)) = feeds_ref.frames("app").get(1) {
-                        let request = params["requestId"].as_str().unwrap().to_owned();
-                        assert_eq!(params["kind"], "terminal");
-                        assert_eq!(params["terminalId"], "session-terminal:s1");
-                        waits.notify(Method("ui/terminalRun/claimed"), json!({ "requestId": request }), ConnectionId(1));
-                        return;
-                    }
-                    tokio::time::sleep(Duration::from_millis(5)).await;
-                }
-                panic!("the request was never published");
+                let (_, _, params) = eventually_on(&[&feeds_ref.published], || feeds_ref.frames("app").into_iter().nth(1)).await;
+                let request = params["requestId"].as_str().unwrap().to_owned();
+                assert_eq!(params["kind"], "terminal");
+                assert_eq!(params["terminalId"], "session-terminal:s1");
+                waits.notify(Method("ui/terminalRun/claimed"), json!({ "requestId": request }), ConnectionId(1));
             };
             tokio::join!(reveal, claim).0
         };
