@@ -1,5 +1,6 @@
 {
  "recordedFrom": "b6f10295a2f698afc85332467192de28500bd146",
+ "platform": "win32",
  "scenarios": [
   {
    "name": "a readable config names the theme",
@@ -192,6 +193,26 @@
   {
    "name": "a damaged init marker makes the read fail",
    "theme": "THROW"
+  },
+  {
+   "name": "win32: a manifest naming the data dir in other letter case is the same data dir",
+   "theme": "dracula"
+  },
+  {
+   "name": "win32: a manifest naming another folder is not the data dir whatever the case",
+   "theme": null
+  },
+  {
+   "name": "win32: a data dir named in other letter case finds the same scope folder",
+   "theme": "dracula"
+  },
+  {
+   "name": "win32: a legacy backup naming the data dir in other letter case is restored",
+   "theme": "rosepine"
+  },
+  {
+   "name": "win32: a legacy marker named for the data dir spelled in other case is not found by name",
+   "theme": null
   }
  ]
 }

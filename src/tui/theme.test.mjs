@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { SCENARIOS, themeLayout } from './theme-golden/scenarios.mjs';
+import { SCENARIOS, themeLayout, themePaths } from './theme-golden/scenarios.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'mixdog-theme-'));
 process.env.MIXDOG_HOME = join(root, 'home');
@@ -22,14 +22,16 @@ const snapshot = (dir) =>
 
 test('the golden covers every state, recorded from b6f10295a', () => {
   assert.match(golden.recordedFrom, /^b6f10295a[0-9a-f]{31}$/);
-  assert.deepEqual(golden.scenarios.map((s) => s.name), SCENARIOS.map((s) => s.name));
+  // Every state of this platform is recorded (the golden may hold more: the states of the platform it was recorded on).
+  const recorded = new Set(golden.scenarios.map((s) => s.name));
+  assert.deepEqual(SCENARIOS.filter((s) => !recorded.has(s.name)).map((s) => s.name), []);
 });
 
 for (const scenario of SCENARIOS) {
   test(`boot theme equals Node's: ${scenario.name}`, (t) => {
     const base = mkdtempSync(join(tmpdir(), 'mixdog-theme-state-'));
     t.after(() => rmSync(base, { recursive: true, force: true }));
-    const dataDir = join(base, 'data');
+    const { dataDir, readDir } = themePaths(base, scenario);
     const layout = themeLayout(base, scenario);
     scenario.setup({ dataDir, backupRoot: layout.backupRoot, legacyRoot: layout.legacyRoot });
     const saved = Object.fromEntries(['MIXDOG_HOME', 'MIXDOG_CONFIG_DIR', 'MIXDOG_USER_DATA_BACKUP_ROOT', 'USERPROFILE', 'HOME'].map((name) => [name, process.env[name]]));
@@ -44,7 +46,7 @@ for (const scenario of SCENARIOS) {
     const before = snapshot(base);
     // A read that fails leaves the default palette, as Node's boot did.
     const recorded = golden.scenarios.find((s) => s.name === scenario.name).theme;
-    assert.equal(readStoredThemeSetting(dataDir), recorded === 'THROW' ? null : recorded);
+    assert.equal(readStoredThemeSetting(readDir), recorded === 'THROW' ? null : recorded);
     // The TUI never writes the config or renames a malformed one: that repair is not its to make.
     assert.deepEqual(snapshot(base), before);
   });

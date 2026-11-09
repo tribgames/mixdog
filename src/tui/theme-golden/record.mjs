@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { exportNodeTree } from '../components/status-line/footer-golden/node-tree.mjs';
-import { SCENARIOS, themeLayout } from './scenarios.mjs';
+import { SCENARIOS, themeLayout, themePaths } from './scenarios.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = process.argv[2];
@@ -28,10 +28,10 @@ const recorded = [];
 for (const scenario of SCENARIOS) {
   const root = mkdtempSync(join(tmpdir(), 'theme-record-'));
   try {
-    const dataDir = join(root, 'data');
+    const { dataDir, readDir } = themePaths(root, scenario);
     const layout = themeLayout(root, scenario);
     scenario.setup({ dataDir, backupRoot: layout.backupRoot, legacyRoot: layout.legacyRoot });
-    const env = { ...process.env, NODE_TREE: tree, MIXDOG_DATA_DIR: dataDir, ...layout.env };
+    const env = { ...process.env, NODE_TREE: tree, MIXDOG_DATA_DIR: readDir, ...layout.env };
     for (const name of layout.unset) delete env[name];
     const run = spawnSync(process.execPath, ['--input-type=module', '-e', child], { cwd: tree, encoding: 'utf8', env });
     if (run.status !== 0) throw new Error(`${scenario.name}: ${run.stderr}`);
@@ -40,5 +40,5 @@ for (const scenario of SCENARIOS) {
     rmSync(root, { recursive: true, force: true });
   }
 }
-writeFileSync(out, `${JSON.stringify({ recordedFrom: commit, scenarios: recorded }, null, 1)}\n`);
+writeFileSync(out, `${JSON.stringify({ recordedFrom: commit, platform: process.platform, scenarios: recorded }, null, 1)}\n`);
 void pathToFileURL;
