@@ -32,7 +32,7 @@ for (const scenario of SCENARIOS) {
     const dataDir = join(base, 'data');
     const layout = themeLayout(base, scenario);
     scenario.setup({ dataDir, backupRoot: layout.backupRoot, legacyRoot: layout.legacyRoot });
-    const saved = Object.fromEntries(['MIXDOG_HOME', 'MIXDOG_CONFIG_DIR', 'MIXDOG_USER_DATA_BACKUP_ROOT'].map((name) => [name, process.env[name]]));
+    const saved = Object.fromEntries(['MIXDOG_HOME', 'MIXDOG_CONFIG_DIR', 'MIXDOG_USER_DATA_BACKUP_ROOT', 'USERPROFILE', 'HOME'].map((name) => [name, process.env[name]]));
     Object.assign(process.env, layout.env);
     for (const name of layout.unset) delete process.env[name];
     t.after(() => {

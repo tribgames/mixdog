@@ -134,6 +134,62 @@
    "theme": null
   },
   {
+   "name": "a backup with channels but no agent counts as complete",
+   "theme": "nord"
+  },
+  {
+   "name": "a backup whose agent and channels are both empty values is incomplete",
+   "theme": "gruvbox"
+  },
+  {
+   "name": "a legacy backup that is incomplete is skipped for the next legacy one",
+   "theme": "rosepine"
+  },
+  {
+   "name": "an init marker that is a folder makes the read fail",
+   "theme": "THROW"
+  },
+  {
+   "name": "an init marker without an instanceId makes the read fail",
+   "theme": "THROW"
+  },
+  {
+   "name": "an init marker with an empty instanceId makes the read fail",
+   "theme": "THROW"
+  },
+  {
+   "name": "an init marker with a non-text instanceId makes the read fail",
+   "theme": "THROW"
+  },
+  {
+   "name": "another data dir's scope folder in the root is never searched for an initialized data dir",
+   "theme": null
+  },
+  {
+   "name": "another data dir's scope folder in the root is skipped by the legacy scan",
+   "theme": "rosepine"
+  },
+  {
+   "name": "a legacy backup without a manifest is never restored",
+   "theme": null
+  },
+  {
+   "name": "a manifest without a data dir is not restorable",
+   "theme": null
+  },
+  {
+   "name": "a plain file among the backup folders is not a backup",
+   "theme": "gruvbox"
+  },
+  {
+   "name": "the backup root under MIXDOG_CONFIG_DIR alone",
+   "theme": "dracula"
+  },
+  {
+   "name": "the backup root under the home directory when nothing is set",
+   "theme": "dracula"
+  },
+  {
    "name": "a damaged init marker makes the read fail",
    "theme": "THROW"
   }
