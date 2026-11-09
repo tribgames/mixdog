@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1997,
+      "bytes": 6373,
       "path": "golden.json",
-      "sha256": "1a4642e7e4231a8b358422814b6119739afc9bf9cc6a9e7b89cfe1b49d92c523"
+      "sha256": "624cbeac7d90a5e03083cef28379437516b30b5ba1ab048d57f1379ac1561306"
     }
   ],
   "product": {
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-catalog-deadline-tie.mjs",
   "set": "catalog-deadline-tie",
-  "totalBytes": 1997
+  "totalBytes": 6373
 }
