@@ -6,9 +6,9 @@
  * keeps only the theme-dependent dot color.
  */
 import { theme } from '../../theme.mjs';
-import { deriveToolOutcomeTone } from '../../../runtime/shared/tool-card-model.mjs';
+import { deriveToolOutcomeTone } from '../../../../packages/protocol-client/src/rows/tool-card-model.mjs';
 
-export { isAgentTool, SKILL_SURFACE_NAMES, clampFailureCount } from '../../../runtime/shared/tool-card-model.mjs';
+export { isAgentTool, SKILL_SURFACE_NAMES, clampFailureCount } from '../../../../packages/protocol-client/src/rows/tool-card-model.mjs';
 
 // Theme binding only; semantic outcome lives in the shared card model so the
 // TUI and desktop cannot disagree about success, warning, and failure.

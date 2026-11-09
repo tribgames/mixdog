@@ -7,7 +7,7 @@ import {
   modelContextWindow,
   normalizeModelOptions,
 } from './model-options.mjs';
-import { isRollingModelAlias } from '../../runtime/shared/model-alias.mjs';
+import { isRollingModelAlias } from '../lib/model-alias.mjs';
 
 test('model version parsing preserves Claude, compact and generic precedence and missing components', () => {
   for (const [id, expected] of [

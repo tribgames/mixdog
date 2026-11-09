@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildContextMap, contextShares } from '../runtime/shared/context-inspection.mjs';
+import { buildContextMap, contextShares } from '../../src/rows/context-inspection.mjs';
 
 test('block allocation conserves cells and reports free space as the rest of the window', () => {
   assert.deepEqual(contextShares([1, 1, 1], 10), [4, 3, 3]);

@@ -5,7 +5,7 @@ import {
   contextMeasurementStats,
   measuredContextUsage,
   contextMeasurementLabel,
-} from '../../../runtime/shared/context-measurement.mjs';
+} from '../../../../packages/protocol-client/src/rows/context-measurement.mjs';
 
 const EMPTY_TOOLS = { activeCount: 0, count: 0, mcpToolCount: 0, activeMcpToolCount: 0, activeTools: [] };
 const EMPTY_MCP = { connectedCount: 0, configuredCount: 0, failedCount: 0 };

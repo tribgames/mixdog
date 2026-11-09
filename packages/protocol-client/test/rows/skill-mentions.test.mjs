@@ -6,7 +6,7 @@ import {
   mentionedSkillNames,
   skillMentionCandidates,
   skillMentions,
-} from './skill-mentions.mjs';
+} from '../../src/rows/skill-mentions.mjs';
 
 const known = new Set(['api-review', 'pptx', 'release-notes']);
 const isSkill = (name) => known.has(name);

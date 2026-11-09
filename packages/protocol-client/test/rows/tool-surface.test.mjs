@@ -9,9 +9,9 @@ import {
   isTaskWaitToolCall,
   toolWorkUnit,
   toolLoadingTargets,
-} from './tool-surface.mjs';
-import { deriveToolCardModel } from './tool-card-model.mjs';
-import { codeGraphLabel } from './tool-primitives.mjs';
+} from '../../src/rows/tool-surface.mjs';
+import { deriveToolCardModel } from '../../src/rows/tool-card-model.mjs';
+import { codeGraphLabel } from '../../src/rows/tool-primitives.mjs';
 
 test('git has a first-class completed action label', () => {
   const args = { command: 'git status --short' };

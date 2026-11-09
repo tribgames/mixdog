@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { Worker } from 'node:worker_threads';
-import { waitUntil } from '../../../runtime/shared/wait-until.test-support.mjs';
+import { waitUntil } from '../../test-support/wait-until.test-support.mjs';
 import { createSpillWriter } from './spill-writer.mjs';
 
 // The writer retires its worker thread once every write has settled and it

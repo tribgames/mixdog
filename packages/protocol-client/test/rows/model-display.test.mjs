@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { displayModelName } from '../runtime/shared/model-display.mjs';
+import { displayModelName } from '../../src/rows/model-display.mjs';
 
 test('gateway brand ids get models.dev-style labels without a catalog', () => {
   const cases = {

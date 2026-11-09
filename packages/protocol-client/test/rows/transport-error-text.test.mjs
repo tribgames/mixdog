@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { classifyTransportError, transportErrorText } from './transport-error-text.mjs';
-import { presentErrorText, backgroundTaskFailureStatusLabel } from './err-text.mjs';
+import { classifyTransportError, transportErrorText } from '../../src/rows/transport-error-text.mjs';
+import { presentErrorText, backgroundTaskFailureStatusLabel } from '../../src/rows/err-text.mjs';
 
 function undiciTerminated(withCause = true) {
   const err = new TypeError('terminated');

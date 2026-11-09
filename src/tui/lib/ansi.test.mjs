@@ -6,7 +6,7 @@ function renderColors(environment) {
   const env = { ...process.env, FORCE_COLOR: '1', ...environment };
   delete env.NO_COLOR;
   const script = `
-    import { rgb, rgbSgr } from ${JSON.stringify(new URL('../runtime/shared/statusline/ansi.mjs', import.meta.url).href)};
+    import { rgb, rgbSgr } from ${JSON.stringify(new URL('./ansi.mjs', import.meta.url).href)};
     process.stdout.write(JSON.stringify([
       rgbSgr(255, 0, 0),
       rgbSgr(255, 0, 0, true),

@@ -12,7 +12,7 @@ import {
   safeInlineText,
   MIN_RESULT_LINE_CHARS,
   RESULT_LINE_HARD_MAX,
-} from '../../../runtime/shared/tool-card-model.mjs';
+} from '../../../../packages/protocol-client/src/rows/tool-card-model.mjs';
 
 export {
   SUMMARY_MAX_CHARS,
@@ -22,7 +22,7 @@ export {
   resultTerminalStatus,
   displayTerminalStatus,
   stripLeadingStatusMarkerFromText,
-} from '../../../runtime/shared/tool-card-model.mjs';
+} from '../../../../packages/protocol-client/src/rows/tool-card-model.mjs';
 
 /** Visible width budget for one collapsed result line at `columns`. */
 export function resultLineMaxChars(columns) {

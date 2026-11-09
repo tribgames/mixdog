@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { deriveToolCardModel } from './tool-card-model.mjs';
-import { summarizeToolResult } from './tool-result-summary.mjs';
-import { aggregateToolCategoryEntry, formatToolSurface } from './tool-surface.mjs';
+import { deriveToolCardModel } from '../../src/rows/tool-card-model.mjs';
+import { summarizeToolResult } from '../../src/rows/tool-result-summary.mjs';
+import { aggregateToolCategoryEntry, formatToolSurface } from '../../src/rows/tool-surface.mjs';
 
 const C = (name, args, result, extra = {}) => deriveToolCardModel({ name, args, result, rawResult: result, ...extra });
 const FAILED = { isError: true, callErrorCount: 1 };

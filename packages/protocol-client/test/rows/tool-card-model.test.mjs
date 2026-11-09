@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { deriveToolCardModel, splitLineDeltaTokens } from './tool-card-model.mjs';
+import { deriveToolCardModel, splitLineDeltaTokens } from '../../src/rows/tool-card-model.mjs';
 import { GOLDEN_CASES, GIT_GOLDEN_CASES } from './tool-card-model.golden-cases.mjs';
 
 // Golden models were captured from deriveToolCardModel itself; regenerate the

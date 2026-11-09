@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import test from 'node:test';
-import { waitUntil } from '../../runtime/shared/wait-until.test-support.mjs';
+import { waitUntil } from '../test-support/wait-until.test-support.mjs';
 import { createTranscriptSpillBuffer, spillWarningToStderr } from './transcript-spill.mjs';
 
 // The spill buffer with an in-process fake worker: whole chunks leave the live

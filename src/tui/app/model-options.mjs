@@ -6,11 +6,11 @@
  * displayModelName formatter.
  */
 import { theme } from '../theme.mjs';
-import { displayModelName, effortDisplayLabel } from '../../runtime/shared/model-display.mjs';
-import { isRollingModelAlias } from '../../runtime/shared/model-alias.mjs';
-import { describeError } from '../../runtime/shared/error-presentation.mjs';
-import { providerDisplayName } from '../../runtime/shared/provider-display-name.mjs';
-import { DAYBREAK_PROVIDER, daybreakBlueOn } from '../../runtime/shared/llm/openai-daybreak.mjs';
+import { displayModelName, effortDisplayLabel } from '../../../packages/protocol-client/src/rows/model-display.mjs';
+import { isRollingModelAlias } from '../lib/model-alias.mjs';
+import { describeError } from '../../../packages/protocol-client/src/rows/error-presentation.mjs';
+import { providerDisplayName } from '../lib/provider-display-name.mjs';
+import { DAYBREAK_PROVIDER, daybreakBlueOn } from '../lib/openai-daybreak.mjs';
 
 export const parsedModelVersion = (id) => {
   const text = String(id || '').toLowerCase();
