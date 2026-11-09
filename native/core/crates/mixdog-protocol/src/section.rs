@@ -72,7 +72,7 @@ sections! {
     BotOrder => "botOrder", "agent/botOrder/updated", App, keyed: false;
     /// Model presets (today's `listPresets`).
     Presets => "presets", "model/presets/updated", App, keyed: false;
-    /// Model catalog; pages through `model/list` when stubbed.
+    /// Model catalog (the `model/list` rows); when stubbed the client reads `model/list`, which is not paged.
     ModelCatalog => "modelCatalog", "model/catalog/updated", App, keyed: false;
     /// Workflow list (today's `listWorkflows`).
     Workflows => "workflows", "workflow/list/updated", App, keyed: false;

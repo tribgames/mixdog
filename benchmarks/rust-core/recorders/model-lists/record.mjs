@@ -63,7 +63,7 @@ for (const scenario of scenarios) {
   const agent = JSON.parse(JSON.stringify(scenario.agent).replaceAll('__BASE_URL__', baseURL));
   writeFileSync(join(paths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent }, null, 2));
   const file = join(root, 'scenario.json');
-  writeFileSync(file, JSON.stringify({ name: scenario.name, calls: scenario.calls, waitListed: scenario.waitListed }));
+  writeFileSync(file, JSON.stringify({ name: scenario.name, calls: JSON.parse(JSON.stringify(scenario.calls).replaceAll('__BASE_URL__', baseURL)), waitListed: scenario.waitListed, recordConfig: scenario.recordConfig }));
   const env = {};
   for (const [name, value] of Object.entries(process.env)) if (!DROP.test(name)) env[name] = value;
   Object.assign(env, {
