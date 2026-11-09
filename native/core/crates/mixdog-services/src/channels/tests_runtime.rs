@@ -1184,6 +1184,23 @@ async fn a_busy_runtime_parks_the_saved_schedules_start_until_it_is_woken_idle()
     assert!(e.runtime.automation_running());
     e.runtime.stop_owned_runtime("test").await.unwrap();
 
+    // A real running turn (the session runtime's liveness map, as the daemon's `busy_reason` reads it).
+    let live = crate::task_reports::runtime_state::RuntimeLiveness::new();
+    let real = env().await;
+    real.admin.bind_busy({
+        let live = live.clone();
+        Arc::new(move || (!live.in_flight_session_activity().working.is_empty()).then_some("turn-active"))
+    });
+    let turn = live.dispatched("lead-session");
+    real.admin.save_schedule(&recurring("a")).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(real.agent.inits.load(Ordering::SeqCst), 0, "a running turn parks the save's start");
+    drop(turn);
+    real.admin.wake_deferred_start();
+    real.runtime.scheduled_start_settled().await;
+    assert_eq!(real.agent.inits.load(Ordering::SeqCst), 1, "the turn ended: the start ran");
+    real.runtime.stop_owned_runtime("test").await.unwrap();
+
     let autostart = env().await;
     autostart.admin.bind_busy(Arc::new(|| Some("session-create")));
     autostart.schedules.upsert(&sched("a")).await.unwrap();
