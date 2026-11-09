@@ -35,15 +35,7 @@ if (!scenario) {
   const out = {};
   for (const name of ['start-after-save', 'stop-during-provider-init', 'save-during-provider-init']) {
     const file = join(mkdtempSync(join(SCRATCH, 'out-')), 'result.json');
-    // A cold PostgreSQL cluster (initdb + start) can outlast pg_ctl's own wait on a slow disk: that is a failed recording attempt, not a result, so the scenario is run again in a fresh data directory.
-    for (let attempt = 1; ; attempt += 1) {
-      try {
-        execFileSync(process.execPath, [new URL(import.meta.url).pathname.replace(/^\//, ''), '--tree', tree, '--scenario', name, '--out', file], { stdio: 'inherit', env: { ...process.env, MIXDOG_RECORDER_SCRATCH: SCRATCH } });
-        break;
-      } catch (error) {
-        if (attempt >= 3) throw error;
-      }
-    }
+    execFileSync(process.execPath, [new URL(import.meta.url).pathname.replace(/^\//, ''), '--tree', tree, '--scenario', name, '--out', file], { stdio: 'inherit', env: { ...process.env, MIXDOG_RECORDER_SCRATCH: SCRATCH } });
     out[name] = JSON.parse(readFileSync(file, 'utf8'));
   }
   const finalDir = join(FIXTURES_ROOT, 'schedule-save-start');

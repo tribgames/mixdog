@@ -361,11 +361,18 @@ impl ChannelLifecycle for ChannelRuntime {
             if st.bridge_starting || st.automation_starting {
                 st.stop_requested = true;
             }
-            // Cut short every start and reload in flight, stuck or not, so the teardown never
-            // waits behind one.
-            st.epoch.cancel();
-            st.epoch = CancellationToken::new();
-            st.epoch.clone()
+            if st.automation_starting {
+                // Node awaits `automationStartPromise` before tearing down (`owned-stop.mjs`, the
+                // `await state.automationStartPromise`): the start sees `stop_requested` at its next
+                // checkpoint and arms nothing, and the teardown below queues behind it on the start gate.
+                st.epoch.clone()
+            } else {
+                // Cut short every start and reload in flight, stuck or not, so the teardown never
+                // waits behind one.
+                st.epoch.cancel();
+                st.epoch = CancellationToken::new();
+                st.epoch.clone()
+            }
         };
         let Ok(_start) = self.start_gate.enter(&epoch).await else {
             // A later stop superseded this one and does the teardown.
