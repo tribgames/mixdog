@@ -35,21 +35,21 @@ test('an old host (no remoteParity) keeps the pre-round behavior', async () => {
   await withPhoneApi({ ...handlers, submitToSession: () => Promise.reject((submits += 1, lostReply())) }, async ({ ctx, api, calls }) => {
     ctx.updaterListeners = new Set();
     ctx.peerRemoteParity = false;
-    // remote-shim-api.ts:525-548 -- the gated members are absent.
+    // Node remote-shim-api.ts:546-567 -- the gated members read as absent unless `parity()` (:97, ctx.peerRemoteParity === true).
     for (const key of GATED) assert.equal(api[key], undefined, `${key} is absent`);
-    // :381-385 -- the updater answers are the inert defaults, and nothing reaches the adapter.
+    // :400-404 -- without parity the updater answers are LEGACY_HOST_FALLBACKS (inert `disabled`), and nothing is called.
     assert.deepEqual({ ...(await api.getUpdaterState()) }, { status: 'disabled' });
     assert.deepEqual({ ...(await api.checkForDesktopUpdate()) }, { status: 'disabled' });
     assert.deepEqual({ ...(await api.showDesktopUpdate()) }, { status: 'disabled' });
-    // :389 -- the subscription is always registered.
+    // :408 -- subscribeUpdaterState is always registered on ctx.updaterListeners (listenOn).
     const unsubscribe = api.subscribeUpdaterState(() => {});
     assert.equal(ctx.updaterListeners.size, 1);
     unsubscribe();
     assert.equal(ctx.updaterListeners.size, 0);
-    // :396-399 -- the trash refusal and the page release fall back locally.
+    // :415-418 -- without parity the trash refusal (remote-browser-fallbacks.ts:23) and the page release are local fallbacks.
     await assert.rejects(api.trashProjectEntry('/p', 'a.txt'), { message: OLD_TRASH });
     await api.browserReleasePage('page');
-    // :424-426 -- an old host does not dedupe: a lost reply is not retried.
+    // :444-446 -- without parity submitToSession is a plain call: no stable id, a lost reply is not replayed.
     await assert.rejects(api.submitToSession('s1', 'hello', {}), { code: 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED' });
     await settle();
     // Nothing else (no unknown-method probe, no retry) reached the adapter: the one submit.
@@ -75,7 +75,7 @@ test('a new host (remoteParity) exposes the new members and retries submits with
       assert.equal((await api.getUpdaterState()).status, 'ready');
       await api.trashProjectEntry('/p', 'a.txt');
       assert.deepEqual(calls.map((call) => call.method), ['getUpdaterState', 'trashProjectEntry']);
-      // :424-435 -- a stable id is added, and the replay after the lost reply carries the same one.
+      // :444-451 -- with parity submitToSession adds a stable id (:449) and recoverableCreation replays the call after a lost reply with the same one (:450-451).
       assert.equal(await api.submitToSession('s1', 'hello', {}), true);
       assert.equal(submitted.length, 2);
       assert.ok(submitted[0][2].id);
@@ -91,6 +91,7 @@ test('an updater subscription made before the connection says what the host has 
     api.subscribeUpdaterState((state) => seen.push(state.status));
     assert.equal(ctx.peerRemoteParity, false);
     // What the phone does when a connection is ready: the flags of that connection are set; no listener is touched (phone-boot.ts).
+    // Node: the flag is set from the challenge (remote-shim-socket.ts:388) and the listener set lives on ctx (remote-shim-state.ts:517), so it survives.
     ctx.peerRemoteParity = true;
     assert.equal(ctx.updaterListeners.size, 1);
     ctx.fanOut(ctx.updaterListeners, { status: 'ready' });
@@ -102,7 +103,8 @@ test('presence follows the host of the current connection after a reconnect', as
   await withPhoneApi(handlers, async ({ ctx, api }) => {
     ctx.peerRemoteParity = true;
     assert.equal(typeof api.ghPrList, 'function');
-    // phone-boot.ts resets the peer flags when a connection is lost, and the next connection sets its own.
+    // phone-boot.ts resets the peer flags when a connection is lost, and the next connection sets its own (Node: remote-shim-socket.ts:291 and :388).
+    // The gate is evaluated per read (remote-shim-api.ts:564-567).
     ctx.peerRemoteParity = false;
     assert.equal(api.ghPrList, undefined);
   });

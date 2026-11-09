@@ -127,7 +127,7 @@ for (const name of Object.keys(ORACLE_SCENARIOS)) {
 }
 
 const lanes = runChild('lanes', 'matrix');
-// The core's side of the same matrix is recorded by the Rust test in recorders/core/lane_pushes.rs (see lib/lane-pushes.mjs for how it runs).
+// The core's side of the same matrix is recorded by the Rust test in native/core/crates/mixdog-app-server/src/tests/lane_pushes.rs (cargo test -p mixdog-app-server --lib a_connection_hears -- --nocapture; pass its output with --core-log).
 const laneCore = existsSync(laneFixture) ? JSON.parse(readFileSync(laneFixture, 'utf8')).core : null;
 const laneCoreLog = args.get('core-log');
 
@@ -143,7 +143,7 @@ writeJson(join(out, 'transport.json'), {
   scenarios: transport,
 });
 writeJson(join(out, 'lane-pushes.json'), {
-  note: 'What a phone receives from lane pushes after it connects: Node (real push-lane module and setRemoteLanes handler) per registration phase, and the core (Rust test recorders/core/lane_pushes.rs) per feed phase. apps/desktop/src/renderer/remote-shim-lifecycle.slow.test.mjs compares them.',
+  note: 'What a phone receives from lane pushes after it connects: Node (real push-lane module and setRemoteLanes handler) per registration phase, and the core (Rust test native/core/crates/mixdog-app-server/src/tests/lane_pushes.rs) per feed phase. apps/desktop/src/renderer/remote-shim-lifecycle.slow.test.mjs compares them.',
   node: lanes,
   core: laneCoreLog ? coreFromLog(laneCoreLog) : laneCore,
 });
