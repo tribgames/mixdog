@@ -1262,8 +1262,708 @@
       }
     },
     {
-      "name": "a held request never expires: it still waits after a virtual day",
+      "name": "an ordinary session with no approval UI is denied, not held, on a hook ask",
       "now": 1800009000000,
+      "script": [
+        {
+          "op": "ask",
+          "id": "a",
+          "session": "plain",
+          "call": {
+            "name": "shell",
+            "args": {
+              "command": "echo hi"
+            }
+          },
+          "hook": {
+            "action": "ask",
+            "reason": "needs approval"
+          },
+          "ui": null
+        },
+        {
+          "op": "facts"
+        }
+      ],
+      "trace": [
+        {
+          "op": "ask",
+          "id": "a",
+          "session": "sess_plain",
+          "state": "settled",
+          "outcome": {
+            "denial": "Error: tool \"shell\" denied by hook: approval required but no approval UI is available (needs approval)"
+          },
+          "deliveries": [],
+          "pushes": [],
+          "uiAsks": []
+        },
+        {
+          "op": "facts",
+          "facts": {
+            "sessions": [],
+            "tasks": [],
+            "approvals": 0,
+            "routines": []
+          }
+        }
+      ],
+      "audit": [
+        {
+          "at": 1800009000000,
+          "agentId": "lead",
+          "kind": "approval",
+          "action": "tool:shell",
+          "tool": "shell",
+          "target": "",
+          "decision": "deny",
+          "device": ""
+        }
+      ],
+      "grants": [],
+      "timers": {
+        "registered": 0,
+        "pending": 0
+      }
+    },
+    {
+      "name": "an ordinary session with no approval UI asks nobody on an outbound comment",
+      "now": 1800010000000,
+      "script": [
+        {
+          "op": "ask",
+          "id": "a",
+          "session": "plain",
+          "call": {
+            "name": "github",
+            "args": {
+              "action": "pr.comment",
+              "repo": "o/r",
+              "number": 4,
+              "body": "ARG-SENTINEL-77"
+            }
+          },
+          "hook": null,
+          "ui": null
+        },
+        {
+          "op": "facts"
+        }
+      ],
+      "trace": [
+        {
+          "op": "ask",
+          "id": "a",
+          "session": "sess_plain",
+          "state": "settled",
+          "outcome": {
+            "allowed": true,
+            "name": "github",
+            "args": {
+              "action": "pr.comment",
+              "repo": "o/r",
+              "number": 4,
+              "body": "ARG-SENTINEL-77"
+            }
+          },
+          "deliveries": [],
+          "pushes": [],
+          "uiAsks": []
+        },
+        {
+          "op": "facts",
+          "facts": {
+            "sessions": [],
+            "tasks": [],
+            "approvals": 0,
+            "routines": []
+          }
+        }
+      ],
+      "audit": [],
+      "grants": [],
+      "timers": {
+        "registered": 0,
+        "pending": 0
+      }
+    },
+    {
+      "name": "a webhook run with no approval UI never asks and holds nothing",
+      "now": 1800011000000,
+      "script": [
+        {
+          "op": "mark",
+          "session": "webhook",
+          "kind": "webhook",
+          "agentId": "ann",
+          "name": "issues"
+        },
+        {
+          "op": "ask",
+          "id": "a",
+          "session": "webhook",
+          "call": {
+            "name": "github",
+            "args": {
+              "action": "pr.comment",
+              "repo": "o/r",
+              "number": 4,
+              "body": "ARG-SENTINEL-77"
+            }
+          },
+          "hook": null,
+          "ui": null
+        },
+        {
+          "op": "facts"
+        }
+      ],
+      "trace": [
+        {
+          "op": "mark",
+          "session": "sess_run_hook"
+        },
+        {
+          "op": "ask",
+          "id": "a",
+          "session": "sess_run_hook",
+          "state": "settled",
+          "outcome": {
+            "allowed": true,
+            "name": "github",
+            "args": {
+              "action": "pr.comment",
+              "repo": "o/r",
+              "number": 4,
+              "body": "ARG-SENTINEL-77"
+            }
+          },
+          "deliveries": [],
+          "pushes": [],
+          "uiAsks": []
+        },
+        {
+          "op": "facts",
+          "facts": {
+            "sessions": [],
+            "tasks": [],
+            "approvals": 0,
+            "routines": []
+          }
+        }
+      ],
+      "audit": [
+        {
+          "at": 1800011000000,
+          "agentId": "ann",
+          "kind": "outbound",
+          "action": "comment",
+          "tool": "github:pr.comment",
+          "target": "o/r#4",
+          "decision": "run-allowed",
+          "device": ""
+        }
+      ],
+      "grants": [],
+      "timers": {
+        "registered": 0,
+        "pending": 0
+      }
+    },
+    {
+      "name": "the approval UI is read at each ask: attached, detached, attached; a held request stays held when a UI attaches after it",
+      "now": 1800012000000,
+      "script": [
+        {
+          "op": "ask",
+          "id": "a",
+          "session": "room",
+          "call": {
+            "name": "github",
+            "args": {
+              "action": "pr.comment",
+              "repo": "o/r",
+              "number": 4,
+              "body": "ARG-SENTINEL-77"
+            }
+          },
+          "hook": null,
+          "ui": {
+            "approved": true,
+            "response": "approve",
+            "device": "Pixel"
+          }
+        },
+        {
+          "op": "ask",
+          "id": "b",
+          "session": "room",
+          "call": {
+            "name": "shell",
+            "args": {
+              "command": "echo hi"
+            }
+          },
+          "hook": {
+            "action": "ask",
+            "reason": "needs approval"
+          },
+          "ui": null
+        },
+        {
+          "op": "facts"
+        },
+        {
+          "op": "ask",
+          "id": "c",
+          "session": "room",
+          "call": {
+            "name": "shell",
+            "args": {
+              "command": "echo hi"
+            }
+          },
+          "hook": {
+            "action": "ask",
+            "reason": "needs approval"
+          },
+          "ui": {
+            "approved": false,
+            "response": "deny",
+            "reason": "not now",
+            "device": "Pixel"
+          }
+        },
+        {
+          "op": "facts"
+        },
+        {
+          "op": "answer",
+          "ask": "b",
+          "decision": {
+            "approved": true,
+            "response": "approve",
+            "device": "Pixel"
+          }
+        },
+        {
+          "op": "facts"
+        }
+      ],
+      "trace": [
+        {
+          "op": "ask",
+          "id": "a",
+          "session": "sess_rmem_room123abc_ann",
+          "state": "settled",
+          "outcome": {
+            "allowed": true,
+            "name": "github",
+            "args": {
+              "action": "pr.comment",
+              "repo": "o/r",
+              "number": 4,
+              "body": "ARG-SENTINEL-77"
+            }
+          },
+          "deliveries": [],
+          "pushes": [],
+          "uiAsks": [
+            {
+              "name": "github",
+              "kind": "outbound",
+              "reason": "This sends or posts outside Mixdog; it needs your approval.",
+              "remember": [
+                "once",
+                "agent"
+              ]
+            }
+          ]
+        },
+        {
+          "op": "ask",
+          "id": "b",
+          "session": "sess_rmem_room123abc_ann",
+          "state": "held",
+          "deliveries": [
+            {
+              "agentId": "ann",
+              "held": {
+                "id": "held_00000000-0000-4000-8000-000000000001",
+                "status": "pending",
+                "agentId": "ann",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "reason": "needs approval",
+                "remember": [
+                  "once"
+                ],
+                "run": {
+                  "kind": "room",
+                  "name": "room123abc",
+                  "sessionId": "sess_rmem_room123abc_ann"
+                }
+              }
+            }
+          ],
+          "pushes": [
+            {
+              "sessionId": "sess_home_ann",
+              "agentId": "ann",
+              "agentName": "ann",
+              "requestId": "held_00000000-0000-4000-8000-000000000001"
+            }
+          ],
+          "uiAsks": []
+        },
+        {
+          "op": "facts",
+          "facts": {
+            "sessions": [],
+            "tasks": [],
+            "approvals": 1,
+            "routines": []
+          }
+        },
+        {
+          "op": "ask",
+          "id": "c",
+          "session": "sess_rmem_room123abc_ann",
+          "state": "settled",
+          "outcome": {
+            "denial": "Error: tool \"shell\" was not approved: not now. Do not retry it or reach the same result another way; report it."
+          },
+          "deliveries": [],
+          "pushes": [],
+          "uiAsks": [
+            {
+              "name": "shell",
+              "kind": "approval",
+              "reason": "needs approval",
+              "remember": [
+                "once"
+              ]
+            }
+          ]
+        },
+        {
+          "op": "facts",
+          "facts": {
+            "sessions": [],
+            "tasks": [],
+            "approvals": 1,
+            "routines": []
+          }
+        },
+        {
+          "op": "answer",
+          "ask": "b",
+          "requestId": "held_00000000-0000-4000-8000-000000000001",
+          "accepted": true,
+          "outcome": {
+            "allowed": true,
+            "name": "shell",
+            "args": {
+              "command": "echo hi"
+            }
+          },
+          "deliveries": [
+            {
+              "agentId": "ann",
+              "held": {
+                "id": "held_00000000-0000-4000-8000-000000000001",
+                "status": "approved",
+                "agentId": "ann",
+                "kind": "approval",
+                "tool": "shell",
+                "target": "",
+                "reason": "needs approval",
+                "remember": [
+                  "once"
+                ],
+                "run": {
+                  "kind": "room",
+                  "name": "room123abc",
+                  "sessionId": "sess_rmem_room123abc_ann"
+                },
+                "device": "Pixel"
+              }
+            }
+          ],
+          "pushes": [],
+          "uiAsks": []
+        },
+        {
+          "op": "facts",
+          "facts": {
+            "sessions": [],
+            "tasks": [],
+            "approvals": 0,
+            "routines": []
+          }
+        }
+      ],
+      "audit": [
+        {
+          "at": 1800012000000,
+          "agentId": "ann",
+          "kind": "outbound",
+          "action": "comment",
+          "tool": "github:pr.comment",
+          "target": "o/r#4",
+          "decision": "approve",
+          "device": "Pixel"
+        },
+        {
+          "at": 1800012000000,
+          "agentId": "ann",
+          "kind": "approval",
+          "action": "tool:shell",
+          "tool": "shell",
+          "target": "",
+          "decision": "deny",
+          "device": "Pixel"
+        },
+        {
+          "at": 1800012000000,
+          "agentId": "ann",
+          "kind": "approval",
+          "action": "",
+          "tool": "shell",
+          "target": "",
+          "decision": "approve",
+          "device": "Pixel"
+        },
+        {
+          "at": 1800012000000,
+          "agentId": "ann",
+          "kind": "approval",
+          "action": "tool:shell",
+          "tool": "shell",
+          "target": "",
+          "decision": "approve",
+          "device": "Pixel"
+        }
+      ],
+      "grants": [],
+      "timers": {
+        "registered": 0,
+        "pending": 0
+      }
+    },
+    {
+      "name": "a delivery that never completes holds back neither the push, nor the answer, nor the audit",
+      "now": 1800013000000,
+      "stallDelivery": true,
+      "script": [
+        {
+          "op": "ask",
+          "id": "a",
+          "session": "room",
+          "call": {
+            "name": "github",
+            "args": {
+              "action": "pr.comment",
+              "repo": "o/r",
+              "number": 4,
+              "body": "ARG-SENTINEL-77"
+            }
+          },
+          "hook": null,
+          "ui": null
+        },
+        {
+          "op": "facts"
+        },
+        {
+          "op": "answer",
+          "ask": "a",
+          "decision": {
+            "approved": true,
+            "response": "approve",
+            "device": "Pixel",
+            "remember": "agent"
+          }
+        },
+        {
+          "op": "facts"
+        }
+      ],
+      "trace": [
+        {
+          "op": "ask",
+          "id": "a",
+          "session": "sess_rmem_room123abc_ann",
+          "state": "held",
+          "deliveries": [
+            {
+              "agentId": "ann",
+              "held": {
+                "id": "held_00000000-0000-4000-8000-000000000001",
+                "status": "pending",
+                "agentId": "ann",
+                "kind": "outbound",
+                "tool": "github",
+                "target": "o/r#4",
+                "reason": "This sends or posts outside Mixdog; it needs your approval.",
+                "payload": "ARG-SENTINEL-77",
+                "action": "comment",
+                "account": "github.com",
+                "editable": [
+                  "body"
+                ],
+                "details": {},
+                "remember": [
+                  "once",
+                  "agent"
+                ],
+                "run": {
+                  "kind": "room",
+                  "name": "room123abc",
+                  "sessionId": "sess_rmem_room123abc_ann"
+                }
+              }
+            }
+          ],
+          "pushes": [
+            {
+              "sessionId": "sess_home_ann",
+              "agentId": "ann",
+              "agentName": "ann",
+              "requestId": "held_00000000-0000-4000-8000-000000000001"
+            }
+          ],
+          "uiAsks": []
+        },
+        {
+          "op": "facts",
+          "facts": {
+            "sessions": [],
+            "tasks": [],
+            "approvals": 1,
+            "routines": []
+          }
+        },
+        {
+          "op": "answer",
+          "ask": "a",
+          "requestId": "held_00000000-0000-4000-8000-000000000001",
+          "accepted": true,
+          "outcome": {
+            "allowed": true,
+            "name": "github",
+            "args": {
+              "action": "pr.comment",
+              "repo": "o/r",
+              "number": 4,
+              "body": "ARG-SENTINEL-77"
+            }
+          },
+          "deliveries": [
+            {
+              "agentId": "ann",
+              "held": {
+                "id": "held_00000000-0000-4000-8000-000000000001",
+                "status": "approved",
+                "agentId": "ann",
+                "kind": "outbound",
+                "tool": "github",
+                "target": "o/r#4",
+                "reason": "This sends or posts outside Mixdog; it needs your approval.",
+                "payload": "ARG-SENTINEL-77",
+                "action": "comment",
+                "account": "github.com",
+                "editable": [
+                  "body"
+                ],
+                "details": {},
+                "remember": [
+                  "once",
+                  "agent"
+                ],
+                "run": {
+                  "kind": "room",
+                  "name": "room123abc",
+                  "sessionId": "sess_rmem_room123abc_ann"
+                },
+                "device": "Pixel"
+              }
+            }
+          ],
+          "pushes": [],
+          "uiAsks": []
+        },
+        {
+          "op": "facts",
+          "facts": {
+            "sessions": [],
+            "tasks": [],
+            "approvals": 0,
+            "routines": []
+          }
+        }
+      ],
+      "audit": [
+        {
+          "at": 1800013000000,
+          "agentId": "ann",
+          "kind": "outbound",
+          "action": "comment",
+          "tool": "github",
+          "target": "o/r#4",
+          "decision": "approve",
+          "device": "Pixel"
+        },
+        {
+          "at": 1800013000000,
+          "agentId": "ann",
+          "kind": "outbound",
+          "action": "comment",
+          "tool": "github",
+          "target": "o/r#4",
+          "decision": "granted",
+          "device": "Pixel"
+        },
+        {
+          "at": 1800013000000,
+          "agentId": "ann",
+          "kind": "outbound",
+          "action": "comment",
+          "tool": "github:pr.comment",
+          "target": "o/r#4",
+          "decision": "approve",
+          "device": "Pixel"
+        },
+        {
+          "at": 1800013000000,
+          "agentId": "ann",
+          "kind": "outbound",
+          "action": "comment",
+          "tool": "github:pr.comment",
+          "target": "o/r#4",
+          "decision": "granted",
+          "device": "Pixel"
+        }
+      ],
+      "grants": [
+        {
+          "id": "grant_9958d432ba93416d01ad7499",
+          "agentId": "ann",
+          "action": "comment",
+          "mode": "allow",
+          "device": "Pixel",
+          "at": 1800013000000
+        }
+      ],
+      "timers": {
+        "registered": 0,
+        "pending": 0
+      }
+    },
+    {
+      "name": "a held request never expires: it still waits after a virtual day",
+      "now": 1800014000000,
       "script": [
         {
           "op": "ask",
@@ -1350,7 +2050,7 @@
         {
           "op": "advance",
           "ms": 86400000,
-          "now": 1800095400000,
+          "now": 1800100400000,
           "fired": 0
         },
         {
@@ -1423,7 +2123,7 @@
       ],
       "audit": [
         {
-          "at": 1800095400000,
+          "at": 1800100400000,
           "agentId": "ann",
           "kind": "outbound",
           "action": "comment",
@@ -1433,7 +2133,7 @@
           "device": "Pixel"
         },
         {
-          "at": 1800095400000,
+          "at": 1800100400000,
           "agentId": "ann",
           "kind": "outbound",
           "action": "comment",
