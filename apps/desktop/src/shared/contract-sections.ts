@@ -19,6 +19,11 @@ export const SECTION_NAMES = [
   'gitStatus', 'lspStatus', 'lspDiagnostics', 'mediaJobs', 'ports',
 ] as const;
 
+/** Sections that are a tell, not state (Node's `turn-review-changed` desktop event): a change notifies the listeners that
+ *  are there when it happens. A store never takes one from a snapshot or a whole-store replace, so a window that attaches
+ *  later, or a reconnect of the core, does not make a listener act on a tell it was not there for. */
+export const EVENT_SECTIONS: readonly string[] = ['reviewDiff'];
+
 export type DesktopProtocolStatus = 'ready' | 'reconnecting' | 'closed';
 
 export interface DesktopSectionsSnapshot {

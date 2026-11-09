@@ -7,9 +7,11 @@
 //   -> each window's `registerProtocolWindowIpc` -> that window's preload (the checkout's own file, bundled and run per window)
 //   -> the renderer's section store and the `TurnReviewBar` panes.
 //
-// A frame is folded, relayed and rendered before the next one is sent, so a second frame in one tell, or a tell split
-// across frames, reaches the panes as the separate pushes it would be (the relay coalesces only changes that arrive before
-// its flush). Windows attach in the order the recording opened them and panes mount in its order.
+// The relay runs with its production scheduling. Tells that are apart (the default: each is folded, flushed and rendered before
+// the next) reach the panes as the separate pushes they are. Tells of an operation listed in `input.bursts` are sent before any
+// is flushed, so the relay may hand them to the windows as one push: the Rust test states what that may change. A
+// `coreReconnect` operation drops the connection and dials again with the core's snapshot as it is then. Windows attach in the
+// order the recording opened them and panes mount in its order.
 //
 //   node --import <test-env> --import <test-tsx> review-reread-replay.mjs <checkout> <input.json>
 //
@@ -42,6 +44,7 @@ const { connect, sessionReducer, MockNetwork } = await fromTree('packages/protoc
 const { createProtocolConnection } = await fromTree('apps/desktop/src/main/protocol/connection.ts');
 const { registerProtocolWindowIpc } = await fromTree('apps/desktop/src/main/protocol/window-ipc.ts');
 const { DESKTOP_IPC } = await fromTree('apps/desktop/src/shared/contract.ts');
+const { SECTIONS_IPC } = await fromTree('apps/desktop/src/shared/contract-sections.ts');
 const { build } = await import(pathToFileURL(createRequire(join(tree, 'apps/desktop/package.json')).resolve('esbuild')).href);
 const preload = (await build({ entryPoints: [join(tree, 'apps/desktop/src/preload/index.ts')], bundle: true, write: false, platform: 'node', format: 'cjs', external: ['electron'] })).outputFiles[0].text;
 const options = JSON.parse(readFileSync(join(tree, 'packages/protocol-client/conformance/options.json'), 'utf8'));
@@ -60,15 +63,17 @@ const within = (what, wait) =>
 const canonical = (value) => JSON.stringify(value, (_key, item) => (item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item));
 
 let unanswered = [];
+let where = '';
 const windows = new ReviewWindows(kit, async ({ session, request }) => {
   const at = unanswered.findIndex((recorded) => recorded.client === session && canonical(recorded.request) === canonical(request));
-  if (at < 0) throw new Error(`the window of ${session} asked ${canonical(request)}, which the recording never saw at this point`);
+  if (at < 0) throw new Error(`the window of ${session} asked ${canonical(request)}, which the recording never saw at this point (${where}; recorded for this operation: ${unanswered.map((r) => r.client + ' ' + canonical(r.request.args)).join(' | ')})`);
   return unanswered.splice(at, 1)[0].answer;
 });
 
-// The connection to the core: the socket is the only stand-in. The relay's deferrals are run by `flushRelay`, one frame at a time.
+// The connection to the core: the socket is the only stand-in. The relay runs with its production scheduling (`setImmediate`):
+// whatever reaches it before that callback is one push, whatever reaches it after is another. `relayTick` lets the callbacks
+// queued so far run (the relay's was queued first), inside `act` so the panes' effects are flushed with it.
 const network = new MockNetwork();
-const deferred = [];
 const connection = createProtocolConnection({
   open: () =>
     connect({
@@ -77,28 +82,61 @@ const connection = createProtocolConnection({
       clientInfo: options.clientInfo,
       capabilities: options.capabilities,
       threadReducer: sessionReducer,
-      clock: { sleep: () => new Promise(() => {}) },
+      // A reconnect's ladder wait is the only sleep; it ends at once so the reconnect is driven by the frames alone.
+      clock: { sleep: () => Promise.resolve() },
       random: () => options.jitterUnit,
     }),
-  defer: (flush) => deferred.push(flush),
 });
-const flushRelay = async () => {
-  await kit.act(async () => {
-    while (deferred.length) deferred.shift()();
-  });
+const relayTick = () => kit.act(async () => void (await new Promise((resolve) => setImmediate(resolve))));
+
+// A window that only watches what main pushes: it counts the pushes that carry a `reviewDiff` change and tells when a replace of
+// the whole store has been committed (the relay's chunks are one deferral each, so that is an event, not a number of ticks).
+let pushes = 0;
+let commitWaiters = [];
+const awaitCommit = () => new Promise((resolve) => commitWaiters.push(resolve));
+registerProtocolWindowIpc({
+  connection,
+  handle: () => {},
+  send: (channel, push) => {
+    if (channel !== SECTIONS_IPC.push) return true;
+    if (push.kind === 'sections' && push.changes.some((change) => change.section === 'reviewDiff')) pushes += 1;
+    if (push.kind === 'replace' && push.stage === 'commit') {
+      for (const resolve of commitWaiters.splice(0)) resolve();
+    }
+    return true;
+  },
+  removeHandler: () => {},
+});
+const handshake = async (conn, first) => {
+  const initialize = JSON.parse(await within('the client sending initialize', conn.nextSent()));
+  conn.serverSend({ id: initialize.id, result: { ...options.initializeResult, serverInstanceId: first ? 'replay' : 'replay-again' } });
+  await within('the client sending initialized', conn.nextSent());
+  const subscribe = JSON.parse(await within('the client sending app/subscribe', conn.nextSent()));
+  return subscribe;
+};
+let socket;
+/** The core accepts the app subscription with `snapshot` (the core's own snapshot frame, whole). */
+const attachApp = async (snapshot) => {
+  const subscribe = await handshake(socket, snapshot === input.snapshot);
+  const feed = snapshot.feed;
+  socket.serverSend({ id: subscribe.id, result: { subscription: { id: 'app', mode: 'snapshot', epoch: feed.epoch, startSeq: feed.seq + 1 } } });
+  socket.serverSend(snapshot);
 };
 const started = connection.start();
-const socket = await within('the client dialing the core', network.accept());
-const initialize = JSON.parse(await within('the client sending initialize', socket.nextSent()));
-socket.serverSend({ id: initialize.id, result: { ...options.initializeResult, serverInstanceId: 'replay' } });
-await within('the client sending initialized', socket.nextSent());
-const subscribe = JSON.parse(await within('the client sending app/subscribe', socket.nextSent()));
-const feed = input.snapshot.feed;
-socket.serverSend({ id: subscribe.id, result: { subscription: { id: 'app', mode: 'snapshot', epoch: feed.epoch, startSeq: feed.seq + 1 } } });
-socket.serverSend(input.snapshot);
+socket = await within('the client dialing the core', network.accept());
+await attachApp(input.snapshot);
 await within('the connection folding the core\'s app snapshot', Promise.all([started, connection.whenSynced()]));
-await flushRelay();
+await relayTick();
 
+/** The core drops the connection and the client dials again; the core answers with its snapshot as it is now. */
+const reconnect = async (snapshot) => {
+  const committed = awaitCommit();
+  socket.serverClose(1006);
+  socket = await within('the client dialing the core again', network.accept());
+  await attachApp(snapshot);
+  await within('the relay committing the replaced store', committed);
+  await relayTick();
+};
 /** One window of the connection per recorded window name: its IPC, its handlers and its preload. */
 const appWindows = new Map();
 const attachWindow = (name) => {
@@ -135,36 +173,56 @@ const open = async ({ session, checkpoint, window }) => {
   await windows.open({ session, checkpoint, api: appWindows.get(window) });
 };
 
-/** One frame of a tell: sent over the socket, folded by the client, relayed by main, and rendered by every pane that listens. */
-const deliverFrame = async (frame) => {
-  const folded = new Promise((resolve) => {
-    const stop = connection.watchSection('reviewDiff', () => (stop(), resolve()));
+/** One frame of a tell, apart from every other: sent, folded by the client, flushed by the relay and rendered by every pane that listens. */
+const deliverApart = async (frame) => {
+  await deliverTogether([frame]);
+};
+/** Frames sent one after the other with nothing run between them but the client folding each; the relay flushes once, after the last. */
+const deliverTogether = async (frames) => {
+  let folded = 0;
+  const all = new Promise((resolve) => {
+    const stop = connection.watchSection('reviewDiff', () => {
+      folded += 1;
+      if (folded === frames.length) (stop(), resolve());
+    });
   });
-  socket.serverSend(frame);
-  await within(`the client folding ${frame.method} (seq ${frame.feed.seq})`, folded);
-  await flushRelay();
+  for (const frame of frames) socket.serverSend(frame);
+  await within(`the client folding ${frames.length} review/diff/updated frame(s) (from seq ${frames[0].feed.seq})`, all);
+  await relayTick();
 };
 
 const traces = [];
 for (const [index, op] of input.ops.entries()) {
   const rust = input.rust[index];
+  const together = input.bursts.includes(index);
   unanswered = [...input.recorded[index].requests];
+  where = `op ${index} ${op.op}, ${together ? 'tells together' : 'tells apart'}`;
   windows.startOperation();
+  pushes = 0;
   if (op.op === 'client') await open(op);
-  await flushRelay();
+  if (op.op === 'coreReconnect') await reconnect(rust.snapshot);
+  await relayTick();
   let delivered = 0;
   const deliverUpTo = async (count) => {
+    if (together) {
+      if (count <= delivered) return;
+      const frames = rust.deliveries.slice(delivered, count).flat();
+      windows.deliveries += count - delivered;
+      delivered = count;
+      if (frames.length) await deliverTogether(frames);
+      return;
+    }
     while (delivered < count) {
       windows.deliveries += 1;
-      for (const frame of rust.deliveries[delivered++]) await deliverFrame(frame);
+      for (const frame of rust.deliveries[delivered++]) await deliverApart(frame);
     }
   };
-  await deliverUpTo(rust.before);
+  await deliverUpTo(together ? rust.deliveries.length : rust.before);
   await windows.settle(async (answered) => deliverUpTo(rust.afterAnswer[answered - 1] ?? delivered));
   // Deliveries the windows' answers did not wait for (a window that asked less than the recording): they still reach the windows.
   await deliverUpTo(rust.deliveries.length);
   await windows.settle();
-  traces.push({ op: index, ...windows.trace() });
+  traces.push({ op: index, ...windows.trace(), pushes });
 }
 await windows.close();
 await connection.close();

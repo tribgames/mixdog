@@ -176,6 +176,8 @@ async function runScenario(scenario) {
       case 'client':
         await openWindow(op);
         return {};
+      case 'coreReconnect':
+        return {};
       case 'begin': {
         tokens.set(op.session, await snapshot.beginTurnSnapshot(roots[op.ws], op.session, { checkpointId: op.checkpoint }));
         return {};
@@ -312,6 +314,11 @@ const scenarios = [
       // A window opened after tells were made is not told about them.
       { op: 'client', session: 'u3', ws: 'w1', checkpoint: 'none', window: 'E' },
       { op: 'edit', ws: 'w1', session: 'u1', path: 'a.txt', old: 'Z', new: 'Q' },
+      // Node's runtime is in the desktop's own process: there is no link to the core to lose, so nothing happens here. The Rust
+      // replay drops and re-dials the desktop's connection to the core at this point, and the window after it attaches late.
+      { op: 'coreReconnect' },
+      { op: 'client', session: 'u4', ws: 'w1', checkpoint: 'none', window: 'F' },
+      { op: 'edit', ws: 'w1', session: 'u1', path: 'a.txt', old: 'Q', new: 'R' },
     ],
   },
 ];

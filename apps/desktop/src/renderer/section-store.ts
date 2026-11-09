@@ -3,6 +3,7 @@
 // fold store over the relay. `value` of a section is replaced whole when its `revision` is higher, so a snapshot
 // read racing a push can never move a section backwards. Nothing in the renderer polls for what a section carries.
 import { useCallback, useSyncExternalStore } from 'react';
+import { EVENT_SECTIONS } from '../shared/contract-sections';
 import type {
   DesktopProtocolStatus,
   DesktopSectionChange,
@@ -112,11 +113,12 @@ export function createSectionStore(source: SectionsSource): SectionStore {
       else if (push.stage === 'chunk') staged?.push(...push.entries);
       else {
         // The staged store replaces the held one at once: one swap, one notification per changed section.
-        const touched = new Set<string>(sections.keys());
+        // A tell is not state: a replace neither carries one in nor tells the listeners of the one it drops.
+        const touched = new Set<string>([...sections.keys()].filter((name) => !EVENT_SECTIONS.includes(name)));
         if (!loaded) pushedWholeStore = true;
         sections.clear();
         lists.clear();
-        for (const entry of staged ?? []) apply({ section: entry.section, key: entry.key, entry }, touched);
+        for (const entry of staged ?? []) if (!EVENT_SECTIONS.includes(entry.section)) apply({ section: entry.section, key: entry.key, entry }, touched);
         staged = null;
         notify(touched);
       }
@@ -138,6 +140,7 @@ export function createSectionStore(source: SectionsSource): SectionStore {
     const touched = new Set<string>();
     if (!pushedWholeStore) {
       for (const entry of snapshot.entries) {
+        if (EVENT_SECTIONS.includes(entry.section)) continue;
         if (pushedPairs.has(`${entry.section}\u0000${keyOf(entry.key)}`)) continue;
         apply({ section: entry.section, key: entry.key, entry }, touched);
       }

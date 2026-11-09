@@ -258,7 +258,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s0",
@@ -286,7 +287,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -388,7 +390,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s1",
@@ -407,7 +410,8 @@
       "answer": {
        "unchanged": true,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -446,7 +450,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s2",
@@ -465,7 +470,8 @@
       "answer": {
        "unchanged": true,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -505,7 +511,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s3",
@@ -524,7 +531,8 @@
       "answer": {
        "unchanged": true,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -565,7 +573,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s4",
@@ -584,7 +593,8 @@
       "answer": {
        "unchanged": true,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -685,7 +695,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s1",
@@ -714,7 +725,8 @@
        "generation": 1,
        "historyTurns": 0,
        "etag": "4632a325a503b03b40f5f6961f22e8ea"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s2",
@@ -743,7 +755,8 @@
        "generation": 1,
        "historyTurns": 0,
        "etag": "be09d8cee586abd1682040df96b6a629"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s3",
@@ -772,7 +785,8 @@
        "generation": 1,
        "historyTurns": 0,
        "etag": "fc26a6e3620bb49db01202f7a2fc3816"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s4",
@@ -801,7 +815,8 @@
        "generation": 1,
        "historyTurns": 0,
        "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -850,7 +865,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s1",
@@ -869,7 +885,8 @@
       "answer": {
        "unchanged": true,
        "etag": "4632a325a503b03b40f5f6961f22e8ea"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s2",
@@ -888,7 +905,8 @@
       "answer": {
        "unchanged": true,
        "etag": "be09d8cee586abd1682040df96b6a629"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s3",
@@ -907,7 +925,8 @@
       "answer": {
        "unchanged": true,
        "etag": "fc26a6e3620bb49db01202f7a2fc3816"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s4",
@@ -926,7 +945,8 @@
       "answer": {
        "unchanged": true,
        "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -989,7 +1009,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s1",
@@ -1026,7 +1047,8 @@
        "historyTurns": 0,
        "patchOmitted": true,
        "etag": "7de66be6d8cc229e48229a5a991d0691"
-      }
+      },
+      "shown": "1 file changed+1-1Lead+1-1Ma.txt+1-1"
      },
      {
       "client": "s2",
@@ -1045,7 +1067,8 @@
       "answer": {
        "unchanged": true,
        "etag": "be09d8cee586abd1682040df96b6a629"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s3",
@@ -1064,7 +1087,8 @@
       "answer": {
        "unchanged": true,
        "etag": "fc26a6e3620bb49db01202f7a2fc3816"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s4",
@@ -1083,7 +1107,8 @@
       "answer": {
        "unchanged": true,
        "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -1132,7 +1157,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s1",
@@ -1151,7 +1177,8 @@
       "answer": {
        "unchanged": true,
        "etag": "7de66be6d8cc229e48229a5a991d0691"
-      }
+      },
+      "shown": "1 file changed+1-1Lead+1-1Ma.txt+1-1"
      },
      {
       "client": "s2",
@@ -1188,7 +1215,8 @@
        "historyTurns": 0,
        "patchOmitted": true,
        "etag": "36613fb8178557eaefceb799dd2b7daa"
-      }
+      },
+      "shown": "1 file changed+1-1Lead+1-1Ma.txt+1-1"
      },
      {
       "client": "s3",
@@ -1207,7 +1235,8 @@
       "answer": {
        "unchanged": true,
        "etag": "fc26a6e3620bb49db01202f7a2fc3816"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s4",
@@ -1226,7 +1255,8 @@
       "answer": {
        "unchanged": true,
        "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -1285,7 +1315,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s1",
@@ -1334,7 +1365,8 @@
        "historyTurns": 0,
        "patchOmitted": true,
        "etag": "e6a8756220a19797c27e1c754eca7d0d"
-      }
+      },
+      "shown": "3 files changed+4-3Lead+4-3Ma.txt+2-2An.txt+1Msub/inner.txt+1-1"
      },
      {
       "client": "s2",
@@ -1353,7 +1385,8 @@
       "answer": {
        "unchanged": true,
        "etag": "36613fb8178557eaefceb799dd2b7daa"
-      }
+      },
+      "shown": "1 file changed+1-1Lead+1-1Ma.txt+1-1"
      },
      {
       "client": "s3",
@@ -1372,7 +1405,8 @@
       "answer": {
        "unchanged": true,
        "etag": "fc26a6e3620bb49db01202f7a2fc3816"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s4",
@@ -1391,7 +1425,8 @@
       "answer": {
        "unchanged": true,
        "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s0",
@@ -1419,7 +1454,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s1",
@@ -1438,7 +1474,8 @@
       "answer": {
        "unchanged": true,
        "etag": "e6a8756220a19797c27e1c754eca7d0d"
-      }
+      },
+      "shown": "3 files changed+4-3Lead+4-3Ma.txt+2-2An.txt+1Msub/inner.txt+1-1"
      },
      {
       "client": "s2",
@@ -1457,7 +1494,8 @@
       "answer": {
        "unchanged": true,
        "etag": "36613fb8178557eaefceb799dd2b7daa"
-      }
+      },
+      "shown": "1 file changed+1-1Lead+1-1Ma.txt+1-1"
      },
      {
       "client": "s3",
@@ -1476,7 +1514,8 @@
       "answer": {
        "unchanged": true,
        "etag": "fc26a6e3620bb49db01202f7a2fc3816"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s4",
@@ -1495,7 +1534,8 @@
       "answer": {
        "unchanged": true,
        "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -1544,7 +1584,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s1",
@@ -1563,7 +1604,8 @@
       "answer": {
        "unchanged": true,
        "etag": "e6a8756220a19797c27e1c754eca7d0d"
-      }
+      },
+      "shown": "3 files changed+4-3Lead+4-3Ma.txt+2-2An.txt+1Msub/inner.txt+1-1"
      },
      {
       "client": "s2",
@@ -1582,7 +1624,8 @@
       "answer": {
        "unchanged": true,
        "etag": "36613fb8178557eaefceb799dd2b7daa"
-      }
+      },
+      "shown": "1 file changed+1-1Lead+1-1Ma.txt+1-1"
      },
      {
       "client": "s3",
@@ -1619,7 +1662,8 @@
        "historyTurns": 0,
        "patchOmitted": true,
        "etag": "822c9b97055b099385390d76b0452a4d"
-      }
+      },
+      "shown": "1 file changed-2Turn-2Db.txt-2"
      },
      {
       "client": "s4",
@@ -1638,7 +1682,8 @@
       "answer": {
        "unchanged": true,
        "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -1687,7 +1732,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s1",
@@ -1736,7 +1782,8 @@
        "historyTurns": 0,
        "patchOmitted": true,
        "etag": "936ce1ef68fc8b68f5ce98473ddb5e51"
-      }
+      },
+      "shown": "3 files changed+5-4Lead+5-4Ma.txt+2-2Amoved.txt+2-1Msub/inner.txt+1-1"
      },
      {
       "client": "s2",
@@ -1755,7 +1802,8 @@
       "answer": {
        "unchanged": true,
        "etag": "36613fb8178557eaefceb799dd2b7daa"
-      }
+      },
+      "shown": "1 file changed+1-1Lead+1-1Ma.txt+1-1"
      },
      {
       "client": "s3",
@@ -1774,7 +1822,8 @@
       "answer": {
        "unchanged": true,
        "etag": "822c9b97055b099385390d76b0452a4d"
-      }
+      },
+      "shown": "1 file changed-2Turn-2Db.txt-2"
      },
      {
       "client": "s4",
@@ -1793,7 +1842,8 @@
       "answer": {
        "unchanged": true,
        "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -1869,7 +1919,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s1",
@@ -1888,7 +1939,8 @@
       "answer": {
        "unchanged": true,
        "etag": "936ce1ef68fc8b68f5ce98473ddb5e51"
-      }
+      },
+      "shown": "3 files changed+5-4Lead+5-4Ma.txt+2-2Amoved.txt+2-1Msub/inner.txt+1-1"
      },
      {
       "client": "s2",
@@ -1907,7 +1959,8 @@
       "answer": {
        "unchanged": true,
        "etag": "36613fb8178557eaefceb799dd2b7daa"
-      }
+      },
+      "shown": "1 file changed+1-1Lead+1-1Ma.txt+1-1"
      },
      {
       "client": "s3",
@@ -1926,7 +1979,8 @@
       "answer": {
        "unchanged": true,
        "etag": "822c9b97055b099385390d76b0452a4d"
-      }
+      },
+      "shown": "1 file changed-2Turn-2Db.txt-2"
      },
      {
       "client": "s4",
@@ -1945,7 +1999,8 @@
       "answer": {
        "unchanged": true,
        "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -2028,7 +2083,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s1",
@@ -2047,7 +2103,8 @@
       "answer": {
        "unchanged": true,
        "etag": "936ce1ef68fc8b68f5ce98473ddb5e51"
-      }
+      },
+      "shown": "3 files changed+5-4Lead+5-4Ma.txt+2-2Amoved.txt+2-1Msub/inner.txt+1-1"
      },
      {
       "client": "s2",
@@ -2066,7 +2123,8 @@
       "answer": {
        "unchanged": true,
        "etag": "36613fb8178557eaefceb799dd2b7daa"
-      }
+      },
+      "shown": "1 file changed+1-1Lead+1-1Ma.txt+1-1"
      },
      {
       "client": "s3",
@@ -2085,7 +2143,8 @@
       "answer": {
        "unchanged": true,
        "etag": "822c9b97055b099385390d76b0452a4d"
-      }
+      },
+      "shown": "1 file changed-2Turn-2Db.txt-2"
      },
      {
       "client": "s4",
@@ -2104,7 +2163,8 @@
       "answer": {
        "unchanged": true,
        "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -2166,7 +2226,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s1",
@@ -2185,7 +2246,8 @@
       "answer": {
        "unchanged": true,
        "etag": "936ce1ef68fc8b68f5ce98473ddb5e51"
-      }
+      },
+      "shown": "3 files changed+5-4Lead+5-4Ma.txt+2-2Amoved.txt+2-1Msub/inner.txt+1-1"
      },
      {
       "client": "s2",
@@ -2204,7 +2266,8 @@
       "answer": {
        "unchanged": true,
        "etag": "36613fb8178557eaefceb799dd2b7daa"
-      }
+      },
+      "shown": "1 file changed+1-1Lead+1-1Ma.txt+1-1"
      },
      {
       "client": "s3",
@@ -2241,7 +2304,8 @@
        "historyTurns": 1,
        "patchOmitted": true,
        "etag": "dabb84a5792f155c5b12cb882dcb1e69"
-      }
+      },
+      "shown": "1 file changed-2Turn-2Db.txt-2"
      },
      {
       "client": "s4",
@@ -2260,7 +2324,8 @@
       "answer": {
        "unchanged": true,
        "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -2336,7 +2401,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "s1",
@@ -2385,7 +2451,8 @@
        "historyTurns": 1,
        "patchOmitted": true,
        "etag": "54d46e656f68c3ae1e82b37a07ff0822"
-      }
+      },
+      "shown": "3 files changed+5-4Lead+5-4Ma.txt+2-2Amoved.txt+2-1Msub/inner.txt+1-1"
      },
      {
       "client": "s2",
@@ -2422,7 +2489,8 @@
        "historyTurns": 1,
        "patchOmitted": true,
        "etag": "fe5e5a389bca0fbc675541008daca83d"
-      }
+      },
+      "shown": "1 file changed+1-1Lead+1-1Ma.txt+1-1"
      },
      {
       "client": "s3",
@@ -2441,7 +2509,8 @@
       "answer": {
        "unchanged": true,
        "etag": "dabb84a5792f155c5b12cb882dcb1e69"
-      }
+      },
+      "shown": "1 file changed-2Turn-2Db.txt-2"
      },
      {
       "client": "s4",
@@ -2460,7 +2529,8 @@
       "answer": {
        "unchanged": true,
        "etag": "a9e6f3e390a70cc810685fb84b5ee50c"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -2629,6 +2699,24 @@
     "path": "a.txt",
     "old": "Z",
     "new": "Q"
+   },
+   {
+    "op": "coreReconnect"
+   },
+   {
+    "op": "client",
+    "session": "u4",
+    "ws": "w1",
+    "checkpoint": "none",
+    "window": "F"
+   },
+   {
+    "op": "edit",
+    "ws": "w1",
+    "session": "u1",
+    "path": "a.txt",
+    "old": "Q",
+    "new": "R"
    }
   ],
   "results": [
@@ -2677,7 +2765,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "u1",
@@ -2696,7 +2785,8 @@
       "answer": {
        "unchanged": true,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -2734,7 +2824,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "u2",
@@ -2753,7 +2844,8 @@
       "answer": {
        "unchanged": true,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -2828,7 +2920,8 @@
        "historyTurns": 0,
        "patchOmitted": true,
        "etag": "7de66be6d8cc229e48229a5a991d0691"
-      }
+      },
+      "shown": "1 file changed+1-1Lead+1-1Ma.txt+1-1"
      },
      {
       "client": "u2",
@@ -2857,7 +2950,8 @@
        "generation": 1,
        "historyTurns": 0,
        "etag": "be09d8cee586abd1682040df96b6a629"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -2918,7 +3012,8 @@
        "historyTurns": 0,
        "patchOmitted": true,
        "etag": "bbb40fc83575eb68a47a48ef22ba6544"
-      }
+      },
+      "shown": "2 files changed+2-1Lead+2-1Ma.txt+1-1An.txt+1"
      },
      {
       "client": "u2",
@@ -2937,7 +3032,8 @@
       "answer": {
        "unchanged": true,
        "etag": "be09d8cee586abd1682040df96b6a629"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -2997,7 +3093,8 @@
        "historyTurns": 0,
        "patchOmitted": true,
        "etag": "0a3c48cb7c1f48a3c8070ed6c4d88d70"
-      }
+      },
+      "shown": "1 file changed+1Lead+1An.txt+1"
      },
      {
       "client": "u2",
@@ -3016,7 +3113,8 @@
       "answer": {
        "unchanged": true,
        "etag": "be09d8cee586abd1682040df96b6a629"
-      }
+      },
+      "shown": null
      },
      {
       "client": "u1",
@@ -3035,7 +3133,8 @@
       "answer": {
        "unchanged": true,
        "etag": "0a3c48cb7c1f48a3c8070ed6c4d88d70"
-      }
+      },
+      "shown": "1 file changed+1Lead+1An.txt+1"
      },
      {
       "client": "u2",
@@ -3054,7 +3153,8 @@
       "answer": {
        "unchanged": true,
        "etag": "be09d8cee586abd1682040df96b6a629"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -3106,7 +3206,8 @@
        "generation": 1,
        "historyTurns": 0,
        "etag": "4632a325a503b03b40f5f6961f22e8ea"
-      }
+      },
+      "shown": null
      },
      {
       "client": "u2",
@@ -3125,7 +3226,8 @@
       "answer": {
        "unchanged": true,
        "etag": "be09d8cee586abd1682040df96b6a629"
-      }
+      },
+      "shown": null
      },
      {
       "client": "u1",
@@ -3144,7 +3246,8 @@
       "answer": {
        "unchanged": true,
        "etag": "4632a325a503b03b40f5f6961f22e8ea"
-      }
+      },
+      "shown": null
      },
      {
       "client": "u2",
@@ -3163,7 +3266,8 @@
       "answer": {
        "unchanged": true,
        "etag": "be09d8cee586abd1682040df96b6a629"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -3218,7 +3322,8 @@
        "historyTurns": 0,
        "patchOmitted": true,
        "etag": "7de66be6d8cc229e48229a5a991d0691"
-      }
+      },
+      "shown": "1 file changed+1-1Lead+1-1Ma.txt+1-1"
      },
      {
       "client": "u2",
@@ -3237,7 +3342,8 @@
       "answer": {
        "unchanged": true,
        "etag": "be09d8cee586abd1682040df96b6a629"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -3292,7 +3398,8 @@
        "historyTurns": 1,
        "patchOmitted": true,
        "etag": "6f8b8b03ffabb7f37964df1b8a0068ef"
-      }
+      },
+      "shown": "1 file changed+1-1Lead+1-1Ma.txt+1-1"
      },
      {
       "client": "u2",
@@ -3311,7 +3418,8 @@
       "answer": {
        "unchanged": true,
        "etag": "be09d8cee586abd1682040df96b6a629"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -3373,7 +3481,8 @@
        "generation": 1,
        "historyTurns": 1,
        "etag": "7875380fbe74f2e6da468d6b4e1b60c3"
-      }
+      },
+      "shown": null
      },
      {
       "client": "u2",
@@ -3392,7 +3501,8 @@
       "answer": {
        "unchanged": true,
        "etag": "be09d8cee586abd1682040df96b6a629"
-      }
+      },
+      "shown": null
      },
      {
       "client": "u1",
@@ -3411,7 +3521,8 @@
       "answer": {
        "unchanged": true,
        "etag": "7875380fbe74f2e6da468d6b4e1b60c3"
-      }
+      },
+      "shown": null
      },
      {
       "client": "u2",
@@ -3430,7 +3541,8 @@
       "answer": {
        "unchanged": true,
        "etag": "be09d8cee586abd1682040df96b6a629"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -3500,7 +3612,8 @@
        "historyTurns": 1,
        "patchOmitted": true,
        "etag": "6f8b8b03ffabb7f37964df1b8a0068ef"
-      }
+      },
+      "shown": "1 file changed+1-1Lead+1-1Ma.txt+1-1"
      },
      {
       "client": "u2",
@@ -3519,7 +3632,8 @@
       "answer": {
        "unchanged": true,
        "etag": "be09d8cee586abd1682040df96b6a629"
-      }
+      },
+      "shown": null
      },
      {
       "client": "u1",
@@ -3538,7 +3652,8 @@
       "answer": {
        "unchanged": true,
        "etag": "6f8b8b03ffabb7f37964df1b8a0068ef"
-      }
+      },
+      "shown": "1 file changed+1-1Lead+1-1Ma.txt+1-1"
      },
      {
       "client": "u2",
@@ -3557,7 +3672,8 @@
       "answer": {
        "unchanged": true,
        "etag": "be09d8cee586abd1682040df96b6a629"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -3596,7 +3712,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      },
      {
       "client": "u3",
@@ -3624,7 +3741,8 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
@@ -3662,7 +3780,8 @@
       "answer": {
        "unchanged": true,
        "etag": "6f8b8b03ffabb7f37964df1b8a0068ef"
-      }
+      },
+      "shown": "1 file changed+1-1Lead+1-1Ma.txt+1-1"
      },
      {
       "client": "u2",
@@ -3681,7 +3800,8 @@
       "answer": {
        "unchanged": true,
        "etag": "be09d8cee586abd1682040df96b6a629"
-      }
+      },
+      "shown": null
      },
      {
       "client": "u3",
@@ -3709,13 +3829,214 @@
        "reason": "no-turn",
        "historyTurns": 0,
        "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
-      }
+      },
+      "shown": null
      }
     ],
     "shows": {
      "u1": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
      "u2": null,
      "u3": null
+    }
+   },
+   {
+    "op": 18,
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [],
+    "shows": {
+     "u1": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "u2": null,
+     "u3": null
+    }
+   },
+   {
+    "op": 19,
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [
+     {
+      "client": "u4",
+      "after": 0,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": false,
+         "summary": true
+        }
+       ],
+       "sessionId": "u4"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      },
+      "shown": null
+     },
+     {
+      "client": "u4",
+      "after": 0,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "summary": true
+        }
+       ],
+       "sessionId": "u4"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      },
+      "shown": null
+     }
+    ],
+    "shows": {
+     "u1": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "u2": null,
+     "u3": null,
+     "u4": null
+    }
+   },
+   {
+    "op": 20,
+    "text": "Updated a.txt (1 replacement)",
+    "notifications": [
+     {
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
+     }
+    ],
+    "deliveries": 1,
+    "requests": [
+     {
+      "client": "u1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "6f8b8b03ffabb7f37964df1b8a0068ef",
+         "summary": true
+        }
+       ],
+       "sessionId": "u1"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "6f8b8b03ffabb7f37964df1b8a0068ef"
+      },
+      "shown": "1 file changed+1-1Lead+1-1Ma.txt+1-1"
+     },
+     {
+      "client": "u2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "be09d8cee586abd1682040df96b6a629",
+         "summary": true
+        }
+       ],
+       "sessionId": "u2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "be09d8cee586abd1682040df96b6a629"
+      },
+      "shown": null
+     },
+     {
+      "client": "u3",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "summary": true
+        }
+       ],
+       "sessionId": "u3"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      },
+      "shown": null
+     },
+     {
+      "client": "u4",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "summary": true
+        }
+       ],
+       "sessionId": "u4"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      },
+      "shown": null
+     }
+    ],
+    "shows": {
+     "u1": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "u2": null,
+     "u3": null,
+     "u4": null
     }
    }
   ]
