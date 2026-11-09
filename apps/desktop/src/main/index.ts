@@ -119,6 +119,7 @@ import { coreBinaryPath, coreEnvironment, resolveLocalCore } from './protocol/lo
 import { createOpenRequestedHandler } from './protocol/open-requested';
 import { createVisualizePublisher } from './protocol/visualize-publish';
 import type { VisualizeHostEvent } from '../shared/visualize';
+import { createBootTimeline } from './boot-timeline';
 import { reportDefaultsSeparation } from './protocol/defaults-separation';
 import { resolveRuntimeRoot } from '../shared/core-src/runtime/shared/runtime-root.mjs';
 import { registerSshHostIpc } from './ipc-ssh-hosts';
@@ -459,11 +460,8 @@ if (process.env.MIXDOG_DESKTOP_PERF === '1') {
 }
 
 let diagnostics: DesktopDiagnostics | null = null;
-const earlyDiagnostics: Array<{ event: string; entry: Record<string, unknown>; at: string }> = [];
-function writeBootDiagnostic(event: string, entry: Record<string, unknown>): void {
-  if (diagnostics) diagnostics.write(event, entry);
-  else earlyDiagnostics.push({ event, entry, at: new Date().toISOString() });
-}
+const bootTimeline = createBootTimeline();
+const writeBootDiagnostic = bootTimeline.write;
 // Resolved at once for the instance that quits on the single-instance lock.
 let loginShellEnvironmentReady: Promise<void> = Promise.resolve();
 /** Adopt the user's login-shell environment (macOS/Linux GUI launches lack
@@ -524,7 +522,7 @@ const connectionDependencies: DesktopConnectionDependencies = {
             version: app.getVersion(),
             capabilities: { approvalsInbox: true, host: HOST_CAPABILITIES },
             // Only this PC's core separates this PC's defaults; Node recorded it for the local profile alone.
-            ...(connection.kind === 'local' && !connector ? { onInitialized: (reply) => reportDefaultsSeparation(reply, writeBootDiagnostic) } : {}),
+            ...(connection.kind === 'local' && !connector ? { onInitialized: (reply) => reportDefaultsSeparation(reply, bootTimeline.defaultsSeparationFailed) } : {}),
           }),
         })
       : null;
@@ -2691,10 +2689,7 @@ function startDesktopDiagnostics(appReadyAt: number): void {
   // The daemon handshake is already running (started before whenReady);
   // stamp its start into the timeline now that the sink exists.
   reportDaemonServiceStart();
-  for (const { event, entry, at } of earlyDiagnostics.splice(0)) {
-    log.write(event, { ...entry, occurredAt: at });
-  }
-  log.write('desktop-start', {
+  bootTimeline.open(log, () => log.write('desktop-start', {
     totalMs: Date.now() - desktopProcessStartedAt,
     electronVersion: process.versions.electron,
     chromeVersion: process.versions.chrome,
@@ -2704,7 +2699,7 @@ function startDesktopDiagnostics(appReadyAt: number): void {
     crashReporterStatus,
     ...(crashReporterErrorName ? { crashReporterErrorName } : {}),
     ...(gpuFallbackMarker ? { gpuFallbackCrashes: gpuFallbackMarker.crashesInWindow } : {}),
-  });
+  }));
   startCrashHandlerWatch();
   startDiagnosticsEventLoopMonitor();
 }
