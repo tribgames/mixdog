@@ -1,0 +1,1226 @@
+{
+  "_doc": "Recorded from Node's REAL createModelMetaIndex (lookupModelMeta) and createCatalogLoader (remember) over scripted providers behind a fake registry. `providers[name]`: `list` = has listModels, `cached` = has getCachedModelInfo over these (mutable) rows, `listRows` = what listModels returns (default: `cached`), `throws`, `duringList` = an action taken inside listModels. `expect` is Node's answer; `listCalls` the listModels calls so far; `warmups` the scheduleProviderModelWarmup calls so far.",
+  "recorder": "benchmarks/rust-core/recorders/record-model-meta.mjs",
+  "nodeCommit": "b6f10295a",
+  "scenarios": [
+    {
+      "name": "cold-lookup-then-startup-listing-stays-pinned",
+      "providers": {
+        "p": {
+          "list": true,
+          "cached": []
+        }
+      },
+      "ops": [
+        {
+          "op": "lookup",
+          "provider": "p",
+          "model": "m",
+          "expect": {
+            "id": "m",
+            "provider": "p"
+          },
+          "listCalls": 0,
+          "warmups": 1
+        },
+        {
+          "op": "startupListing",
+          "provider": "p",
+          "rows": [
+            {
+              "id": "m",
+              "name": "m",
+              "display": "Display m",
+              "provider": "ignored-by-normalization",
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": false,
+              "supportsReasoning": false,
+              "reasoningLevels": [],
+              "reasoningOptions": [],
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "contextWindow": 0,
+              "outputTokens": null
+            },
+            {
+              "id": "m2",
+              "name": "m2",
+              "display": "Display m2",
+              "provider": "ignored-by-normalization",
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": false,
+              "supportsReasoning": false,
+              "reasoningLevels": [],
+              "reasoningOptions": [],
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "contextWindow": 0,
+              "outputTokens": null
+            }
+          ],
+          "listCalls": 0,
+          "warmups": 1
+        },
+        {
+          "op": "lookup",
+          "provider": "p",
+          "model": "m",
+          "expect": {
+            "id": "m",
+            "provider": "p"
+          },
+          "listCalls": 0,
+          "warmups": 1
+        },
+        {
+          "op": "lookup",
+          "provider": "p",
+          "model": "m2",
+          "expect": {
+            "id": "m2",
+            "name": "m2",
+            "display": "Display m2",
+            "provider": "p",
+            "supportsFunctionCalling": true,
+            "supportsWebSearch": false,
+            "supportsReasoning": false,
+            "reasoningLevels": [],
+            "reasoningOptions": [],
+            "customReasoning": {
+              "wireFormat": "standard",
+              "wireValues": {},
+              "replay": false
+            },
+            "contextWindow": 0,
+            "outputTokens": null
+          },
+          "listCalls": 0,
+          "warmups": 1
+        },
+        {
+          "op": "lookup",
+          "provider": "p",
+          "model": "m2",
+          "expect": {
+            "id": "m2",
+            "name": "m2",
+            "display": "Display m2",
+            "provider": "p",
+            "supportsFunctionCalling": true,
+            "supportsWebSearch": false,
+            "supportsReasoning": false,
+            "reasoningLevels": [],
+            "reasoningOptions": [],
+            "customReasoning": {
+              "wireFormat": "standard",
+              "wireValues": {},
+              "replay": false
+            },
+            "contextWindow": 0,
+            "outputTokens": null
+          },
+          "listCalls": 0,
+          "warmups": 1
+        }
+      ]
+    },
+    {
+      "name": "capability-versus-none-both-listed",
+      "providers": {
+        "with": {
+          "list": true,
+          "cached": [
+            {
+              "id": "m",
+              "name": "m",
+              "display": "Display m",
+              "provider": "ignored-by-normalization",
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": false,
+              "supportsReasoning": false,
+              "reasoningLevels": [],
+              "reasoningOptions": [],
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "contextWindow": 0,
+              "outputTokens": null
+            },
+            {
+              "name": "no-id-no-provider"
+            }
+          ]
+        },
+        "without": {
+          "list": true,
+          "listRows": [
+            {
+              "id": "m",
+              "name": "m",
+              "display": "Display m",
+              "provider": "ignored-by-normalization",
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": false,
+              "supportsReasoning": false,
+              "reasoningLevels": [],
+              "reasoningOptions": [],
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "contextWindow": 0,
+              "outputTokens": null
+            },
+            {
+              "id": "bare"
+            }
+          ]
+        }
+      },
+      "ops": [
+        {
+          "op": "lookup",
+          "provider": "with",
+          "model": "m",
+          "expect": {
+            "id": "m",
+            "name": "m",
+            "display": "Display m",
+            "provider": "with",
+            "supportsFunctionCalling": true,
+            "supportsWebSearch": false,
+            "supportsReasoning": false,
+            "reasoningLevels": [],
+            "reasoningOptions": [],
+            "customReasoning": {
+              "wireFormat": "standard",
+              "wireValues": {},
+              "replay": false
+            },
+            "contextWindow": 0,
+            "outputTokens": null
+          },
+          "listCalls": 0,
+          "warmups": 0
+        },
+        {
+          "op": "lookup",
+          "provider": "without",
+          "model": "m",
+          "expect": {
+            "id": "m",
+            "provider": "without"
+          },
+          "listCalls": 0,
+          "warmups": 1
+        },
+        {
+          "op": "lookup",
+          "provider": "without",
+          "model": "m",
+          "allowFetch": true,
+          "expect": {
+            "id": "m",
+            "name": "m",
+            "display": "Display m",
+            "provider": "ignored-by-normalization",
+            "supportsFunctionCalling": true,
+            "supportsWebSearch": false,
+            "supportsReasoning": false,
+            "reasoningLevels": [],
+            "reasoningOptions": [],
+            "customReasoning": {
+              "wireFormat": "standard",
+              "wireValues": {},
+              "replay": false
+            },
+            "contextWindow": 0,
+            "outputTokens": null
+          },
+          "listCalls": 1,
+          "warmups": 1
+        },
+        {
+          "op": "lookup",
+          "provider": "without",
+          "model": "m",
+          "allowFetch": true,
+          "expect": {
+            "id": "m",
+            "name": "m",
+            "display": "Display m",
+            "provider": "ignored-by-normalization",
+            "supportsFunctionCalling": true,
+            "supportsWebSearch": false,
+            "supportsReasoning": false,
+            "reasoningLevels": [],
+            "reasoningOptions": [],
+            "customReasoning": {
+              "wireFormat": "standard",
+              "wireValues": {},
+              "replay": false
+            },
+            "contextWindow": 0,
+            "outputTokens": null
+          },
+          "listCalls": 1,
+          "warmups": 1
+        },
+        {
+          "op": "lookup",
+          "provider": "without",
+          "model": "bare",
+          "allowFetch": true,
+          "expect": {
+            "id": "bare"
+          },
+          "listCalls": 2,
+          "warmups": 1
+        },
+        {
+          "op": "lookup",
+          "provider": "without",
+          "model": "bare",
+          "expect": {
+            "id": "bare"
+          },
+          "listCalls": 2,
+          "warmups": 1
+        }
+      ]
+    },
+    {
+      "name": "custom-model-before-any-listing",
+      "providers": {
+        "custom": {
+          "list": true,
+          "cached": [
+            {
+              "id": "manual",
+              "name": "manual",
+              "display": "Display manual",
+              "provider": "ignored-by-normalization",
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": false,
+              "supportsReasoning": false,
+              "reasoningLevels": [],
+              "reasoningOptions": [],
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "contextWindow": 0,
+              "outputTokens": null,
+              "manual": true,
+              "hidden": false
+            }
+          ],
+          "listRows": []
+        }
+      },
+      "ops": [
+        {
+          "op": "lookup",
+          "provider": "custom",
+          "model": "manual",
+          "expect": {
+            "id": "manual",
+            "name": "manual",
+            "display": "Display manual",
+            "provider": "custom",
+            "supportsFunctionCalling": true,
+            "supportsWebSearch": false,
+            "supportsReasoning": false,
+            "reasoningLevels": [],
+            "reasoningOptions": [],
+            "customReasoning": {
+              "wireFormat": "standard",
+              "wireValues": {},
+              "replay": false
+            },
+            "contextWindow": 0,
+            "outputTokens": null,
+            "manual": true,
+            "hidden": false
+          },
+          "listCalls": 0,
+          "warmups": 0
+        },
+        {
+          "op": "lookup",
+          "provider": "custom",
+          "model": "other",
+          "expect": {
+            "id": "other",
+            "provider": "custom"
+          },
+          "listCalls": 0,
+          "warmups": 1
+        },
+        {
+          "op": "lookup",
+          "provider": "custom",
+          "model": "other",
+          "allowFetch": true,
+          "expect": {
+            "id": "other",
+            "provider": "custom"
+          },
+          "listCalls": 1,
+          "warmups": 1
+        }
+      ]
+    },
+    {
+      "name": "placeholder-then-fetch-hit-empty-thrown",
+      "providers": {
+        "hit": {
+          "list": true,
+          "listRows": [
+            {
+              "id": "m",
+              "name": "m",
+              "display": "Display m",
+              "provider": "ignored-by-normalization",
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": false,
+              "supportsReasoning": false,
+              "reasoningLevels": [],
+              "reasoningOptions": [],
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "contextWindow": 0,
+              "outputTokens": null
+            }
+          ]
+        },
+        "empty": {
+          "list": true,
+          "listRows": []
+        },
+        "thrown": {
+          "list": true,
+          "throws": true
+        }
+      },
+      "ops": [
+        {
+          "op": "lookup",
+          "provider": "hit",
+          "model": "m",
+          "expect": {
+            "id": "m",
+            "provider": "hit"
+          },
+          "listCalls": 0,
+          "warmups": 1
+        },
+        {
+          "op": "lookup",
+          "provider": "hit",
+          "model": "m",
+          "allowFetch": true,
+          "expect": {
+            "id": "m",
+            "name": "m",
+            "display": "Display m",
+            "provider": "ignored-by-normalization",
+            "supportsFunctionCalling": true,
+            "supportsWebSearch": false,
+            "supportsReasoning": false,
+            "reasoningLevels": [],
+            "reasoningOptions": [],
+            "customReasoning": {
+              "wireFormat": "standard",
+              "wireValues": {},
+              "replay": false
+            },
+            "contextWindow": 0,
+            "outputTokens": null
+          },
+          "listCalls": 1,
+          "warmups": 1
+        },
+        {
+          "op": "lookup",
+          "provider": "hit",
+          "model": "m",
+          "allowFetch": true,
+          "expect": {
+            "id": "m",
+            "name": "m",
+            "display": "Display m",
+            "provider": "ignored-by-normalization",
+            "supportsFunctionCalling": true,
+            "supportsWebSearch": false,
+            "supportsReasoning": false,
+            "reasoningLevels": [],
+            "reasoningOptions": [],
+            "customReasoning": {
+              "wireFormat": "standard",
+              "wireValues": {},
+              "replay": false
+            },
+            "contextWindow": 0,
+            "outputTokens": null
+          },
+          "listCalls": 1,
+          "warmups": 1
+        },
+        {
+          "op": "lookup",
+          "provider": "empty",
+          "model": "m",
+          "allowFetch": true,
+          "expect": {
+            "id": "m",
+            "provider": "empty"
+          },
+          "listCalls": 2,
+          "warmups": 1
+        },
+        {
+          "op": "lookup",
+          "provider": "empty",
+          "model": "m",
+          "allowFetch": true,
+          "expect": {
+            "id": "m",
+            "provider": "empty"
+          },
+          "listCalls": 2,
+          "warmups": 1
+        },
+        {
+          "op": "lookup",
+          "provider": "thrown",
+          "model": "m",
+          "expect": {
+            "id": "m",
+            "provider": "thrown"
+          },
+          "listCalls": 2,
+          "warmups": 2
+        },
+        {
+          "op": "lookup",
+          "provider": "thrown",
+          "model": "m",
+          "allowFetch": true,
+          "expect": {
+            "id": "m",
+            "provider": "thrown"
+          },
+          "listCalls": 3,
+          "warmups": 2
+        },
+        {
+          "op": "lookup",
+          "provider": "thrown",
+          "model": "m",
+          "expect": {
+            "id": "m",
+            "provider": "thrown"
+          },
+          "listCalls": 3,
+          "warmups": 2
+        },
+        {
+          "op": "lookup",
+          "provider": "thrown",
+          "model": "m",
+          "allowFetch": true,
+          "expect": {
+            "id": "m",
+            "provider": "thrown"
+          },
+          "listCalls": 4,
+          "warmups": 2
+        }
+      ]
+    },
+    {
+      "name": "cached-hit-normalization-versus-fetched-row-identity",
+      "providers": {
+        "with": {
+          "list": true,
+          "cached": [
+            {
+              "id": "",
+              "name": "blank-id",
+              "provider": "other"
+            },
+            {
+              "name": "no-id"
+            },
+            {
+              "id": "kept",
+              "provider": "other"
+            }
+          ]
+        },
+        "without": {
+          "list": true,
+          "listRows": [
+            {
+              "id": "kept",
+              "provider": "other"
+            },
+            {
+              "id": "noprov"
+            }
+          ]
+        }
+      },
+      "ops": [
+        {
+          "op": "lookup",
+          "provider": "with",
+          "model": "kept",
+          "expect": {
+            "id": "kept",
+            "provider": "with"
+          },
+          "listCalls": 0,
+          "warmups": 0
+        },
+        {
+          "op": "lookup",
+          "provider": "with",
+          "model": "blank",
+          "expect": {
+            "id": "blank",
+            "provider": "with"
+          },
+          "listCalls": 0,
+          "warmups": 1
+        },
+        {
+          "op": "lookup",
+          "provider": "without",
+          "model": "kept",
+          "allowFetch": true,
+          "expect": {
+            "id": "kept",
+            "provider": "other"
+          },
+          "listCalls": 1,
+          "warmups": 1
+        },
+        {
+          "op": "lookup",
+          "provider": "without",
+          "model": "noprov",
+          "allowFetch": true,
+          "expect": {
+            "id": "noprov"
+          },
+          "listCalls": 2,
+          "warmups": 1
+        }
+      ]
+    },
+    {
+      "name": "no-listing-and-unregistered-pin-the-unmarked-fallback",
+      "providers": {
+        "nolist": {
+          "list": false
+        }
+      },
+      "ops": [
+        {
+          "op": "lookup",
+          "provider": "nolist",
+          "model": "m",
+          "expect": {
+            "id": "m",
+            "provider": "nolist"
+          },
+          "listCalls": 0,
+          "warmups": 0
+        },
+        {
+          "op": "lookup",
+          "provider": "nolist",
+          "model": "m",
+          "allowFetch": true,
+          "expect": {
+            "id": "m",
+            "provider": "nolist"
+          },
+          "listCalls": 0,
+          "warmups": 0
+        },
+        {
+          "op": "lookup",
+          "provider": "ghost",
+          "model": "m",
+          "expect": {
+            "id": "m",
+            "provider": "ghost"
+          },
+          "listCalls": 0,
+          "warmups": 0
+        },
+        {
+          "op": "lookup",
+          "provider": "ghost",
+          "model": "m",
+          "allowFetch": true,
+          "expect": {
+            "id": "m",
+            "provider": "ghost"
+          },
+          "listCalls": 0,
+          "warmups": 0
+        }
+      ]
+    },
+    {
+      "name": "full-load-overwrites-and-skips-the-unselectable",
+      "providers": {
+        "p": {
+          "list": true,
+          "cached": [
+            {
+              "id": "shown",
+              "display": "CACHED-shown"
+            },
+            {
+              "id": "hid",
+              "display": "CACHED-hid"
+            },
+            {
+              "id": "embed",
+              "display": "CACHED-embed"
+            }
+          ],
+          "listRows": [
+            {
+              "id": "shown",
+              "display": "LOAD-shown",
+              "hidden": false,
+              "manual": false
+            },
+            {
+              "id": "hid",
+              "display": "LOAD-hid",
+              "hidden": true,
+              "manual": true
+            },
+            {
+              "id": "embed",
+              "display": "LOAD-embed",
+              "mode": "embedding"
+            },
+            {
+              "id": "",
+              "display": "LOAD-empty"
+            },
+            {
+              "id": "fresh",
+              "display": "LOAD-fresh"
+            }
+          ]
+        }
+      },
+      "ops": [
+        {
+          "op": "lookup",
+          "provider": "p",
+          "model": "shown",
+          "expect": {
+            "id": "shown",
+            "display": "CACHED-shown",
+            "provider": "p"
+          },
+          "listCalls": 0,
+          "warmups": 0
+        },
+        {
+          "op": "load",
+          "expect": [
+            {
+              "provider": "p",
+              "id": "shown"
+            },
+            {
+              "provider": "p",
+              "id": "fresh"
+            }
+          ],
+          "listCalls": 1,
+          "warmups": 0
+        },
+        {
+          "op": "lookup",
+          "provider": "p",
+          "model": "shown",
+          "expect": {
+            "id": "shown",
+            "provider": "p",
+            "display": "LOAD-shown",
+            "created": null,
+            "releaseDate": null,
+            "maxContextWindow": null,
+            "outputTokens": null,
+            "family": null,
+            "tier": null,
+            "latest": false,
+            "description": "",
+            "supportsVision": false,
+            "supportsFunctionCalling": false,
+            "supportsWebSearch": false,
+            "supportsPromptCaching": false,
+            "supportsReasoning": false,
+            "reasoningOptions": [],
+            "reasoningContentField": null,
+            "serviceTiers": [],
+            "additionalSpeedTiers": [],
+            "defaultServiceTier": null,
+            "fastCapable": false,
+            "modelParameterOptions": [],
+            "parameterVariants": [],
+            "defaultModelParameters": {},
+            "defaultEffort": null,
+            "defaultFast": false,
+            "supportsMaxMode": false,
+            "mode": null
+          },
+          "listCalls": 1,
+          "warmups": 0
+        },
+        {
+          "op": "lookup",
+          "provider": "p",
+          "model": "hid",
+          "expect": {
+            "id": "hid",
+            "provider": "p",
+            "display": "LOAD-hid",
+            "created": null,
+            "releaseDate": null,
+            "maxContextWindow": null,
+            "outputTokens": null,
+            "family": null,
+            "tier": null,
+            "latest": false,
+            "description": "",
+            "supportsVision": false,
+            "supportsFunctionCalling": false,
+            "supportsWebSearch": false,
+            "supportsPromptCaching": false,
+            "supportsReasoning": false,
+            "reasoningOptions": [],
+            "reasoningContentField": null,
+            "serviceTiers": [],
+            "additionalSpeedTiers": [],
+            "defaultServiceTier": null,
+            "hidden": true,
+            "fastCapable": false,
+            "modelParameterOptions": [],
+            "parameterVariants": [],
+            "defaultModelParameters": {},
+            "defaultEffort": null,
+            "defaultFast": false,
+            "supportsMaxMode": false,
+            "mode": null
+          },
+          "listCalls": 1,
+          "warmups": 0
+        },
+        {
+          "op": "lookup",
+          "provider": "p",
+          "model": "embed",
+          "expect": {
+            "id": "embed",
+            "display": "CACHED-embed",
+            "provider": "p"
+          },
+          "listCalls": 1,
+          "warmups": 0
+        },
+        {
+          "op": "lookup",
+          "provider": "p",
+          "model": "fresh",
+          "expect": {
+            "id": "fresh",
+            "provider": "p",
+            "display": "LOAD-fresh",
+            "created": null,
+            "releaseDate": null,
+            "maxContextWindow": null,
+            "outputTokens": null,
+            "family": null,
+            "tier": null,
+            "latest": false,
+            "description": "",
+            "supportsVision": false,
+            "supportsFunctionCalling": false,
+            "supportsWebSearch": false,
+            "supportsPromptCaching": false,
+            "supportsReasoning": false,
+            "reasoningOptions": [],
+            "reasoningContentField": null,
+            "serviceTiers": [],
+            "additionalSpeedTiers": [],
+            "defaultServiceTier": null,
+            "fastCapable": false,
+            "modelParameterOptions": [],
+            "parameterVariants": [],
+            "defaultModelParameters": {},
+            "defaultEffort": null,
+            "defaultFast": false,
+            "supportsMaxMode": false,
+            "mode": null
+          },
+          "listCalls": 1,
+          "warmups": 0
+        }
+      ]
+    },
+    {
+      "name": "seq-change-during-fetch-pins-nothing",
+      "providers": {
+        "b": {
+          "list": true,
+          "listRows": [
+            {
+              "id": "m",
+              "name": "m",
+              "display": "Display m",
+              "provider": "ignored-by-normalization",
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": false,
+              "supportsReasoning": false,
+              "reasoningLevels": [],
+              "reasoningOptions": [],
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "contextWindow": 0,
+              "outputTokens": null
+            }
+          ],
+          "duringList": "invalidate"
+        }
+      },
+      "ops": [
+        {
+          "op": "lookup",
+          "provider": "b",
+          "model": "m",
+          "allowFetch": true,
+          "expect": {
+            "id": "m",
+            "name": "m",
+            "display": "Display m",
+            "provider": "ignored-by-normalization",
+            "supportsFunctionCalling": true,
+            "supportsWebSearch": false,
+            "supportsReasoning": false,
+            "reasoningLevels": [],
+            "reasoningOptions": [],
+            "customReasoning": {
+              "wireFormat": "standard",
+              "wireValues": {},
+              "replay": false
+            },
+            "contextWindow": 0,
+            "outputTokens": null
+          },
+          "listCalls": 1,
+          "warmups": 0
+        },
+        {
+          "op": "lookup",
+          "provider": "b",
+          "model": "m",
+          "allowFetch": true,
+          "expect": {
+            "id": "m",
+            "name": "m",
+            "display": "Display m",
+            "provider": "ignored-by-normalization",
+            "supportsFunctionCalling": true,
+            "supportsWebSearch": false,
+            "supportsReasoning": false,
+            "reasoningLevels": [],
+            "reasoningOptions": [],
+            "customReasoning": {
+              "wireFormat": "standard",
+              "wireValues": {},
+              "replay": false
+            },
+            "contextWindow": 0,
+            "outputTokens": null
+          },
+          "listCalls": 2,
+          "warmups": 0
+        }
+      ]
+    },
+    {
+      "name": "revision-change-during-fetch-pins-nothing",
+      "providers": {
+        "b": {
+          "list": true,
+          "listRows": [
+            {
+              "id": "m",
+              "name": "m",
+              "display": "Display m",
+              "provider": "ignored-by-normalization",
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": false,
+              "supportsReasoning": false,
+              "reasoningLevels": [],
+              "reasoningOptions": [],
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "contextWindow": 0,
+              "outputTokens": null
+            }
+          ],
+          "duringList": "bumpRevision"
+        }
+      },
+      "ops": [
+        {
+          "op": "lookup",
+          "provider": "b",
+          "model": "m",
+          "allowFetch": true,
+          "expect": {
+            "id": "m",
+            "name": "m",
+            "display": "Display m",
+            "provider": "ignored-by-normalization",
+            "supportsFunctionCalling": true,
+            "supportsWebSearch": false,
+            "supportsReasoning": false,
+            "reasoningLevels": [],
+            "reasoningOptions": [],
+            "customReasoning": {
+              "wireFormat": "standard",
+              "wireValues": {},
+              "replay": false
+            },
+            "contextWindow": 0,
+            "outputTokens": null
+          },
+          "listCalls": 1,
+          "warmups": 0
+        },
+        {
+          "op": "lookup",
+          "provider": "b",
+          "model": "m",
+          "expect": {
+            "id": "m",
+            "provider": "b"
+          },
+          "listCalls": 1,
+          "warmups": 1
+        }
+      ]
+    },
+    {
+      "name": "seq-or-revision-change-during-load-remembers-nothing",
+      "providers": {
+        "p": {
+          "list": true,
+          "listRows": [
+            {
+              "id": "a",
+              "display": "LOAD-a"
+            }
+          ],
+          "duringList": "invalidate"
+        }
+      },
+      "ops": [
+        {
+          "op": "load",
+          "expect": [
+            {
+              "provider": "p",
+              "id": "a"
+            }
+          ],
+          "listCalls": 1,
+          "warmups": 0
+        },
+        {
+          "op": "lookup",
+          "provider": "p",
+          "model": "a",
+          "expect": {
+            "id": "a",
+            "provider": "p"
+          },
+          "listCalls": 1,
+          "warmups": 1
+        }
+      ]
+    },
+    {
+      "name": "revision-move-clears-the-memo",
+      "providers": {
+        "p": {
+          "list": true,
+          "cached": [
+            {
+              "id": "m",
+              "name": "m",
+              "display": "Display m",
+              "provider": "ignored-by-normalization",
+              "supportsFunctionCalling": true,
+              "supportsWebSearch": false,
+              "supportsReasoning": false,
+              "reasoningLevels": [],
+              "reasoningOptions": [],
+              "customReasoning": {
+                "wireFormat": "standard",
+                "wireValues": {},
+                "replay": false
+              },
+              "contextWindow": 0,
+              "outputTokens": null
+            }
+          ]
+        }
+      },
+      "ops": [
+        {
+          "op": "lookup",
+          "provider": "p",
+          "model": "m",
+          "expect": {
+            "id": "m",
+            "name": "m",
+            "display": "Display m",
+            "provider": "p",
+            "supportsFunctionCalling": true,
+            "supportsWebSearch": false,
+            "supportsReasoning": false,
+            "reasoningLevels": [],
+            "reasoningOptions": [],
+            "customReasoning": {
+              "wireFormat": "standard",
+              "wireValues": {},
+              "replay": false
+            },
+            "contextWindow": 0,
+            "outputTokens": null
+          },
+          "listCalls": 0,
+          "warmups": 0
+        },
+        {
+          "op": "setCached",
+          "provider": "p",
+          "rows": [
+            {
+              "id": "m",
+              "name": "changed"
+            }
+          ],
+          "listCalls": 0,
+          "warmups": 0
+        },
+        {
+          "op": "lookup",
+          "provider": "p",
+          "model": "m",
+          "expect": {
+            "id": "m",
+            "name": "m",
+            "display": "Display m",
+            "provider": "p",
+            "supportsFunctionCalling": true,
+            "supportsWebSearch": false,
+            "supportsReasoning": false,
+            "reasoningLevels": [],
+            "reasoningOptions": [],
+            "customReasoning": {
+              "wireFormat": "standard",
+              "wireValues": {},
+              "replay": false
+            },
+            "contextWindow": 0,
+            "outputTokens": null
+          },
+          "listCalls": 0,
+          "warmups": 0
+        },
+        {
+          "op": "bumpRevision",
+          "listCalls": 0,
+          "warmups": 0
+        },
+        {
+          "op": "lookup",
+          "provider": "p",
+          "model": "m",
+          "expect": {
+            "id": "m",
+            "name": "changed",
+            "provider": "p"
+          },
+          "listCalls": 0,
+          "warmups": 0
+        },
+        {
+          "op": "invalidate",
+          "listCalls": 0,
+          "warmups": 0
+        },
+        {
+          "op": "setCached",
+          "provider": "p",
+          "rows": [
+            {
+              "id": "m",
+              "name": "after-invalidate"
+            }
+          ],
+          "listCalls": 0,
+          "warmups": 0
+        },
+        {
+          "op": "lookup",
+          "provider": "p",
+          "model": "m",
+          "expect": {
+            "id": "m",
+            "name": "after-invalidate",
+            "provider": "p"
+          },
+          "listCalls": 0,
+          "warmups": 0
+        }
+      ]
+    }
+  ]
+}

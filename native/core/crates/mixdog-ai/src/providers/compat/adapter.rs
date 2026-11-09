@@ -74,6 +74,8 @@ pub struct CompatAdapter {
     /// The wire a roster states per model (the console config's `wire`),
     /// published by the last listing; the user's `modelWires` win over it.
     pub(super) roster_wires: ArcSwap<HashMap<String, Wire>>,
+    /// The rows the last listing stored (`provider._enrichedModels`), which `getCachedModelInfo` answers.
+    pub(super) rows: crate::catalog::RowStore,
 }
 
 /// What the router is told about a model that the profile cannot know: the
@@ -111,6 +113,7 @@ impl CompatAdapter {
             routing: RouteInputs::default(),
             lookup: ListingLookup::new(),
             roster_wires: ArcSwap::from_pointee(HashMap::new()),
+            rows: crate::catalog::RowStore::default(),
         }
     }
 

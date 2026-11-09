@@ -7,6 +7,7 @@
 //! adapter is made per turn from the endpoint the managed runtime reports
 //! (`providers::local::adapter`).
 
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -31,6 +32,7 @@ use super::providers::OAUTH_PROVIDER_NAMES;
 use super::providers::ProviderBuilder;
 use crate::accounts::AccountStore;
 use crate::accounts::CredentialState;
+use crate::catalog::CachedModelInfo;
 use crate::catalog::ListingLookup;
 use crate::oauth::CredentialFile;
 use crate::oauth::Pace;
@@ -148,11 +150,13 @@ pub struct DefaultProviderBuilder {
     /// The metadata server's project, probed once per process (a negative
     /// outcome is kept too).
     metadata_project: tokio::sync::OnceCell<Option<String>>,
+    /// The stored-row capability of each built adapter whose class has `getCachedModelInfo`, by provider name.
+    capabilities: std::sync::Mutex<HashMap<String, Arc<dyn CachedModelInfo>>>,
 }
 
 impl DefaultProviderBuilder {
     pub fn new(env: BuilderEnv) -> Self {
-        Self { env, metadata_project: tokio::sync::OnceCell::new() }
+        Self { env, metadata_project: tokio::sync::OnceCell::new(), capabilities: std::sync::Mutex::default() }
     }
 }
 
@@ -483,6 +487,11 @@ impl DefaultProviderBuilder {
         self.env.accounts.credential_file(provider, "default").map_err(|e| e.to_string())
     }
 
+    /// Declares the stored-row capability of the adapter built under `name` (see `cached_model_info`).
+    fn declare(&self, name: &str, capability: Arc<dyn CachedModelInfo>) {
+        self.capabilities.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(name.to_owned(), capability);
+    }
+
     fn key_source(&self, provider: &str, cfg: &Value) -> Arc<ProviderKey> {
         ProviderKey::primary(self.env.keys.clone(), provider, key_config(cfg))
     }
@@ -596,11 +605,16 @@ impl DefaultProviderBuilder {
             .map(|map| map.iter().filter_map(|(m, w)| Some((m.clone(), Wire::parse(w.as_str()?)?))).collect())
             .unwrap_or_default();
         let routing = RouteInputs { model_wires, catalog: None };
-        Ok(adapter(
+        let caches_model_info = codec.profile().listing.caches_model_info;
+        let built = Arc::new(
             CompatAdapter::new(codec, http, Some(key))
                 .with_routing(routing)
                 .with_listing_lookup(self.env.listing.clone()),
-        ))
+        );
+        if caches_model_info {
+            self.declare(name, built.clone());
+        }
+        Ok(built)
     }
 
     async fn build_gemini(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
@@ -822,7 +836,10 @@ impl DefaultProviderBuilder {
     }
 
     fn build_custom(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-        self.build_custom_parts(name, cfg).map(|parts| parts.adapter)
+        self.build_custom_parts(name, cfg).map(|parts| {
+            self.declare(name, parts.listing.clone());
+            parts.adapter
+        })
     }
 
     /// A custom provider with its model listing at hand: the setup probes read the listing's
@@ -966,14 +983,16 @@ impl DefaultProviderBuilder {
         } else {
             Arc::new(FileAccess::new(http.clone(), self.file(name)?))
         };
-        Ok(adapter(CursorAdapter::new(
+        let built = Arc::new(CursorAdapter::new(
             name,
             None,
             self.env.cursor_client_version.clone(),
             http,
             self.env.bidi.clone(),
             tokens,
-        )))
+        ));
+        self.declare(name, built.clone());
+        Ok(built)
     }
 }
 
@@ -1002,11 +1021,15 @@ impl DefaultProviderBuilder {
                 )))
             }
             "cursor-oauth" | "cursor-api" => self.build_cursor(name, cfg).await,
-            "devin-oauth" => Ok(adapter(DevinAdapter::new(
-                text(cfg, "baseUrl").map(str::to_owned),
-                self.env.http.clone(),
-                Arc::new(FileSessionToken(self.file(name)?)),
-            ))),
+            "devin-oauth" => {
+                let built = Arc::new(DevinAdapter::new(
+                    text(cfg, "baseUrl").map(str::to_owned),
+                    self.env.http.clone(),
+                    Arc::new(FileSessionToken(self.file(name)?)),
+                ));
+                self.declare(name, built.clone());
+                Ok(built)
+            }
             "mixdog-local" => Err("mixdog-local is built per turn from the managed runtime's endpoint".into()),
             other => Err(format!("unknown enabled provider: {other}")),
         }
@@ -1018,11 +1041,26 @@ impl ProviderBuilder for DefaultProviderBuilder {
     /// The adapter, and for a dialect that gates on a client version, a wrapper that warms the
     /// version before each send and learns a Grok minimum from a 426.
     async fn build(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+        self.capabilities.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(name);
         let built = self.build_unversioned(name, cfg).await?;
         Ok(match (self.env.client_versions.as_ref(), Dialect::of_provider(name)) {
             (Some(versions), Some(dialect)) => VersionedAdapter::wrap(built, dialect, Arc::clone(versions)),
             _ => built,
         })
+    }
+
+    /// The capability the adapter built under `name` owns, when its Node class has `getCachedModelInfo` (own or
+    /// inherited; verified at `b6f10295a` under `src/runtime/agent/orchestrator/providers/`): `custom-*`
+    /// (`custom-provider.mjs:109`), the compat family whose profile says so (`openai-compat.mjs:280`; `WireGatewayProvider`,
+    /// `wire-gateway.mjs:166`, for deepseek and openrouter), `cursor-oauth` / `cursor-api` (`cursor.mjs:601`),
+    /// `devin-oauth` (`devin.mjs:316`). `mixdog-local` also has it at `b6f10295a` (`mixdog-local.mjs:91`, registered when
+    /// `providers['mixdog-local'].enabled`, `registry.mjs:199`, `config.mjs:144`) and is reachable through `lookupModelMeta`
+    /// there, but it is EXCLUDED here: the Rust registry never holds it (`build_unversioned` refuses it, the managed
+    /// runtime's endpoint exists only per turn), so the memo answers its unmarked fallback where Node answers the
+    /// installed model's row. `anthropic`, `anthropic-oauth`, `openai`, `gemini`, `vertex-ai`,
+    /// `antigravity-oauth`, `grok-oauth`, `mimo-oauth` and `command-code-oauth` define none.
+    fn cached_model_info(&self, name: &str) -> Option<Arc<dyn CachedModelInfo>> {
+        self.capabilities.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(name).cloned()
     }
 
     async fn custom_key_ids(&self, name: &str) -> Result<Vec<String>, String> {

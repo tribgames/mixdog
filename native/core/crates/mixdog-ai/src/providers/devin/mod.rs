@@ -170,6 +170,8 @@ pub struct DevinAdapter {
     policy: RetryPolicy,
     keepalive: KeepaliveSchedule,
     catalog: ArcSwapOption<Catalog>,
+    /// The rows the last listing stored, which `getCachedModelInfo` answers.
+    rows: crate::catalog::RowStore,
     /// A default codec only for the trait's `codec()` accessor: the codec of
     /// an attempt is built per account and per turn.
     placeholder: DevinCodec,
@@ -208,6 +210,7 @@ impl DevinAdapter {
             policy: RetryPolicy::codex_default(),
             keepalive: KeepaliveSchedule::SPEC,
             catalog: ArcSwapOption::empty(),
+            rows: crate::catalog::RowStore::default(),
         }
     }
 
@@ -295,7 +298,9 @@ impl ModelListing for DevinAdapter {
     async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
         let token = self.token.session_token().await?;
         let rows = self.fetch_rows(&token).await?;
-        Ok(rows.iter().map(|row| listing_row::record(listing::row(row))).collect())
+        let listed: Vec<ModelRecord> = rows.iter().map(|row| listing_row::record(listing::row(row))).collect();
+        self.rows.replace(listed.iter().map(|row| std::sync::Arc::new(crate::catalog::stored_row(&self.id, row.clone()))).collect());
+        Ok(listed)
     }
 }
 
@@ -374,5 +379,11 @@ impl ProviderAdapter for DevinAdapter {
             return Err(codec.classify(&rejected));
         }
         Ok(Box::new(DecodedStream::new(head.body, codec.decoder(&request)).with_fault_code("unavailable")))
+    }
+}
+
+impl crate::catalog::CachedModelInfo for DevinAdapter {
+    fn cached_row(&self, model: &str) -> Option<std::sync::Arc<serde_json::Value>> {
+        self.rows.find(model)
     }
 }

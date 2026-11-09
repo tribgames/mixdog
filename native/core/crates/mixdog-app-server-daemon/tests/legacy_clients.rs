@@ -48,7 +48,7 @@ impl Publication for Quiet {
 }
 
 impl Exiter for Quiet {
-    fn exit(&self) {}
+    fn exit(&self, _: i32) {}
 }
 
 #[test]

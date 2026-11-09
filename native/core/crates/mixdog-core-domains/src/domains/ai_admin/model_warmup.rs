@@ -96,9 +96,19 @@ impl ModelWarmup {
         Arc::new(Self { config, bound: OnceLock::new(), state: Mutex::new(State::default()) })
     }
 
-    /// Binds the list the warm loads and the runtime's gates; once.
-    pub fn bind(&self, list: Arc<ModelListService>, gates: Arc<dyn WarmupGates>) -> Result<(), ()> {
-        self.bound.set(Bindings { list, gates }).map_err(|_| ())
+    /// Binds the list the warm loads and the runtime's gates; once. The catalog's route-meta memo schedules this
+    /// warm-up on a non-fetching miss (`scheduleProviderModelWarmup` handed to `createModelMetaIndex`): one mechanism,
+    /// with the same switches, delay and parking as the boot's.
+    pub fn bind(self: &Arc<Self>, list: Arc<ModelListService>, gates: Arc<dyn WarmupGates>) -> Result<(), ()> {
+        let catalog = list.catalog.clone();
+        self.bound.set(Bindings { list, gates }).map_err(|_| ())?;
+        let this = Arc::downgrade(self);
+        catalog.bind_warmup(move || {
+            if let Some(warmup) = this.upgrade() {
+                warmup.schedule();
+            }
+        });
+        Ok(())
     }
 
     pub fn is_bound(&self) -> bool {

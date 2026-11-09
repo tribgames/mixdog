@@ -218,10 +218,25 @@ pub fn enrich_listed(lookup: &Lookup<'_>, provider: &str, rows: Vec<ModelRecord>
             if let Some(mode) = out.get("mode").and_then(Value::as_str).filter(|s| !s.is_empty()) {
                 record.mode = Some(mode.to_owned());
             }
-            record.enriched = EnrichedRow(out.as_object().cloned());
+            // `{ ...m, ...enrichment }`: the row the provider stored, over whatever full row the record already held
+            // (`listing_row::record`).
+            let mut stored = record.enriched.0.take().unwrap_or_default();
+            stored.extend(out.as_object().cloned().unwrap_or_default());
+            record.enriched = EnrichedRow(Some(stored));
             record
         })
         .collect()
+}
+
+/// A provider's own step after `enrichModels` writes a key of the row it stores (`{ ...row, contextWindow }`,
+/// `name`, ...); `None` removes the key. The record's typed field is set by the caller. A record with no stored row
+/// has nothing to restate.
+pub fn restate_row(record: &mut ModelRecord, key: &str, value: Option<Value>) {
+    let Some(row) = record.enriched.0.as_mut() else { return };
+    match value {
+        Some(value) => row.insert(key.to_owned(), value),
+        None => row.remove(key),
+    };
 }
 
 /// The compat family's step after enrichment (`openai-compat-models.mjs:184-190`):
@@ -234,12 +249,15 @@ pub fn keep_native(native: &[ModelRecord], enriched: Vec<ModelRecord>) -> Vec<Mo
         .map(|(mut row, native)| {
             if native.context_window.is_some_and(|n| n > 0) {
                 row.context_window = native.context_window;
+                restate_row(&mut row, "contextWindow", native.context_window.map(Value::from));
             }
             if native.max_output_tokens.is_some_and(|n| n > 0) {
                 row.max_output_tokens = native.max_output_tokens;
+                restate_row(&mut row, "outputTokens", native.max_output_tokens.map(Value::from));
             }
             if native.mode.as_deref().is_some_and(|m| !m.is_empty()) {
                 row.mode.clone_from(&native.mode);
+                restate_row(&mut row, "mode", native.mode.clone().map(Value::from));
             }
             row
         })

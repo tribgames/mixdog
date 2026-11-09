@@ -116,6 +116,7 @@ fn positive(n: Option<u64>) -> Option<u64> {
 fn effective_row(mut base: ModelRecord, over: Option<&Override>, discovered: bool, new_models_hidden: bool) -> ModelRecord {
     let none = Override::default();
     let ov = over.unwrap_or(&none);
+    let created_stated = base.raw.as_ref().and_then(|raw| raw.get("createdStated")) == Some(&Value::Bool(true));
     let levels = ov.levels.clone().or_else(|| catalog_levels(&base));
     let replay = ov.replay.unwrap_or(base.reasoning_content_field.as_deref() == Some("reasoning_content"));
     let wire_values: BTreeMap<String, String> = ov
@@ -152,7 +153,7 @@ fn effective_row(mut base: ModelRecord, over: Option<&Override>, discovered: boo
     // `leveled`: the row states its effort levels (Node's row then has the
     // `reasoningOptions` / `reasoningLevels` keys, even when empty).
     base.manual = ov.manual;
-    base.raw = Some(json!({ "inherited": inherited, "leveled": leveled }));
+    base.raw = Some(json!({ "inherited": inherited, "leveled": leveled, "createdStated": created_stated }));
     base
 }
 
@@ -373,7 +374,12 @@ impl CustomListing {
         let body = self.fetch(key).await?;
         if self.protocol != Protocol::Anthropic {
             // The compat steps: enrichment, native limits restored, sanitizer.
-            return Ok(compat_rows_of(&self.lookup, &self.id, &parse_models(&body), false));
+            let mut rows = compat_rows_of(&self.lookup, &self.id, &parse_models(&body), false);
+            // The compat normalizer states `created` (`null` when the endpoint lists none); the Anthropic one has no such key.
+            for row in &mut rows {
+                row.raw = Some(json!({ "createdStated": true }));
+            }
+            return Ok(rows);
         }
         let items = body.get("data").and_then(Value::as_array).cloned().unwrap_or_default();
         let rows: Vec<ModelRecord> = items
@@ -398,6 +404,16 @@ fn sanitized(mut error: ProviderError, key: &str) -> ProviderError {
         error.message = error.message.split(key).collect::<Vec<_>>().join("[redacted]");
     }
     error
+}
+
+/// `getCachedModelInfo`: the effective rows, which hold the config's own manual models from the moment the provider is
+/// built (`_applyCustomRows(_customRows())`) and the discovered ones under their overrides once it has listed.
+impl crate::catalog::CachedModelInfo for CustomListing {
+    fn cached_row(&self, model: &str) -> Option<std::sync::Arc<Value>> {
+        let provider = mixdog_protocol::ProviderId::from(self.id.as_str());
+        let row = self.cached_rows().into_iter().find(|row| row.id == model)?;
+        crate::catalog::listed_row_of(&provider, row).map(std::sync::Arc::new)
+    }
 }
 
 #[async_trait]
@@ -507,6 +523,12 @@ mod tests {
                 assert_eq!(row.supports_reasoning, node["supportsReasoning"].as_bool(), "{what} supportsReasoning");
                 assert_eq!(json!(row.reasoning_levels), node.get("reasoningLevels").cloned().unwrap_or(json!([])), "{what} reasoningLevels");
                 assert_eq!(json!(row.picker.reasoning_options), node.get("reasoningOptions").cloned().unwrap_or(json!([])), "{what} reasoningOptions");
+                // The row the catalog keeps as stated is Node's row, key for key (`getCachedModelInfo`).
+                let mut node_row = node.clone();
+                node_row.as_object_mut().unwrap().remove("provider");
+                assert_eq!(crate::catalog::listed_row_of(&"custom-fixture".into(), row.clone()), Some(node_row.clone()), "{what} stated row");
+                // The provider answers it as its `getCachedModelInfo` (`custom-provider.mjs:109`), manual rows included.
+                assert_eq!(crate::catalog::CachedModelInfo::cached_row(&listing, &row.id).as_deref(), Some(&node_row), "{what} cached row");
                 let custom = row.picker.custom_reasoning.as_ref().unwrap();
                 assert_eq!(custom.replay, node["customReasoning"]["replay"], "{what} replay");
                 assert_eq!(json!(custom.wire_format), node["customReasoning"]["wireFormat"], "{what} wireFormat");
