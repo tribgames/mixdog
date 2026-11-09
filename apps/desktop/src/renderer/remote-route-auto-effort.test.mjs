@@ -1,27 +1,22 @@
-// Per-route Auto reasoning is negotiated: only a host that advertised
-// `routeAutoEffort` in its challenge receives the `autoEffort` selection field.
-// An older host's selection validator rejects unknown keys, so the shim omits it.
+// Per-route Auto reasoning is negotiated: only a host that advertised `routeAutoEffort` receives the `autoEffort` selection field. An older
+// host's selection validator rejects unknown keys, so the page omits it. Ported from the Node-socket test onto the phone API rig; the
+// selections now reach the adapter instead of a socket frame, with the same shapes.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createRemoteApi } from './remote-shim-api.ts';
-import { publishedCeilings, withShim } from './remote-shim-test-harness.mjs';
+import { settle, withPhoneApi } from './test-support/phone-api-rig.mjs';
 
 const selection = { provider: 'anthropic', model: 'opus', effort: 'high', autoEffort: false };
 
 async function sentSelections(routeAutoEffort) {
-  return withShim({}, async ({ ctx, dial }) => {
-    const api = createRemoteApi(ctx);
-    const leg = await dial({ routeAutoEffort, ready: publishedCeilings(4096, 4096) });
-    const answer = async (pending) => {
-      const frame = await leg.nextPayload();
-      await leg.deliver({ id: frame.id, ok: true, value: null });
-      await pending;
-      return frame;
-    };
-    const route = await answer(api.setModelRoute(selection, 's1'));
-    const inherit = await answer(api.inheritSession('s1', selection, null));
-    const resume = await answer(api.continueSessionInModel('s1', selection));
-    const draft = await answer(api.submitNewTask('hello', {}, { projectPath: '/p', route: selection }));
+  const handlers = { setModelRoute: () => null, inheritSession: () => null, continueSessionInModel: () => null, submitNewTask: () => null };
+  return withPhoneApi(handlers, async ({ ctx, api, calls }) => {
+    ctx.peerRouteAutoEffort = routeAutoEffort;
+    await api.setModelRoute(selection, 's1');
+    await api.inheritSession('s1', selection, null);
+    await api.continueSessionInModel('s1', selection);
+    await api.submitNewTask('hello', {}, { projectPath: '/p', route: selection });
+    await settle();
+    const [route, inherit, resume, draft] = calls;
     return {
       advertised: api.routeAutoEffort,
       selections: [route.params[0], inherit.params[1], resume.params[1], draft.params[2].route],

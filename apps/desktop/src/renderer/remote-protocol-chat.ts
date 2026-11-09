@@ -25,6 +25,15 @@ import type {
   SessionSnapshot,
   ToolApprovalDecision,
 } from '../shared/contract';
+import { SECTION_NAMES, type DesktopSectionsSnapshot } from '../shared/contract-sections';
+import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
+import { sessionStateOf } from '../../../../packages/protocol-client/src/index.ts';
+import { createCapabilityLane } from '../main/protocol/capability-route';
+import { coreErrorForWindow } from '../main/protocol/core-error';
+import { routeService } from '../main/protocol/service-route';
+import { summariesOfThreadRows } from '../main/protocol/thread-rows';
+import { remoteToolOutput } from '../main/remote-transcript';
+import { normalizedProviderModels } from '../shared/desktop-transcript-limits';
 
 /** The part of `ProtocolClient` (packages/protocol-client) this adapter uses. */
 export interface ChatClient {
@@ -282,8 +291,9 @@ export interface RosterClient {
 
 const PAGE_LIMIT = 1000; // the core's largest `thread/list` page (thread_list.rs MAX_PAGE_LIMIT)
 const idOf = (row: ThreadRow): string => String(row.id ?? '');
-// The catalog's order (thread_edges.rs place_of): newest activity first, then the id.
-const activityOf = (row: ThreadRow): number => Number(row.activityAt ?? row.updatedAt) || 0;
+// Node's catalog order: byActivityThenId (catalog-db/schema.mjs:122 at b6f10295a), activity `lastUsedAt || updatedAt || 0`, ties by id in
+// code-unit order; the core's `activityAt` is that activity (thread_edges.rs place_of).
+const activityOf = (row: ThreadRow): number => Number(row.activityAt) || Number(row.updatedAt) || 0;
 const inCatalogOrder = (a: ThreadRow, b: ThreadRow): number =>
   activityOf(b) - activityOf(a) || (idOf(a) < idOf(b) ? -1 : idOf(a) > idOf(b) ? 1 : 0);
 
@@ -298,6 +308,8 @@ export function createRosterFeed<S>(options: {
   let reading: Promise<S[]> | null = null;
   // Edges since the read began (or, before any read, since the feed attached): they outrank the listing.
   const edges = new Map<string, ThreadRow | null>();
+  // An archive change whose row the listing has not brought yet.
+  const pendingArchive = new Map<string, boolean>();
   const project = (rows: Iterable<ThreadRow>): S[] => options.summaries([...rows].sort(inCatalogOrder));
 
   const apply = (target: Map<string, ThreadRow>, id: string, row: ThreadRow | null): void => {
@@ -320,7 +332,12 @@ export function createRosterFeed<S>(options: {
         cursor = page.nextCursor;
       }
       for (const [id, row] of edges) apply(listed, id, row);
+      for (const [id, flag] of pendingArchive) {
+        const row = listed.get(id);
+        if (row && !edges.has(id)) listed.set(id, { ...row, archived: flag });
+      }
       edges.clear();
+      pendingArchive.clear();
       held = listed;
       known = true;
       const rows = project(held.values());
@@ -335,18 +352,28 @@ export function createRosterFeed<S>(options: {
     return read;
   };
 
+  // The core announces an archive change by `thread/archived` / `thread/unarchived` alone (thread_edges.rs:12), never as a summary
+  // edge, so it is a change of the one row's flag: laid over the held row, or over the row an earlier edge brought.
+  const archiveOf = (archived: boolean) => (was: ThreadRow | null | undefined): ThreadRow | null | undefined => (was ? { ...was, archived } : was);
+
   const onEdge = (method: string, params: Record<string, unknown>): void => {
     const thread = params.thread as ThreadRow | undefined;
-    const id = method === 'thread/deleted' ? String(params.threadId ?? '') : thread ? idOf(thread) : '';
+    const flag = method === 'thread/archived' ? true : method === 'thread/unarchived' ? false : undefined;
+    const id = method === 'thread/deleted' || flag !== undefined ? String(params.threadId ?? '') : thread ? idOf(thread) : '';
     if (!id) return;
-    const row = method === 'thread/deleted' ? null : (thread as ThreadRow);
+    // An edge's thread is the list row plus the thread's own route and birth time (live recording: provider, model, createdAt),
+    // which neither the listing nor Node's roster row carries.
+    const row = method === 'thread/deleted' ? null : thread ? (({ provider, model, createdAt, ...listRow }) => listRow)(thread as ThreadRow) : null;
     if (reading || !known) {
-      edges.set(id, row);
+      if (flag === undefined) edges.set(id, row);
+      else if (edges.has(id)) edges.set(id, archiveOf(flag)(edges.get(id)) ?? null);
+      else pendingArchive.set(id, flag);
       return;
     }
     const was = held.get(id);
-    if (JSON.stringify(was) === JSON.stringify(row)) return; // CatalogChannel.publish skipped an unchanged roster
-    apply(held, id, row);
+    const next = flag === undefined ? row : archiveOf(flag)(was);
+    if (next === undefined || JSON.stringify(was) === JSON.stringify(next)) return; // CatalogChannel.publish skipped an unchanged roster
+    apply(held, id, next);
     options.publish(project(held.values()));
   };
 
@@ -356,7 +383,7 @@ export function createRosterFeed<S>(options: {
     attach(client: RosterClient): () => void {
       const offEvents = client.on((event) => {
         const n = event.notification;
-        if (event.type === 'notification' && n && (n.method === 'thread/started' || n.method === 'thread/summary/updated' || n.method === 'thread/deleted')) {
+        if (event.type === 'notification' && n && (n.method === 'thread/started' || n.method === 'thread/summary/updated' || n.method === 'thread/deleted' || n.method === 'thread/archived' || n.method === 'thread/unarchived')) {
           onEdge(n.method, (n.params ?? {}) as Record<string, unknown>);
         }
       });
@@ -424,3 +451,37 @@ export function createChatAdapter(options: {
     },
   };
 }
+
+// ── The adapter the phone's switch point finds (remote-shim-adapters.ts) ─────────────────────────────────────────────────────────────
+const connectionStatus = (client: ProtocolClient<SessionFold>): DesktopSectionsSnapshot['status'] => {
+  const state = client.status.state;
+  return state === 'ready' ? 'ready' : state === 'closed' ? 'closed' : 'reconnecting';
+};
+
+/** The desktop's capability lane (main/protocol/capability-route.ts) over this phone's client: the same conversions, the same
+ *  core replies, with `client` being the one call's scoped client. */
+const sharedFor = (scoped: ChatClient): ChatShared => {
+  const client = scoped as unknown as ProtocolClient<SessionFold>;
+  const lane = createCapabilityLane({
+    protocol: {
+      call: (method, params) => client.call(method as never, params as never) as Promise<unknown>,
+      snapshot: () => ({ status: connectionStatus(client), entries: SECTION_NAMES.flatMap((name) => [...client.store.sections(name)]) }),
+      // `client/activity` is the desktop window's rate-limited presence ping; Node's phone never sent one.
+      noteUserInput: () => undefined,
+      respond: (id, answer) => client.respond(id as never, answer as never),
+      pendingServerRequests: () => client.pendingServerRequests(),
+    },
+  });
+  return {
+    routeService,
+    lane,
+    coreErrorForWindow,
+    normalizedProviderModels,
+    sessionStateOf: (threadId) => sessionStateOf(client, threadId) as unknown as SessionSnapshot | undefined,
+    remoteToolOutput,
+  };
+};
+
+// `approvalNotifications` stays unset: Node's rules read the approvals the DESKTOP's notifier had shown (push-notifier.ts shownApprovals),
+// and nothing of the core says what a push showed, so `answerApprovalNotification` answers 'open' (Node's answer without them).
+export const adapter: PhoneProtocolAdapter = createChatAdapter({ sharedFor, roster: { summaries: summariesOfThreadRows } });

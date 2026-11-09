@@ -12,28 +12,33 @@
       "name": "attach-baseline",
       "coreRows": [
         {
-          "id": "sess_0",
-          "preview": "preview 0",
-          "title": "Title 0",
-          "updatedAt": 1000,
-          "messageCount": 4,
-          "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
-        },
-        {
           "id": "sess_1",
           "preview": "preview 1",
           "title": "Title 1",
           "updatedAt": 999,
           "messageCount": 4,
           "cwd": "C:\\proj\\a",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\a"
-          }
+          "lastUsedAt": 1500,
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "activityAt": 1500,
+          "working": true,
+          "agentWorking": true,
+          "readMessageCount": 3,
+          "readRevision": 2
+        },
+        {
+          "id": "sess_0",
+          "preview": "preview 0",
+          "title": "Title 0",
+          "updatedAt": 1000,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\b",
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 1000,
+          "working": true,
+          "leadWorking": true
         },
         {
           "id": "sess_2",
@@ -42,10 +47,11 @@
           "updatedAt": 998,
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "forkedFromId": "sess_0",
+          "activityAt": 998,
+          "favorite": true
         },
         {
           "id": "sess_3",
@@ -54,10 +60,10 @@
           "updatedAt": 997,
           "messageCount": 4,
           "cwd": "C:\\proj\\a",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\a"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "activityAt": 997,
+          "archived": true
         },
         {
           "id": "sess_4",
@@ -66,10 +72,10 @@
           "updatedAt": 996,
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 996,
+          "agentDeleted": true
         }
       ],
       "frames": [
@@ -77,6 +83,21 @@
       ],
       "published": [
         [
+          {
+            "id": "sess_1",
+            "preview": "preview 1",
+            "title": "Title 1",
+            "updatedAt": 999,
+            "activityAt": 1500,
+            "messageCount": 4,
+            "cwd": "C:\\proj\\a",
+            "classification": "project",
+            "projectPath": "C:\\proj\\a",
+            "working": true,
+            "agentWorking": true,
+            "readMessageCount": 3,
+            "readRevision": 2
+          },
           {
             "id": "sess_0",
             "preview": "preview 0",
@@ -86,18 +107,9 @@
             "messageCount": 4,
             "cwd": "C:\\proj\\b",
             "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          },
-          {
-            "id": "sess_1",
-            "preview": "preview 1",
-            "title": "Title 1",
-            "updatedAt": 999,
-            "activityAt": 999,
-            "messageCount": 4,
-            "cwd": "C:\\proj\\a",
-            "classification": "project",
-            "projectPath": "C:\\proj\\a"
+            "projectPath": "C:\\proj\\b",
+            "working": true,
+            "leadWorking": true
           },
           {
             "id": "sess_2",
@@ -108,7 +120,9 @@
             "messageCount": 4,
             "cwd": "C:\\proj\\b",
             "classification": "project",
-            "projectPath": "C:\\proj\\b"
+            "projectPath": "C:\\proj\\b",
+            "inheritedFromSessionId": "sess_0",
+            "favorite": true
           },
           {
             "id": "sess_3",
@@ -119,7 +133,8 @@
             "messageCount": 4,
             "cwd": "C:\\proj\\a",
             "classification": "project",
-            "projectPath": "C:\\proj\\a"
+            "projectPath": "C:\\proj\\a",
+            "archived": true
           },
           {
             "id": "sess_4",
@@ -130,11 +145,27 @@
             "messageCount": 4,
             "cwd": "C:\\proj\\b",
             "classification": "project",
-            "projectPath": "C:\\proj\\b"
+            "projectPath": "C:\\proj\\b",
+            "agentDeleted": true
           }
         ]
       ],
       "roster": [
+        {
+          "id": "sess_1",
+          "preview": "preview 1",
+          "title": "Title 1",
+          "updatedAt": 999,
+          "activityAt": 1500,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\a",
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "working": true,
+          "agentWorking": true,
+          "readMessageCount": 3,
+          "readRevision": 2
+        },
         {
           "id": "sess_0",
           "preview": "preview 0",
@@ -144,18 +175,9 @@
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
           "classification": "project",
-          "projectPath": "C:\\proj\\b"
-        },
-        {
-          "id": "sess_1",
-          "preview": "preview 1",
-          "title": "Title 1",
-          "updatedAt": 999,
-          "activityAt": 999,
-          "messageCount": 4,
-          "cwd": "C:\\proj\\a",
-          "classification": "project",
-          "projectPath": "C:\\proj\\a"
+          "projectPath": "C:\\proj\\b",
+          "working": true,
+          "leadWorking": true
         },
         {
           "id": "sess_2",
@@ -166,7 +188,9 @@
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
           "classification": "project",
-          "projectPath": "C:\\proj\\b"
+          "projectPath": "C:\\proj\\b",
+          "inheritedFromSessionId": "sess_0",
+          "favorite": true
         },
         {
           "id": "sess_3",
@@ -177,7 +201,8 @@
           "messageCount": 4,
           "cwd": "C:\\proj\\a",
           "classification": "project",
-          "projectPath": "C:\\proj\\a"
+          "projectPath": "C:\\proj\\a",
+          "archived": true
         },
         {
           "id": "sess_4",
@@ -188,7 +213,8 @@
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
           "classification": "project",
-          "projectPath": "C:\\proj\\b"
+          "projectPath": "C:\\proj\\b",
+          "agentDeleted": true
         }
       ]
     },
@@ -202,22 +228,11 @@
           "updatedAt": 2000,
           "messageCount": 6,
           "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
-        },
-        {
-          "id": "sess_0",
-          "preview": "preview 0",
-          "title": "Title 0",
-          "updatedAt": 1000,
-          "messageCount": 4,
-          "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "forkedFromId": "sess_0",
+          "activityAt": 2000,
+          "favorite": true
         },
         {
           "id": "sess_1",
@@ -226,10 +241,27 @@
           "updatedAt": 999,
           "messageCount": 4,
           "cwd": "C:\\proj\\a",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\a"
-          }
+          "lastUsedAt": 1500,
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "activityAt": 1500,
+          "working": true,
+          "agentWorking": true,
+          "readMessageCount": 3,
+          "readRevision": 2
+        },
+        {
+          "id": "sess_0",
+          "preview": "preview 0",
+          "title": "Title 0",
+          "updatedAt": 1000,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\b",
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 1000,
+          "working": true,
+          "leadWorking": true
         },
         {
           "id": "sess_3",
@@ -238,10 +270,10 @@
           "updatedAt": 997,
           "messageCount": 4,
           "cwd": "C:\\proj\\a",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\a"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "activityAt": 997,
+          "archived": true
         },
         {
           "id": "sess_4",
@@ -250,10 +282,10 @@
           "updatedAt": 996,
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 996,
+          "agentDeleted": true
         }
       ],
       "published": [
@@ -267,7 +299,24 @@
             "messageCount": 6,
             "cwd": "C:\\proj\\b",
             "classification": "project",
-            "projectPath": "C:\\proj\\b"
+            "projectPath": "C:\\proj\\b",
+            "inheritedFromSessionId": "sess_0",
+            "favorite": true
+          },
+          {
+            "id": "sess_1",
+            "preview": "preview 1",
+            "title": "Title 1",
+            "updatedAt": 999,
+            "activityAt": 1500,
+            "messageCount": 4,
+            "cwd": "C:\\proj\\a",
+            "classification": "project",
+            "projectPath": "C:\\proj\\a",
+            "working": true,
+            "agentWorking": true,
+            "readMessageCount": 3,
+            "readRevision": 2
           },
           {
             "id": "sess_0",
@@ -278,18 +327,9 @@
             "messageCount": 4,
             "cwd": "C:\\proj\\b",
             "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          },
-          {
-            "id": "sess_1",
-            "preview": "preview 1",
-            "title": "Title 1",
-            "updatedAt": 999,
-            "activityAt": 999,
-            "messageCount": 4,
-            "cwd": "C:\\proj\\a",
-            "classification": "project",
-            "projectPath": "C:\\proj\\a"
+            "projectPath": "C:\\proj\\b",
+            "working": true,
+            "leadWorking": true
           },
           {
             "id": "sess_3",
@@ -300,7 +340,8 @@
             "messageCount": 4,
             "cwd": "C:\\proj\\a",
             "classification": "project",
-            "projectPath": "C:\\proj\\a"
+            "projectPath": "C:\\proj\\a",
+            "archived": true
           },
           {
             "id": "sess_4",
@@ -311,7 +352,8 @@
             "messageCount": 4,
             "cwd": "C:\\proj\\b",
             "classification": "project",
-            "projectPath": "C:\\proj\\b"
+            "projectPath": "C:\\proj\\b",
+            "agentDeleted": true
           }
         ]
       ],
@@ -325,7 +367,24 @@
           "messageCount": 6,
           "cwd": "C:\\proj\\b",
           "classification": "project",
-          "projectPath": "C:\\proj\\b"
+          "projectPath": "C:\\proj\\b",
+          "inheritedFromSessionId": "sess_0",
+          "favorite": true
+        },
+        {
+          "id": "sess_1",
+          "preview": "preview 1",
+          "title": "Title 1",
+          "updatedAt": 999,
+          "activityAt": 1500,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\a",
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "working": true,
+          "agentWorking": true,
+          "readMessageCount": 3,
+          "readRevision": 2
         },
         {
           "id": "sess_0",
@@ -336,18 +395,9 @@
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
           "classification": "project",
-          "projectPath": "C:\\proj\\b"
-        },
-        {
-          "id": "sess_1",
-          "preview": "preview 1",
-          "title": "Title 1",
-          "updatedAt": 999,
-          "activityAt": 999,
-          "messageCount": 4,
-          "cwd": "C:\\proj\\a",
-          "classification": "project",
-          "projectPath": "C:\\proj\\a"
+          "projectPath": "C:\\proj\\b",
+          "working": true,
+          "leadWorking": true
         },
         {
           "id": "sess_3",
@@ -358,7 +408,8 @@
           "messageCount": 4,
           "cwd": "C:\\proj\\a",
           "classification": "project",
-          "projectPath": "C:\\proj\\a"
+          "projectPath": "C:\\proj\\a",
+          "archived": true
         },
         {
           "id": "sess_4",
@@ -369,7 +420,8 @@
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
           "classification": "project",
-          "projectPath": "C:\\proj\\b"
+          "projectPath": "C:\\proj\\b",
+          "agentDeleted": true
         }
       ]
     },
@@ -383,22 +435,11 @@
           "updatedAt": 2000,
           "messageCount": 6,
           "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
-        },
-        {
-          "id": "sess_0",
-          "preview": "preview 0",
-          "title": "Title 0",
-          "updatedAt": 1000,
-          "messageCount": 4,
-          "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "forkedFromId": "sess_0",
+          "activityAt": 2000,
+          "favorite": true
         },
         {
           "id": "sess_1",
@@ -407,10 +448,27 @@
           "updatedAt": 999,
           "messageCount": 4,
           "cwd": "C:\\proj\\a",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\a"
-          }
+          "lastUsedAt": 1500,
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "activityAt": 1500,
+          "working": true,
+          "agentWorking": true,
+          "readMessageCount": 3,
+          "readRevision": 2
+        },
+        {
+          "id": "sess_0",
+          "preview": "preview 0",
+          "title": "Title 0",
+          "updatedAt": 1000,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\b",
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 1000,
+          "working": true,
+          "leadWorking": true
         },
         {
           "id": "sess_3",
@@ -419,10 +477,10 @@
           "updatedAt": 997,
           "messageCount": 4,
           "cwd": "C:\\proj\\a",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\a"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "activityAt": 997,
+          "archived": true
         },
         {
           "id": "sess_4",
@@ -431,10 +489,10 @@
           "updatedAt": 996,
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 996,
+          "agentDeleted": true
         }
       ],
       "frames": [
@@ -451,7 +509,24 @@
             "messageCount": 6,
             "cwd": "C:\\proj\\b",
             "classification": "project",
-            "projectPath": "C:\\proj\\b"
+            "projectPath": "C:\\proj\\b",
+            "inheritedFromSessionId": "sess_0",
+            "favorite": true
+          },
+          {
+            "id": "sess_1",
+            "preview": "preview 1",
+            "title": "Title 1",
+            "updatedAt": 999,
+            "activityAt": 1500,
+            "messageCount": 4,
+            "cwd": "C:\\proj\\a",
+            "classification": "project",
+            "projectPath": "C:\\proj\\a",
+            "working": true,
+            "agentWorking": true,
+            "readMessageCount": 3,
+            "readRevision": 2
           },
           {
             "id": "sess_0",
@@ -462,18 +537,9 @@
             "messageCount": 4,
             "cwd": "C:\\proj\\b",
             "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          },
-          {
-            "id": "sess_1",
-            "preview": "preview 1",
-            "title": "Title 1",
-            "updatedAt": 999,
-            "activityAt": 999,
-            "messageCount": 4,
-            "cwd": "C:\\proj\\a",
-            "classification": "project",
-            "projectPath": "C:\\proj\\a"
+            "projectPath": "C:\\proj\\b",
+            "working": true,
+            "leadWorking": true
           },
           {
             "id": "sess_3",
@@ -484,7 +550,8 @@
             "messageCount": 4,
             "cwd": "C:\\proj\\a",
             "classification": "project",
-            "projectPath": "C:\\proj\\a"
+            "projectPath": "C:\\proj\\a",
+            "archived": true
           },
           {
             "id": "sess_4",
@@ -495,7 +562,8 @@
             "messageCount": 4,
             "cwd": "C:\\proj\\b",
             "classification": "project",
-            "projectPath": "C:\\proj\\b"
+            "projectPath": "C:\\proj\\b",
+            "agentDeleted": true
           }
         ]
       ],
@@ -509,7 +577,24 @@
           "messageCount": 6,
           "cwd": "C:\\proj\\b",
           "classification": "project",
-          "projectPath": "C:\\proj\\b"
+          "projectPath": "C:\\proj\\b",
+          "inheritedFromSessionId": "sess_0",
+          "favorite": true
+        },
+        {
+          "id": "sess_1",
+          "preview": "preview 1",
+          "title": "Title 1",
+          "updatedAt": 999,
+          "activityAt": 1500,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\a",
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "working": true,
+          "agentWorking": true,
+          "readMessageCount": 3,
+          "readRevision": 2
         },
         {
           "id": "sess_0",
@@ -520,18 +605,9 @@
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
           "classification": "project",
-          "projectPath": "C:\\proj\\b"
-        },
-        {
-          "id": "sess_1",
-          "preview": "preview 1",
-          "title": "Title 1",
-          "updatedAt": 999,
-          "activityAt": 999,
-          "messageCount": 4,
-          "cwd": "C:\\proj\\a",
-          "classification": "project",
-          "projectPath": "C:\\proj\\a"
+          "projectPath": "C:\\proj\\b",
+          "working": true,
+          "leadWorking": true
         },
         {
           "id": "sess_3",
@@ -542,7 +618,8 @@
           "messageCount": 4,
           "cwd": "C:\\proj\\a",
           "classification": "project",
-          "projectPath": "C:\\proj\\a"
+          "projectPath": "C:\\proj\\a",
+          "archived": true
         },
         {
           "id": "sess_4",
@@ -553,7 +630,8 @@
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
           "classification": "project",
-          "projectPath": "C:\\proj\\b"
+          "projectPath": "C:\\proj\\b",
+          "agentDeleted": true
         }
       ]
     },
@@ -567,10 +645,11 @@
           "updatedAt": 3000,
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 3000,
+          "working": true,
+          "leadWorking": true
         },
         {
           "id": "sess_2",
@@ -579,10 +658,11 @@
           "updatedAt": 2000,
           "messageCount": 6,
           "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "forkedFromId": "sess_0",
+          "activityAt": 2000,
+          "favorite": true
         },
         {
           "id": "sess_1",
@@ -591,10 +671,14 @@
           "updatedAt": 999,
           "messageCount": 4,
           "cwd": "C:\\proj\\a",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\a"
-          }
+          "lastUsedAt": 1500,
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "activityAt": 1500,
+          "working": true,
+          "agentWorking": true,
+          "readMessageCount": 3,
+          "readRevision": 2
         },
         {
           "id": "sess_4",
@@ -603,10 +687,10 @@
           "updatedAt": 996,
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 996,
+          "agentDeleted": true
         },
         {
           "id": "sess_7",
@@ -615,10 +699,9 @@
           "updatedAt": 993,
           "messageCount": 4,
           "cwd": "C:\\proj\\a",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\a"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "activityAt": 993
         }
       ],
       "frames": [
@@ -635,7 +718,9 @@
             "messageCount": 4,
             "cwd": "C:\\proj\\b",
             "classification": "project",
-            "projectPath": "C:\\proj\\b"
+            "projectPath": "C:\\proj\\b",
+            "working": true,
+            "leadWorking": true
           },
           {
             "id": "sess_2",
@@ -646,18 +731,24 @@
             "messageCount": 6,
             "cwd": "C:\\proj\\b",
             "classification": "project",
-            "projectPath": "C:\\proj\\b"
+            "projectPath": "C:\\proj\\b",
+            "inheritedFromSessionId": "sess_0",
+            "favorite": true
           },
           {
             "id": "sess_1",
             "preview": "preview 1",
             "title": "Title 1",
             "updatedAt": 999,
-            "activityAt": 999,
+            "activityAt": 1500,
             "messageCount": 4,
             "cwd": "C:\\proj\\a",
             "classification": "project",
-            "projectPath": "C:\\proj\\a"
+            "projectPath": "C:\\proj\\a",
+            "working": true,
+            "agentWorking": true,
+            "readMessageCount": 3,
+            "readRevision": 2
           },
           {
             "id": "sess_4",
@@ -668,7 +759,8 @@
             "messageCount": 4,
             "cwd": "C:\\proj\\b",
             "classification": "project",
-            "projectPath": "C:\\proj\\b"
+            "projectPath": "C:\\proj\\b",
+            "agentDeleted": true
           },
           {
             "id": "sess_7",
@@ -693,7 +785,9 @@
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
           "classification": "project",
-          "projectPath": "C:\\proj\\b"
+          "projectPath": "C:\\proj\\b",
+          "working": true,
+          "leadWorking": true
         },
         {
           "id": "sess_2",
@@ -704,18 +798,24 @@
           "messageCount": 6,
           "cwd": "C:\\proj\\b",
           "classification": "project",
-          "projectPath": "C:\\proj\\b"
+          "projectPath": "C:\\proj\\b",
+          "inheritedFromSessionId": "sess_0",
+          "favorite": true
         },
         {
           "id": "sess_1",
           "preview": "preview 1",
           "title": "Title 1",
           "updatedAt": 999,
-          "activityAt": 999,
+          "activityAt": 1500,
           "messageCount": 4,
           "cwd": "C:\\proj\\a",
           "classification": "project",
-          "projectPath": "C:\\proj\\a"
+          "projectPath": "C:\\proj\\a",
+          "working": true,
+          "agentWorking": true,
+          "readMessageCount": 3,
+          "readRevision": 2
         },
         {
           "id": "sess_4",
@@ -726,7 +826,8 @@
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
           "classification": "project",
-          "projectPath": "C:\\proj\\b"
+          "projectPath": "C:\\proj\\b",
+          "agentDeleted": true
         },
         {
           "id": "sess_7",
@@ -751,10 +852,11 @@
           "updatedAt": 3000,
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 3000,
+          "working": true,
+          "leadWorking": true
         },
         {
           "id": "sess_2",
@@ -763,10 +865,11 @@
           "updatedAt": 2000,
           "messageCount": 6,
           "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "forkedFromId": "sess_0",
+          "activityAt": 2000,
+          "favorite": true
         },
         {
           "id": "sess_4",
@@ -775,10 +878,10 @@
           "updatedAt": 996,
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 996,
+          "agentDeleted": true
         },
         {
           "id": "sess_7",
@@ -787,10 +890,9 @@
           "updatedAt": 993,
           "messageCount": 4,
           "cwd": "C:\\proj\\a",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\a"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "activityAt": 993
         },
         {
           "id": "sess_8",
@@ -799,10 +901,9 @@
           "updatedAt": 992,
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 992
         }
       ],
       "frames": [
@@ -819,7 +920,9 @@
             "messageCount": 4,
             "cwd": "C:\\proj\\b",
             "classification": "project",
-            "projectPath": "C:\\proj\\b"
+            "projectPath": "C:\\proj\\b",
+            "working": true,
+            "leadWorking": true
           },
           {
             "id": "sess_2",
@@ -830,7 +933,9 @@
             "messageCount": 6,
             "cwd": "C:\\proj\\b",
             "classification": "project",
-            "projectPath": "C:\\proj\\b"
+            "projectPath": "C:\\proj\\b",
+            "inheritedFromSessionId": "sess_0",
+            "favorite": true
           },
           {
             "id": "sess_4",
@@ -841,7 +946,8 @@
             "messageCount": 4,
             "cwd": "C:\\proj\\b",
             "classification": "project",
-            "projectPath": "C:\\proj\\b"
+            "projectPath": "C:\\proj\\b",
+            "agentDeleted": true
           },
           {
             "id": "sess_7",
@@ -877,7 +983,9 @@
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
           "classification": "project",
-          "projectPath": "C:\\proj\\b"
+          "projectPath": "C:\\proj\\b",
+          "working": true,
+          "leadWorking": true
         },
         {
           "id": "sess_2",
@@ -888,7 +996,9 @@
           "messageCount": 6,
           "cwd": "C:\\proj\\b",
           "classification": "project",
-          "projectPath": "C:\\proj\\b"
+          "projectPath": "C:\\proj\\b",
+          "inheritedFromSessionId": "sess_0",
+          "favorite": true
         },
         {
           "id": "sess_4",
@@ -899,7 +1009,8 @@
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
           "classification": "project",
-          "projectPath": "C:\\proj\\b"
+          "projectPath": "C:\\proj\\b",
+          "agentDeleted": true
         },
         {
           "id": "sess_7",
@@ -935,10 +1046,11 @@
           "updatedAt": 3000,
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 3000,
+          "working": true,
+          "leadWorking": true
         },
         {
           "id": "sess_2",
@@ -947,10 +1059,11 @@
           "updatedAt": 2000,
           "messageCount": 6,
           "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "forkedFromId": "sess_0",
+          "activityAt": 2000,
+          "favorite": true
         },
         {
           "id": "sess_4",
@@ -959,10 +1072,10 @@
           "updatedAt": 996,
           "messageCount": 9,
           "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 996,
+          "agentDeleted": true
         },
         {
           "id": "sess_7",
@@ -971,10 +1084,9 @@
           "updatedAt": 993,
           "messageCount": 4,
           "cwd": "C:\\proj\\a",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\a"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "activityAt": 993
         },
         {
           "id": "sess_8",
@@ -983,10 +1095,9 @@
           "updatedAt": 992,
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
-          "desktopSession": {
-            "classification": "project",
-            "projectPath": "C:\\proj\\b"
-          }
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 992
         }
       ],
       "published": [
@@ -1000,7 +1111,9 @@
             "messageCount": 4,
             "cwd": "C:\\proj\\b",
             "classification": "project",
-            "projectPath": "C:\\proj\\b"
+            "projectPath": "C:\\proj\\b",
+            "working": true,
+            "leadWorking": true
           },
           {
             "id": "sess_2",
@@ -1011,7 +1124,9 @@
             "messageCount": 6,
             "cwd": "C:\\proj\\b",
             "classification": "project",
-            "projectPath": "C:\\proj\\b"
+            "projectPath": "C:\\proj\\b",
+            "inheritedFromSessionId": "sess_0",
+            "favorite": true
           },
           {
             "id": "sess_4",
@@ -1022,7 +1137,8 @@
             "messageCount": 9,
             "cwd": "C:\\proj\\b",
             "classification": "project",
-            "projectPath": "C:\\proj\\b"
+            "projectPath": "C:\\proj\\b",
+            "agentDeleted": true
           },
           {
             "id": "sess_7",
@@ -1058,7 +1174,9 @@
           "messageCount": 4,
           "cwd": "C:\\proj\\b",
           "classification": "project",
-          "projectPath": "C:\\proj\\b"
+          "projectPath": "C:\\proj\\b",
+          "working": true,
+          "leadWorking": true
         },
         {
           "id": "sess_2",
@@ -1069,7 +1187,9 @@
           "messageCount": 6,
           "cwd": "C:\\proj\\b",
           "classification": "project",
-          "projectPath": "C:\\proj\\b"
+          "projectPath": "C:\\proj\\b",
+          "inheritedFromSessionId": "sess_0",
+          "favorite": true
         },
         {
           "id": "sess_4",
@@ -1080,7 +1200,8 @@
           "messageCount": 9,
           "cwd": "C:\\proj\\b",
           "classification": "project",
-          "projectPath": "C:\\proj\\b"
+          "projectPath": "C:\\proj\\b",
+          "agentDeleted": true
         },
         {
           "id": "sess_7",
@@ -1104,6 +1225,111 @@
           "classification": "project",
           "projectPath": "C:\\proj\\b"
         }
+      ]
+    },
+    {
+      "name": "order-ties",
+      "coreRows": [
+        {
+          "id": "sess_10",
+          "preview": "preview 10",
+          "title": "Title 10",
+          "updatedAt": 500,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\b",
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 500
+        },
+        {
+          "id": "sess_11",
+          "preview": "preview 11",
+          "title": "Title 11",
+          "updatedAt": 500,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\a",
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "activityAt": 500
+        },
+        {
+          "id": "sess_09",
+          "preview": "preview 12",
+          "title": "Title 12",
+          "updatedAt": 500,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\b",
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 500
+        },
+        {
+          "id": "sess_13",
+          "preview": "preview 13",
+          "title": "Title 13",
+          "updatedAt": 100,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\a",
+          "lastUsedAt": 900,
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "activityAt": 900
+        },
+        {
+          "id": "sess_14",
+          "preview": "preview 14",
+          "title": "Title 14",
+          "updatedAt": 900,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\b",
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 900
+        },
+        {
+          "id": "sess_15",
+          "preview": "preview 15",
+          "title": "Title 15",
+          "updatedAt": 0,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\a",
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "activityAt": 0
+        },
+        {
+          "id": "sess_A",
+          "preview": "preview 16",
+          "title": "Title 16",
+          "updatedAt": 0,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\b",
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 0
+        },
+        {
+          "id": "sess_a",
+          "preview": "preview 17",
+          "title": "Title 17",
+          "updatedAt": 0,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\a",
+          "lastUsedAt": 0,
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "activityAt": 0
+        }
+      ],
+      "order": [
+        "sess_13",
+        "sess_14",
+        "sess_09",
+        "sess_10",
+        "sess_11",
+        "sess_15",
+        "sess_A",
+        "sess_a"
       ]
     }
   ]

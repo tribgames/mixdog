@@ -20,8 +20,9 @@ const recorded = JSON.parse(readFileSync(new URL('./remote-protocol-chat-roster.
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
-// The core's row is the stored row with `desktopSession` flattened (thread-rows.ts).
-const coreRow = ({ desktopSession, ...rest }) => ({ ...rest, classification: desktopSession.classification, projectPath: desktopSession.projectPath });
+// The recording carries each row as the core sends it (`coreRows`: the stored row flattened, the overlays as fields of the row) and as
+// Node's roster held it (`roster`, `published`): the replay compares whole rows, every field Node's row had.
+const coreRow = (row) => row;
 
 test('the recording is an exact Node b6f10295a manifest', () => {
   assert.equal(recorded.manifest.exact, true);
@@ -154,6 +155,24 @@ test('a change between re-subscribing and the list outranks the listing, as Node
   assert.deepEqual(r.published, after.published);
 });
 
+test('the order is Node\'s byActivityThenId, ties and rows without activity included, whether listed or announced one by one', async () => {
+  const s = step('order-ties');
+  const ids = (rows) => rows.map((row) => row.id);
+  const listed = rig();
+  listed.setListing(s.coreRows);
+  listed.store({ type: 'appSnapshot' });
+  await tick();
+  assert.deepEqual(ids(listed.published[0]), s.order);
+  // Announced in the reverse of Node's order, one edge at a time, after an empty list.
+  const announced = rig();
+  announced.setListing([]);
+  announced.store({ type: 'appSnapshot' });
+  await tick();
+  announced.published.length = 0;
+  for (const row of [...s.coreRows].reverse()) announced.edge('thread/started', { thread: row });
+  assert.deepEqual(ids(announced.published.at(-1)), s.order);
+});
+
 test('a lost app feed is read again at the next snapshot', async () => {
   const attach = step('attach-baseline');
   const r = rig();
@@ -168,13 +187,13 @@ test('a lost app feed is read again at the next snapshot', async () => {
 });
 
 // ── PH-1: a wired chat call's requests carry that call's transmission claim ─────────────────────────────────────────────────────────
-test('a chat call wired through the router writes every request with its own claim', async () => {
+/** Every request of four chat calls through the real router; `wire` may replace what the adapter is handed. */
+async function writtenThrough(wire = (adapter) => adapter) {
   const written = [];
   const client = {
     call: async (method, params, options) => {
       written.push({ method, params, sent: options?.sent });
-      if (method === 'thread/list') return { data: [] };
-      return {};
+      return method === 'thread/list' ? { data: [] } : {};
     },
     resumeThread: async (threadId, window, options) => (written.push({ method: 'thread/resume', sent: options?.sent }), {}),
     unsubscribeThread: async (threadId, options) => (written.push({ method: 'thread/unsubscribe', sent: options?.sent }), undefined),
@@ -182,10 +201,10 @@ test('a chat call wired through the router writes every request with its own cla
   };
   const made = [];
   const adapter = createChatAdapter({
-    sharedFor: (scoped) => {
-      made.push(scoped);
+    sharedFor: (handed) => {
+      made.push(handed);
       const protocol = {
-        call: (method, params) => scoped.call(method, params),
+        call: (method, params) => handed.call(method, params),
         snapshot: () => ({ entries: [] }),
         noteUserInput() {},
         respond() {},
@@ -196,16 +215,45 @@ test('a chat call wired through the router writes every request with its own cla
     roster: { summaries: (rows) => summariesOfThreadRows(rows) },
   });
   const host = { ctx: { sessionsCatalog: { publish() {} } }, client: () => client, declareLane() {} };
-  const router = createProtocolRouter([adapter], { host, started: async () => undefined, synced: async () => undefined, probe() {}, silentSince: () => false });
-
+  const router = createProtocolRouter([wire(adapter, client)], { host, started: async () => undefined, synced: async () => undefined, probe() {}, silentSince: () => false });
   await router.call('markSessionRead', ['sess_a', 3, true]);
   await router.call('renameSession', ['sess_a', 'New name']);
   await router.call('listSessions', []);
   await router.call('deleteSession', ['sess_a']).catch(() => undefined);
+  return { written, made, client };
+}
 
+test('a chat call wired through the router writes every request with its own claim', async () => {
+  const { written, made, client } = await writtenThrough();
   assert.ok(written.length >= 4);
   for (const request of written) assert.equal(typeof request.sent, 'function', `${request.method} carries its call's claim`);
   assert.equal(new Set(written.map((w) => w.sent)).size >= 4, true, 'each call has a claim of its own');
   assert.equal(made.length >= 3, true, 'the adapter is built per call from the scoped client, not once');
-  assert.ok(made.every((c) => c !== client), 'what the adapter was built from is the call\'s scoped client');
+  assert.ok(made.every((c) => c !== client), "what the adapter was built from is the call's scoped client");
+});
+
+// Negative control: the same adapter built once from a captured client (what `install` hands over) loses every claim, so the test above
+// would fail for it.
+test('negative control: an adapter built once with a captured client writes unclaimed requests', async () => {
+  const captured = (adapter, client) => {
+    const calls = Object.fromEntries(Object.entries(adapter.calls).map(([name, call]) => [name, (params, host) => call(params, { ...host, client: () => client })]));
+    return { ...adapter, calls };
+  };
+  const { written } = await writtenThrough(captured);
+  assert.ok(written.length >= 4);
+  assert.ok(written.every((request) => request.sent === undefined), 'no request carries a claim');
+});
+
+test('the adapter the switch point loads claims all 37 chat calls and the thread list, and nothing twice', async () => {
+  const { adapter } = await import('./remote-protocol-chat.ts');
+  const names = [
+    'abortSession', 'agentRoomAction', 'answerApprovalNotification', 'cancelQuotaResume', 'continueSessionInModel', 'deleteSession', 'getQuotaAutoResume',
+    'getTaskWorkspace', 'inheritSession', 'listProviderModels', 'markSessionRead', 'openAgentHome', 'prefetchSession', 'provideSecretInput',
+    'readCapabilities', 'readTranscriptHistory', 'readTranscriptItem', 'releaseShellJob', 'renameSession', 'resetAgentHome',
+    'resolveToolApprovalForSession', 'scheduleQuotaResume', 'searchSessionContent', 'setFast', 'setModelRoute', 'setQuotaAutoResume',
+    'setSessionArchived', 'setSessionFavorite', 'setSessionProject', 'startProject', 'startProjectTask', 'startTask', 'stopShellJob',
+    'submitFeedback', 'submitNewTask', 'submitToSession', 'viewerDevice',
+  ];
+  assert.equal(adapter.group, 'chat');
+  assert.deepEqual(Object.keys(adapter.calls).sort(), [...names, 'listSessions'].sort());
 });
