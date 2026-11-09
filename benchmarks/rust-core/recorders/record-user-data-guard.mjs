@@ -6,7 +6,9 @@
 // each operation's answer, and what it wrote to stderr are recorded. Rust `mixdog_core_config::user_data`
 // and `Config` must reproduce all three.
 //
-//   node benchmarks/rust-core/recorders/record-user-data-guard.mjs [--tree <dir>]
+//   node benchmarks/rust-core/recorders/record-user-data-guard.mjs --tree <git checkout at the commit> --commit <40-hex id>
+//
+// The tree must be a clean git checkout of exactly that commit (commitCheckoutIdentity refuses anything else).
 //
 // Output: native/core/fixtures/user-data-guard/golden.json.
 //
@@ -111,8 +113,11 @@ if (process.argv[2] === '--child') {
 }
 
 async function parent() {
-  const { FIXTURES_ROOT, commitStage, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
-  const tree = resolveTree(parseArgs());
+  const { FIXTURES_ROOT, commitCheckoutIdentity, commitStage, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+  const args = parseArgs();
+  const tree = resolveTree(args);
+  const commit = args.get('commit') ?? (() => { throw new Error('--commit is required'); })();
+  const identity = commitCheckoutIdentity(tree, commit);
   const finalDir = join(FIXTURES_ROOT, 'user-data-guard');
   const stage = stageSet(finalDir);
   const base = mkdtempSync(join(process.env.TEMP ?? tmpdir(), 'user-data-guard-rec-'));
@@ -129,7 +134,7 @@ async function parent() {
   rmSync(base, { recursive: true, force: true });
   writeJson(join(stage, 'golden.json'), { scenarios });
   const recorder = 'benchmarks/rust-core/recorders/record-user-data-guard.mjs';
-  writeSetManifest(stage, { set: 'user-data-guard', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree });
+  writeSetManifest(stage, { set: 'user-data-guard', recorder, command: 'node ' + recorder + ' --tree <git checkout at commit> --commit <full id>', identity });
   commitStage(stage, finalDir);
 }
 
@@ -258,10 +263,17 @@ async function child(specPath, rootArg, treeArg) {
   }
 
   const files = {};
+  const dirs = [];
   const walk = (dir) => {
     for (const name of readdirSync(dir).sort()) {
       const full = join(dir, name);
       if (statSync(full).isDirectory()) {
+        const rel = normalizeText(relative(root, full).split(sep).join('/'));
+        // Node's config write (atomic rename with its owner-only ACL step) makes Windows create the empty shell folders
+        // home/AppData/{Local,Roaming} under the redirected USERPROFILE; no Mixdog code names them (no 'Roaming' in src/,
+        // and a snapshot, read or bare node process leaves them out). They are the host's, not the guard's, so they
+        // are not part of the recorded tree.
+        if (!/^home\/AppData(\/(Local|Roaming))?$/.test(rel)) dirs.push(rel);
         walk(full);
         continue;
       }
@@ -272,7 +284,7 @@ async function child(specPath, rootArg, treeArg) {
     }
   };
   walk(root);
-  writeFileSync(out, JSON.stringify({ name: scenario.name, env: scenario.env ?? {}, ops: scenario.ops, results, files, dataDirKey: data.toLowerCase(), scopeName: scopeToken() }));
+  writeFileSync(out, JSON.stringify({ name: scenario.name, env: scenario.env ?? {}, ops: scenario.ops, results, dirs: dirs.sort(), files, dataDirKey: data.toLowerCase(), scopeName: scopeToken() }));
 }
 
 function pathToUrl(path) {
