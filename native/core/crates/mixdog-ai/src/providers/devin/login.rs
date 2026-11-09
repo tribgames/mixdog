@@ -19,10 +19,13 @@ use serde_json::Value;
 use serde_json::json;
 
 use crate::oauth::AuthorizeRequest;
+use crate::oauth::CallbackPages;
 use crate::oauth::CredentialFile;
 use crate::oauth::PkceProvider;
 use crate::oauth::Redirect;
+use crate::oauth::Refusal;
 use crate::oauth::http;
+use crate::oauth::pages;
 use crate::transport::HttpSend;
 
 pub const AUTHORIZE_URL: &str = "https://app.devin.ai/auth/cli/continue";
@@ -118,19 +121,31 @@ impl PkceProvider for DevinLogin {
         url.into()
     }
 
-    async fn exchange(&self, code: &str, verifier: &str, _redirect_uri: &str) -> Result<Option<String>, LoginFailure> {
+    fn callback_pages(&self) -> CallbackPages {
+        pages::DEVIN
+    }
+
+    async fn exchange_checked(&self, code: &str, verifier: &str, _redirect_uri: &str) -> Result<Option<String>, Refusal> {
+        // Every coded failure is built from fixed text, statuses and error codes only (`loginFailure` marks it public).
+        let public = |failure: LoginFailure| match &failure {
+            LoginFailure::Failed { message, .. } => Refusal { detail: Some(message.clone()), failure },
+            _ => Refusal::from(failure),
+        };
         let body = serde_json::to_vec(&json!({ "code": code, "code_verifier": verifier })).expect("a JSON value serializes");
         let headers = vec![("Accept", "application/json".to_owned()), ("Content-Type", "application/json".to_owned())];
-        let reply = http::try_call(self.http.as_ref(), "POST", TOKEN_URL, headers, body)
-            .await
-            .map_err(|error| coded("TOKEN_EXCHANGE_FAILED", format!("Devin token exchange request failed ({}). {}", http::network_cause(&error), http::NETWORK_HINT)))?;
+        let reply = http::try_call(self.http.as_ref(), "POST", TOKEN_URL, headers, body).await.map_err(|error| {
+            public(coded(
+                "TOKEN_EXCHANGE_FAILED",
+                format!("Devin token exchange request failed ({}). {}", http::network_cause(&error), http::NETWORK_HINT),
+            ))
+        })?;
         // Response bodies may carry the login token: only the status is reported.
         if !reply.ok() {
-            return Err(coded("TOKEN_EXCHANGE_FAILED", format!("Devin token exchange failed ({})", reply.status)));
+            return Err(public(coded("TOKEN_EXCHANGE_FAILED", format!("Devin token exchange failed ({})", reply.status))));
         }
         let token = reply.json().as_ref().and_then(|data| data.get("token")).and_then(Value::as_str).filter(|t| !t.is_empty()).map(str::to_owned);
         let Some(token) = token else {
-            return Err(coded("TOKEN_EXCHANGE_FAILED", "Devin token exchange returned no token"));
+            return Err(public(coded("TOKEN_EXCHANGE_FAILED", "Devin token exchange returned no token")));
         };
         let record = token_record(&token, (self.clock)());
         let label = record.get("identity").and_then(|i| i.get("email")).and_then(Value::as_str).map(str::to_owned);

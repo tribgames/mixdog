@@ -23,9 +23,12 @@ use serde_json::json;
 use mixdog_core_api::domain::login::LoginFailure;
 
 use crate::oauth::AuthorizeRequest;
+use crate::oauth::CallbackPages;
 use crate::oauth::CredentialFile;
 use crate::oauth::PkceProvider;
 use crate::oauth::Probe;
+use crate::oauth::Refusal;
+use crate::oauth::pages;
 
 use super::Authorization;
 use super::RequestAuth;
@@ -538,7 +541,18 @@ impl PkceProvider for AntigravityLogin {
         authorize_url(request.state, request.code_challenge, request.redirect_uri)
     }
 
-    async fn exchange(&self, code: &str, verifier: &str, redirect_uri: &str) -> Result<Option<String>, LoginFailure> {
+    fn callback_pages(&self) -> CallbackPages {
+        pages::ANTIGRAVITY
+    }
+
+    /// The browser's failure page never quotes an error (it is provider-controlled text): no detail.
+    async fn exchange_checked(&self, code: &str, verifier: &str, redirect_uri: &str) -> Result<Option<String>, Refusal> {
+        self.exchange_login(code, verifier, redirect_uri).await.map_err(Refusal::from)
+    }
+}
+
+impl AntigravityLogin {
+    async fn exchange_login(&self, code: &str, verifier: &str, redirect_uri: &str) -> Result<Option<String>, LoginFailure> {
         let fail = |err: ProviderError| login_failure(&err, "");
         let response = self
             .http

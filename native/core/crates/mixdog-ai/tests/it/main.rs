@@ -3,6 +3,7 @@ mod ai_other_fixtures;
 mod ai_other_no_timer;
 mod broker;
 mod native_search_request;
+mod oauth_callback_page;
 mod openai_adapter;
 mod openai_custom_tools;
 mod openai_delta;
