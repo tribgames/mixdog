@@ -295,6 +295,11 @@ impl Phone {
         }
     }
 
+    /// Every frame for this phone that reached the relay so far, application frames and closes alike.
+    pub async fn arrived(&self) -> usize {
+        self.peer.arrived().await
+    }
+
     /// The relay reports the phone gone.
     pub fn leave(&self) {
         self.peer.out.send(json!({ "type": "client-close", "clientId": self.peer.id })).unwrap();
