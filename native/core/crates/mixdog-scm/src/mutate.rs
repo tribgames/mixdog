@@ -519,6 +519,7 @@ pub(crate) fn scm_error(error: mixdog_core_api::domain::repo::ScmError) -> ScmFa
             os_code,
             message: "io error".into(),
         },
+        ScmError::Unavailable { capability } => ScmFailure::Unavailable { capability },
         ScmError::Corrupt { detail } => ScmFailure::git(scrub_credentials(&detail)),
     }
 }

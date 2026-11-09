@@ -47,18 +47,30 @@ interface ScmClient {
 /** The PC's platform, which decides what an absolute path is (Node checked on the PC). */
 const platformFamily = (host: PhoneProtocolHost): string | undefined => (host.client() as unknown as ScmClient).server?.platformFamily;
 
-/** The one `code` Node's source-control errors carried to the page as a contract (git-mutations.ts GIT_RESET_DIRTY_CODE: "this
- *  reset needs the user's confirmation"). The core names every other failure with a code of its own (`COMMAND_FAILED`,
- *  `NO_OPERATION`, `UNKNOWN_FLOW`, ... mixdog-scm/src/error.rs) where Node's errors had none, so those do not reach the page. */
-const NODE_CONTRACT_CODES: ReadonlySet<string> = new Set(['git-reset-dirty-worktree']);
+/** The string `code`s Node's source-control errors carried onto the relay frame (remote-methods.ts `errorCode`): the contract
+ *  code of a reset that needs the user's confirmation (git-mutations.ts GIT_RESET_DIRTY_CODE), the git runner's own deadline and
+ *  overflow codes (git-runner.ts EGITTIMEOUT, EMAXBUFFER), and a child's system error (`spawn git ENOENT`, code ENOENT). */
+const NODE_CODE = /^(git-reset-dirty-worktree|EGITTIMEOUT|EMAXBUFFER|E[A-Z0-9]{3,})$/;
+
+/** The core names the same failures with codes of its own (mixdog-scm/src/error.rs); every other core code (`COMMAND_FAILED`,
+ *  `NOT_A_REPOSITORY`, `IO_ERROR`, `NO_OPERATION`, ...) is bookkeeping where Node's error had no code, so it does not reach the page. */
+const CORE_CODE_AS_NODE: Readonly<Record<string, string>> = { GIT_TIMEOUT: 'EGITTIMEOUT', OUTPUT_TOO_LARGE: 'EMAXBUFFER' };
+
+/** A program the core could not start (`capabilityUnavailable{capability}`), as Node's child spawn failed: `spawn git ENOENT`. */
+function spawnFailure(error: unknown): Error | undefined {
+  const data = (error as { detail?: { kind?: unknown; data?: { reason?: unknown; capability?: unknown } } } | null)?.detail;
+  if (data?.kind !== 'rpc' || data.data?.reason !== 'capabilityUnavailable' || typeof data.data.capability !== 'string') return undefined;
+  return Object.assign(new Error(`spawn ${data.data.capability} ENOENT`), { code: 'ENOENT' });
+}
 
 /** What the page's rebuilt Error carried of a failed relay frame: the message, the error's own string `code`, and the public
  *  display params that code declares (remote-shim-dispatch.ts at b6f10295a). */
 export function phoneCallError(error: unknown): unknown {
-  const failure = coreFailure(error);
+  const failure = spawnFailure(error) ?? coreFailure(error);
   if (!(failure instanceof Error)) return failure;
   const given = (failure as { code?: unknown }).code;
-  const code = typeof given === 'string' && NODE_CONTRACT_CODES.has(given) ? given : undefined;
+  const named = typeof given === 'string' ? (CORE_CODE_AS_NODE[given] ?? given) : undefined;
+  const code = named !== undefined && NODE_CODE.test(named) ? named : undefined;
   const params = codedErrorParams(code, (failure as { details?: unknown }).details);
   const rebuilt: Error & { code?: string; details?: unknown } = new Error(failure.message || 'remote call failed.');
   if (typeof code === 'string' && code) rebuilt.code = code;

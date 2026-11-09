@@ -15,9 +15,10 @@ pub const WORKTREE_DOMAIN: &str = "worktree";
 
 pub const CODE_COMMAND_FAILED: &str = "COMMAND_FAILED";
 pub const CODE_REFUSED: &str = "REFUSED";
-pub const CODE_TIMED_OUT: &str = "EGITTIMEOUT";
-pub const CODE_OUTPUT_TOO_LARGE: &str = "EMAXBUFFER";
+pub const CODE_TIMED_OUT: &str = "GIT_TIMEOUT";
+pub const CODE_OUTPUT_TOO_LARGE: &str = "OUTPUT_TOO_LARGE";
 pub const CODE_IO: &str = "IO_ERROR";
+pub const CODE_NOT_A_REPOSITORY: &str = "NOT_A_REPOSITORY";
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum ScmFailure {
@@ -70,13 +71,6 @@ pub enum ScmFailure {
 
 /// What git prints outside a repository (Node surfaced git's own stderr).
 pub const NOT_A_REPOSITORY_TEXT: &str = "fatal: not a git repository (or any of the parent directories): .git";
-
-/// Refusals whose Node errors were plain `Error`s: their code is the core's own bookkeeping and never reaches a client.
-const PLAIN_ERROR_CODES: [&str; 3] = ["NO_OPERATION", "UNKNOWN_FLOW", "FEATURE_DISABLED"];
-
-fn node_code(code: &'static str) -> Option<&'static str> {
-    (!PLAIN_ERROR_CODES.contains(&code)).then_some(code)
-}
 
 impl ScmFailure {
     pub fn invalid(path: impl Into<String>, expected: impl Into<String>) -> Self {
@@ -164,10 +158,11 @@ impl From<std::io::Error> for ScmFailure {
 impl From<ScmFailure> for CoreError {
     fn from(failure: ScmFailure) -> Self {
         match failure {
-            // Node let git say it: the stderr of the command that ran outside a repository, with no code.
+            // Node let git say it: the stderr of the command that ran outside a repository. The code is the core's own
+            // (Node's error had none); the phone's adapter leaves it out (renderer/remote-protocol-scm.ts).
             ScmFailure::NotARepository => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
-                code: None,
+                code: Some(CODE_NOT_A_REPOSITORY.into()),
                 message: Some(NOT_A_REPOSITORY_TEXT.into()),
                 detail: None,
             },
@@ -177,8 +172,7 @@ impl From<ScmFailure> for CoreError {
             },
             ScmFailure::Command { domain, text } => CoreError::DomainError {
                 domain: domain.into(),
-                // Node's errors from a command that ran and failed carry no code.
-                code: None,
+                code: Some(CODE_COMMAND_FAILED.into()),
                 message: Some(text.into()),
                 detail: None,
             },
@@ -208,7 +202,7 @@ impl From<ScmFailure> for CoreError {
                 message,
             } => CoreError::DomainError {
                 domain: domain.into(),
-                code: node_code(code).map(Into::into),
+                code: Some(code.into()),
                 message: Some(message.into()),
                 detail: None,
             },
@@ -228,7 +222,7 @@ impl From<ScmFailure> for CoreError {
             },
             ScmFailure::Io { message, .. } => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
-                code: None,
+                code: Some(CODE_IO.into()),
                 message: Some(message.into()),
                 detail: None,
             },
@@ -248,6 +242,7 @@ impl From<ScmFailure> for ScmError {
             ScmFailure::NotARepository => ScmError::NotARepository,
             ScmFailure::ObjectMissing(id) => ScmError::ObjectMissing { id },
             ScmFailure::Io { os_code, .. } => ScmError::Io { os_code },
+            ScmFailure::Unavailable { capability } => ScmError::Unavailable { capability },
             other => ScmError::Corrupt {
                 detail: other.to_string(),
             },
@@ -363,8 +358,7 @@ mod tests {
                 detail,
             } => {
                 assert_eq!(&*domain, "git");
-                // Node's error from a command that ran and failed has no code.
-                assert_eq!(code, None);
+                assert_eq!(code.as_deref(), Some(CODE_COMMAND_FAILED));
                 assert_eq!(message.as_deref(), Some("fatal: x"));
                 assert_eq!(detail, None);
             }
@@ -380,22 +374,23 @@ mod tests {
     #[test]
     fn a_deadline_and_an_overflow_read_as_node_worded_them() {
         let timed_out = ScmFailure::TimedOut { command: "git status -z".into(), millis: 60_000 };
-        assert_eq!(domain(timed_out), (Some("EGITTIMEOUT".into()), Some("git status -z timed out after 60000ms".into())));
+        assert_eq!(domain(timed_out), (Some("GIT_TIMEOUT".into()), Some("git status -z timed out after 60000ms".into())));
         let overflow = ScmFailure::OutputTooLarge { command: "git log -z".into(), limit: 32_000_000 };
-        assert_eq!(domain(overflow), (Some("EMAXBUFFER".into()), Some("git log -z exceeded 32000000 output bytes".into())));
+        assert_eq!(domain(overflow), (Some("OUTPUT_TOO_LARGE".into()), Some("git log -z exceeded 32000000 output bytes".into())));
     }
 
+    /// The core's own codes stay what every caller of the engine has always read; only the text is Node's.
     #[test]
-    fn outside_a_repository_git_says_so_and_a_plain_refusal_has_no_code() {
+    fn outside_a_repository_git_says_so_under_the_codes_every_caller_reads() {
         assert_eq!(
             domain(ScmFailure::NotARepository),
-            (None, Some("fatal: not a git repository (or any of the parent directories): .git".into()))
+            (Some("NOT_A_REPOSITORY".into()), Some("fatal: not a git repository (or any of the parent directories): .git".into()))
         );
         assert_eq!(
             domain(ScmFailure::refused("UNKNOWN_FLOW", "Unknown GitHub login flow.")),
-            (None, Some("Unknown GitHub login flow.".into()))
+            (Some("UNKNOWN_FLOW".into()), Some("Unknown GitHub login flow.".into()))
         );
-        // A refusal Node coded keeps its code.
+        assert_eq!(domain(ScmFailure::Io { os_code: None, message: "x".into() }).0.as_deref(), Some("IO_ERROR"));
         assert_eq!(domain(ScmFailure::refused("git-reset-dirty-worktree", "x")).0.as_deref(), Some("git-reset-dirty-worktree"));
     }
 }

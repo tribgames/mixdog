@@ -59,11 +59,25 @@ Object.assign(process.env, {
 });
 delete process.env.MIXDOG_FEATURE_GIT;
 
+// Git resolves through PATH (git-launch.mjs gitCommand: the first absolute entry holding git.exe), and a deadline or an overflow
+// names that resolved path in Node's message. Both products start with this world's bin first on PATH, and its git.exe is the
+// scripted-tool executable (lib/scripted-tool.rs), which runs the real git: both name the same path, on any machine.
+const shimExe = join(WORK, 'shim', 'scripted-tool.exe');
+mkdirSync(join(WORK, 'shim'), { recursive: true });
+const built = spawnSync('rustc', ['-O', '--edition', '2021', join(REPO_ROOT, 'benchmarks', 'rust-core', 'recorders', 'lib', 'scripted-tool.rs'), '-o', shimExe], { cwd: REPO_ROOT, encoding: 'utf8', env: { ...process.env, RUSTUP_HOME: join(REAL_HOME, '.rustup'), CARGO_HOME: join(REAL_HOME, '.cargo') } });
+assert.equal(built.status, 0, built.stderr);
+const realGit = process.env.PATH.split(';').filter((dir) => dir !== join(WORK, 'bin')).map((dir) => join(dir, 'git.exe')).find((file) => existsSync(file));
+process.env.PHONE_SCM_REAL_GIT = realGit;
+if (!REPLAY) fs.copyFileSync(shimExe, join(WORK, 'bin', 'git.exe'));
+
 // Node's clock, driven by the recorder: time passes only when the recording says so.
 let clockSkew = 0;
 const realNow = Date.now;
 Date.now = () => realNow() + clockSkew;
 const PROVEN_BY_CLOCK_TEST = new Set(['gitStatus-remote-after-ttl']);
+// The core's run limit is 60 s and it has no knob to shorten it, so a deadline is recorded from Node with a shortened one and proven on
+// the core by a Rust test that reads this recording (mixdog-scm phone_parity_tests.rs, a_git_deadline_reads_as_the_recorded_one).
+const PROVEN_BY_DEADLINE_TEST = new Set(['gitStatus-git-timeout']);
 
 // `ghlogin_<pid>_<n>` (github-cli.ts): the scripted host has a fixed pid.
 Object.defineProperty(process, 'pid', { value: 4242 });
@@ -95,7 +109,9 @@ const { createDesktopOperations } = await main('desktop-operations');
 // The daemon that answers the phone starts git on its process-runner worker (desktop-service.ts:1052), so a failed command's text is\n// git-runner.ts gitFailure's (`Command failed: git commit ...`), not execFile's (which names the resolved git.exe).
 const { setGitProcessRunner } = await main('git-runner');
 const { runProcessOffThread } = await importFrom(tree, 'src/runtime/shared/process-runner.mjs');
-setGitProcessRunner(runProcessOffThread);
+// A deadline Node's runner would wait 60 s for is shortened to shortDeadline ms while a case sets it: the same code kills the child and words the failure.
+let shortDeadline = 0;
+setGitProcessRunner((command, runArgs, options) => runProcessOffThread(command, runArgs, shortDeadline && options.timeoutMs > 0 ? { ...options, timeoutMs: shortDeadline } : options));
 const githubCli = await main('github-cli');
 githubCli.githubCliLoginTestHooks.pty = pty.module;
 // The sign-in ends when the continuation of its `gh auth setup-git` call has set the flow's state. Node has no event for that,
@@ -138,8 +154,9 @@ const host = {
     trace.push(entry);
     try {
       if (hold?.name === name) {
-        const gate = hold.gate;
+        const { gate, reached } = hold;
         hold = null;
+        reached();
         await gate;
       }
       const result = await operations.invoke(name, operationArgs);
@@ -185,6 +202,8 @@ const covered = new Set();
 
 // ── replay: a built mixdogd, driven by the phone's adapter ──
 let replay = null;
+const settingsChanges = [];
+let settingsWaiting = [];
 if (REPLAY) {
   const golden = JSON.parse(readFileSync(join(FIXTURES, 'golden.json'), 'utf8'));
   const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
@@ -200,13 +219,6 @@ if (REPLAY) {
   const manifest = join(REPLAY, '..', 'js-runtime.json');
   if (!existsSync(manifest)) writeFileSync(manifest, JSON.stringify({ program: process.execPath, packageRoot: REPO_ROOT }));
   // The tools the core spawns are executables of lib/scripted-tool.rs, answered by the same script as Node's (see serveShims).
-  if (process.env.PHONE_SCM_VERBOSE) console.error('stage: shim');
-  const shimExe = join(WORK, 'shim', 'scripted-tool.exe');
-  mkdirSync(join(WORK, 'shim'), { recursive: true });
-  const built = spawnSync('rustc', ['-O', '--edition', '2021', join(REPO_ROOT, 'benchmarks', 'rust-core', 'recorders', 'lib', 'scripted-tool.rs'), '-o', shimExe], { cwd: REPO_ROOT, encoding: 'utf8', env: { ...process.env, RUSTUP_HOME: join(REAL_HOME, '.rustup'), CARGO_HOME: join(REAL_HOME, '.cargo') } });
-  assert.equal(built.status, 0, built.stderr);
-  const originalPath = process.env.PATH.split(';').filter((dir) => dir !== join(WORK, 'bin'));
-  const realGit = originalPath.map((dir) => join(dir, 'git.exe')).find((file) => existsSync(file));
   const lad = join(WORK, 'lad');
   const pf = join(WORK, 'pf');
   const shims = await serveShims({
@@ -221,7 +233,6 @@ if (REPLAY) {
       soffice: join(pf, 'LibreOffice', 'program', 'soffice.com'),
     },
   });
-  process.env.PHONE_SCM_REAL_GIT = realGit;
   shims.sync();
   // Nothing the core spawns may reach this machine's own tools (an installer, an account tool, a browser). The environment is built,
   // not inherited: one Path (a second PATH key beside the inherited Path left the real one in force once), holding only this
@@ -284,6 +295,22 @@ if (REPLAY) {
     clock: { sleep: (ms) => new Promise((done) => setTimeout(done, ms)) },
     random: Math.random,
   });
+  // Node told the desktop's windows `settings-changed {scope: 'git'}` after a global git setting was written. The core publishes
+  // that change itself, as the `hostState` section `gitConfig` of the app feed (service.rs GIT_CONFIG_KEY): the one thing a phone
+  // watching the app feed can compare. Changes of the snapshot that subscribing folds are not events: the store announces the
+  // whole snapshot (`appSnapshot`) after its sections, and counting starts there.
+  let appLive = false;
+  let appFolded;
+  const appSnapshot = new Promise((resolve) => (appFolded = resolve));
+  client.store.subscribe((change) => {
+    if (change.type === 'appSnapshot') return appFolded();
+    if (!appLive || change.type !== 'section' || change.section !== 'hostState' || change.key !== 'gitConfig') return;
+    settingsChanges.push({ name: 'settings-changed', value: { scope: 'git' } });
+    settingsWaiting = settingsWaiting.filter((waiter) => !waiter());
+  });
+  await client.subscribeApp();
+  await appSnapshot;
+  appLive = true;
   // As the router gives it: the client scoped to the call, so every request frame carries the call's `sent` claim.
   const host = { ctx: {}, client: () => scopeClient(client, () => {}) };
   const byName = new Map(golden.cases.map((entry) => [entry.name, entry]));
@@ -309,7 +336,7 @@ async function finishReplay() {
   execFileSync('taskkill', ['/T', '/F', '/PID', String(replay.core.pid)], { stdio: 'ignore' });
   await exited;
   rmSync(WORK, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
-  console.log(`phone-scm replay over ${REPLAY}: ${replay.compared.length} compared, ${replay.differences.length} differ, ${replay.byName.size - replay.compared.length - PROVEN_BY_CLOCK_TEST.size} of the recording not replayed (${PROVEN_BY_CLOCK_TEST.size} proven by the core's injected-clock test)`);
+  console.log(`phone-scm replay over ${REPLAY}: ${replay.compared.length} compared, ${replay.differences.length} differ, ${replay.byName.size - replay.compared.length - PROVEN_BY_CLOCK_TEST.size - PROVEN_BY_DEADLINE_TEST.size} of the recording not replayed (${PROVEN_BY_CLOCK_TEST.size} proven by the core's injected-clock test, ${PROVEN_BY_DEADLINE_TEST.size} by its deadline test)`);
   for (const difference of replay.differences) console.log(`DIFF ${difference.name}\n  node: ${JSON.stringify(difference.node)}\n  core: ${JSON.stringify(difference.core)}`);
   process.exit(replay.differences.length ? 1 : 0);
 }
@@ -322,11 +349,35 @@ function withDeadline(promise, message) {
   const stalled = new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(message)), 60_000)));
   return Promise.race([promise, stalled]).finally(() => clearTimeout(timer));
 }
-// The core reads the gh output on its own time (Node's scripted pty is synchronous): ask for the flow until it shows what gh printed.
-async function settled(flowId, ready) {
+// The core reads the gh output on its own time (Node's scripted pty is synchronous). Its sign-in flow is a scoped feed
+// (`login:<flowId>`, service.rs login_start): the snapshot at subscription and every `login/updated` that follows carry the flow's
+// state, so the replay learns what gh printed from the core's own notification rather than by asking again.
+const loginFeeds = new Map();
+async function watchFlow(flowId) {
   if (!replay) return;
-  for (let asked = 0; asked < 5000; asked += 1) if (ready((await replayCall('githubCliLoginStatus', coreParams([flowId]))).value)) return;
-  throw new Error(`flow ${flowId} never showed what gh printed`);
+  const coreId = coreParams([flowId])[0];
+  const feedId = `login:${coreId}`;
+  const feed = { state: null, waiting: [] };
+  loginFeeds.set(flowId, feed);
+  replay.client.on((event) => {
+    if (event.type !== 'notification') return;
+    const { params } = event.notification;
+    if (params?.feedId !== feedId && params?.flowId !== coreId) return;
+    feed.state = params.state;
+    feed.waiting = feed.waiting.filter((waiter) => !waiter(feed.state));
+  });
+  await replay.client.call('feed/subscribe', { feedId });
+}
+function settled(flowId, ready) {
+  if (!replay) return Promise.resolve();
+  const feed = loginFeeds.get(flowId);
+  return withDeadline(
+    new Promise((resolve) => {
+      if (feed.state && ready(feed.state)) return resolve();
+      feed.waiting.push((state) => ready(state) && (resolve(), true));
+    }),
+    `flow ${flowId} never showed what gh printed`,
+  );
 }
 function mapFlowIds(frame) {
   return JSON.parse(JSON.stringify(frame).replaceAll(`ghlogin_${replay.core.pid}_`, 'ghlogin_4242_'));
@@ -342,17 +393,39 @@ async function rec(name, call, params, note) {
   if (replay) {
     const recorded = replay.byName.get(name);
     assert.ok(recorded, `${name} is not in the recording`);
-    if (PROVEN_BY_CLOCK_TEST.has(name)) return;
+    if (PROVEN_BY_CLOCK_TEST.has(name) || PROVEN_BY_DEADLINE_TEST.has(name)) return;
     if (process.env.PHONE_SCM_VERBOSE) console.error('replay', name);
     replay.shims.sync();
     processes.length = 0;
+    // The tools that were on no path of the core's world when the call began.
+    const absentAtStart = ['gh', 'winget', 'git', 'soffice.com'].filter((tool) => replay.shims.absent(tool));
+    const settingsBefore = settingsChanges.length;
     const core = mapFlowIds(await replayCall(call, coreParams(params)));
     // The core starts gh on its own time (Node's scripted pty is synchronous): wait for each sign-in the recording started.
     replay.ptySeen += (recorded.processes ?? []).filter((entry) => entry.tool === 'pty').length;
     if (replay.ptySeen) await withDeadline(replay.shims.flow(replay.ptySeen - 1), `the core never ran gh auth login for ${name}`);
     replay.shims.sync();
+    // What the core published for the desktop's windows: the events Node recorded for the call, as many as it recorded.
+    const wantEvents = (recorded.events ?? []).length;
+    if (wantEvents) {
+      await withDeadline(
+        new Promise((resolve) => {
+          const seen = () => settingsChanges.length - settingsBefore >= wantEvents;
+          if (seen()) return resolve();
+          settingsWaiting.push(() => seen() && (resolve(), true));
+        }),
+        `the core never published the ${wantEvents} settings change(s) of ${name}`,
+      );
+    }
+    const events = settingsChanges.slice(settingsBefore);
+    if (!isDeepStrictEqual(events, recorded.events ?? [])) replay.differences.push({ name: `${name} (events)`, node: recorded.events ?? [], core: events });
     // The tools the core ran, as Node ran them: the same programs with the same arguments, in the same order.
-    // A tool the script says is absent (spawn ENOENT) ran nowhere: there is no executable for the core to start.
+    // A tool Node tried and could not start (spawn ENOENT) has no executable in the core's world, so the core's attempt leaves no
+    // process to list: it is compared against the world instead. Node's attempt must have met a tool that was on no path of the
+    // core's world when the call began, or the two products ran in different worlds.
+    for (const attempt of (recorded.processes ?? []).filter((entry) => entry.reply?.code === -1)) {
+      if (!absentAtStart.includes(attempt.tool)) replay.differences.push({ name: `${name} (${attempt.tool} attempted)`, node: 'spawn failed: the tool is absent', core: 'the tool was on a path of the core\'s world' });
+    }
     // `ghPrList` starts its four category queries at once (Promise.all there, join_all in the core): which process the OS starts
     // first is not defined, so for that call alone the programs and arguments are compared as a set. Every other call is ordered.
     const concurrent = call === 'ghPrList';
@@ -670,6 +743,7 @@ world.ghApiDown = false;
 const started = await rec('githubCliLoginStart', 'githubCliLoginStart', []);
 if (replay && !started.ok) throw new Error(`the core did not start the sign-in: ${JSON.stringify(started)}`);
 const flowId = started.value.flowId;
+await watchFlow(flowId);
 await rec('githubCliLoginStatus-pending', 'githubCliLoginStatus', [flowId]);
 const first = await flowOf(0);
 first.print('! First copy your one-time code: ABCD-1234\nPress Enter to open github.com in your browser...\n');
@@ -688,6 +762,7 @@ await rec('githubCliLoginStatus-cancelled', 'githubCliLoginStatus', [flowId]);
 await rec('githubCliLoginCancel-unknown-flow', 'githubCliLoginCancel', [flowId]);
 
 const second = await rec('githubCliLoginStart-again', 'githubCliLoginStart', []);
+await watchFlow(second.value.flowId);
 const secondFlow = await flowOf(1);
 secondFlow.print('First copy your one-time code: WXYZ-9876\nhttps://github.com/login/device\n');
 // gh exits 0 once the browser step is done; Node then reads `gh auth status` and runs `gh auth setup-git`. The sign-in is
@@ -701,6 +776,7 @@ if (replay) await settled(second.value.flowId, (state) => !['pending', 'code'].i
 else await setupDone;
 await rec('githubCliLoginStatus-success', 'githubCliLoginStatus', [second.value.flowId]);
 const third = await rec('githubCliLoginStart-third', 'githubCliLoginStart', []);
+await watchFlow(third.value.flowId);
 const thirdFlow = await flowOf(2);
 thirdFlow.print('error connecting to github.com\nplease try again later\n');
 thirdFlow.exit(1);
@@ -776,10 +852,43 @@ await rec('installLibreOffice-present', 'installLibreOffice', []);
 await rec('libreOfficeStatus-installed', 'libreOfficeStatus', []);
 await rec('libreOfficeStatus-refresh', 'libreOfficeStatus', [true]);
 
+// ═══ 10. the git runner's own failures: a program that cannot start, an output past its limit, a deadline ═══
+// Node's runner codes them (git-runner.ts, run-child.mjs): the spawn error itself (`spawn git ENOENT`, code ENOENT), EMAXBUFFER, and
+// EGITTIMEOUT. Each runs in a repository of its own, so no earlier read of it is cached.
+const FAILING = join(WORK, 'failing');
+mkdirSync(FAILING, { recursive: true });
+git(FAILING, 'init', '-q', '-b', 'main');
+write(FAILING, 'f.txt', 'f\n');
+git(FAILING, 'add', '.');
+git(FAILING, 'commit', '-q', '-m', 'first');
+{
+  // Git is on no path of either world: the shim of the core's bin is gone with `gitMissing`, and Node's PATH holds the Windows folders only.
+  world.gitMissing = true;
+  const path = process.env.PATH;
+  process.env.PATH = [join(process.env.SystemRoot, 'System32'), process.env.SystemRoot].join(';');
+  await rec('gitStatus-git-missing', 'gitStatus', [FAILING]);
+  await rec('gitLog-git-missing', 'gitLog', [FAILING]);
+  await rec('gitStage-git-missing', 'gitStage', [FAILING, ['f.txt']]);
+  process.env.PATH = path;
+  world.gitMissing = false;
+}
+const BIG = join(WORK, 'big');
+mkdirSync(BIG, { recursive: true });
+git(BIG, 'init', '-q', '-b', 'main');
+const bigText = (tag) => Array.from({ length: 800_000 }, (_, n) => `${tag} line ${String(n).padStart(8, '0')} ......\n`).join('');
+write(BIG, 'big.txt', bigText('before'));
+git(BIG, 'add', '.');
+git(BIG, 'commit', '-q', '-m', 'first');
+write(BIG, 'big.txt', bigText('after'));
+await rec('gitDiff-output-too-large', 'gitDiff', [BIG, 'big.txt', false]);
+shortDeadline = 1;
+await rec('gitStatus-git-timeout', 'gitStatus', [FAILING]);
+shortDeadline = 0;
+
 if (replay) await finishReplay();
-// ═══ 10. ordering: a read behind a slow write ═══
+// ═══ 11. ordering: a read behind a slow write ═══
 // Node's per-connection barrier (remote-call-queue.ts): the calls ride the queue the relay clients use. The write is held on a
-// gate until every later call was submitted and the loop turned over; the recording keeps which calls had started while it was
+// gate until every later call was submitted and the write signalled that it is inside the operation; the recording keeps which calls had started while it was
 // held, and for each operation what had ended before it started (reads: only the writes among them, readers overlap).
 const { createRemoteCallQueue } = await main('remote-call-queue');
 const queue = createRemoteCallQueue();
@@ -796,9 +905,6 @@ host.invokeDesktopOperation = async (name, operationArgs) => {
     ended.push(name);
   }
 };
-const turns = async (count) => {
-  for (let n = 0; n < count; n++) await new Promise((resolve) => setImmediate(resolve));
-};
 const scenario = [
   ['gitStage', [R, ['ordering.txt']]],
   ['gitStatus', [R]],
@@ -809,14 +915,17 @@ const scenario = [
 write(R, 'ordering.txt', 'staged behind a slow write\n');
 trace.length = 0;
 let release;
-hold = { name: 'gitStage', gate: new Promise((resolve) => (release = resolve)) };
+let held;
+const reached = new Promise((resolve) => (held = resolve));
+hold = { name: 'gitStage', gate: new Promise((resolve) => (release = resolve)), reached: held };
 const answers = [];
 const running = scenario.map(([call, params], index) => queue.run(call, async () => {
   const frame = await executeRemoteFrame(methods, JSON.stringify({ id: 1, method: call, params }));
   const { id: _id, ...answer } = JSON.parse(JSON.stringify(frame));
   answers[index] = answer;
 }));
-await turns(20);
+// Every call is submitted: the write is the one the queue ran. It signals when it is inside the operation and held.
+await reached;
 const heldStarts = orderLog.map((entry) => entry.started);
 if (heldStarts.join() !== 'gitStage') throw new Error(`calls started while the write was held: ${heldStarts}`);
 release();

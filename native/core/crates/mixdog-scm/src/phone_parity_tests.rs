@@ -79,10 +79,10 @@ async fn call(handle: &ScmHandle, method: &'static str, params: Value) -> Result
     }
 }
 
-/// The text Node's error carried.
-fn text(error: CoreError) -> (Option<String>, String) {
+/// The text Node's error carried (the code is the core's own: the phone's adapter leaves it out, see renderer/remote-protocol-scm.ts).
+fn text(error: CoreError) -> String {
     match error {
-        CoreError::DomainError { code, message, .. } => (code.map(|code| code.to_string()), message.map(|text| text.to_string()).unwrap_or_default()),
+        CoreError::DomainError { message, .. } => message.map(|text| text.to_string()).unwrap_or_default(),
         other => panic!("not a domain error: {other:?}"),
     }
 }
@@ -95,7 +95,7 @@ fn absolute() -> String {
 async fn a_cwd_that_is_not_absolute_reads_as_nodes_requirement() {
     let (handle, _) = service();
     let error = call(&handle, "git/status", json!({ "cwd": "repo" })).await.unwrap_err();
-    assert_eq!(text(error), (None, "A project directory is required.".to_owned()));
+    assert_eq!(text(error), "A project directory is required.".to_owned());
 }
 
 #[tokio::test]
@@ -103,12 +103,12 @@ async fn a_missing_gh_reads_as_nodes_text_for_the_account_the_logout_and_the_pul
     let (handle, _) = service();
     for method in ["github/account", "github/logout"] {
         let error = call(&handle, method, json!({ "opId": "op" })).await.unwrap_err();
-        assert_eq!(text(error), (None, "GitHub CLI is not installed.".to_owned()), "{method}");
+        assert_eq!(text(error), "GitHub CLI is not installed.".to_owned(), "{method}");
     }
     let error = call(&handle, "github/pr/list", json!({ "cwd": absolute() })).await.unwrap_err();
     assert_eq!(
         text(error),
-        (None, "GitHub CLI is not installed. Open Extensions → Plugin → Git & GitHub to install and connect it.".to_owned())
+        "GitHub CLI is not installed. Open Extensions → Plugin → Git & GitHub to install and connect it.".to_owned()
     );
 }
 
@@ -118,7 +118,7 @@ async fn pull_request_inputs_are_checked_with_nodes_words_and_a_numeric_string_i
     let cwd = absolute();
     // Number('12') is 12: the call goes on to run gh, which is missing here.
     let installed = call(&handle, "github/pr/view", json!({ "cwd": cwd, "value": "12" })).await.unwrap_err();
-    assert!(text(installed).1.starts_with("GitHub CLI is not installed."));
+    assert!(text(installed).starts_with("GitHub CLI is not installed."));
     for (method, params, want) in [
         ("github/pr/view", json!({ "cwd": cwd, "value": "x" }), "A pull request number is required."),
         ("github/pr/diff", json!({ "cwd": cwd, "value": null }), "A pull request number is required."),
@@ -132,11 +132,11 @@ async fn pull_request_inputs_are_checked_with_nodes_words_and_a_numeric_string_i
         ("github/pr/create", json!({ "opId": "o", "cwd": cwd, "value": { "base": "main", "head": "x", "title": "t", "draft": "yes" } }), "pull request draft must be a boolean."),
     ] {
         let error = call(&handle, method, params).await.unwrap_err();
-        assert_eq!(text(error), (None, want.to_owned()), "{method}");
+        assert_eq!(text(error), want.to_owned(), "{method}");
     }
     // The merge method defaults to `merge` when it is absent (null).
     let merged = call(&handle, "github/pr/merge", json!({ "opId": "o", "cwd": cwd, "value": 12, "method": null })).await.unwrap_err();
-    assert!(text(merged).1.starts_with("GitHub CLI is not installed."));
+    assert!(text(merged).starts_with("GitHub CLI is not installed."));
 }
 
 #[tokio::test]
@@ -188,9 +188,26 @@ fn a_finished_or_failed_sign_in_keeps_the_code_and_the_page_it_showed() {
 
 #[test]
 fn a_deadline_names_the_program_the_way_nodes_runner_does() {
+    // run-child.mjs words a deadline or an overflow `${command} ${args}`: the program as it was started, the resolved git path.
     let args: Vec<String> = ["status", "--porcelain=v2"].map(str::to_owned).to_vec();
-    assert_eq!(crate::exec::command_label(r"C:\Program Files\Git\cmd\git.exe", &args), "git status --porcelain=v2");
-    assert_eq!(crate::exec::command_label("/usr/bin/git", &args), "git status --porcelain=v2");
+    assert_eq!(crate::exec::command_label(r"C:\Program Files\Git\cmd\git.exe", &args), r"C:\Program Files\Git\cmd\git.exe status --porcelain=v2");
+    assert_eq!(crate::exec::command_label("git", &args), "git status --porcelain=v2");
+}
+
+/// Node's runner killed a git child at its deadline (recorded with a shortened one: the core's run limit is 60 s and has no knob).
+/// The failure the core builds from the same command and limit reads as Node's text, under the core's own deadline code, which the
+/// phone's adapter names as the recorded frame's `errorCode`.
+#[test]
+fn a_git_deadline_reads_as_the_recorded_one() {
+    let golden: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../apps/desktop/src/renderer/fixtures/phone-scm/golden.json")).unwrap()).unwrap();
+    let case = golden["cases"].as_array().unwrap().iter().find(|case| case["name"] == "gitStatus-git-timeout").expect("the recording has the deadline");
+    let recorded = case["frame"]["error"].as_str().unwrap();
+    let (command, limit) = recorded.rsplit_once(" timed out after ").expect("Node's wording");
+    let millis: u64 = limit.strip_suffix("ms").unwrap().parse().unwrap();
+    let CoreError::DomainError { code, message, .. } = CoreError::from(ScmFailure::TimedOut { command: command.to_owned(), millis }) else { panic!("not a domain error") };
+    assert_eq!(message.as_deref(), Some(recorded));
+    assert_eq!(code.as_deref(), Some(crate::error::CODE_TIMED_OUT));
+    assert_eq!(case["frame"]["errorCode"], "EGITTIMEOUT");
 }
 
 #[tokio::test]
@@ -282,7 +299,7 @@ async fn remote_metadata_expires_by_clock() {
 async fn a_sign_in_without_gh_reads_as_nodes_text() {
     let (handle, _) = service_with_gh_program("mixdog-no-such-gh-program");
     let error = call(&handle, "github/login/start", json!({ "opId": "op" })).await.unwrap_err();
-    assert_eq!(text(error), (None, "GitHub CLI is not installed.".to_owned()));
+    assert_eq!(text(error), "GitHub CLI is not installed.".to_owned());
 }
 /// A `gh` that answers `--version` and the auth probe, and counts the version probes.
 struct CountingGh(std::sync::atomic::AtomicUsize);

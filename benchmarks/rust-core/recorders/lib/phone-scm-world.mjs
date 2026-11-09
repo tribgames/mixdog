@@ -212,6 +212,11 @@ export async function serveShims({ engine, onSpawn, shim, places }) {
       return flows[n];
     },
     sync,
+    /** Whether the tool has no executable anywhere the core looks for it (after the last `sync`). */
+    absent(tool) {
+      const files = { gh: [places.gh, places.ghOnPath], winget: [places.winget], git: [places.git], 'soffice.com': [places.soffice] }[tool];
+      return files.every((file) => !fs.statSync(file, { throwIfNoEntry: false }));
+    },
     close: () => server.close(),
   };
 }

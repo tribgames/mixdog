@@ -34,6 +34,19 @@ const rpcFailure = ({ message, code, details }) =>
     },
   });
 
+/** The same failure as the core words it (mixdog-scm/src/error.rs): its own codes for a deadline and an overflow, a code of its own
+ *  where Node's error had none, and a missing program as a missing capability (mixdog-spawn service/mod.rs process_failure). */
+const CORE_CODE = { EGITTIMEOUT: 'GIT_TIMEOUT', EMAXBUFFER: 'OUTPUT_TOO_LARGE' };
+function coreError(error) {
+  const spawned = error.code === 'ENOENT' ? /^spawn (\S+) ENOENT$/.exec(error.message) : null;
+  if (spawned) {
+    return Object.assign(new Error('capabilityUnavailable'), {
+      detail: { kind: 'rpc', code: -32000, reason: 'capabilityUnavailable', message: 'capabilityUnavailable', data: { reason: 'capabilityUnavailable', capability: spawned[1], detail: '' } },
+    });
+  }
+  return rpcFailure({ ...error, code: CORE_CODE[error.code] ?? error.code ?? 'COMMAND_FAILED' });
+}
+
 /** A core that answers each request from the next recorded operation, after checking the request is that operation's. */
 function scriptedCore(recorded, { coreCodes = false } = {}) {
   const expected = recorded.filter((op) => !NOT_SENT.has(op.name));
@@ -52,8 +65,7 @@ function scriptedCore(recorded, { coreCodes = false } = {}) {
       const op = expected[next++];
       assert.ok(op, `unexpected request ${method} ${JSON.stringify(params)}`);
       assert.deepEqual({ method, params }, clone(SCM_OPERATION_ROUTES[op.name](op.args)), `request of ${op.name}`);
-      // The core names a failure with a code of its own where Node's error had none (mixdog-scm/src/error.rs CODE_COMMAND_FAILED).
-      if (op.error) throw rpcFailure(coreCodes && op.error.code === undefined ? { ...op.error, code: 'COMMAND_FAILED' } : op.error);
+      if (op.error) throw coreCodes ? coreError(op.error) : rpcFailure(op.error);
       if (op.name === 'githubCliLoginStart') {
         started = op;
         return { flowId: op.result.flowId };
@@ -109,14 +121,18 @@ test('phone-scm keeps Node\'s barrier: a read submitted behind a slow write star
   const log = [];
   const ended = [];
   let release;
+  let held;
   const gate = new Promise((resolve) => (release = resolve));
+  const reached = new Promise((resolve) => (held = resolve));
   const core = {
     async call(method, params) {
       const op = wires.find((wire) => wire.method === method && JSON.stringify(wire.params) === JSON.stringify(params));
       assert.ok(op, `unexpected request ${method} ${JSON.stringify(params)}`);
       log.push({ started: op.name, endedBefore: WRITES.has(op.name) ? [...ended].sort() : ended.filter((name) => WRITES.has(name)).sort() });
-      if (op.name === ordering.heldStarts[0]) await gate;
-      await new Promise((resolve) => setImmediate(resolve));
+      if (op.name === ordering.heldStarts[0]) {
+        held();
+        await gate;
+      }
       ended.push(op.name);
       return op.result === undefined ? null : clone(op.result);
     },
@@ -124,7 +140,8 @@ test('phone-scm keeps Node\'s barrier: a read submitted behind a slow write star
   // The router gives every call a host object of its own (a client scoped to the call); only the connection's context is shared.
   const ctx = {};
   const answers = ordering.calls.map(({ call, params }) => adapter.calls[call](clone(params), { ctx, client: () => core }).then((value) => ({ ok: true, value: value === undefined ? null : clone(value) })));
-  for (let turn = 0; turn < 20; turn++) await new Promise((resolve) => setImmediate(resolve));
+  // The write signals from inside the operation, held: that is when Node's recording took the same snapshot.
+  await reached;
   assert.deepEqual(log.map((entry) => entry.started), ordering.heldStarts);
   release();
   assert.deepEqual(await Promise.all(answers), ordering.answers);

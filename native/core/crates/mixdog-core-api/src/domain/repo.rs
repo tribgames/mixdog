@@ -145,6 +145,8 @@ pub enum ScmError {
     ObjectMissing { id: ObjectId },
     Corrupt { detail: String },
     Io { os_code: Option<i32> },
+    /// A program the inspection needs could not be started (it is not installed).
+    Unavailable { capability: String },
 }
 
 #[async_trait]
