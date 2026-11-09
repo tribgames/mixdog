@@ -31,7 +31,7 @@ pub trait SurfaceHost: Send + Sync {
 /// The provider request a loaded thread's next send would carry, as the run host builds it.
 #[async_trait]
 pub trait RequestSnapshots: Send + Sync {
-    async fn snapshot(&self, thread: &ThreadId) -> Result<Value, CoreError>;
+    async fn snapshot(&self, thread: &ThreadId, user_message: Option<&str>) -> Result<Value, CoreError>;
 }
 
 pub struct SessionToolStatus {
@@ -118,9 +118,9 @@ impl ToolSurfaceStatus for SessionToolStatus {
         Ok(surface_of_header(self.host.mode(Some(&header)), &header))
     }
 
-    async fn request_snapshot(&self, thread: &ThreadId) -> Result<Value, CoreError> {
+    async fn request_snapshot(&self, thread: &ThreadId, user_message: Option<&str>) -> Result<Value, CoreError> {
         match &self.snapshots {
-            Some(snapshots) => snapshots.snapshot(thread).await,
+            Some(snapshots) => snapshots.snapshot(thread, user_message).await,
             None => Err(CoreError::InvalidParams { path: "snapshot".into(), expected: "a core that builds the thread's provider request".into() }),
         }
     }
@@ -207,7 +207,7 @@ mod tests {
 
     #[async_trait]
     impl RequestSnapshots for Snapshots {
-        async fn snapshot(&self, thread: &ThreadId) -> Result<Value, CoreError> {
+        async fn snapshot(&self, thread: &ThreadId, _user_message: Option<&str>) -> Result<Value, CoreError> {
             Ok(json!({ "thread": thread.as_str() }))
         }
     }
@@ -217,9 +217,9 @@ mod tests {
         let header = json!({ "tools": [{"name": "read"}] }).as_object().unwrap().clone();
         let host = Arc::new(Host(Mutex::default()));
         let without = SessionToolStatus::new(Arc::new(Headers(header.clone())), host.clone());
-        assert!(matches!(without.request_snapshot(&ThreadId::from("t1")).await, Err(CoreError::InvalidParams { .. })));
+        assert!(matches!(without.request_snapshot(&ThreadId::from("t1"), None).await, Err(CoreError::InvalidParams { .. })));
         let with = SessionToolStatus::new(Arc::new(Headers(header)), host).with_snapshots(Arc::new(Snapshots));
-        assert_eq!(with.request_snapshot(&ThreadId::from("t1")).await.unwrap(), json!({ "thread": "t1" }));
+        assert_eq!(with.request_snapshot(&ThreadId::from("t1"), None).await.unwrap(), json!({ "thread": "t1" }));
     }
 
     #[test]

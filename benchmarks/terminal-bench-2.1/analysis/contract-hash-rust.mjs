@@ -155,12 +155,12 @@ export function execThreadParams(route, cwd, workflow) {
   };
 }
 
-/** The snapshot of one route on a running core. */
-export async function snapshotRoute(core, route, workflow) {
+/** The snapshot of one route on a running core; userMessage is the turn the send would add (Gemini needs one). */
+export async function snapshotRoute(core, route, workflow, userMessage) {
   const started = await core.call('thread/start', execThreadParams(route, core.paths.workspace, workflow));
   const threadId = started?.thread?.id;
   if (!threadId) throw new Error(`thread/start answered without a thread: ${JSON.stringify(started).slice(0, 300)}`);
-  const status = await core.call('tools/toolsStatus', { threadId, snapshot: true });
+  const status = await core.call('tools/toolsStatus', { threadId, snapshot: true, ...(userMessage === undefined ? {} : { snapshotUserMessage: userMessage }) });
   if (!status?.requestSnapshot) throw new Error(`tools/toolsStatus answered without requestSnapshot: ${JSON.stringify(status).slice(0, 300)}`);
   return status.requestSnapshot;
 }

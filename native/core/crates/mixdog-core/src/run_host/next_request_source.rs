@@ -74,7 +74,7 @@ impl NextRequestSource {
     /// The provider request the thread's first or next send would carry, as `tools/toolsStatus` with
     /// `snapshot` reads it ([`super::request_snapshot::snapshot`]). A thread with no conversation yet
     /// has the request its first send builds.
-    pub async fn request_snapshot(&self, thread: &ThreadId) -> Result<Value, String> {
+    pub async fn request_snapshot(&self, thread: &ThreadId, user_message: Option<&str>) -> Result<Value, String> {
         let (directory, parts) = self.bound.get().ok_or("the session directory is not bound")?;
         let directory = directory.upgrade().ok_or("the session directory is gone")?;
         let handle = directory.handle(thread).ok_or_else(|| format!("thread {} is not loaded", thread.as_str()))?;
@@ -85,7 +85,7 @@ impl NextRequestSource {
             .first_request(thread, &header, &surface, prior, handle.thread_window())
             .await
             .ok_or("the thread has no provider request: its provider is not available, or it is an agent's")?;
-        super::request_snapshot::snapshot(&header, &*provider, &request)
+        super::request_snapshot::snapshot(&header, &*provider, &request, user_message)
     }
 
     /// The tail reminder text for `thread` and `model` from the thread's live header, read now:
@@ -131,8 +131,8 @@ pub fn last_sent_of(mut request: ModelRequest, header: &Header) -> Option<(Model
 
 #[async_trait]
 impl mixdog_core_ports::ports::tools_status::RequestSnapshots for NextRequestSource {
-    async fn snapshot(&self, thread: &ThreadId) -> Result<Value, mixdog_core_api::CoreError> {
-        self.request_snapshot(thread).await.map_err(|reason| mixdog_core_base::support::failed("tools", reason))
+    async fn snapshot(&self, thread: &ThreadId, user_message: Option<&str>) -> Result<Value, mixdog_core_api::CoreError> {
+        self.request_snapshot(thread, user_message).await.map_err(|reason| mixdog_core_base::support::failed("tools", reason))
     }
 }
 
