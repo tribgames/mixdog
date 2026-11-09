@@ -313,6 +313,17 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The app feed has ONE section state: the composed one (`ComposedCore::sections()`, which `serving::start` takes too); a second would split the sections.
     let routes = Arc::new(mixdog_core_base::state::ScopedRouteTable::default());
     let state = Arc::new(StateRuntime { publisher: Arc::new(mixdog_core_base::state::StateHub::new(b.sections.clone(), routes.clone())), routes, app: b.sections.clone() });
+    // Node's `prepareStandaloneEnvironment` (once per process and data dir, at the first runtime start, before any config load) retires the user's untouched copies of
+    // shipped skills, workflows, agents, output styles and orchestration modes into `backups/`, so the shipped versions apply again.
+    {
+        let paths = mixdog_core_config::workflow::WorkflowPaths { root: b.package_root.join("src"), data: b.data_dir.clone() };
+        mixdog_core_base::support::on_lane(b.tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            mixdog_core_config::workflow::retire::retire_seeded_copies(lane, &paths, &|| chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+        })
+        .await
+        .map_err(|e| ComposeError::Config(format!("{e:?}")))?
+        .map_err(ComposeError::Config)?;
+    }
     let (config, _config_changes) = Config::open(
         b.data_dir.join("mixdog-config.json"),
         state.publisher.clone(),

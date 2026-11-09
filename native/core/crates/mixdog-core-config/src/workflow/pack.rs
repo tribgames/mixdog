@@ -369,7 +369,7 @@ pub struct ShippedKind<'a> {
 }
 
 /// `normalizeText`: CRLF to LF, trailing blanks of every line and of the text dropped.
-fn normalize_text(value: &str) -> String {
+pub(crate) fn normalize_text(value: &str) -> String {
     static RE: std::sync::OnceLock<JsRegex> = std::sync::OnceLock::new();
     let trailing = RE.get_or_init(|| JsRegex::new_static(r"[^\S\n]+$", "gm"));
     let unix = value.replace("\r\n", "\n");
@@ -378,7 +378,12 @@ fn normalize_text(value: &str) -> String {
 
 /// `sha256(text)` as hex.
 fn digest(text: &str) -> String {
-    Sha256::digest(text.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
+    digest_bytes(text.as_bytes())
+}
+
+/// `sha256(bytes)` as hex.
+pub(crate) fn digest_bytes(bytes: &[u8]) -> String {
+    Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// `fieldsKey`: the fields sorted by key, as JSON.
@@ -392,6 +397,17 @@ fn fields_key(fields: &[(String, String)]) -> String {
 fn surface_hash(definition: &Definition) -> String {
     let surface = json!([one_line(Some(&Value::String(definition.name.clone()))), one_line(Some(&Value::String(definition.description.clone()))), normalize_text(&definition.body), ""]);
     digest(&mixdog_js::json_stringify(&surface))[..32].to_owned()
+}
+
+/// `hashDefinition(definition)`: every loader-visible field counts.
+fn definition_hash(definition: &Definition) -> String {
+    let full = json!([one_line(Some(&Value::String(definition.name.clone()))), one_line(Some(&Value::String(definition.description.clone()))), normalize_text(&definition.body), fields_key(&definition.fields)]);
+    digest(&mixdog_js::json_stringify(&full))[..32].to_owned()
+}
+
+/// `packHashFromDir(dir, entry, id)`: `None` for a pack with no body.
+pub(crate) fn pack_hash_from_dir(dir: &Path, entry: &str, id: &str) -> Option<String> {
+    definition_from_dir(dir, entry, id).map(|definition| definition_hash(&definition))
 }
 
 fn same_id(value: &Value, id: &str) -> bool {
@@ -438,8 +454,9 @@ pub(crate) fn definition_from_dir(dir: &Path, entry: &str, id: &str) -> Option<D
     Some(Definition { name: pick("name"), description: pick("description"), body, fields })
 }
 
-fn is_stray(name: &str) -> bool {
-    let lowered = name.to_lowercase();
+/// `isIgnorableStray`: `/(\.(bak|orig|tmp)|~)$/i`. The flag folds ASCII letters only (no `u` flag), so the Kelvin sign is not a `k`.
+pub(crate) fn is_stray(name: &str) -> bool {
+    let lowered = name.to_ascii_lowercase();
     [".bak", ".orig", ".tmp", "~"].iter().any(|suffix| lowered.ends_with(suffix))
 }
 
@@ -492,52 +509,92 @@ pub fn absorb_kind_equal_to_shipped(
     {
         return Ok(false);
     }
-    Ok(move_to_backup(data, &copy, now))
+    Ok(Backup::new(data, now).move_target(&copy))
 }
 
-/// `makeBackup(dataDir).move(target)`: the target moves into a fresh
-/// `backups/defaults-separation-<time>` folder keeping its data-dir relative path; `false`
-/// when it could not be moved.
-fn move_to_backup(data: &Path, target: &Path, now: &dyn Fn() -> String) -> bool {
-    if !target.exists() {
-        return true;
+/// `cpSync(from, to, { recursive: true, force: false, errorOnExist: true })`.
+fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
+    if from.is_dir() {
+        std::fs::create_dir_all(to)?;
+        for entry in std::fs::read_dir(from)? {
+            let entry = entry?;
+            copy_tree(&entry.path(), &to.join(entry.file_name()))?;
+        }
+        return Ok(());
     }
-    let attempt = || -> std::io::Result<()> {
-        let stamp = now().replace([':', '.'], "-");
-        let backups = data.join("backups");
-        std::fs::create_dir_all(&backups)?;
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(to)?;
+    std::io::copy(&mut std::fs::File::open(from)?, &mut file).map(drop)
+}
+
+/// `makeBackup(dataDir)`: the lazily claimed `backups/defaults-separation-<time>` folder that moved
+/// entries go into, keeping their data-dir relative path. Nothing is deleted.
+pub(crate) struct Backup<'a> {
+    data: &'a Path,
+    now: &'a dyn Fn() -> String,
+    root: Option<PathBuf>,
+    /// Moves that failed.
+    pub failures: u32,
+}
+
+impl<'a> Backup<'a> {
+    pub fn new(data: &'a Path, now: &'a dyn Fn() -> String) -> Self {
+        Self { data, now, root: None, failures: 0 }
+    }
+
+    /// `claimRoot`: an existing backup folder is never reused.
+    fn claim_root(&self) -> std::io::Result<PathBuf> {
+        let stamp = (self.now)().replace([':', '.'], "-");
+        let backups = self.data.join("backups");
         let base = format!("defaults-separation-{stamp}");
+        std::fs::create_dir_all(&backups)?;
         let mut n = 1;
-        let root = loop {
+        loop {
             let candidate = if n == 1 { backups.join(&base) } else { backups.join(format!("{base}-{n}")) };
             match std::fs::create_dir(&candidate) {
-                Ok(()) => break candidate,
+                Ok(()) => return Ok(candidate),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => n += 1,
                 Err(error) => return Err(error),
             }
-        };
-        let relative = target.strip_prefix(data).unwrap_or(target);
-        let wanted = root.join(relative);
-        let mut dest = wanted.clone();
-        let mut suffix = 2;
-        while dest.exists() {
-            let mut name = wanted.as_os_str().to_owned();
-            name.push(format!(".{suffix}"));
-            dest = PathBuf::from(name);
-            suffix += 1;
         }
-        if let Some(parent) = dest.parent() {
-            std::fs::create_dir_all(parent)?;
+    }
+
+    /// `move(target)`: the target moves into the backup; `false` when it could not be moved (counted in `failures`).
+    pub fn move_target(&mut self, target: &Path) -> bool {
+        if !target.exists() {
+            return true;
         }
-        if std::fs::rename(target, &dest).is_err() {
-            std::fs::create_dir_all(&dest)?;
-            for entry in std::fs::read_dir(target)? {
-                let entry = entry?;
-                std::fs::copy(entry.path(), dest.join(entry.file_name()))?;
+        let attempt = |this: &mut Self| -> std::io::Result<()> {
+            let root = match this.root.clone() {
+                Some(root) => root,
+                None => {
+                    let claimed = this.claim_root()?;
+                    this.root = Some(claimed.clone());
+                    claimed
+                }
+            };
+            let relative = target.strip_prefix(this.data).unwrap_or(target);
+            let wanted = root.join(relative);
+            let mut dest = wanted.clone();
+            let mut suffix = 2;
+            while dest.exists() {
+                let mut name = wanted.as_os_str().to_owned();
+                name.push(format!(".{suffix}"));
+                dest = PathBuf::from(name);
+                suffix += 1;
             }
-            std::fs::remove_dir_all(target)?;
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            if std::fs::rename(target, &dest).is_err() {
+                copy_tree(target, &dest)?;
+                if target.is_dir() { std::fs::remove_dir_all(target)? } else { std::fs::remove_file(target)? }
+            }
+            Ok(())
+        };
+        let moved = attempt(self).is_ok();
+        if !moved {
+            self.failures += 1;
         }
-        Ok(())
-    };
-    attempt().is_ok()
+        moved
+    }
 }
