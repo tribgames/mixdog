@@ -247,11 +247,23 @@ impl mixdog_core_api::CoreHandle for RealCore {
     }
 }
 
+/// The session's clock, following the script's virtual clock.
+struct VirtualClock(Arc<std::sync::atomic::AtomicI64>);
+
+impl mixdog_core_session::session::Clock for VirtualClock {
+    fn now_ms(&self) -> i64 {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
 /// The server-request sink the session actor publishes into: the app server's `Outgoing`, counting what the actor published.
 struct Published {
     outgoing: Arc<mixdog_app_server::Outgoing>,
     arrived: tokio::sync::Semaphore,
     frames: Mutex<Vec<Value>>,
+    /// The `serverRequest/resolved` frames the actor published: the resolution it actually produced.
+    resolved_frames: Mutex<Vec<Value>>,
+    resolved_arrived: tokio::sync::Semaphore,
 }
 
 impl mixdog_core_api::ServerRequestSink for Published {
@@ -261,6 +273,8 @@ impl mixdog_core_api::ServerRequestSink for Published {
         self.arrived.add_permits(1);
     }
     fn resolved(&self, id: &mixdog_core_api::ids::ServerRequestId, frame: bytes::Bytes) {
+        self.resolved_frames.lock().unwrap().push(serde_json::from_slice(&frame).expect("a frame"));
+        self.resolved_arrived.add_permits(1);
         self.outgoing.resolved(id, frame);
     }
     fn response_rejected(&self, to: mixdog_core_api::ids::ConnectionId, error: mixdog_core_api::CoreError) {
@@ -304,9 +318,15 @@ async fn a_card_pending_on_the_real_thread_gate_survives_its_clients() {
     let member = scenario["session"].as_str().expect("the session").to_owned();
     let outgoing = mixdog_app_server::Outgoing::new();
     let rig = Rig::new();
-    let published = Arc::new(Published { outgoing: outgoing.clone(), arrived: tokio::sync::Semaphore::new(0), frames: Mutex::default() });
+    let published = Arc::new(Published { outgoing: outgoing.clone(), arrived: tokio::sync::Semaphore::new(0), frames: Mutex::default(), resolved_frames: Mutex::default(), resolved_arrived: tokio::sync::Semaphore::new(0) });
     let mut parts = rig.deps_parts(rig.store.clone());
     parts.server_requests = published.clone();
+    // Who answered is the composition's own device layer over the registry the transport fills, not the rig's stand-in; and the
+    // resolution's time is read from the script's virtual clock, as Node's recorder reads its own.
+    let registry = Arc::new(mixdog_remote::registry::DeviceRegistry::default());
+    parts.devices = Arc::new(mixdog_core_base::approvals::devices::RegistryDevices::new(registry.clone()));
+    let virtual_now = Arc::new(std::sync::atomic::AtomicI64::new(scenario["now"].as_i64().expect("now")));
+    parts.clock = Arc::new(VirtualClock(virtual_now.clone()));
     let directory = Arc::new(SessionDirectory::new(Arc::new(parts)));
     let core = Arc::new(RealCore { mock: Arc::new(MockCore::new(&[], MockLimits::default())), directory: directory.clone() });
     let server = mixdog_app_server::AppServer::new(core, outgoing.clone(), Arc::new(|_| Some(mixdog_protocol::Origin::Local)), crate::server::server_config(mixdog_app_protocol::limits::Limits::default(), Default::default()))
@@ -363,11 +383,14 @@ async fn a_card_pending_on_the_real_thread_gate_survives_its_clients() {
             "detach" => {
                 // The transport drops the connection: `ConnectionHandle` drops, as on every end path.
                 client = None;
-                trace.push(json!({ "op": "detach", "card": shown.as_ref().map(real_card) }));
+                trace.push(json!({ "op": "detach", "card": shown.as_ref().map(real_card), "outcome": outcome }));
             }
             "reattach" => {
+                // The returning client is a phone the relay paired as "Pixel", as the recording's answering device is.
+                registry.connect_relay(2, "peer-pixel");
+                registry.attach_peer("peer-pixel", "cred-pixel", "Pixel", "Safari");
                 client = Some(connect(&server, 2, &member).await);
-                trace.push(json!({ "op": "reattach", "card": shown.as_ref().map(real_card) }));
+                trace.push(json!({ "op": "reattach", "card": shown.as_ref().map(real_card), "outcome": outcome }));
             }
             "release" => {
                 let reply = &replies[released];
@@ -388,12 +411,14 @@ async fn a_card_pending_on_the_real_thread_gate_survives_its_clients() {
             }
             "facts" => {
                 let facts = FactSources { catalog: Arc::new(EmptyCatalog), watches: Arc::new(NoWatches), held: scene.held.clone(), routines: Arc::new(NoRoutines) }.collect(0).await.expect("the facts");
-                trace.push(json!({ "op": "facts", "approvals": facts.approvals, "card": shown.as_ref().map(real_card) }));
+                trace.push(json!({ "op": "facts", "approvals": facts.approvals, "card": shown.as_ref().map(real_card), "outcome": outcome }));
             }
             "advance" => {
                 let ms = op["ms"].as_u64().unwrap();
+                scene.now.fetch_add(ms as i64, Ordering::SeqCst);
+                virtual_now.fetch_add(ms as i64, Ordering::SeqCst);
                 tokio::time::advance(Duration::from_millis(ms)).await;
-                trace.push(json!({ "op": "advance", "ms": ms, "card": shown.as_ref().map(real_card) }));
+                trace.push(json!({ "op": "advance", "ms": ms, "now": scene.now.load(Ordering::SeqCst), "card": shown.as_ref().map(real_card), "outcome": outcome }));
             }
             "answer" => {
                 let client = client.as_ref().expect("a client has returned");
@@ -403,6 +428,9 @@ async fn a_card_pending_on_the_real_thread_gate_survives_its_clients() {
                 client.response(2).await;
                 let frame = client.approval_request_seen().expect("the reattached client is sent the pending card");
                 assert_eq!(Some(&frame), shown.as_ref(), "{}: the returning client is sent the pending card", scenario["name"]);
+                // The whole card the returning client receives is the card Node's queue presented before the answer.
+                let answered_at = scenario["trace"].as_array().unwrap().iter().position(|step| step["op"] == "answer").expect("an answer step");
+                assert_eq!(real_card(&frame), scenario["trace"][answered_at - 1]["card"], "{}: the redelivered card", scenario["name"]);
                 let decision = &op["decision"];
                 client.handle.on_message(
                     serde_json::from_value(json!({ "id": frame["id"], "result": { "approved": decision["approved"], "response": if decision["approved"] == true { "approve" } else { "deny" }, "reason": decision["reason"] } })).expect("a response"),
@@ -410,9 +438,19 @@ async fn a_card_pending_on_the_real_thread_gate_survives_its_clients() {
                 let settled = results.recv().await.expect("the call settles");
                 tool_messages.push(settled["denial"].as_str().map_or_else(|| "allowed".to_owned(), str::to_owned));
                 sends += 1;
-                outcome = json!({ "approved": decision["approved"], "device": "Pixel" });
+                // The outcome is the resolution the actor produced for this request, as it published it; the end of the wait is the
+                // actor's own signal, and on the paused clock the deadline only fires if the actor never publishes it.
+                tokio::time::timeout(Duration::from_secs(1), published.resolved_arrived.acquire()).await.expect("the actor published the resolution").expect("the sink").forget();
+                let resolution = published.resolved_frames.lock().unwrap().last().cloned().expect("a resolved frame")["params"]["resolution"].clone();
+                outcome = json!({
+                    "approved": resolution["decision"]["approved"],
+                    "device": resolution["device"],
+                    "expired": resolution["kind"] == "timedOut",
+                    "interrupted": resolution["kind"] == "interrupted",
+                    "at": resolution["at"],
+                });
                 shown = None;
-                trace.push(json!({ "op": "answer", "card": Value::Null, "outcome": outcome }));
+                trace.push(json!({ "op": "answer", "accepted": resolution["kind"] == "decided", "card": Value::Null, "outcome": outcome }));
             }
             other => panic!("unknown op {other}"),
         }
@@ -421,32 +459,22 @@ async fn a_card_pending_on_the_real_thread_gate_survives_its_clients() {
     drop(calls);
     drop(client);
 
-    // Compared with the recording: the steps, and of each step the fields the real request carries (see `real_card`); the recording's
-    // `waiting` and `patches` are the TUI store's, and its `outcome.at`, `expired` and `interrupted` are not on a wire answer.
-    let want: Vec<Value> = recorded(scenario).into_iter().map(|step| project(&step)).collect();
-    assert_eq!(trace.iter().map(project).collect::<Vec<_>>(), want);
+    // Compared with the recording whole: every step, with the card and outcome the real path produced. Only the recording's `waiting`
+    // (how many cards queue behind the shown one in the TUI store) is not a field of a step here; the stand-in replay compares it.
+    let want: Vec<Value> = recorded(scenario)
+        .into_iter()
+        .map(|mut step| {
+            step.as_object_mut().unwrap().remove("waiting");
+            step
+        })
+        .collect();
+    assert_eq!(trace, want);
 }
 
-/// The card of a published request, in the recording's terms: the tool it names and that it carries no expiry.
+/// The card of a published request, in the recording's terms, all from the frame the client receives: the tool, its arguments, the
+/// reason, and the expiry (`expiresAt`, and its length from `requestedAt`; both null when the card carries none).
 fn real_card(frame: &Value) -> Value {
-    json!({ "name": frame["params"]["name"], "expiresAt": frame["params"]["expiresAt"] })
-}
-
-/// The fields of a step both sides have: its shape, the card's tool and (no) expiry, the heartbeat count, the answer and what the model was told.
-fn project(step: &Value) -> Value {
-    let card = |c: &Value| if c.is_null() { Value::Null } else { json!({ "name": c["name"], "expiresAt": c["expiresAt"] }) };
-    let mut out = json!({ "op": step["op"] });
-    for key in ["sends", "turnDone", "approvals", "answer", "toolMessages", "ms"] {
-        if let Some(v) = step.get(key) {
-            out[key] = v.clone();
-        }
-    }
-    if let Some(c) = step.get("card") {
-        out["card"] = card(c);
-    }
-    // A null outcome is "no card answered yet" on both sides; the answered outcome keeps Node's `approved` and `device`.
-    if let Some(o) = step.get("outcome").filter(|o| !o.is_null()) {
-        out["outcome"] = json!({ "approved": o["approved"], "device": o["device"] });
-    }
-    out
+    let params = &frame["params"];
+    let timeout = params.get("expiresAt").map_or(Value::Null, |at| json!(at.as_i64().unwrap() - params["requestedAt"].as_i64().unwrap()));
+    json!({ "name": params["name"], "args": params["args"], "reason": params["reason"], "timeoutMs": timeout, "expiresAt": params.get("expiresAt").cloned().unwrap_or(Value::Null) })
 }
