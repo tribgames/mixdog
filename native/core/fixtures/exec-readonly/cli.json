@@ -1,0 +1,62 @@
+[
+  {
+    "argv": [
+      "exec",
+      "--provider",
+      "p",
+      "--model",
+      "m",
+      "go"
+    ],
+    "result": {
+      "kind": "exec",
+      "exec": {
+        "message": "go"
+      },
+      "options": {
+        "provider": "p",
+        "model": "m",
+        "fast": false,
+        "webSearch": false,
+        "json": false,
+        "toolMode": "full",
+        "remote": false,
+        "forceOnboarding": false
+      },
+      "skipHostPrelude": true
+    }
+  },
+  {
+    "argv": [
+      "exec",
+      "--provider",
+      "p",
+      "--model",
+      "m",
+      "--tool-mode",
+      "lead",
+      "go"
+    ],
+    "result": {
+      "kind": "error",
+      "error": "unknown option --tool-mode",
+      "skipHostPrelude": true
+    }
+  },
+  {
+    "argv": [
+      "exec",
+      "--provider",
+      "p",
+      "--model",
+      "m",
+      "--readonly",
+      "go"
+    ],
+    "result": {
+      "kind": "error",
+      "error": "option --readonly is not supported for mixdog exec",
+      "skipHostPrelude": true
+    }
+  }
+]

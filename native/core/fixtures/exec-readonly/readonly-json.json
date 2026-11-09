@@ -1,0 +1,453 @@
+{
+  "case": "readonly-json",
+  "mode": "readonly",
+  "script": "simple",
+  "json": true,
+  "runtimeOptions": {
+    "toolMode": "readonly",
+    "toolProfile": "headless",
+    "approvalMode": "implicit",
+    "disallowDelegation": true,
+    "autoWakeCompletions": false,
+    "webSearch": false,
+    "memory": false
+  },
+  "code": 0,
+  "stdout": [
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"thread.started\",\"thread_id\":\"sess_exec_readonly\",\"session\":{\"provider\":\"anthropic\",\"model\":\"claude-sonnet-4-6\",\"effort\":null,\"fast\":false,\"cwd\":\"/work\",\"tool_mode\":\"full\",\"approval_mode\":\"implicit\",\"delegation\":false,\"web_search\":false}}\n",
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"turn.started\",\"thread_id\":\"sess_exec_readonly\",\"turn_id\":\"turn_1\"}\n",
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"model.request.started\",\"thread_id\":\"sess_exec_readonly\",\"turn_id\":\"turn_1\",\"request_id\":\"model_request_1\",\"request_index\":1}\n",
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"turn.status\",\"thread_id\":\"sess_exec_readonly\",\"turn_id\":\"turn_1\",\"stage\":\"requesting\"}\n",
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"turn.status\",\"thread_id\":\"sess_exec_readonly\",\"turn_id\":\"turn_1\",\"stage\":\"requesting\"}\n",
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"turn.status\",\"thread_id\":\"sess_exec_readonly\",\"turn_id\":\"turn_1\",\"stage\":\"streaming\"}\n",
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"item.started\",\"thread_id\":\"sess_exec_readonly\",\"turn_id\":\"turn_1\",\"item\":{\"id\":\"toolu_1_0\",\"type\":\"tool_call\",\"name\":\"read\",\"arguments\":{\"path\":\"a.txt\"},\"status\":\"in_progress\",\"started_at\":\"2023-11-14T22:13:20.000Z\"}}\n",
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"model.request.completed\",\"thread_id\":\"sess_exec_readonly\",\"turn_id\":\"turn_1\",\"request_id\":\"model_request_1\",\"request_index\":1,\"duration_ms\":0,\"usage\":{\"input_tokens\":21,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":11}}\n",
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"tool.batch.started\",\"thread_id\":\"sess_exec_readonly\",\"turn_id\":\"turn_1\",\"batch_id\":\"tool_batch_1\"}\n",
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"item.completed\",\"thread_id\":\"sess_exec_readonly\",\"turn_id\":\"turn_1\",\"item\":{\"id\":\"toolu_1_0\",\"type\":\"tool_call\",\"name\":\"read\",\"arguments\":{\"path\":\"a.txt\"},\"output\":\"[lines 1-1]\\nhello\\n[lines 1-1 of 1]\",\"status\":\"completed\",\"started_at\":\"2023-11-14T22:13:20.000Z\",\"completed_at\":\"2023-11-14T22:13:20.000Z\",\"duration_ms\":0,\"timing\":{\"queue_ms\":0,\"dispatch_ms\":0,\"execution_ms\":0,\"batch_wait_ms\":0,\"postprocess_ms\":0,\"total_ms\":0}}}\n",
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"tool.batch.completed\",\"thread_id\":\"sess_exec_readonly\",\"turn_id\":\"turn_1\",\"batch_id\":\"tool_batch_1\",\"iteration\":1,\"calls\":1,\"duration_ms\":0}\n",
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"model.request.started\",\"thread_id\":\"sess_exec_readonly\",\"turn_id\":\"turn_1\",\"request_id\":\"model_request_2\",\"request_index\":2}\n",
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"turn.status\",\"thread_id\":\"sess_exec_readonly\",\"turn_id\":\"turn_1\",\"stage\":\"requesting\"}\n",
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"turn.status\",\"thread_id\":\"sess_exec_readonly\",\"turn_id\":\"turn_1\",\"stage\":\"requesting\"}\n",
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"turn.status\",\"thread_id\":\"sess_exec_readonly\",\"turn_id\":\"turn_1\",\"stage\":\"streaming\"}\n",
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"model.request.completed\",\"thread_id\":\"sess_exec_readonly\",\"turn_id\":\"turn_1\",\"request_id\":\"model_request_2\",\"request_index\":2,\"duration_ms\":0,\"usage\":{\"input_tokens\":22,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":12}}\n",
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"item.completed\",\"thread_id\":\"sess_exec_readonly\",\"turn_id\":\"turn_1\",\"item\":{\"id\":\"message_1\",\"type\":\"agent_message\",\"text\":\"done\",\"status\":\"completed\"}}\n",
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"turn.completed\",\"thread_id\":\"sess_exec_readonly\",\"turn_id\":\"turn_1\",\"duration_ms\":0,\"duration_api_ms\":0,\"provider_requests\":2,\"tool_calls\":1,\"usage\":{\"input_tokens\":43,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":23,\"tool_calls\":1}}\n",
+    "{\"schema_version\":1,\"timestamp\":\"2023-11-14T22:13:20.000Z\",\"type\":\"result\",\"subtype\":\"success\",\"thread_id\":\"sess_exec_readonly\",\"turn_id\":\"turn_1\",\"session_id\":\"sess_exec_readonly\",\"model\":\"claude-sonnet-4-6\",\"is_error\":false,\"duration_ms\":0,\"duration_api_ms\":0,\"num_turns\":1,\"provider_requests\":2,\"tool_calls\":1,\"result\":\"done\",\"stop_reason\":\"end_turn\",\"termination_reason\":null,\"usage\":{\"input_tokens\":43,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":23,\"tool_calls\":1}}\n"
+  ],
+  "stderr": [],
+  "requests": [
+    {
+      "path": "/v1/messages",
+      "model": "claude-sonnet-4-6",
+      "tools": [
+        {
+          "name": "find",
+          "description": "Fuzzy filename/directory path lookup; returns paths only. Only when the target path is unknown and cannot be directly resolved but a fragment is known; general discovery: glob.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S",
+                "description": "Filename/path fragment; space-separated fragments AND-match within one path."
+              },
+              "path": {
+                "type": "string",
+                "description": "Base directory; omit for the current Project."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Max paths; default 25; 0 unlimited."
+              },
+              "include_noise": {
+                "type": "boolean",
+                "description": "Also search gitignored trees."
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "glob",
+          "description": "Wildcard file-path lookup under a known directory; directories never match. No preliminary listing. Unknown base: find first with a known path fragment.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 10
+                  }
+                ],
+                "description": "Union of patterns under one base; separate calls for other bases or per-pattern results."
+              },
+              "path": {
+                "type": "string",
+                "description": "Known existing base directory; omit for the current Project."
+              },
+              "sort": {
+                "type": "string",
+                "enum": [
+                  "natural",
+                  "mtime"
+                ],
+                "description": "mtime default (newest first); natural = raw walk order, cheaper on huge trees."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Max entries; default 100; 0 unlimited."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "include_noise": {
+                "type": "boolean",
+                "description": "Also search gitignored trees."
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "list",
+          "description": "Return a known directory's immediate entries (path + type); no wildcard. Only when those entries or metadata are needed, not to re-confirm a known listing or before read/glob.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Known directory; defaults to the current Project."
+              },
+              "hidden": {
+                "type": "boolean",
+                "description": "Include dotfiles."
+              },
+              "meta": {
+                "type": "boolean",
+                "description": "Per-entry size bytes, UTC mtime, octal mode; text files also get a line count."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100,
+                "description": "Max entries; default 100; 0 = no page cap (absolute cap still applies)."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "grep",
+          "description": "Search literal/regex file contents (single-line ripgrep); returns path:line blocks with context, patch-ready. Broad reconnaissance: mode:files; locating: context:0; every pattern and scope in one call, and the anchors are the windows for one read. Symbol relations: code_graph.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 10
+                  }
+                ],
+                "description": "Ripgrep regex(es); escape literal metacharacters."
+              },
+              "path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10,
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "description": "Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls."
+              },
+              "glob": {
+                "type": "string",
+                "description": "Relative glob filter evaluated inside path, e.g. \"*.cs\" or \"src/**/*.ts\"; for exact/absolute paths use path instead."
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "content",
+                  "files",
+                  "count"
+                ],
+                "description": "content default; files lists matching paths; count totals all patterns together per file."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Requested results; default 250; 0 unlimited. Context output caps at 40 blocks; continue via the returned offset."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "context": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 200,
+                "description": "Omit for automatic context; 0 for matches only."
+              },
+              "include_noise": {
+                "type": "boolean",
+                "description": "Also search gitignored trees."
+              },
+              "text": {
+                "type": "boolean",
+                "description": "Search binary data as text (archives/Git objects not decoded)."
+              }
+            },
+            "required": [
+              "pattern"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "code_graph",
+          "description": "Code structure and relations from the parsed graph, no text matching. symbols → file outline rows `[export ]kind name (Lstart-end) signature`; find_symbol returns declaration/body; references adds usages; callers/callees return locations; dependents/impact → importers and blast radius. Exact identifiers: find_symbol/references/callers/callees; keywords: symbol_search/search; literal text and regex belong to grep. Prefer it over read/grep for declarations and relations. symbols already outlines a file: never pair it with overview for one need.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "overview",
+                  "imports",
+                  "dependents",
+                  "related",
+                  "impact",
+                  "symbols",
+                  "find_symbol",
+                  "symbol_search",
+                  "search",
+                  "references",
+                  "callers",
+                  "callees"
+                ],
+                "description": "File modes (files[]): overview, imports, dependents, related, impact. symbols with files[] gives the file outline; other modes use symbols[]."
+              },
+              "files": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "description": "Paths, project-relative or absolute; required for file modes, symbol queries span all files."
+              },
+              "symbols": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                ],
+                "description": "Exact identifiers/keywords; required for symbol modes, optional outline filter. Every symbol searches every file; distinct pairs need separate calls."
+              },
+              "body": {
+                "type": "boolean",
+                "description": "true for implementation, false for locations; find_symbol defaults true, references is opt-in."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 500,
+                "description": "Max results; modes may cap lower."
+              },
+              "depth": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5,
+                "description": "Overview hierarchy or caller traversal depth; default 1."
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Explicit root outside the project; omit for project root."
+              }
+            },
+            "required": [
+              "mode"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "read",
+          "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "file_path": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10,
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "file_path": {
+                              "type": "string"
+                            },
+                            "offset": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "limit": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 100000
+                            }
+                          },
+                          "required": [
+                            "file_path"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "description": "Overlapping windows of one file merge. A glob fans out to ≤10 newest files."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "1-based start line; default 1; batch default."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100000,
+                "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+              },
+              "pages": {
+                "type": "string",
+                "description": "PDF page range \"N\" or \"N-M\", 1-based, ≤20 pages per call. Text pages return text; scanned pages (no text layer) return page images, or OCR text on a text-only model. Without pages, a PDF over 10 pages returns its first 5 pages and page count."
+              }
+            },
+            "required": [
+              "file_path"
+            ],
+            "additionalProperties": false
+          }
+        }
+      ],
+      "toolResults": [],
+      "served": {
+        "text": "",
+        "calls": [
+          {
+            "id": "toolu_1_0",
+            "name": "read",
+            "input": {
+              "path": "a.txt"
+            }
+          }
+        ],
+        "inputTokens": 21,
+        "outputTokens": 11,
+        "stopReason": "tool_use"
+      }
+    },
+    {
+      "path": "/v1/messages",
+      "model": "claude-sonnet-4-6",
+      "tools": [],
+      "toolResults": [
+        {
+          "tool_use_id": "toolu_1_0",
+          "is_error": false,
+          "content": "[lines 1-1]\nhello\n[lines 1-1 of 1]"
+        }
+      ],
+      "served": {
+        "text": "done",
+        "calls": [],
+        "inputTokens": 22,
+        "outputTokens": 12,
+        "stopReason": "end_turn"
+      }
+    }
+  ],
+  "files": {
+    "a.txt": "hello\n"
+  },
+  "usage": {
+    "schemaVersion": 1,
+    "sessions": [
+      {
+        "sessionId": "sess_exec_readonly",
+        "agentRole": "primary",
+        "models": [
+          "claude-sonnet-4-6"
+        ],
+        "inputTokens": 43,
+        "cacheTokens": 0,
+        "cacheWriteTokens": 0,
+        "outputTokens": 23,
+        "toolCallCountApprox": 1
+      }
+    ],
+    "totals": {
+      "inputTokens": 43,
+      "cacheTokens": 0,
+      "cacheWriteTokens": 0,
+      "outputTokens": 23,
+      "toolCallCountApprox": 1
+    }
+  }
+}
