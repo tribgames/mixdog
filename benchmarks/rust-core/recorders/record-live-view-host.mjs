@@ -430,6 +430,19 @@ const scenarios = [
     ack(2),
     ack(3),
   ]),
+  // The picture a late connection starts from is the last one the sender took (AAAA), not the newest (CCCC, in flight now).
+  await hostScenario('a viewer that connects while the newest picture is in flight starts from the last acknowledged one', [
+    ...toConnected,
+    { op: 'frame', sourceKey: KEY, picture: picture('BBBB') },
+    { op: 'frame', sourceKey: KEY, picture: picture('CCCC') },
+    ack(2),
+    { op: 'signal', client: B, raw: readySig(), iceServers: ICE },
+    { op: 'sender', event: { type: 'offer', connectionId: C2, sdp: SDP } },
+    { op: 'signal', client: B, raw: sig('answer', { sdp: SDP, fingerprints: [fp256] }, C2), iceServers: [] },
+    { op: 'sender', event: { type: 'connected', connectionId: C2, remoteCertificate: cert } },
+    ack(3),
+    ack(4),
+  ]),
   await hostScenario('channel pushes go to each viewer of the source whose channel is up', [
     ...toWebrtc,
     { op: 'signal', client: B, raw: readySig(), iceServers: ICE },
