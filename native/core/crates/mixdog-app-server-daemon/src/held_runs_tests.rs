@@ -693,6 +693,7 @@ impl Client {
 
     /// The `item/tool/requestApproval` frame this connection is sent, once it is.
     async fn approval_request(&self) -> Value {
+        // Picks the one wire frame the test waits for out of the connection's frames; nothing of Node's output is dropped, the frame itself is compared whole.
         let find = |texts: &[String]| texts.iter().find_map(|text| text.find('{').and_then(|at| serde_json::from_str::<Value>(&text[at..]).ok()).filter(|frame| frame["method"] == "item/tool/requestApproval"));
         if let Some(frame) = find(&self.seen.lock().unwrap()) {
             return frame;

@@ -21,7 +21,7 @@
 //!    settle a card (`src/tui/session/tool-approval.mjs:108,155`: `{toolApproval, toolApprovalResult}`), so each is a function of the
 //!    `card` and `outcome` that are compared; Rust's own publication is the protocol's server request;
 //!  - the `args`, `reason` and `timeoutMs` of a card, and `at`, `expired`, `interrupted` of an outcome: the TUI store's presentation
-//!    of the ask (`at` is `Date.now()`, `expired`/`interrupted` are set only by the turn-abort path at `tool-approval.mjs:200-206` and the opt-in expiry, none
+//!    of the ask (`at` is the TUI's own stamp, `expired`/`interrupted` are set only by the turn-abort path at `tool-approval.mjs:200-206` and the opt-in expiry, none
 //!    of which the default scenarios reach); the tool's name and the absence of an expiry are compared, and the real-path test
 //!    additionally asserts the reattached client is sent the identical request frame;
 //!  - the text of an allowed call in `toolMessages`: it is the `read` tool's output, not the approval's; every denial is compared exactly;
@@ -441,6 +441,7 @@ fn project(step: &Value) -> Value {
     if let Some(c) = step.get("card") {
         out["card"] = card(c);
     }
+    // A null outcome is "no card answered yet" on both sides; the answered outcome keeps Node's `approved` and `device`.
     if let Some(o) = step.get("outcome").filter(|o| !o.is_null()) {
         out["outcome"] = json!({ "approved": o["approved"], "device": o["device"] });
     }
