@@ -64,7 +64,12 @@ export type AccountLoginOAuthProviderParams = { opId: OpId, threadId?: ThreadId,
 /**
  * Params of `account/refreshProviderSetup`.
  */
-export type AccountRefreshProviderSetupParams = { opId: OpId, force?: boolean, refresh?: boolean, unlockKeychain?: boolean, recheckKeychain?: boolean, };
+export type AccountRefreshProviderSetupParams = { opId: OpId, force?: boolean, refresh?: boolean, unlockKeychain?: boolean, recheckKeychain?: boolean,
+/**
+ * A provider id whose current account's OAuth token is refreshed now unless it lasts
+ * `minimumValidityMs` more (the host preflight of a benchmark run); needs `minimumValidityMs`.
+ */
+renewCredential?: string, minimumValidityMs?: number, };
 
 /**
  * Params of `account/removeCustomProvider`.

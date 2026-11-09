@@ -13,6 +13,8 @@ test('the table is the one Node measured: rendering results.json gives table.md'
   assert.equal(`${renderTable(results)}\n`, readFileSync(new URL('./results/table.md', import.meta.url), 'utf8'));
 });
 
+// The comparison drops "Qwen 3.8 Flash" on purpose: MODELS lists it, but results/results.json (the recorded run)
+// holds only the other eight models, so there is no recorded row to compare it against.
 test('every model results.json holds is measured, in its order (results.json predates Qwen)', () => {
   const recorded = JSON.parse(readFileSync(new URL('./results/results.json', import.meta.url), 'utf8'));
   assert.deepEqual(MODELS.map(([name]) => name).filter((name) => recorded.results.some((row) => row.name === name)), recorded.results.map((row) => row.name));
