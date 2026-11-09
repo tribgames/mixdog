@@ -21,10 +21,10 @@ import {
   getThemeSetting,
   listThemes,
   applyStoredThemeSetting,
-  readStoredThemeSetting,
   setThemeSetting,
   theme,
 } from './theme.mjs';
+import { readStoredThemeSetting } from './theme-config.mjs';
 import { POP_KITTY, DISABLE_MODIFY_OTHER_KEYS } from './keyboard-protocol.mjs';
 import { displayWidth } from './display-width.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from './lib/rotate-log.mjs';
