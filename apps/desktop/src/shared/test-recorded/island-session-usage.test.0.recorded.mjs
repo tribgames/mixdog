@@ -1,4 +1,4 @@
-// Node b6f10295a2f698afc85332467192de28500bd146 src/session-runtime/usage-stats-api.mjs, recorded from apps/desktop/src/renderer/island-session-usage.test.mjs of that commit run against an exact export of it (record/record.mjs).
+// Node b6f10295a2f698afc85332467192de28500bd146 (tree 332679f9c46ead536c500ab57a7580c0fb28d550) src/session-runtime/usage-stats-api.mjs, recorded from apps/desktop/src/renderer/island-session-usage.test.mjs of that commit run against an exact export of it (record/record.mjs).
 import { readFileSync } from 'node:fs';
 import { replay } from './replay.mjs';
 

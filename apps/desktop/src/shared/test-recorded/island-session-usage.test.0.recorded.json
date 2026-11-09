@@ -139,7 +139,11 @@
   "makeUsageRecord": "identity"
  },
  "opaque": [],
- "instances": {
-  "createUsageStatsApi": 1
+ "factories": {
+  "createUsageStatsApi": {
+   "createUsageStatsApi\u0000[{\"ledger\":{\"$fn\":1},\"accountPool\":{\"$fn\":1},\"getSessionId\":{\"$fn\":1}}]": [
+    0
+   ]
+  }
  }
 }

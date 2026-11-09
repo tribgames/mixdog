@@ -104,13 +104,15 @@ for (const rel of tests) {
       const before = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
       const table = { source: { commit, tree: treeId, module: modulePath, test: `apps/desktop/src/${rel}` }, constants: {}, calls: {}, services: {}, stubs: before.stubs ?? {}, opaque: before.opaque ?? [] };
       if (before.normalize) table.normalize = before.normalize;
+      const builtCount = {};
       for (const r of rows.filter((row) => row.mod === id)) {
         if ('constant' in r) table.constants[r.name] = r.constant;
         else if (r.class) continue;
         else if (r.service) {
           table.services[r.name.replace(/#\d+/, '')] = r.service;
-          table.instances ??= {};
-          table.instances[r.name] = (table.instances[r.name] ?? 0) + 1;
+          const built = (builtCount[r.name] = (builtCount[r.name] ?? -1) + 1);
+          const forKey = ((table.factories ??= {})[r.name] ??= {});
+          (forKey[callKey(table, r.name, r.args)] ??= []).push(built);
         } else {
           const key = callKey(table, r.name, r.args);
           (table.calls[key] ??= []).push(r.error ? { error: r.error, async: !!r.async } : { result: r.result, async: !!r.async });
@@ -121,7 +123,7 @@ for (const rel of tests) {
       const exports = names.get(spec).map((n) => `export const ${n} = replay(table, ${JSON.stringify(n)});`).join('\n');
       writeFileSync(
         join(outDir, `${id}.recorded.mjs`),
-        `// Node ${commit} ${modulePath}, recorded from apps/desktop/src/${rel} of that commit run against an exact export of it (record/record.mjs).\n` +
+        `// Node ${commit} (tree ${treeId}) ${modulePath}, recorded from apps/desktop/src/${rel} of that commit run against an exact export of it (record/record.mjs).\n` +
           `import { readFileSync } from 'node:fs';\nimport { replay } from './replay.mjs';\n\n` +
           `const table = JSON.parse(readFileSync(new URL('./${id}.recorded.json', import.meta.url), 'utf8'));\n${exports}\n`
       );

@@ -75,11 +75,16 @@ export function replay(table, name) {
   if (table.stubs?.[name]) return stub(table.stubs[name]);
   const service = table.services?.[name];
   if (service) {
-    // Each call builds a new service, as the recorded one did: the n-th answers with what the n-th recorded service answered.
-    let built = 0;
-    const last = Math.max(0, (table.instances?.[name] ?? 1) - 1);
-    return () => {
-      const base = `${name}#${Math.min(built++, last)}`;
+    // Each call builds a new service, as the recorded one did: found by the factory's arguments like any call, the n-th build with
+    // the same arguments answers with what the n-th recorded build with them answered (the last repeats).
+    const builds = new Map();
+    return (...args) => {
+      const key = callKey(table, name, args);
+      const recorded = table.factories?.[name]?.[key];
+      if (!recorded) throw new Error(`${name}(${enc(args)}) was not recorded from Node`);
+      const n = builds.get(key) ?? 0;
+      builds.set(key, n + 1);
+      const base = `${name}#${recorded[Math.min(n, recorded.length - 1)]}`;
       return Object.fromEntries(service.map((method) => [method, replay(table, `${base}.${method}`)]));
     };
   }

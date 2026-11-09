@@ -7,10 +7,10 @@
  },
  "constants": {},
  "calls": {
-  "makeUsageRecord\u0000[{\"ts\":1794199898397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"agent\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794201151235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"agent\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199898397,
+     "ts": 1794201151235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -39,15 +39,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "1670bad8-e5f6-4ad6-aaa1-867cd49f7d8a"
+     "id": "ae0a74cc-ac86-486f-bd09-52b8d6e581f0"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199838397,\"provider\":\"openai-oauth\",\"model\":\"gpt-5.6-luna\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794201091235,\"provider\":\"openai-oauth\",\"model\":\"gpt-5.6-luna\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199838397,
+     "ts": 1794201091235,
      "day": "2026-11-09",
      "provider": "openai-oauth",
      "model": "gpt-5.6-luna",
@@ -77,15 +77,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "a4ec242f-53f6-469a-b5f0-4f03b6758d6e"
+     "id": "bc84c1cd-4734-4fea-a010-6ad4e42713ed"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199778397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"failed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794201031235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"failed\"}]": [
    {
     "result": {
-     "ts": 1794199778397,
+     "ts": 1794201031235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -114,15 +114,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "1147b807-3d7a-4aab-aede-8c6df1c5a761"
+     "id": "5d7d1fce-7cdc-49e0-8fc4-281674f88872"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199718397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"requestedModel\":\"gpt-6-astra\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"substituted\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200971235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"requestedModel\":\"gpt-6-astra\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"substituted\"}]": [
    {
     "result": {
-     "ts": 1794199718397,
+     "ts": 1794200971235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -151,15 +151,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "27b44bf9-2e6b-4898-93ee-43cb4d088bc1"
+     "id": "015d5b65-a14b-463a-a32b-667e78ecc27b"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199658397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"requestedProvider\":\"anthropic\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"substituted\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200911235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"requestedProvider\":\"anthropic\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"substituted\"}]": [
    {
     "result": {
-     "ts": 1794199658397,
+     "ts": 1794200911235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -188,15 +188,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "692bd657-78ce-43db-84e8-6ac6163c56c3"
+     "id": "1529bf44-d9e2-47d2-810b-7f515a586ff2"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199598397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200851235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199598397,
+     "ts": 1794200851235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -225,15 +225,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "388e44d7-e6fa-401c-a906-1871dae09a13"
+     "id": "3dab9c48-0a20-45a9-9550-9f0432eea46b"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199538397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200791235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199538397,
+     "ts": 1794200791235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -262,15 +262,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "7222f145-0cfd-44ba-bd52-894e2a7bccce"
+     "id": "0ca69382-b673-40a7-9672-2b4c64b38871"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199478397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200731235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199478397,
+     "ts": 1794200731235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -299,15 +299,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "a5b2c922-bee9-4e51-8e69-84a0628393e6"
+     "id": "9b4f0721-f091-4603-9604-6574db9a9c7c"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199418397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200671235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199418397,
+     "ts": 1794200671235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -336,15 +336,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "5e852a25-861c-4cc1-a12b-23a58cbad614"
+     "id": "7bf6ebd8-6c9e-4cb0-9c98-c460a4e31e2c"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199358397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200611235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199358397,
+     "ts": 1794200611235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -373,15 +373,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "108df607-1bfe-416e-aacd-daa78a7c2265"
+     "id": "d91f7de3-0a91-4795-b530-d2dcc0ca30d2"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199298397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200551235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199298397,
+     "ts": 1794200551235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -410,15 +410,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "2bef61fa-fe7b-4396-bfe0-2e144efc6eca"
+     "id": "fa47ec63-bef0-4351-bb06-832a5e65a1fe"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199238397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200491235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199238397,
+     "ts": 1794200491235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -447,15 +447,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "bf1b1482-8b79-4261-963b-c98dbce0ba08"
+     "id": "ed7036f3-e54a-4b88-a1f2-7c10a3596509"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199178397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200431235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199178397,
+     "ts": 1794200431235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -484,15 +484,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "d0174094-4231-49df-afbc-d5214f3b4650"
+     "id": "7128daf0-cc54-493b-9b64-da0d7c7ae024"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199118397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200371235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199118397,
+     "ts": 1794200371235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -521,15 +521,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "0bb6b069-d797-4bfa-bc2e-e1f1ef8cff02"
+     "id": "6e469d6d-f140-418c-9390-6962e0e9ee45"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199058397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200311235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199058397,
+     "ts": 1794200311235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -558,15 +558,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "b398293f-9ad4-41aa-af0e-5684f43ecd44"
+     "id": "e6180c12-ab91-4205-a95c-b1f0d531d9c8"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198998397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200251235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198998397,
+     "ts": 1794200251235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -595,15 +595,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "72c14b53-0d35-4e38-9335-6af5e027fe8c"
+     "id": "4850e436-a7b4-4944-8dc6-96101208e700"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198938397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200191235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198938397,
+     "ts": 1794200191235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -632,15 +632,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "ee12aa14-315a-42d1-ad7d-c95287e6f1c6"
+     "id": "b30e3600-257f-4ce4-bc43-89ad664dc403"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198878397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200131235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198878397,
+     "ts": 1794200131235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -669,15 +669,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "3df4091e-c55e-4188-8be6-24b9220098cc"
+     "id": "bed26be8-5668-49e7-b628-f1c6fa03bd96"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198818397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200071235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198818397,
+     "ts": 1794200071235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -706,15 +706,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "a9e5b59b-6f88-4989-839e-593b192e4bea"
+     "id": "61f0dace-c7b3-4838-b9ec-01b37b62360e"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198758397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200011235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198758397,
+     "ts": 1794200011235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -743,15 +743,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "d0005337-0036-44d2-8de4-190fb6317267"
+     "id": "e9f80100-be50-4a0f-bad1-6f5227a5a8c0"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198698397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199951235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198698397,
+     "ts": 1794199951235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -780,15 +780,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "35608d06-d3b4-4095-b745-b630cb1168a4"
+     "id": "e969a59a-60e9-466f-b741-096bca2ca77c"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198638397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199891235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198638397,
+     "ts": 1794199891235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -817,15 +817,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "43aa1be0-16e8-4bcf-bb80-6b7842d31571"
+     "id": "ee756996-5204-48d3-9919-628eeefbc328"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198578397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199831235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198578397,
+     "ts": 1794199831235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -854,15 +854,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "86c88771-68b2-45c5-94de-523b8b00e0c3"
+     "id": "8d4be514-ca73-4b91-a66b-ef5685e0891a"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198518397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199771235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198518397,
+     "ts": 1794199771235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -891,15 +891,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "b2a09d37-6477-4b4a-8841-ec2581c7bf57"
+     "id": "df55eef1-87ad-44eb-bff9-81649f61ebb7"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198458397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199711235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198458397,
+     "ts": 1794199711235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -928,15 +928,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "e6faac60-ccbd-4b44-bba2-89383d1f6f0b"
+     "id": "ec1cd437-b725-498a-94f3-c54b748b395c"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198398397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199651235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198398397,
+     "ts": 1794199651235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -965,15 +965,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "0c992ae3-cc97-4717-a839-3fe74c9e179f"
+     "id": "f73dea1d-a716-43dd-8f0b-d1bc80f5f579"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198338397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199591235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198338397,
+     "ts": 1794199591235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1002,15 +1002,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "637e1eda-9b56-4d07-b6a0-b611f408a025"
+     "id": "7d4b302e-94a7-4aa2-8599-b58422497f9f"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198278397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199531235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198278397,
+     "ts": 1794199531235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1039,15 +1039,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "5ea056be-4eba-490e-b052-ee173c772d75"
+     "id": "8b17688f-24b9-4644-afd3-297edc6b5bea"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198218397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199471235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198218397,
+     "ts": 1794199471235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1076,15 +1076,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "d2a24b65-2119-4250-a06e-ddbcd6b22388"
+     "id": "ef7a87d0-bc63-4598-9ab8-147064a75934"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198158397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199411235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198158397,
+     "ts": 1794199411235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1113,15 +1113,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "255d78ef-9d0e-4b7f-abbf-38aaed89ecbc"
+     "id": "ad4994c4-e9b8-44d1-b741-f3077a459d73"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198098397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199351235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198098397,
+     "ts": 1794199351235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1150,15 +1150,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "79871fa3-ba5f-4a12-8938-a253dbe4d162"
+     "id": "0d52650b-853a-4f13-a777-6c4919ba1c85"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198038397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199291235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198038397,
+     "ts": 1794199291235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1187,15 +1187,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "be8f4419-bfe0-4fcf-a84b-10ae88681246"
+     "id": "000830e3-152a-4f88-9c4b-fa53f1459dfc"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197978397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199231235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197978397,
+     "ts": 1794199231235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1224,15 +1224,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "f45708f7-c7b7-4b08-ba7c-0a6c8df73585"
+     "id": "1b5f35bf-eea6-42fc-8702-48f4106c5cb3"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197918397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199171235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197918397,
+     "ts": 1794199171235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1261,15 +1261,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "9612efbb-b1d0-4766-a938-6039746d0927"
+     "id": "fb5c1246-0937-42d4-aa89-e75703d42513"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197858397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199111235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197858397,
+     "ts": 1794199111235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1298,15 +1298,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "18a67701-231b-4ade-8388-6b92d0dc2a65"
+     "id": "51edd18e-47fa-4402-ae62-04b866179524"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197798397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199051235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197798397,
+     "ts": 1794199051235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1335,15 +1335,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "870759d3-be94-496f-bfa3-03e064860848"
+     "id": "f9ddcb92-3d5f-4efb-adc9-8f52f9c962e2"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197738397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198991235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197738397,
+     "ts": 1794198991235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1372,15 +1372,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "c2dcd8e1-a726-4fcc-bac0-6eb2c0faa447"
+     "id": "a2e2f7af-ca5d-4141-80e0-469a376f219b"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197678397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198931235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197678397,
+     "ts": 1794198931235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1409,15 +1409,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "1f607659-46b4-43a8-8b4f-f9c95c980845"
+     "id": "659214c9-1db6-4740-ba19-cd0f93616de2"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197618397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198871235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197618397,
+     "ts": 1794198871235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1446,15 +1446,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "75f59a2c-b183-4ded-86a5-97945c0924fc"
+     "id": "3972501b-8856-46f0-a62c-50df361cbea1"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197558397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198811235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197558397,
+     "ts": 1794198811235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1483,15 +1483,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "805c267d-c237-4427-b7dd-93a7c9a2aeee"
+     "id": "909c2ff7-6880-4816-a1cb-396c5f922d58"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197498397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198751235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197498397,
+     "ts": 1794198751235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1520,15 +1520,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "3067f3e9-4fe3-4b48-967d-c0c34fee1230"
+     "id": "56c4952c-c9a3-41e0-b093-b016c1ac89d3"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197438397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198691235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197438397,
+     "ts": 1794198691235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1557,15 +1557,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "d819bcf1-3be8-4f5d-ad67-51abf4757738"
+     "id": "e86043b9-ed7a-4643-94e5-3728f2a9fa60"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197378397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198631235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197378397,
+     "ts": 1794198631235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1594,15 +1594,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "214b1ef1-9b41-4512-9388-370bfb3098f6"
+     "id": "49220c66-720f-416a-bea5-8a700f191ddc"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197318397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198571235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197318397,
+     "ts": 1794198571235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1631,15 +1631,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "97788daf-4c0d-4902-a29d-39a70f751878"
+     "id": "9b642f54-722a-4d13-a774-3dadd670bab9"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197258397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198511235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197258397,
+     "ts": 1794198511235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1668,15 +1668,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "13f84610-ce49-4ab3-8366-688d9d07d5a5"
+     "id": "1e789f70-3fd1-431d-a3f0-eca2cb0053e8"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197198397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198451235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197198397,
+     "ts": 1794198451235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1705,15 +1705,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "032e3a5d-5119-417f-931b-02e952ab4782"
+     "id": "f1feb31e-0232-4564-9ec2-717fe0793820"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197138397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198391235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197138397,
+     "ts": 1794198391235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1742,15 +1742,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "44148b51-c5af-4089-9242-b36ffaf69404"
+     "id": "8a14e2c8-7c0e-45cb-98c2-9261fb210845"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197078397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198331235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197078397,
+     "ts": 1794198331235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1779,15 +1779,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "f9f04ff9-05f4-4e18-8809-9f0388302eb2"
+     "id": "d09174eb-eb65-4ac9-a055-caf3cb969185"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197018397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198271235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197018397,
+     "ts": 1794198271235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1816,15 +1816,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "c6156ffa-e126-4571-a381-df1999e542bf"
+     "id": "a7dae778-7862-4b42-bf32-784659dde584"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196958397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198211235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196958397,
+     "ts": 1794198211235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1853,15 +1853,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "9eabc8cb-1e43-4014-a214-0dc9cdfbb4f8"
+     "id": "84055787-c19c-4708-8a2a-adb1b15b936a"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196898397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198151235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196898397,
+     "ts": 1794198151235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1890,15 +1890,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "65aadaf4-b07d-45bf-a32c-4f4387041a31"
+     "id": "1096893a-e91f-4a67-82ba-7ed38294bb7b"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196838397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198091235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196838397,
+     "ts": 1794198091235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1927,15 +1927,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "c3e751e7-cc8d-4167-be08-3bc1087c0bbe"
+     "id": "ab6a400a-75b7-4145-9dbc-a5f1d9bb146b"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196778397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198031235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196778397,
+     "ts": 1794198031235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -1964,15 +1964,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "54120098-2c2a-4ce6-b424-e2577ac99d83"
+     "id": "1dd4b617-d09b-49d2-89e7-429fbda6936d"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196718397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197971235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196718397,
+     "ts": 1794197971235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2001,15 +2001,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "a3dbc9d1-395f-4968-a565-a0c530d8a77f"
+     "id": "f27747bb-6da7-4078-ac75-39c47f6cea77"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196658397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197911235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196658397,
+     "ts": 1794197911235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2038,15 +2038,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "2f545cf4-86ab-4ffa-a95b-9bb5e5f6e5ef"
+     "id": "38bc20a9-75df-4728-a5a4-1b330d26ad47"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196598397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197851235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196598397,
+     "ts": 1794197851235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2075,15 +2075,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "49e10a57-b140-4740-bf23-cde9fa74df3a"
+     "id": "b8c8fb40-5643-46d5-966e-01f02562ced5"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196538397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197791235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196538397,
+     "ts": 1794197791235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2112,15 +2112,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "15ca3f54-96ad-402a-801d-f1e255a78a25"
+     "id": "9c90e57e-db04-4a75-86a1-f7d39c7dd606"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196478397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197731235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196478397,
+     "ts": 1794197731235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2149,15 +2149,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "938da561-4cc8-4dda-b566-a6d501478c97"
+     "id": "37da9682-493c-41b7-8c05-da972958474a"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196418397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197671235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196418397,
+     "ts": 1794197671235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2186,15 +2186,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "08d43cfb-b944-47c0-8c19-b229a8d7a0d6"
+     "id": "7a321f5a-6340-4152-ae14-9a1c5d7cd8b5"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196358397,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197611235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196358397,
+     "ts": 1794197611235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2223,15 +2223,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "4437dd0c-9c0e-4f6a-bf4f-e82b64e4ad99"
+     "id": "dbd11be5-dbed-4f03-875a-9123a3b74b2e"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199900294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"agent\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794201153025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"agent\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199900294,
+     "ts": 1794201153025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2260,15 +2260,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "3f786078-3792-420d-aa20-d3cceba127a7"
+     "id": "cff84922-f6b6-4a27-b593-6874086bd4eb"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199840294,\"provider\":\"openai-oauth\",\"model\":\"gpt-5.6-luna\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794201093025,\"provider\":\"openai-oauth\",\"model\":\"gpt-5.6-luna\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199840294,
+     "ts": 1794201093025,
      "day": "2026-11-09",
      "provider": "openai-oauth",
      "model": "gpt-5.6-luna",
@@ -2298,15 +2298,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "ee6fb844-fcd5-499c-93ba-a52faf242bf3"
+     "id": "d7867545-4a3d-4c85-8489-d00dab6d8cdf"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199780294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"failed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794201033025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"failed\"}]": [
    {
     "result": {
-     "ts": 1794199780294,
+     "ts": 1794201033025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2335,15 +2335,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "e5a4ddda-9cb7-4fe2-98c7-1a2de1ed02a8"
+     "id": "40880f21-f12f-42d0-a24f-e37cb3343f10"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199720294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"requestedModel\":\"gpt-6-astra\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"substituted\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200973025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"requestedModel\":\"gpt-6-astra\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"substituted\"}]": [
    {
     "result": {
-     "ts": 1794199720294,
+     "ts": 1794200973025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2372,15 +2372,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "7c6c76de-ee37-498c-862b-080c2d83eada"
+     "id": "d8f7f3dc-f11d-4a8a-b1fb-fd3e38564334"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199660294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"requestedProvider\":\"anthropic\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"substituted\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200913025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"requestedProvider\":\"anthropic\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"substituted\"}]": [
    {
     "result": {
-     "ts": 1794199660294,
+     "ts": 1794200913025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2409,15 +2409,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "b3c32714-ab7a-4585-8bf1-3820428e789b"
+     "id": "402a4ed9-9abc-444f-9d0f-f2cd324a31df"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199600294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200853025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199600294,
+     "ts": 1794200853025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2446,15 +2446,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "ffbd7960-8a99-4c17-b936-5061d1fad27d"
+     "id": "97e9678b-0bd1-4d0e-881d-296bf49795b5"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199540294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200793025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199540294,
+     "ts": 1794200793025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2483,15 +2483,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "eaf253ae-7177-4d69-b71c-95bbd14f9141"
+     "id": "706d2510-2383-4b78-a84f-4e7bc2bc2301"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199480294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200733025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199480294,
+     "ts": 1794200733025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2520,15 +2520,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "a76ad967-db80-45c9-a55d-a0ae80a747b9"
+     "id": "7a0543a0-620c-4f8b-9c00-94fd09526387"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199420294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200673025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199420294,
+     "ts": 1794200673025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2557,15 +2557,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "21774437-503a-4369-81d7-467c2b123a8e"
+     "id": "54d72f3c-ae9c-4c0a-8dfd-8173017d36f5"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199360294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200613025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199360294,
+     "ts": 1794200613025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2594,15 +2594,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "6fc78129-3347-485c-916f-10f75fbdabc8"
+     "id": "ed2f321b-97ab-4dd5-8398-cb8b090c0405"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199300294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200553025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199300294,
+     "ts": 1794200553025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2631,15 +2631,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "48b1e29b-294f-42a0-ae82-06c776658dd8"
+     "id": "cbf94c0f-56e9-4874-9d89-53855aaa27f0"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199240294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200493025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199240294,
+     "ts": 1794200493025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2668,15 +2668,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "15b3ac8d-6618-437a-be5b-5125a0c9e5fe"
+     "id": "e1ffe6f7-025f-4183-9ead-e30d5e8687e1"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199180294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200433025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199180294,
+     "ts": 1794200433025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2705,15 +2705,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "9bc22132-91ac-4f55-9d12-0c019dfe2bd3"
+     "id": "7afcbee9-d220-4dab-b2ea-9ee50c9374d5"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199120294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200373025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199120294,
+     "ts": 1794200373025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2742,15 +2742,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "4bab6608-7d8a-402a-9230-a11acab380bf"
+     "id": "aa7e3ef8-a36d-45f8-84cf-fcf7a834aaa8"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199060294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200313025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199060294,
+     "ts": 1794200313025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2779,15 +2779,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "a0c44628-940d-479f-b17d-7551127540da"
+     "id": "2be636d9-b46f-48df-bfda-f5dcddb0210d"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199000294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200253025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199000294,
+     "ts": 1794200253025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2816,15 +2816,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "44341fb1-44e4-4f9a-8cd2-40921bd49c0a"
+     "id": "86fe37f1-ae57-4ae7-914c-ef2746fa58b5"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198940294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200193025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198940294,
+     "ts": 1794200193025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2853,15 +2853,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "1cc72664-a8da-4394-a7eb-2839069da30b"
+     "id": "ff97ea6e-916d-4557-8c23-2f1317f2659a"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198880294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200133025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198880294,
+     "ts": 1794200133025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2890,15 +2890,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "1543aef0-ee20-4170-93a0-2c01172d31e5"
+     "id": "805a847d-3d32-4b83-bae3-d2f6f34e6b04"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198820294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200073025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198820294,
+     "ts": 1794200073025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2927,15 +2927,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "c8ad252d-6c71-4499-bc83-4d4cae0b5c79"
+     "id": "471713c2-9ed9-464e-b594-713531376c3e"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198760294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200013025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198760294,
+     "ts": 1794200013025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -2964,15 +2964,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "8b40e5e9-c823-405b-bc6d-87e9362463f1"
+     "id": "1b52a6fb-91f0-4eaa-afb4-b9b1ba399c22"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198700294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199953025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198700294,
+     "ts": 1794199953025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3001,15 +3001,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "d83c2ebd-cc9c-4803-a01a-4adff44cc852"
+     "id": "d3e1ea81-1e9d-45ca-90e5-35e19fe2c644"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198640294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199893025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198640294,
+     "ts": 1794199893025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3038,15 +3038,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "8d22076e-f370-4a9f-abbd-a4a91f3a1d44"
+     "id": "2cc2431b-34af-4176-8174-85ef5f6047d4"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198580294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199833025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198580294,
+     "ts": 1794199833025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3075,15 +3075,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "5453cddf-758c-4fbd-bf68-dc80344584c6"
+     "id": "b63ed619-dc50-4f0a-8e2a-eda5b12c5111"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198520294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199773025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198520294,
+     "ts": 1794199773025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3112,15 +3112,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "3770c72f-e6c3-4baa-a6c9-50dd958b538a"
+     "id": "377eb040-fd8b-435f-872d-6f01b1cbebc8"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198460294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199713025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198460294,
+     "ts": 1794199713025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3149,15 +3149,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "136dad3d-c724-4e48-bab9-c7db7c4b4d7e"
+     "id": "19e877c0-ac81-411f-b80a-b43ca6a2943f"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198400294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199653025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198400294,
+     "ts": 1794199653025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3186,15 +3186,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "fbebc0a6-b8e8-45f2-82cf-d9e6e083ded9"
+     "id": "8152b56c-dfe9-4fb3-990f-14f16601bbfd"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198340294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199593025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198340294,
+     "ts": 1794199593025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3223,15 +3223,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "6d7e19c8-339e-4cb3-8f24-2ee292fc81ef"
+     "id": "27fb8b62-e9d0-4020-928e-78ca6a014115"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198280294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199533025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198280294,
+     "ts": 1794199533025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3260,15 +3260,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "8139e17f-a190-40bd-8f28-4a231e86666b"
+     "id": "81afe14d-91b1-4e82-a101-338c39b97554"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198220294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199473025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198220294,
+     "ts": 1794199473025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3297,15 +3297,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "08582f5e-5b55-4486-aff2-b71a41e664db"
+     "id": "f27f25be-96d8-47cc-bb72-ed9f4d9df44d"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198160294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199413025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198160294,
+     "ts": 1794199413025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3334,15 +3334,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "f06e18ed-3648-44d1-a1c3-3133c7c240dc"
+     "id": "fe7f129d-d13d-40b1-bab0-27bc3c629e9a"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198100294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199353025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198100294,
+     "ts": 1794199353025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3371,15 +3371,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "8effaaf7-487f-40af-9046-882b4092727e"
+     "id": "3f1d7273-7cb9-4e80-8d6b-9a19bba5e5f2"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794198040294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199293025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794198040294,
+     "ts": 1794199293025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3408,15 +3408,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "ffe14d71-03d4-4314-96b9-30c0867df4cc"
+     "id": "2b32a37a-4339-4bec-a698-e227312188e2"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197980294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199233025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197980294,
+     "ts": 1794199233025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3445,15 +3445,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "485d85d5-28aa-432b-9246-2cead1c89893"
+     "id": "06d05f98-a02f-44f3-875a-bf2a3a276e6b"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197920294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199173025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197920294,
+     "ts": 1794199173025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3482,15 +3482,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "8808a992-8c3e-42a5-865e-f3684bb37814"
+     "id": "6b85777b-cb14-40ed-b1e5-d1ff6ac4c77e"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197860294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199113025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197860294,
+     "ts": 1794199113025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3519,15 +3519,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "6556b024-3127-4681-8b5c-0070efe21bd8"
+     "id": "9bcee03e-fa17-42fd-859e-48250044dd86"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197800294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794199053025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197800294,
+     "ts": 1794199053025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3556,15 +3556,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "dfb420b8-a92f-4d69-8db5-c8ad12526fae"
+     "id": "40c0b979-9643-4fc4-9f85-c302a083569f"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197740294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198993025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197740294,
+     "ts": 1794198993025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3593,15 +3593,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "52b425b0-d37e-4f71-b3e1-a3da3f7f127e"
+     "id": "b0b4b48c-f39f-4a8b-a584-b4eb86287f13"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197680294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198933025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197680294,
+     "ts": 1794198933025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3630,15 +3630,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "b1cee17e-747b-4f85-84ac-0c6c782e32cb"
+     "id": "0299024b-b623-404b-83d1-1360300f6c4d"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197620294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198873025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197620294,
+     "ts": 1794198873025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3667,15 +3667,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "25f74dad-af04-4c39-9e35-8f837905edcd"
+     "id": "b07fc011-d307-48d5-ba80-efae8066fa1b"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197560294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198813025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197560294,
+     "ts": 1794198813025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3704,15 +3704,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "8931a1d9-c747-4070-9037-bfa0303401b9"
+     "id": "b784de35-0012-4dbc-92cb-96f69650365c"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197500294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198753025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197500294,
+     "ts": 1794198753025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3741,15 +3741,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "8ab2e761-57a1-4152-bb8e-41d8bc9f3f3a"
+     "id": "3734d6e3-b3df-4be9-8397-584796979fa8"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197440294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198693025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197440294,
+     "ts": 1794198693025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3778,15 +3778,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "de1de347-9a29-4144-a044-2db0a78c7e3e"
+     "id": "5dc98600-ae59-466a-a19c-9a6f04f6233c"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197380294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198633025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197380294,
+     "ts": 1794198633025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3815,15 +3815,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "6e3baf9a-07a9-4baf-8732-5ee3634ee83b"
+     "id": "33c3e854-3e14-4e0f-9e58-24891c438bbc"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197320294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198573025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197320294,
+     "ts": 1794198573025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3852,15 +3852,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "7ae3a71f-538a-4c34-adb3-d039145e9baf"
+     "id": "49a511a9-10a4-483a-b099-8ab9a7e947de"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197260294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198513025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197260294,
+     "ts": 1794198513025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3889,15 +3889,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "47653745-fe80-418c-83c3-4fc34b8c8a2e"
+     "id": "8a689079-c668-4daf-a77a-ad6e50c0dbd9"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197200294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198453025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197200294,
+     "ts": 1794198453025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3926,15 +3926,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "eb0d537d-0df8-4d4b-9410-a28cca764b72"
+     "id": "019f8ba4-fd9b-4a62-8c57-16d330314a06"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197140294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198393025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197140294,
+     "ts": 1794198393025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -3963,15 +3963,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "e2aad982-1b3e-4c7d-91a2-4dc38cbe532b"
+     "id": "b3e4d507-6cc7-4f86-8294-54675efb1f41"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197080294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198333025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197080294,
+     "ts": 1794198333025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4000,15 +4000,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "af9abfcb-f82e-4171-855c-7568a605c213"
+     "id": "ec42b8c2-95ae-4c13-b802-c82dd3a18672"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794197020294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198273025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794197020294,
+     "ts": 1794198273025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4037,15 +4037,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "6cf58b17-c847-4859-9d9e-e9dc265fa5f1"
+     "id": "ce5bda0f-3fde-4296-9ddb-0697f77bef43"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196960294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198213025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196960294,
+     "ts": 1794198213025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4074,15 +4074,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "f80aed4b-371b-4990-ab68-d7778dac5153"
+     "id": "18acad4a-c152-4347-90a4-706564e6bfac"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196900294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198153025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196900294,
+     "ts": 1794198153025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4111,15 +4111,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "ad849419-c22d-4e4f-aeb2-876e4196de7e"
+     "id": "5b251637-f2ee-40f1-bb3b-2509c25a0ded"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196840294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198093025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196840294,
+     "ts": 1794198093025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4148,15 +4148,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "3dfde1be-ad68-47de-aab7-4b6d245e0fe9"
+     "id": "6b27d62f-e316-4728-8b27-04ae19e69093"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196780294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794198033025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196780294,
+     "ts": 1794198033025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4185,15 +4185,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "614ce179-659e-4344-b93b-30bf654cfd25"
+     "id": "62990f16-9901-4f23-938e-a4551f027842"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196720294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197973025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196720294,
+     "ts": 1794197973025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4222,15 +4222,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "3740aff8-e24c-40e8-b7b5-a0a2235e18fd"
+     "id": "f46097a1-21e3-466e-9b04-5907403ef2ac"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196660294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197913025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196660294,
+     "ts": 1794197913025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4259,15 +4259,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "10c58b8d-6f19-4c85-9933-66de7139f5c5"
+     "id": "1dde99c5-3dac-4f49-9fda-38db0d607dd8"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196600294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197853025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196600294,
+     "ts": 1794197853025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4296,15 +4296,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "08a87b30-8b87-4b6d-b454-ee077069cf64"
+     "id": "40f7bc90-0d60-4091-b75b-b727ed34e653"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196540294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197793025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196540294,
+     "ts": 1794197793025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4333,15 +4333,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "e1088e31-63a3-48fd-a235-130040f7edc1"
+     "id": "4d48ff07-40d9-44b8-97a6-b41d945507a0"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196480294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197733025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196480294,
+     "ts": 1794197733025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4370,15 +4370,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "2de697f2-3f5d-4d9c-848a-48e89ed57b5b"
+     "id": "9a3c3bb5-2675-4102-a006-647d1fefd504"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196420294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197673025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196420294,
+     "ts": 1794197673025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4407,15 +4407,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "e6af6617-8b3c-4862-b654-d161abf71aa8"
+     "id": "b318d66b-51da-4c7e-8c2c-79bfa986ddde"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196360294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197613025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196360294,
+     "ts": 1794197613025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4444,15 +4444,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "eff035ae-f47b-418b-8a93-c90e724eeea7"
+     "id": "9cdb7bab-c40e-473f-8c6b-471d6474707d"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196300294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197553025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196300294,
+     "ts": 1794197553025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4481,15 +4481,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "9c8790e6-85d6-43a2-a779-873a8ad429fc"
+     "id": "772689fb-6a76-488f-b7df-d8e2120890ec"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196240294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197493025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196240294,
+     "ts": 1794197493025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4518,15 +4518,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "e5b45503-3cc7-4427-b05d-db0820f620d1"
+     "id": "fa57f5ab-950c-4f06-99b0-a4eca1848468"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196180294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197433025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196180294,
+     "ts": 1794197433025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4555,15 +4555,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "a76d06ec-8a05-4d10-9267-eef681060e89"
+     "id": "0d7c0209-db6d-45e5-8f76-d926c9bf4d17"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196120294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197373025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196120294,
+     "ts": 1794197373025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4592,15 +4592,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "fdb8cc85-5deb-4738-86b3-8d9e8c32dc38"
+     "id": "e45730b0-ed52-4767-ae48-3847bc6a489f"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196060294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197313025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196060294,
+     "ts": 1794197313025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4629,15 +4629,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "fb0fd843-a512-4a34-a815-4222d9d4661a"
+     "id": "35056409-32f4-4380-aea1-112bc1649323"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794196000294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197253025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794196000294,
+     "ts": 1794197253025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4666,15 +4666,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "7e565538-800b-47d3-b10e-dd9f3fef507f"
+     "id": "c3cabd06-ba21-4d91-923f-d8c4b3df7bf0"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794195940294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197193025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794195940294,
+     "ts": 1794197193025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4703,15 +4703,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "131330ee-fbb3-4c05-9f64-6437587776c2"
+     "id": "ad2b3555-8c5b-4888-b69e-4c44bc5607e4"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794195880294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197133025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794195880294,
+     "ts": 1794197133025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4740,15 +4740,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "f9d81634-bffa-4fc8-9ca2-a8f481edd16b"
+     "id": "abfb2987-fd8f-46ea-a840-3ff1ea902111"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794195820294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197073025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794195820294,
+     "ts": 1794197073025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4777,15 +4777,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "7a46ac49-b5ec-4e9c-84ef-17c57f383d80"
+     "id": "a369cc54-65b2-4484-bdba-2613886ce272"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794195760294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794197013025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794195760294,
+     "ts": 1794197013025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4814,15 +4814,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "717cecfe-72e1-41a1-8932-a2ced2ff560a"
+     "id": "a8df3cac-cab8-4535-8159-511e66b9113f"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794195700294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794196953025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794195700294,
+     "ts": 1794196953025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4851,15 +4851,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "391b04e3-19da-4365-bfa2-2c8634c041e1"
+     "id": "98e3f08b-3d50-494a-b1a0-839a0df0a59c"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794195640294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794196893025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794195640294,
+     "ts": 1794196893025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4888,15 +4888,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "714aa6be-c0a9-4059-ba01-915243f2d307"
+     "id": "74a488ad-c782-4e2c-ab48-0c94c78df386"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794195580294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794196833025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794195580294,
+     "ts": 1794196833025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4925,15 +4925,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "72d6878c-b10a-489a-b72e-0a9ab3e9b686"
+     "id": "055e0420-f8a6-4c9f-88d1-4a85ce4affb4"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794195520294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794196773025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794195520294,
+     "ts": 1794196773025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4962,15 +4962,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "93c74f87-4235-48a4-aaf8-4ad1c3d9ddba"
+     "id": "336f31cf-f67a-45f1-8e71-cba32e4672f6"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794195460294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794196713025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794195460294,
+     "ts": 1794196713025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -4999,15 +4999,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "02f60109-bdea-43eb-8b93-d2c0d9727b19"
+     "id": "e3462640-e1ba-442d-b586-2f9106a45e98"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794195400294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794196653025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794195400294,
+     "ts": 1794196653025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5036,15 +5036,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "7d48ed1d-5f0c-4eeb-b60b-0ee223796513"
+     "id": "9983bebf-d318-4930-8581-0e0306c3921e"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794195340294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794196593025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794195340294,
+     "ts": 1794196593025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5073,15 +5073,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "3f89b5eb-6d17-4798-b2e9-fdfa4e975e44"
+     "id": "5434d94a-b79a-46f8-b3c0-0e6e42240c11"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794195280294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794196533025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794195280294,
+     "ts": 1794196533025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5110,15 +5110,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "2a06571d-9784-4cae-9f7e-ce35393f2700"
+     "id": "0f98ad5e-8d2a-484a-88c6-25cdf0e3259a"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794195220294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794196473025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794195220294,
+     "ts": 1794196473025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5147,15 +5147,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "a49a88c2-f254-4b3c-8865-10948cf83321"
+     "id": "5e7ed45b-e1ed-4172-af68-df00870b810e"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794195160294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794196413025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794195160294,
+     "ts": 1794196413025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5184,15 +5184,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "5e9024c4-388e-4463-bc5b-1a9b328a89e0"
+     "id": "ac10b892-7027-40b6-a881-cc384cd68cdc"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794195100294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794196353025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794195100294,
+     "ts": 1794196353025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5221,15 +5221,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "adc09db3-9954-4362-9968-16a3c2052304"
+     "id": "2a446b7f-3cda-42b5-9df9-cfa14b6ed40f"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794195040294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794196293025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794195040294,
+     "ts": 1794196293025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5258,15 +5258,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "c44dd98c-96c0-48f0-9450-e83f995e35bd"
+     "id": "7529771a-79b6-4022-9b49-1ef4aaf36a74"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794194980294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794196233025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794194980294,
+     "ts": 1794196233025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5295,15 +5295,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "2d89ef20-c2f5-4b1f-af86-9328720bccb2"
+     "id": "1f0390a4-8926-4074-b104-3421f1ad197f"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794194920294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794196173025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794194920294,
+     "ts": 1794196173025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5332,15 +5332,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "46fd3dc2-3a90-4400-8085-b9c32b394b30"
+     "id": "d2f6967e-06e5-4bab-94d1-663590429e67"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794194860294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794196113025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794194860294,
+     "ts": 1794196113025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5369,15 +5369,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "61c0054c-7e77-4f28-950a-671e8b9b6745"
+     "id": "4451a123-f7e2-4b3b-858a-dc096b153633"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794194800294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794196053025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794194800294,
+     "ts": 1794196053025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5406,15 +5406,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "9687fcb7-6143-47c2-99df-2d97ffd16a5c"
+     "id": "560f3d12-6110-4498-b796-06032c3cbfea"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794194740294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794195993025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794194740294,
+     "ts": 1794195993025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5443,15 +5443,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "c548032f-ebdc-4374-8739-a13e9ca6d129"
+     "id": "926bb8ad-9fcb-4b34-af7d-bdaa78c1a2a2"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794194680294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794195933025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794194680294,
+     "ts": 1794195933025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5480,15 +5480,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "c9d36b88-76b7-41f0-a772-3efd64dfde0f"
+     "id": "637ddf63-1d28-4422-8174-f35e7708c22c"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794194620294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794195873025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794194620294,
+     "ts": 1794195873025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5517,15 +5517,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "efd5e18d-267e-4926-85d6-586c6892a5db"
+     "id": "8d0701fb-c8c9-4b98-b48c-37d1fb61d10b"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794194560294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794195813025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794194560294,
+     "ts": 1794195813025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5554,15 +5554,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "28f74f47-4484-4ad8-b86c-de4c356e85ad"
+     "id": "c159e6fd-7dd9-4273-bbed-3743ab19cd79"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794194500294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794195753025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794194500294,
+     "ts": 1794195753025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5591,15 +5591,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "4100c95c-a60e-44c4-ab73-01cdbfd1f80c"
+     "id": "194851cb-51b0-46b1-b4a5-27fbcb1edd6c"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794194440294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794195693025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794194440294,
+     "ts": 1794195693025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5628,15 +5628,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "35f082e0-783c-4763-9bff-fd59aaa7912c"
+     "id": "c60326e1-28fc-42d6-9b09-891ad09bb356"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794194380294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794195633025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794194380294,
+     "ts": 1794195633025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5665,15 +5665,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "33826fb2-e103-4eab-979b-e4880763f5c0"
+     "id": "50a9fbd7-4563-4e90-a093-1cbacdf1206b"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794194320294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794195573025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794194320294,
+     "ts": 1794195573025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5702,15 +5702,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "60c1e435-b1b4-4319-8dc2-42d72c787bef"
+     "id": "a2e7e5ce-1f5f-4358-b419-69341495ccb3"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794194260294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794195513025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794194260294,
+     "ts": 1794195513025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5739,15 +5739,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "a0f46ea5-41ca-4be9-93d5-960e954e6020"
+     "id": "d2e882c4-24e1-4cdf-9d1b-87849d74308e"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794194200294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794195453025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794194200294,
+     "ts": 1794195453025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5776,15 +5776,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "960d9229-41e3-4ff4-a26a-41d2484b2046"
+     "id": "4d51f15f-64bb-4a71-8a18-85d75032fb14"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794194140294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794195393025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794194140294,
+     "ts": 1794195393025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5813,15 +5813,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "ac79d8b7-9632-440b-b22e-3b1993803a01"
+     "id": "3c32de7c-234e-47af-93f8-551f6f3537a6"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794194080294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794195333025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794194080294,
+     "ts": 1794195333025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5850,15 +5850,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "707779d5-20ac-4baa-9471-470c07815c3c"
+     "id": "ea65f3d1-c4cc-424f-ad71-28024de17bd8"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794194020294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794195273025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794194020294,
+     "ts": 1794195273025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5887,15 +5887,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "abbfc4aa-b8f1-4a40-b122-896dd39db849"
+     "id": "32822809-86bc-4271-b9cb-202f342898ca"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794193960294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794195213025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794193960294,
+     "ts": 1794195213025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5924,15 +5924,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "dea37f18-6049-4415-96b0-22ae6749a41f"
+     "id": "43815718-fc5b-4a9c-84bd-b251b25ec078"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794193900294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794195153025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794193900294,
+     "ts": 1794195153025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5961,15 +5961,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "23d6a93d-70d1-475d-9aef-dca97825c7e8"
+     "id": "b03d4130-7e27-4398-96fd-d40a9cee3128"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794193840294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794195093025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794193840294,
+     "ts": 1794195093025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -5998,15 +5998,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "cb8ac82b-a914-4ac7-941e-5f9f82749529"
+     "id": "5a5ff8e2-871b-46cc-b13a-de1d68b0f5e2"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794193780294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794195033025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794193780294,
+     "ts": 1794195033025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6035,15 +6035,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "fdc449c1-1509-4dc4-9ccf-05adbf7ad1f5"
+     "id": "00219b5f-7b0c-4df6-971a-c7f604f058b4"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794193720294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794194973025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794193720294,
+     "ts": 1794194973025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6072,15 +6072,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "6b3c88ec-d99e-425f-a62f-9b7d2c4bb56e"
+     "id": "548e614d-6fc8-47a4-9c97-eef0732eeb98"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794193660294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794194913025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794193660294,
+     "ts": 1794194913025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6109,15 +6109,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "108749bd-55fb-4fd2-b3d0-62ae9283daa8"
+     "id": "f64661d8-6130-4b02-a352-52a3d64f68a9"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794193600294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794194853025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794193600294,
+     "ts": 1794194853025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6146,15 +6146,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "1c4673d3-21a8-479f-8163-0075aa85cbbc"
+     "id": "92284212-95d1-4e65-b1f6-4de1408492d6"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794193540294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794194793025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794193540294,
+     "ts": 1794194793025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6183,15 +6183,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "dda619f8-a1f6-455f-9a3e-e950120776da"
+     "id": "e25dc193-8693-4e2a-9723-29e79e73b582"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794193480294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794194733025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794193480294,
+     "ts": 1794194733025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6220,15 +6220,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "81596380-e129-496d-80af-6c31f2ecc333"
+     "id": "8efe4f87-7780-4d52-af6d-b36567d36f42"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794193420294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794194673025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794193420294,
+     "ts": 1794194673025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6257,15 +6257,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "298236a8-65f9-470b-8b97-6e31a4a4a5e1"
+     "id": "fb67151a-4317-43b4-8cef-0927ead5825d"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794193360294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794194613025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794193360294,
+     "ts": 1794194613025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6294,15 +6294,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "8d45bdaf-cd59-402b-8858-59e63c54259c"
+     "id": "030bf91d-d5a3-4732-abf7-781aa983a8cf"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794193300294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794194553025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794193300294,
+     "ts": 1794194553025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6331,15 +6331,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "266f7ad6-3cbf-439b-8962-fb8d02268e60"
+     "id": "f6cb5758-5eed-49a6-a802-14206b0b7aaa"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794193240294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794194493025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794193240294,
+     "ts": 1794194493025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6368,15 +6368,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "8b5d4cf4-c22d-4664-b92d-f59171f622f3"
+     "id": "6ab6fb9a-9a22-49f2-b7d0-4cc9a1a943d2"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794193180294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794194433025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794193180294,
+     "ts": 1794194433025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6405,15 +6405,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "35ae7c86-7e99-446b-8be3-96df579025bf"
+     "id": "761dc1a8-8748-4a27-8d2a-53b07055081b"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794193120294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794194373025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794193120294,
+     "ts": 1794194373025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6442,15 +6442,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "7b2f0bae-c16c-4381-a408-f8254dedfed2"
+     "id": "6d987683-06be-4a88-9189-5418828e5a28"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794193060294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794194313025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794193060294,
+     "ts": 1794194313025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6479,15 +6479,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "fb054518-742e-4378-826a-20c54bfaad64"
+     "id": "a7c34f2c-b3e5-4e3f-961e-681a79872d21"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794193000294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794194253025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794193000294,
+     "ts": 1794194253025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6516,15 +6516,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "1be4b513-17cd-4d4b-b46e-716762b4932d"
+     "id": "b72c7a1b-4bed-45cf-a1b6-160ec7f12a9a"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794192940294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794194193025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794192940294,
+     "ts": 1794194193025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6553,15 +6553,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "8df04268-db36-45a2-a378-c72cea8d9c24"
+     "id": "722f3b13-0a71-4905-882d-c6206f911897"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794192880294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794194133025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794192880294,
+     "ts": 1794194133025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6590,15 +6590,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "53ecff6f-20b3-4e47-9f4b-7c56e642ac1d"
+     "id": "d93b321c-07af-4d13-88a0-5605dafdfb93"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794192820294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794194073025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794192820294,
+     "ts": 1794194073025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6627,15 +6627,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "e6061a32-ac83-4b2c-a4a6-90df1f131875"
+     "id": "8d852e28-3859-4aa7-abb9-99a54d847e19"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794192760294,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794194013025,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794192760294,
+     "ts": 1794194013025,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6664,15 +6664,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "04782b07-09a2-4895-93d2-65af8630836e"
+     "id": "84e56e80-efd0-4b73-92bc-76ce2ede5301"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199900593,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"agent\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794201154337,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"agent\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199900593,
+     "ts": 1794201154337,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6701,15 +6701,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "acf22f85-71fb-4c89-9f94-badacf95bcba"
+     "id": "1e9300fa-8411-4aff-ba53-144c3f68e6b7"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199840593,\"provider\":\"openai-oauth\",\"model\":\"gpt-5.6-luna\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794201094337,\"provider\":\"openai-oauth\",\"model\":\"gpt-5.6-luna\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"completed\"}]": [
    {
     "result": {
-     "ts": 1794199840593,
+     "ts": 1794201094337,
      "day": "2026-11-09",
      "provider": "openai-oauth",
      "model": "gpt-5.6-luna",
@@ -6739,15 +6739,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "727e9462-0009-4381-b9d6-aa373a4b55a1"
+     "id": "3c7463e4-8e69-4ea3-ad10-e77e1f777a25"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199780593,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"failed\"}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794201034337,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"lead\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":500,\"costUsd\":0.04,\"durationMs\":6000,\"ttftMs\":1000,\"status\":\"failed\"}]": [
    {
     "result": {
-     "ts": 1794199780593,
+     "ts": 1794201034337,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6776,15 +6776,15 @@
      "attempts": 1,
      "ttftMs": 1000,
      "elapsedMs": 0,
-     "id": "3ab0c9c5-a55b-447d-96dd-31db53ba4bf4"
+     "id": "77e5b6f7-ddfa-488b-b039-b3fd24c45d3c"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199900664,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"memory\",\"sourceType\":\"memory-cycle\",\"inputTokens\":10,\"outputTokens\":10}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794201155235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"memory\",\"sourceType\":\"memory-cycle\",\"inputTokens\":10,\"outputTokens\":10}]": [
    {
     "result": {
-     "ts": 1794199900664,
+     "ts": 1794201155235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6814,15 +6814,15 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "fd6d3a73-3541-457c-8a00-2fef3cd93f0c"
+     "id": "0f2a2c43-b586-4d96-91e2-2142738b885c"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199840664,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"web\",\"sourceType\":\"native-web-search\",\"inputTokens\":10,\"outputTokens\":10}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794201095235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"web\",\"sourceType\":\"native-web-search\",\"inputTokens\":10,\"outputTokens\":10}]": [
    {
     "result": {
-     "ts": 1794199840664,
+     "ts": 1794201095235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6852,15 +6852,15 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "eca40dbf-fc84-4bbc-992c-975e94a305f8"
+     "id": "0d9a720a-0a56-4d56-85d6-69223c3e5e20"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199780664,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"warm\",\"sourceType\":\"cache-warm\",\"inputTokens\":10,\"outputTokens\":10}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794201035235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"warm\",\"sourceType\":\"cache-warm\",\"inputTokens\":10,\"outputTokens\":10}]": [
    {
     "result": {
-     "ts": 1794199780664,
+     "ts": 1794201035235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6890,15 +6890,15 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "9e68652d-678c-405b-85f0-f3b62b7bc606"
+     "id": "bb751752-772f-4d01-92f4-13a9e5bf4a17"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199720664,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"run\",\"sourceType\":\"exec\",\"inputTokens\":10,\"outputTokens\":10}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200975235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"run\",\"sourceType\":\"exec\",\"inputTokens\":10,\"outputTokens\":10}]": [
    {
     "result": {
-     "ts": 1794199720664,
+     "ts": 1794200975235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6928,15 +6928,15 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "711be48a-4ebd-4799-b088-04dc89c7355e"
+     "id": "a289d263-c0c1-44a0-b034-d1c8bb9297de"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199660664,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"plugin-run\",\"sourceType\":\"some-new-runner\",\"inputTokens\":10,\"outputTokens\":10}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200915235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"plugin-run\",\"sourceType\":\"some-new-runner\",\"inputTokens\":10,\"outputTokens\":10}]": [
    {
     "result": {
-     "ts": 1794199660664,
+     "ts": 1794200915235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -6966,15 +6966,15 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "dc2fbc09-13a2-4251-a91c-62e3e0fb3dd3"
+     "id": "18e6b19e-4c02-4a77-9da0-4bc106f89439"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199600664,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"gone-schedule\",\"sourceType\":\"schedule\",\"inputTokens\":10,\"outputTokens\":10}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200855235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"gone-schedule\",\"sourceType\":\"schedule\",\"inputTokens\":10,\"outputTokens\":10}]": [
    {
     "result": {
-     "ts": 1794199600664,
+     "ts": 1794200855235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -7004,15 +7004,15 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "d8835c92-79f9-4126-9f3c-04f7ccebf868"
+     "id": "8bfa0c45-9001-4fe4-b6c2-10a24281fb86"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199540664,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"dev\",\"sourceType\":\"lead\",\"inputTokens\":10,\"outputTokens\":10}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200795235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"dev\",\"sourceType\":\"lead\",\"inputTokens\":10,\"outputTokens\":10}]": [
    {
     "result": {
-     "ts": 1794199540664,
+     "ts": 1794200795235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -7042,15 +7042,15 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "adb22861-b1c4-4d74-b1d8-6abb8596074b"
+     "id": "fc68d0d2-da19-46e0-ad9c-68f95fd83235"
     },
     "async": false
    }
   ],
-  "makeUsageRecord\u0000[{\"ts\":1794199480664,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"dev\",\"sourceType\":\"cache-warm\",\"inputTokens\":10,\"outputTokens\":10}]": [
+  "makeUsageRecord\u0000[{\"ts\":1794200735235,\"provider\":\"openai\",\"model\":\"gpt-5.6\",\"sessionId\":\"dev\",\"sourceType\":\"cache-warm\",\"inputTokens\":10,\"outputTokens\":10}]": [
    {
     "result": {
-     "ts": 1794199480664,
+     "ts": 1794200735235,
      "day": "2026-11-09",
      "provider": "openai",
      "model": "gpt-5.6",
@@ -7080,7 +7080,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "9547ed28-486a-4ed8-99fe-13575cf493cd"
+     "id": "2c6c665b-b412-4fba-9b97-01d01b23f303"
     },
     "async": false
    }
