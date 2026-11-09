@@ -145,30 +145,41 @@ pub struct ThreadEdgePublisher {
     list: Arc<ThreadListService>,
     app: Arc<SectionFeedState>,
     task_workspace: Arc<dyn TaskWorkspace>,
-    /// The path of the last lookup of the task workspace that succeeded (Node's `canonicalTaskWorkspace`).
-    known_workspace: std::sync::Mutex<String>,
+    /// The writes of refreshes whose task workspace lookup failed, one per session (the first `before`, the last `after`): the
+    /// next refresh that can look the workspace up publishes what changed since the last roster it published.
+    held: std::sync::Mutex<Vec<RowEdge>>,
 }
 
 impl ThreadEdgePublisher {
     pub fn new(list: Arc<ThreadListService>, app: Arc<SectionFeedState>, task_workspace: Arc<dyn TaskWorkspace>) -> Self {
-        Self { list, app, task_workspace, known_workspace: std::sync::Mutex::new(String::new()) }
+        Self { list, app, task_workspace, held: std::sync::Mutex::new(Vec::new()) }
     }
 
+    /// One catalog refresh (`publishCatalogs`, `session-host-catalog.ts:217-244`): it asks the host for the task workspace first
+    /// (`listSessions`, `session-host.ts:793`), and a lookup that fails rejects the listing, so the refresh publishes nothing and
+    /// the next store event tries again. The roster that refresh publishes is then the whole change since the last one.
     pub async fn publish(&self, edge: RowEdge) {
-        let id = ThreadId::from(edge.id.clone());
-        // Node asks the host for the task workspace before each catalog refresh and keeps the path of the last lookup that
-        // succeeded (`canonicalTaskWorkspace`, `session-host.ts:519-523`: a failing lookup leaves it as it was); the roster reads that
-        // cache, `''` (nothing matches) before any success.
         let looked_up = self.task_workspace.path().await;
-        let workspace = {
-            let mut cache = self.known_workspace.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Ok(path) = looked_up {
-                *cache = path;
+        let batch = {
+            let mut held = self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(at) = held.iter().position(|earlier| earlier.id == edge.id) {
+                held[at].after = edge.after;
+            } else {
+                held.push(edge);
             }
-            cache.clone()
+            if looked_up.is_err() {
+                return;
+            }
+            std::mem::take(&mut *held)
         };
-        let workspace = workspace.as_str();
-        // Each side is judged with the name the user had given at its own write (the index keeps it with the row), as Node's
+        let Ok(workspace) = looked_up else { return };
+        for edge in batch {
+            self.publish_change(edge, &workspace).await;
+        }
+    }
+
+    async fn publish_change(&self, edge: RowEdge, workspace: &str) {
+        let id = ThreadId::from(edge.id.clone());        // Each side is judged with the name the user had given at its own write (the index keeps it with the row), as Node's
         // summaries read `names` as of each roster: a rename that makes a meaningless title count is a start.
         match (edge.before.as_ref().and_then(|row| listed(row, workspace)), listed(&edge.after, workspace)) {
             (None, Some(now)) => self.send(&id, &now, workspace, |thread| (STARTED, ThreadStartedParams { thread })).await,

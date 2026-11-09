@@ -10,7 +10,6 @@
 //   node benchmarks/rust-core/recorders/record-thread-edges.mjs --tree <tree of b6f10295a with node_modules>
 // Output: native/core/fixtures/thread-edges/golden.json
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import './lib/ts-register.mjs';
@@ -21,33 +20,83 @@ const tree = resolveTree(args);
 const { _sessionSummary } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/store-summary-index.mjs');
 const { isLeadVisibleRow } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/store-summary-catalog.mjs');
 const { desktopSessionSummaries } = await importFrom(tree, 'apps/desktop/src/main/desktop-state.ts');
-const { canonicalJson } = await importFrom(tree, 'apps/desktop/src/shared/remote-view-resume.ts');
 const { compactedSessionTitle } = await importFrom(tree, 'apps/desktop/src/shared/session-title.mjs');
 
-// The host's task workspace: Node's `SessionHost.taskWorkspace()` makes `<userData>/workspace/unclassified` and caches its
-// `realpath` in `canonicalTaskWorkspace` (session-host.ts:519-523), only when both steps succeed; `sessionCatalog()` hands that cache to
-// `desktopSessionSummaries` (:1180-1191). The recorder runs those two methods of the product itself (bundled from the tree, on a host
-// holding only what they read) so the cache and its failures are Node's: a lookup fails when the folder's parent is a file.
+// The roster push is Node's own path, run from the tree: `SessionHostCatalog.publishCatalogs` -> `SessionHost.listSessions` (which asks
+// `taskWorkspace()` first, session-host.ts:793, and is rejected when the lookup fails) -> `sessionCatalog()` ->
+// `SessionHost.publishSessionCatalog` -> `SessionHostPublication.publishSessions` (its channel skips an equal roster). The product's
+// classes are bundled from the tree and driven on a host holding only what those methods read; a lookup fails when the folder's
+// parent is a file. The recorded root is fixed, so the fixture carries no machine or session path of the recorder.
 const { build } = (await importFrom(tree, 'node_modules/esbuild/lib/main.js')).default;
 const hostFile = join(tree, '.recorder-session-host.mjs');
-writeFileSync(hostFile, (await build({ entryPoints: [join(tree, 'apps/desktop/src/main/session-host.ts')], bundle: true, write: false, platform: 'node', format: 'esm', packages: 'external', logLevel: 'error', outfile: 'host.mjs' })).outputFiles[0].text);
-const { SessionHost } = await import(pathToFileURL(hostFile).href).finally(() => rmSync(hostFile));
-const WORK = join(tmpdir(), 'mixdog-rs5-thread-edges');
+const entry = ['session-host.ts', 'session-host-catalog.ts', 'session-host-publication.ts'].map((file) => `export * from './apps/desktop/src/main/${file}';`).join('\n');
+writeFileSync(hostFile, (await build({ stdin: { contents: entry, resolveDir: tree, loader: 'ts' }, bundle: true, write: false, platform: 'node', format: 'esm', packages: 'external', logLevel: 'error', outfile: 'host.mjs' })).outputFiles[0].text);
+const { SessionHost, SessionHostCatalog, SessionHostPublication } = await import(pathToFileURL(hostFile).href).finally(() => rmSync(hostFile));
+const WORK = args.get('work') ?? 'D:\\mixdog-build\\tmp\\rec\\thread-edges';
 rmSync(WORK, { recursive: true, force: true });
 mkdirSync(WORK, { recursive: true });
 writeFileSync(join(WORK, 'a-file'), '');
 const RESOLVABLE = join(WORK, 'workspace', 'unclassified');
 const UNRESOLVABLE = join(WORK, 'a-file', 'unclassified');
 const passthrough = (rows) => rows;
-const newHost = () => ({
-  taskWorkspacePath: RESOLVABLE,
-  canonicalTaskWorkspace: '',
-  rawSessionRows: [],
-  sessionMetadata: { titles: {}, names: {}, withReadCursors: passthrough, withFavoriteFlags: passthrough, withRetiredFlags: passthrough, withArchiveFlags: passthrough },
-  agentRooms: { withRooms: passthrough },
-});
+// A host, its publication (listened to, after the empty roster the app starts from) and Node's catalog over it.
+const newNode = () => {
+  const publication = new SessionHostPublication({});
+  const delivered = [];
+  publication.subscribeSessions((sessions) => delivered.push(sessions));
+  publication.publishSessions([]);
+  delivered.length = 0;
+  const node = {
+    lookup: null,
+    delivered,
+    rows: [],
+    names: {},
+    host: {
+      disposed: false,
+      taskWorkspacePath: RESOLVABLE,
+      canonicalTaskWorkspace: '',
+      sessionCatalogPromise: null,
+      sessionCatalogLoaded: false,
+      pendingCatalogSessionIds: new Set(),
+      rawSessionRows: [],
+      publication,
+      catalog: { ensureStoreWatcher() {} },
+      agentRooms: { withRooms: passthrough, noteMemberRows() {} },
+      sessionMetadata: { load: async () => {}, titles: {}, names: {}, withReadCursors: passthrough, withFavoriteFlags: passthrough, withRetiredFlags: passthrough, withArchiveFlags: passthrough },
+      sessionClient: { list: async () => ({ sessions: node.rows, remoteSession: null }) },
+      callOptions: () => ({}),
+      listSessions: SessionHost.prototype.listSessions,
+      sessionCatalog: SessionHost.prototype.sessionCatalog,
+      publishSessionCatalog: SessionHost.prototype.publishSessionCatalog,
+      // The product's lookup, observed: what it answered, to replay it.
+      async taskWorkspace() {
+        try {
+          const path = await SessionHost.prototype.taskWorkspace.call(this);
+          node.lookup = { ok: true, path };
+          return path;
+        } catch (error) {
+          node.lookup = { ok: false, path: null, error: error.code };
+          throw error;
+        }
+      },
+    },
+  };
+  node.catalog = new SessionHostCatalog(
+    {
+      isDisposed: () => false,
+      listSessions: () => node.host.listSessions(),
+      listAgentPool: async () => [],
+      publishSessions: (sessions) => node.host.publishSessionCatalog(sessions),
+      publishAgents() {},
+      coldSessionIds: () => [],
+      readSession: async () => null,
+    },
+    { directory: () => WORK }
+  );
+  return node;
+};
 // The folder as the file system resolves it: what a task session's cwd is.
-const TASK_WORKSPACE = await SessionHost.prototype.taskWorkspace.call(newHost());
+const TASK_WORKSPACE = await SessionHost.prototype.taskWorkspace.call({ taskWorkspacePath: RESOLVABLE });
 const rec = (id, extra) => ({ id, updatedAt: 1000, createdAt: 500, cwd: 'C:/w', messages: [], ...extra });
 // The writes of each trigger, in order. `draft` rows are held back until titled (pendingCatalogSessionIds).
 const triggers = [
@@ -116,35 +165,27 @@ const triggers = [
   },
 ];
 
-// The roster Node holds after the writes so far (the last write of an id replaces it): `SessionHost.sessionCatalog()` over the rows,
-// the names and the host's cached task workspace.
-const rosterOf = (host, records) => {
-  host.rawSessionRows = [...records.values()].map(_sessionSummary).filter(isLeadVisibleRow);
-  // `names[id]`: what `renameSession` stored beside the header's user title (the session metadata, whatever the session's state).
-  host.sessionMetadata.names = {};
-  for (const record of records.values()) if (record.titleSource === 'user') host.sessionMetadata.names[record.id] = record.title;
-  // The complete rows, in the order Node holds them: the value the channel compares and pushes.
-  return SessionHost.prototype.sessionCatalog.call(host);
-};
 const recorded = [];
 for (const { name, writes, lookups = [] } of triggers) {
   const records = new Map();
-  const host = newHost();
-  let last = canonicalJson([]);
+  const node = newNode();
+  let roster = [];
   const steps = [];
   for (const [at, record] of writes.entries()) {
     records.set(record.id, record);
-    // Each catalog refresh asks the host for the task workspace first (`listSessions`, session-host.ts:793); a lookup that fails leaves
-    // the cached path as it was (:521).
-    const ok = (lookups[at] ?? 'ok') === 'ok';
-    host.taskWorkspacePath = ok ? RESOLVABLE : UNRESOLVABLE;
-    const lookup = await SessionHost.prototype.taskWorkspace.call(host).then((path) => ({ ok: true, path }), (error) => ({ ok: false, path: null, error: error.code }));
-    const roster = rosterOf(host, records);
-    // CatalogChannel.publish (session-host-publication.ts:129-142) skips a value whose canonical JSON equals the last one.
-    const json = canonicalJson(roster);
-    const published = json !== last;
-    last = json;
-    steps.push({ id: record.id, record, lookup, roster, published });
+    node.rows = [...records.values()].map(_sessionSummary).filter(isLeadVisibleRow);
+    // `names[id]`: what `renameSession` stored beside the header's user title (the session metadata, whatever the session's state).
+    node.host.sessionMetadata.names = {};
+    for (const each of records.values()) if (each.titleSource === 'user') node.host.sessionMetadata.names[each.id] = each.title;
+    node.host.taskWorkspacePath = (lookups[at] ?? 'ok') === 'ok' ? RESOLVABLE : UNRESOLVABLE;
+    node.lookup = null;
+    node.delivered.length = 0;
+    await node.catalog.publishCatalogs();
+    // `roster` is what the app holds after the refresh: the complete rows Node delivered, or the last ones when it delivered nothing
+    // (an equal roster, or a lookup that failed and rejected the listing).
+    const published = node.delivered.length > 0;
+    if (published) roster = node.delivered.at(-1);
+    steps.push({ id: record.id, record, lookup: node.lookup, roster, published });
   }
   recorded.push({ name, steps });
 }
