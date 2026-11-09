@@ -26,6 +26,7 @@
         "set",
         "delete"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -151,6 +152,7 @@
         "set",
         "delete"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client",
@@ -271,6 +273,7 @@
       "storeOps": [
         "delete"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client",
@@ -446,6 +449,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "POST /token authorization_code client=fixture-client",
         "GET /.well-known/oauth-protected-resource/mcp",
@@ -503,6 +507,7 @@
         "set",
         "delete"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -616,6 +621,7 @@
         "set",
         "delete"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client",
@@ -725,6 +731,7 @@
         "set",
         "delete"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client",
@@ -878,6 +885,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "POST /token authorization_code client=static-client",
         "GET /.well-known/oauth-protected-resource/mcp",
@@ -935,6 +943,7 @@
         "set",
         "delete"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -1060,6 +1069,7 @@
         "set",
         "delete"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client",
@@ -1180,6 +1190,7 @@
       "storeOps": [
         "delete"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client",
@@ -1355,6 +1366,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "POST /token authorization_code client=fixture-client",
         "GET /.well-known/oauth-protected-resource/mcp",
@@ -1412,6 +1424,7 @@
         "set",
         "delete"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -1525,6 +1538,7 @@
         "set",
         "delete"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client",
@@ -1634,6 +1648,7 @@
         "set",
         "delete"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client",
@@ -1787,6 +1802,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "POST /token authorization_code client=static-client",
         "GET /.well-known/oauth-protected-resource/mcp",
@@ -1879,6 +1895,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -2038,6 +2055,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client",
@@ -2192,6 +2210,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client",
@@ -2365,6 +2384,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "POST /token authorization_code client=fixture-client"
       ],
@@ -2470,6 +2490,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -2631,6 +2652,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client",
@@ -2788,6 +2810,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client",
@@ -2894,10 +2917,10 @@
           "url": "<origin>/mcp",
           "revision": "<revision>",
           "tokens": {
-            "access_token": "fixture-token",
+            "access_token": "fixture-token-2",
             "token_type": "Bearer",
             "expires_in": 3600,
-            "refresh_token": "fixture-refresh",
+            "refresh_token": "fixture-refresh-2",
             "issuer": "<origin>"
           },
           "clientInformation": {
@@ -2938,7 +2961,61 @@
           "identity": null
         }
       },
-      "storeOps": [],
+      "storeOps": [
+        "set"
+      ],
+      "commitBoundary": {
+        "store": {
+          "entry1": {
+            "url": "<origin>/mcp",
+            "revision": "<revision>",
+            "tokens": {
+              "access_token": "fixture-token",
+              "token_type": "Bearer",
+              "expires_in": 3600,
+              "refresh_token": "fixture-refresh",
+              "issuer": "<origin>"
+            },
+            "clientInformation": {
+              "client_id": "static-client",
+              "client_secret": "static-secret",
+              "issuer": "<origin>"
+            },
+            "redirectUrl": "http://127.0.0.1:<callback>/oauth/callback",
+            "discovery": {
+              "authorizationServerUrl": "<origin>",
+              "resourceMetadataUrl": "<origin>/.well-known/oauth-protected-resource",
+              "resourceMetadata": {
+                "resource": "<origin>/mcp",
+                "authorization_servers": [
+                  "<origin>"
+                ]
+              },
+              "authorizationServerMetadata": {
+                "issuer": "<origin>",
+                "authorization_endpoint": "<origin>/authorize",
+                "token_endpoint": "<origin>/token",
+                "registration_endpoint": "<origin>/register",
+                "response_types_supported": [
+                  "code"
+                ],
+                "grant_types_supported": [
+                  "authorization_code",
+                  "refresh_token"
+                ],
+                "token_endpoint_auth_methods_supported": [
+                  "none"
+                ],
+                "code_challenge_methods_supported": [
+                  "S256"
+                ]
+              }
+            },
+            "identity": null
+          }
+        },
+        "ops": []
+      },
       "requests": [
         "POST /token authorization_code client=static-client",
         "POST /token authorization_code client=static-client"
@@ -3046,6 +3123,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -3220,6 +3298,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client",
@@ -3395,6 +3474,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client",
@@ -3568,6 +3648,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "POST /token authorization_code client=fixture-client"
       ],
@@ -3661,6 +3742,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -3811,6 +3893,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client",
@@ -3964,6 +4047,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client",
@@ -4115,6 +4199,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "POST /token authorization_code client=static-client"
       ],
@@ -4218,6 +4303,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -4390,6 +4476,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client",
@@ -4563,6 +4650,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client",
@@ -4734,6 +4822,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "POST /token authorization_code client=fixture-client"
       ],
@@ -4825,6 +4914,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -4973,6 +5063,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client",
@@ -5124,6 +5215,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client",
@@ -5273,6 +5365,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "POST /token authorization_code client=static-client"
       ],
@@ -5287,6 +5380,439 @@
       "heldPage": {
         "statusLine": "HTTP/1.1 400 Bad Request",
         "bodySha1": "1b00458821fa"
+      },
+      "deniedPage": null,
+      "sockets": [],
+      "virtualTimersLeft": 0,
+      "events": [
+        "listener-up",
+        "browser-opened",
+        "listener.close",
+        "listener.closeAllConnections",
+        "caller-settled"
+      ],
+      "afterwards": {
+        "connection": "ECONNREFUSED"
+      }
+    },
+    {
+      "title": "successful switch, dynamic client",
+      "spec": {
+        "mode": "switch",
+        "client": "dynamic",
+        "seed": true,
+        "script": [
+          "ok"
+        ],
+        "browser": "code",
+        "at": null,
+        "action": null,
+        "hold": null,
+        "sockets": false,
+        "hook": null,
+        "virtualFlush": null
+      },
+      "storeBefore": {
+        "entry1": {
+          "url": "<origin>/mcp",
+          "revision": "<revision>",
+          "tokens": {
+            "access_token": "fixture-token",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "refresh_token": "fixture-refresh",
+            "issuer": "<origin>"
+          },
+          "clientInformation": {
+            "redirect_uris": [
+              "http://127.0.0.1:<callback>/oauth/callback"
+            ],
+            "token_endpoint_auth_method": "none",
+            "grant_types": [
+              "authorization_code",
+              "refresh_token"
+            ],
+            "response_types": [
+              "code"
+            ],
+            "client_name": "Mixdog",
+            "client_id": "fixture-client",
+            "issuer": "<origin>"
+          },
+          "redirectUrl": "http://127.0.0.1:<callback>/oauth/callback",
+          "discovery": {
+            "authorizationServerUrl": "<origin>",
+            "resourceMetadataUrl": "<origin>/.well-known/oauth-protected-resource",
+            "resourceMetadata": {
+              "resource": "<origin>/mcp",
+              "authorization_servers": [
+                "<origin>"
+              ]
+            },
+            "authorizationServerMetadata": {
+              "issuer": "<origin>",
+              "authorization_endpoint": "<origin>/authorize",
+              "token_endpoint": "<origin>/token",
+              "registration_endpoint": "<origin>/register",
+              "response_types_supported": [
+                "code"
+              ],
+              "grant_types_supported": [
+                "authorization_code",
+                "refresh_token"
+              ],
+              "token_endpoint_auth_methods_supported": [
+                "none"
+              ],
+              "code_challenge_methods_supported": [
+                "S256"
+              ]
+            }
+          },
+          "identity": null
+        }
+      },
+      "storeAfter": {
+        "entry1": {
+          "url": "<origin>/mcp",
+          "revision": "<revision>",
+          "tokens": {
+            "access_token": "fixture-token-2",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "refresh_token": "fixture-refresh-2",
+            "issuer": "<origin>"
+          },
+          "clientInformation": {
+            "redirect_uris": [
+              "http://127.0.0.1:<callback>/oauth/callback"
+            ],
+            "token_endpoint_auth_method": "none",
+            "grant_types": [
+              "authorization_code",
+              "refresh_token"
+            ],
+            "response_types": [
+              "code"
+            ],
+            "client_name": "Mixdog",
+            "client_id": "fixture-client",
+            "issuer": "<origin>"
+          },
+          "redirectUrl": "http://127.0.0.1:<callback>/oauth/callback",
+          "discovery": {
+            "authorizationServerUrl": "<origin>",
+            "resourceMetadataUrl": "<origin>/.well-known/oauth-protected-resource",
+            "resourceMetadata": {
+              "resource": "<origin>/mcp",
+              "authorization_servers": [
+                "<origin>"
+              ]
+            },
+            "authorizationServerMetadata": {
+              "issuer": "<origin>",
+              "authorization_endpoint": "<origin>/authorize",
+              "token_endpoint": "<origin>/token",
+              "registration_endpoint": "<origin>/register",
+              "response_types_supported": [
+                "code"
+              ],
+              "grant_types_supported": [
+                "authorization_code",
+                "refresh_token"
+              ],
+              "token_endpoint_auth_methods_supported": [
+                "none"
+              ],
+              "code_challenge_methods_supported": [
+                "S256"
+              ]
+            }
+          },
+          "identity": null
+        }
+      },
+      "storeOps": [
+        "set"
+      ],
+      "commitBoundary": {
+        "store": {
+          "entry1": {
+            "url": "<origin>/mcp",
+            "revision": "<revision>",
+            "tokens": {
+              "access_token": "fixture-token",
+              "token_type": "Bearer",
+              "expires_in": 3600,
+              "refresh_token": "fixture-refresh",
+              "issuer": "<origin>"
+            },
+            "clientInformation": {
+              "redirect_uris": [
+                "http://127.0.0.1:<callback>/oauth/callback"
+              ],
+              "token_endpoint_auth_method": "none",
+              "grant_types": [
+                "authorization_code",
+                "refresh_token"
+              ],
+              "response_types": [
+                "code"
+              ],
+              "client_name": "Mixdog",
+              "client_id": "fixture-client",
+              "issuer": "<origin>"
+            },
+            "redirectUrl": "http://127.0.0.1:<callback>/oauth/callback",
+            "discovery": {
+              "authorizationServerUrl": "<origin>",
+              "resourceMetadataUrl": "<origin>/.well-known/oauth-protected-resource",
+              "resourceMetadata": {
+                "resource": "<origin>/mcp",
+                "authorization_servers": [
+                  "<origin>"
+                ]
+              },
+              "authorizationServerMetadata": {
+                "issuer": "<origin>",
+                "authorization_endpoint": "<origin>/authorize",
+                "token_endpoint": "<origin>/token",
+                "registration_endpoint": "<origin>/register",
+                "response_types_supported": [
+                  "code"
+                ],
+                "grant_types_supported": [
+                  "authorization_code",
+                  "refresh_token"
+                ],
+                "token_endpoint_auth_methods_supported": [
+                  "none"
+                ],
+                "code_challenge_methods_supported": [
+                  "S256"
+                ]
+              }
+            },
+            "identity": null
+          }
+        },
+        "ops": []
+      },
+      "requests": [
+        "POST /token authorization_code client=fixture-client"
+      ],
+      "outcome": {
+        "kind": "resolved",
+        "accessToken": "fixture-token-2",
+        "refreshToken": "fixture-refresh-2",
+        "clientInformation": "{\"redirect_uris\":[\"http://127.0.0.1:<callback>/oauth/callback\"],\"token_endpoint_auth_method\":\"none\",\"grant_types\":[\"authorization_code\",\"refresh_token\"],\"response_types\":[\"code\"],\"client_name\":\"Mixdog\",\"client_id\":\"fixture-client\",\"issuer\":\"<origin>\"}",
+        "identity": null
+      },
+      "settledWithoutRelease": true,
+      "serverSawClose": null,
+      "heldPage": {
+        "statusLine": "HTTP/1.1 200 OK",
+        "bodySha1": "dd65d31ff367"
+      },
+      "deniedPage": null,
+      "sockets": [],
+      "virtualTimersLeft": 0,
+      "events": [
+        "listener-up",
+        "browser-opened",
+        "listener.close",
+        "listener.closeAllConnections",
+        "caller-settled"
+      ],
+      "afterwards": {
+        "connection": "ECONNREFUSED"
+      }
+    },
+    {
+      "title": "successful switch, static client",
+      "spec": {
+        "mode": "switch",
+        "client": "static",
+        "seed": true,
+        "script": [
+          "ok"
+        ],
+        "browser": "code",
+        "at": null,
+        "action": null,
+        "hold": null,
+        "sockets": false,
+        "hook": null,
+        "virtualFlush": null
+      },
+      "storeBefore": {
+        "entry1": {
+          "url": "<origin>/mcp",
+          "revision": "<revision>",
+          "tokens": {
+            "access_token": "fixture-token",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "refresh_token": "fixture-refresh",
+            "issuer": "<origin>"
+          },
+          "clientInformation": {
+            "client_id": "static-client",
+            "client_secret": "static-secret",
+            "issuer": "<origin>"
+          },
+          "redirectUrl": "http://127.0.0.1:<callback>/oauth/callback",
+          "discovery": {
+            "authorizationServerUrl": "<origin>",
+            "resourceMetadataUrl": "<origin>/.well-known/oauth-protected-resource",
+            "resourceMetadata": {
+              "resource": "<origin>/mcp",
+              "authorization_servers": [
+                "<origin>"
+              ]
+            },
+            "authorizationServerMetadata": {
+              "issuer": "<origin>",
+              "authorization_endpoint": "<origin>/authorize",
+              "token_endpoint": "<origin>/token",
+              "registration_endpoint": "<origin>/register",
+              "response_types_supported": [
+                "code"
+              ],
+              "grant_types_supported": [
+                "authorization_code",
+                "refresh_token"
+              ],
+              "token_endpoint_auth_methods_supported": [
+                "none"
+              ],
+              "code_challenge_methods_supported": [
+                "S256"
+              ]
+            }
+          },
+          "identity": null
+        }
+      },
+      "storeAfter": {
+        "entry1": {
+          "url": "<origin>/mcp",
+          "revision": "<revision>",
+          "tokens": {
+            "access_token": "fixture-token-2",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "refresh_token": "fixture-refresh-2",
+            "issuer": "<origin>"
+          },
+          "clientInformation": {
+            "client_id": "static-client",
+            "client_secret": "static-secret",
+            "issuer": "<origin>"
+          },
+          "redirectUrl": "http://127.0.0.1:<callback>/oauth/callback",
+          "discovery": {
+            "authorizationServerUrl": "<origin>",
+            "resourceMetadataUrl": "<origin>/.well-known/oauth-protected-resource",
+            "resourceMetadata": {
+              "resource": "<origin>/mcp",
+              "authorization_servers": [
+                "<origin>"
+              ]
+            },
+            "authorizationServerMetadata": {
+              "issuer": "<origin>",
+              "authorization_endpoint": "<origin>/authorize",
+              "token_endpoint": "<origin>/token",
+              "registration_endpoint": "<origin>/register",
+              "response_types_supported": [
+                "code"
+              ],
+              "grant_types_supported": [
+                "authorization_code",
+                "refresh_token"
+              ],
+              "token_endpoint_auth_methods_supported": [
+                "none"
+              ],
+              "code_challenge_methods_supported": [
+                "S256"
+              ]
+            }
+          },
+          "identity": null
+        }
+      },
+      "storeOps": [
+        "set"
+      ],
+      "commitBoundary": {
+        "store": {
+          "entry1": {
+            "url": "<origin>/mcp",
+            "revision": "<revision>",
+            "tokens": {
+              "access_token": "fixture-token",
+              "token_type": "Bearer",
+              "expires_in": 3600,
+              "refresh_token": "fixture-refresh",
+              "issuer": "<origin>"
+            },
+            "clientInformation": {
+              "client_id": "static-client",
+              "client_secret": "static-secret",
+              "issuer": "<origin>"
+            },
+            "redirectUrl": "http://127.0.0.1:<callback>/oauth/callback",
+            "discovery": {
+              "authorizationServerUrl": "<origin>",
+              "resourceMetadataUrl": "<origin>/.well-known/oauth-protected-resource",
+              "resourceMetadata": {
+                "resource": "<origin>/mcp",
+                "authorization_servers": [
+                  "<origin>"
+                ]
+              },
+              "authorizationServerMetadata": {
+                "issuer": "<origin>",
+                "authorization_endpoint": "<origin>/authorize",
+                "token_endpoint": "<origin>/token",
+                "registration_endpoint": "<origin>/register",
+                "response_types_supported": [
+                  "code"
+                ],
+                "grant_types_supported": [
+                  "authorization_code",
+                  "refresh_token"
+                ],
+                "token_endpoint_auth_methods_supported": [
+                  "none"
+                ],
+                "code_challenge_methods_supported": [
+                  "S256"
+                ]
+              }
+            },
+            "identity": null
+          }
+        },
+        "ops": []
+      },
+      "requests": [
+        "POST /token authorization_code client=static-client"
+      ],
+      "outcome": {
+        "kind": "resolved",
+        "accessToken": "fixture-token-2",
+        "refreshToken": "fixture-refresh-2",
+        "clientInformation": "{\"client_id\":\"static-client\",\"client_secret\":\"static-secret\",\"issuer\":\"<origin>\"}",
+        "identity": null
+      },
+      "settledWithoutRelease": true,
+      "serverSawClose": null,
+      "heldPage": {
+        "statusLine": "HTTP/1.1 200 OK",
+        "bodySha1": "dd65d31ff367"
       },
       "deniedPage": null,
       "sockets": [],
@@ -5365,6 +5891,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -5520,6 +6047,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "POST /token authorization_code client=static-client",
         "POST /token authorization_code client=static-client"
@@ -5695,6 +6223,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client",
@@ -5853,6 +6382,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client",
@@ -6031,6 +6561,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client",
@@ -6189,6 +6720,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client",
@@ -6367,6 +6899,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client",
@@ -6523,6 +7056,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client",
@@ -6695,6 +7229,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client"
@@ -6841,6 +7376,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client"
@@ -7009,6 +7545,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client",
@@ -7161,6 +7698,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client",
@@ -7333,6 +7871,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client",
@@ -7485,6 +8024,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client",
@@ -7659,6 +8199,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client",
@@ -7813,6 +8354,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client",
@@ -7985,6 +8527,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client",
@@ -8137,6 +8680,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client",
@@ -8226,6 +8770,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -8384,6 +8929,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client"
@@ -8553,6 +9099,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [],
       "outcome": {
         "kind": "rejected",
@@ -8638,6 +9185,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -8794,6 +9342,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client"
@@ -8961,6 +9510,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [],
       "outcome": {
         "kind": "rejected",
@@ -9044,6 +9594,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -9199,6 +9750,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client"
@@ -9365,6 +9917,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [],
       "outcome": {
         "kind": "rejected",
@@ -9450,6 +10003,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -9600,6 +10154,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client"
@@ -9747,6 +10302,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [],
       "outcome": {
         "kind": "rejected",
@@ -9835,6 +10391,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -9983,6 +10540,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client"
@@ -10128,6 +10686,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [],
       "outcome": {
         "kind": "rejected",
@@ -10214,6 +10773,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -10361,6 +10921,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=static-client"
@@ -10505,6 +11066,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [],
       "outcome": {
         "kind": "rejected",
@@ -10654,6 +11216,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client"
@@ -10705,6 +11268,7 @@
       "storeBefore": {},
       "storeAfter": {},
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource"
@@ -10757,6 +11321,7 @@
       "storeBefore": {},
       "storeAfter": {},
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -10811,6 +11376,7 @@
       "storeBefore": {},
       "storeAfter": {},
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource"
@@ -10862,6 +11428,7 @@
       "storeBefore": {},
       "storeAfter": {},
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -10915,6 +11482,7 @@
       "storeBefore": {},
       "storeAfter": {},
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "GET /.well-known/oauth-protected-resource/mcp",
         "GET /.well-known/oauth-authorization-server",
@@ -11005,6 +11573,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -11129,6 +11698,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -11229,6 +11799,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -11348,6 +11919,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -11480,6 +12052,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -11611,6 +12184,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -11717,6 +12291,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -11846,6 +12421,7 @@
         "set",
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -11965,6 +12541,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -12073,6 +12650,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -12168,6 +12746,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -12263,6 +12842,7 @@
       "storeOps": [
         "set"
       ],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=-",
         "GET /.well-known/oauth-protected-resource",
@@ -12435,6 +13015,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "GET /mcp bearer=fixture-token",
         "POST /token refresh_token client=fixture-client",
@@ -12606,6 +13187,7 @@
         }
       },
       "storeOps": [],
+      "commitBoundary": null,
       "requests": [
         "POST /token authorization_code client=fixture-client"
       ],

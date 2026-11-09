@@ -510,7 +510,7 @@ const GROUPS: [&[&str]; 8] = [
     &["exchange invalid_scope", "exchange network"],
     &["refresh invalid_"],
     &["refresh unauthorized_client", "refresh network", "refresh server_error", "refresh unknown_code", "refresh html_500"],
-    &["denied before", "empty code", "sockets", "flush bound"],
+    &["denied before", "empty code", "sockets", "flush bound", "successful switch"],
     &["cancel while"],
     &["timeout while"],
 ];
@@ -544,6 +544,7 @@ async fn replay_group(group: usize) {
 
 #[test]
 fn every_case_belongs_to_a_group() {
+    mixdog_rt::testing::assert_chunks_registered(GROUP_TESTS, GROUPS.len(), 1);
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
     for case in golden["cases"].as_array().unwrap() {
         let title = case["title"].as_str().unwrap();
@@ -552,45 +553,16 @@ fn every_case_belongs_to_a_group() {
     }
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn exchange_invalid_client_equals_nodes() {
-    replay_group(0).await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn exchange_invalid_grant_equals_nodes() {
-    replay_group(1).await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn exchange_other_errors_equal_nodes() {
-    replay_group(2).await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn refresh_refused_equals_nodes() {
-    replay_group(3).await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn refresh_falling_through_equals_nodes() {
-    replay_group(4).await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn denial_sockets_and_flush_equal_nodes() {
-    replay_group(5).await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn cancel_equals_nodes() {
-    replay_group(6).await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn timeout_equals_nodes() {
-    replay_group(7).await;
-}
+mixdog_rt::replay_chunks!(GROUP_TESTS, #[tokio::test(flavor = "multi_thread")] async replay_group; [
+    exchange_invalid_client_equals_nodes = 0,
+    exchange_invalid_grant_equals_nodes = 1,
+    exchange_other_errors_equal_nodes = 2,
+    refresh_refused_equals_nodes = 3,
+    refresh_falling_through_equals_nodes = 4,
+    denial_sockets_and_flush_equal_nodes = 5,
+    cancel_equals_nodes = 6,
+    timeout_equals_nodes = 7,
+]);
 async fn replay(case: Value) {
     let title = case["title"].as_str().unwrap().to_owned();
     let spec = &case["spec"];
@@ -683,7 +655,7 @@ async fn replay(case: Value) {
             notes.insert("callerSettledDuringFlush".to_owned(), json!(run.settled.load(Ordering::SeqCst)));
         }
         if spec["virtualFlush"] == "tick" {
-            seam::FLUSH_BOUND.fire();
+            seam::CLOCK.advance(1000);
         } else {
             seam::PAGE_RELEASE.fire();
         }
@@ -801,16 +773,23 @@ async fn replay(case: Value) {
     }
     assert_eq!(json!(matches!(ended, LoginState::Done { .. })), json!(outcome["kind"] == "response" || resolved), "{title}: sign-in completed");
     let after = snapshot(&stage.spy, &origin, &ports);
+    // Node's switch stores nothing itself; the recording commits its resolved sign-in (`commitMcpOAuthSwitch`) and
+    // keeps the store and writes at that boundary apart. Rust commits as the flow ends, so what is compared is the
+    // whole result: the complete store and the full sequence of writes, the commit's included.
     if resolved {
-        // Node hands the sign-in to its caller, which stores it; the Rust flow stores it itself.
+        let boundary = &case["commitBoundary"];
+        assert_eq!(boundary["store"], case["storeBefore"], "{title}: a switch stores nothing before its commit");
+        assert_eq!(boundary["ops"], json!([]), "{title}: a switch writes nothing before its commit");
+    } else {
+        assert!(case["commitBoundary"].is_null(), "{title}: only a resolved switch has a commit");
+    }
+    assert_eq!(after, case["storeAfter"], "{title}: the store after");
+    assert_eq!(json!(stage.spy.ops.lock().unwrap().clone()), case["storeOps"], "{title}: the order of the store's writes");
+    if resolved {
         let entry = &after["entry1"];
         assert_eq!(entry["tokens"]["access_token"], outcome["accessToken"], "{title}: switch tokens");
         assert_eq!(entry["tokens"]["refresh_token"], outcome["refreshToken"], "{title}: switch tokens");
-        assert_eq!(entry["clientInformation"].to_string(), outcome["clientInformation"].as_str().unwrap().replace(" ", ""), "{title}: switch client");
+        assert_eq!(entry["clientInformation"], serde_json::from_str::<Value>(outcome["clientInformation"].as_str().unwrap()).unwrap(), "{title}: switch client");
         assert_eq!(entry.get("identity").cloned().unwrap_or(Value::Null), outcome["identity"], "{title}: switch identity");
-    } else {
-        assert_eq!(after, case["storeAfter"], "{title}: the store after");
-        assert_eq!(json!(stage.spy.ops.lock().unwrap().clone()), case["storeOps"], "{title}: the order of the store's writes");
-    }
-    stage.hub.close_all().await;
+    }    stage.hub.close_all().await;
 }

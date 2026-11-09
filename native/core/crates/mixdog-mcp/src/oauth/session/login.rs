@@ -235,7 +235,8 @@ impl Held {
         };
         *self.begun.lock().unwrap_or_else(|e| e.into_inner()) = Some(responder.begun.clone());
         // Registered before the page is answered, so a listener shutdown that follows destroys the connections only
-        // after the flush.
+        // after the flush; the bound's deadline is fixed here, for the login's own wait and that shutdown alike.
+        responder.flush.start();
         *self.flushing.lock().unwrap_or_else(|e| e.into_inner()) = Some(responder.flush.clone());
         let _ = responder.tx.send(outcome);
         responder.begun.cancelled().await;
@@ -367,7 +368,11 @@ impl McpOAuth {
             Ok(done) => Ok(done),
             Err(stop) => {
                 let scope_not_granted = matches!(stop, Stop::Failed(OAuthError::ScopeNotGranted(_)));
-                if let Some(flush) = held.settle(PageOutcome::Failed { scope_not_granted }).await {
+                // Once the abort fired, its handler answers the held page (Node runs it synchronously, ahead of this
+                // `catch`), and this path must not wait on a flush the handler is the one to settle.
+                if run.abort.check().is_ok()
+                    && let Some(flush) = held.settle(PageOutcome::Failed { scope_not_granted }).await
+                {
                     flush.wait().await;
                 }
                 // A server that no longer knows our client_id answers the browser with an HTTP error nobody here
