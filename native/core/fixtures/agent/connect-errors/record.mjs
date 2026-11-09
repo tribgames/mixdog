@@ -61,7 +61,7 @@ const realSetTimeout = globalThis.setTimeout;
 // `setTimeout(() => controller.abort())`, `AbortSignal.timeout`) are recorded and armed at 1 ms, against a server that
 // never answers: the site's own code throws what it throws when the timer fires, without waiting its 30 s.
 let site = null;
-const SITE_TIMER_CALLERS = ['stall-policy.mjs', 'anthropic-oauth-credentials.mjs', 'provider-admin.mjs', 'openai-oauth-tokens.mjs', 'cursor-wire-transport.mjs'];
+const SITE_TIMER_CALLERS = ['stall-policy.mjs', 'anthropic-oauth-credentials.mjs', 'provider-admin.mjs', 'openai-oauth-tokens.mjs', 'cursor-wire-transport.mjs', 'opencode-go-usage.mjs'];
 globalThis.setTimeout = (callback, ms, ...rest) => {
   const limit = Error.stackTraceLimit;
   Error.stackTraceLimit = 40;
@@ -351,6 +351,8 @@ async function recordSites() {
   const stall = await load(`${orchestrator}/stall-policy.mjs`);
   const devinWire = await load(`${providers}/devin-wire-transport.mjs`);
   const modelCatalog = await load('src/runtime/shared/llm/model-catalog.mjs');
+  const openaiLogin = await load(`${providers}/openai-oauth-login.mjs`);
+  const opencodeUsage = await load(`${providers}/opencode-go-usage.mjs`);
   process.env.MIXDOG_LLM_HEADERS_TIMEOUT_MS = String(TRANSPORT_TIMEOUT_MS);
   process.env.MIXDOG_LLM_BODY_TIMEOUT_MS = String(TRANSPORT_TIMEOUT_MS);
   // The credential files the refresh sites read, in the scratch tree.
@@ -426,6 +428,28 @@ async function recordSites() {
     antigravityCodeExchange: () => antigravityLogin.exchangeAuthorizationCode({ code: 'abc', verifier: 'v' }),
     antigravityProject: () => antigravityLogin.discoverAccount('tok'),
     opencodeConsole: () => opencodeTokens.consoleRequest('https://opencode.ai/auth/device/token', { method: 'POST', body: {} }),
+    // The pasted-code path of the login: the exchange is not exported, `completeCode` runs it.
+    openaiCodeExchange: async () => {
+      const login = await openaiLogin
+        .createOpenAIOAuthLogin({
+          clientId: 'c',
+          originator: 'o',
+          extractAccountId: () => null,
+          identityFromTokens: () => null,
+          expiryFromAccessToken: () => 0,
+          saveTokens: async () => {},
+        })
+        .beginOAuthLogin({ openBrowser: false });
+      const settled = login.waitForCallback.catch(() => {});
+      try {
+        return await login.completeCode('abc');
+      } finally {
+        login.cancel();
+        await settled;
+      }
+    },
+    // The status read of the OpenCode Go usage meter: a bare `AbortController` timer, `redirect: 'error'`.
+    opencodeGoUsage: () => opencodeUsage.fetchOpenCodeGoOAuthUsageSnapshot({ access_token: 'a', refresh_token: 'r', org_id: 'o' }),
     vertexMetadataProbe: () => vertexAuth.probeVertexMetadata(),
     npmVersion: () => npmVersion.fetchRemoteVersion('https://registry.npmjs.org/@openai/codex/latest', npmVersion.parseNpmLatest),
     // Node's `callCursorUnary` against a server that never answers the handshake: its own timer ends it

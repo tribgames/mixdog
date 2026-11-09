@@ -2143,6 +2143,44 @@
         "message": "The operation was aborted due to timeout"
       }
     },
+    "openaiCodeExchange": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "opencodeGoUsage": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 6500
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "AbortError",
+          "message": "This operation was aborted"
+        }
+      ],
+      "thrown": {
+        "name": "AbortError",
+        "code": 20,
+        "message": "This operation was aborted"
+      }
+    },
     "vertexMetadataProbe": {
       "armed": [
         {
