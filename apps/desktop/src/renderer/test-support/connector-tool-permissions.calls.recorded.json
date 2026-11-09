@@ -1,0 +1,576 @@
+[
+ [
+  {
+   "capability": "getAgentConnectors",
+   "args": [
+    "seed-bot"
+   ],
+   "updates": [],
+   "value": [
+    {
+     "id": "gmail",
+     "enabled": true
+    },
+    {
+     "id": "notion",
+     "enabled": true
+    }
+   ]
+  },
+  {
+   "capability": "getAgentConnectorTools",
+   "args": [
+    "seed-bot"
+   ],
+   "updates": [],
+   "value": [
+    {
+     "connector": "gmail",
+     "tool": "search_emails",
+     "permission": "auto",
+     "explicit": false
+    },
+    {
+     "connector": "gmail",
+     "tool": "send_email",
+     "permission": "disabled",
+     "explicit": true
+    },
+    {
+     "connector": "gmail",
+     "tool": "delete_thing",
+     "permission": "auto",
+     "explicit": true
+    },
+    {
+     "connector": "notion",
+     "tool": "search_pages",
+     "permission": "auto",
+     "explicit": false
+    }
+   ]
+  },
+  {
+   "capability": "getAgentAlwaysAllowedTools",
+   "args": [
+    "seed-bot"
+   ],
+   "updates": [],
+   "value": [
+    {
+     "connector": "gmail",
+     "tool": "delete_thing"
+    }
+   ]
+  },
+  {
+   "capability": "setAgentConnectorToolPermission",
+   "args": [
+    "seed-bot",
+    "gmail",
+    "send_email",
+    "needs_approval"
+   ],
+   "updates": [
+    {
+     "id": "seed-bot",
+     "current": {
+      "off": [],
+      "tools": {
+       "gmail": {
+        "send_email": "disabled",
+        "delete_thing": "auto"
+       }
+      }
+     },
+     "stored": {
+      "off": [],
+      "tools": {
+       "gmail": {
+        "send_email": "needs_approval",
+        "delete_thing": "auto"
+       }
+      }
+     },
+     "after": {
+      "off": [],
+      "tools": {
+       "gmail": {
+        "send_email": "needs_approval",
+        "delete_thing": "auto"
+       }
+      }
+     }
+    }
+   ],
+   "value": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send_email": "needs_approval",
+      "delete_thing": "auto"
+     }
+    }
+   }
+  },
+  {
+   "capability": "getAgentConnectorTools",
+   "args": [
+    "seed-bot"
+   ],
+   "updates": [],
+   "value": [
+    {
+     "connector": "gmail",
+     "tool": "search_emails",
+     "permission": "auto",
+     "explicit": false
+    },
+    {
+     "connector": "gmail",
+     "tool": "send_email",
+     "permission": "needs_approval",
+     "explicit": true
+    },
+    {
+     "connector": "gmail",
+     "tool": "delete_thing",
+     "permission": "auto",
+     "explicit": true
+    },
+    {
+     "connector": "notion",
+     "tool": "search_pages",
+     "permission": "auto",
+     "explicit": false
+    }
+   ]
+  }
+ ],
+ [
+  {
+   "capability": "getAgentConnectors",
+   "args": [
+    "accounts-bot"
+   ],
+   "updates": [],
+   "value": [
+    {
+     "id": "gmail",
+     "enabled": true
+    },
+    {
+     "id": "notion",
+     "enabled": true
+    },
+    {
+     "id": "gmail-2",
+     "enabled": true
+    }
+   ]
+  },
+  {
+   "capability": "getAgentConnectorTools",
+   "args": [
+    "accounts-bot"
+   ],
+   "updates": [],
+   "value": [
+    {
+     "connector": "gmail",
+     "tool": "search_emails",
+     "permission": "auto",
+     "explicit": false
+    },
+    {
+     "connector": "gmail",
+     "tool": "send_email",
+     "permission": "auto",
+     "explicit": true
+    },
+    {
+     "connector": "gmail",
+     "tool": "delete_thing",
+     "permission": "auto",
+     "explicit": false
+    },
+    {
+     "connector": "notion",
+     "tool": "search_pages",
+     "permission": "auto",
+     "explicit": false
+    },
+    {
+     "connector": "gmail-2",
+     "tool": "send_email",
+     "permission": "auto",
+     "explicit": true
+    }
+   ]
+  },
+  {
+   "capability": "getAgentAlwaysAllowedTools",
+   "args": [
+    "accounts-bot"
+   ],
+   "updates": [],
+   "value": [
+    {
+     "connector": "gmail",
+     "tool": "send_email"
+    }
+   ]
+  },
+  {
+   "capability": "setAgentConnectorToolPermission",
+   "args": [
+    "accounts-bot",
+    "gmail",
+    "send_email",
+    "needs_approval"
+   ],
+   "updates": [
+    {
+     "id": "accounts-bot",
+     "current": {
+      "off": [],
+      "tools": {
+       "gmail": {
+        "send_email": "auto"
+       },
+       "gmail-2": {
+        "send_email": "disabled"
+       }
+      }
+     },
+     "stored": {
+      "off": [],
+      "tools": {
+       "gmail": {
+        "send_email": "needs_approval"
+       }
+      }
+     },
+     "after": {
+      "off": [],
+      "tools": {
+       "gmail": {
+        "send_email": "needs_approval"
+       }
+      }
+     }
+    }
+   ],
+   "value": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send_email": "needs_approval"
+     }
+    }
+   }
+  },
+  {
+   "capability": "getAgentConnectorTools",
+   "args": [
+    "accounts-bot"
+   ],
+   "updates": [],
+   "value": [
+    {
+     "connector": "gmail",
+     "tool": "search_emails",
+     "permission": "auto",
+     "explicit": false
+    },
+    {
+     "connector": "gmail",
+     "tool": "send_email",
+     "permission": "needs_approval",
+     "explicit": true
+    },
+    {
+     "connector": "gmail",
+     "tool": "delete_thing",
+     "permission": "auto",
+     "explicit": false
+    },
+    {
+     "connector": "notion",
+     "tool": "search_pages",
+     "permission": "auto",
+     "explicit": false
+    },
+    {
+     "connector": "gmail-2",
+     "tool": "send_email",
+     "permission": "needs_approval",
+     "explicit": true
+    }
+   ]
+  }
+ ],
+ [
+  {
+   "capability": "getAgentConnectors",
+   "args": [
+    "default-bot"
+   ],
+   "updates": [],
+   "value": [
+    {
+     "id": "gmail",
+     "enabled": true
+    },
+    {
+     "id": "notion",
+     "enabled": true
+    }
+   ]
+  },
+  {
+   "capability": "getAgentConnectorTools",
+   "args": [
+    "default-bot"
+   ],
+   "updates": [],
+   "value": [
+    {
+     "connector": "gmail",
+     "tool": "search_emails",
+     "permission": "auto",
+     "explicit": false
+    },
+    {
+     "connector": "gmail",
+     "tool": "send_email",
+     "permission": "needs_approval",
+     "explicit": false
+    },
+    {
+     "connector": "gmail",
+     "tool": "delete_thing",
+     "permission": "auto",
+     "explicit": false
+    },
+    {
+     "connector": "notion",
+     "tool": "search_pages",
+     "permission": "auto",
+     "explicit": false
+    }
+   ]
+  },
+  {
+   "capability": "getAgentAlwaysAllowedTools",
+   "args": [
+    "default-bot"
+   ],
+   "updates": [],
+   "value": []
+  }
+ ],
+ [
+  {
+   "capability": "getAgentConnectors",
+   "args": [
+    "off-bot"
+   ],
+   "updates": [],
+   "value": [
+    {
+     "id": "gmail",
+     "enabled": true
+    },
+    {
+     "id": "notion",
+     "enabled": false
+    }
+   ]
+  },
+  {
+   "capability": "getAgentConnectorTools",
+   "args": [
+    "off-bot"
+   ],
+   "updates": [],
+   "value": [
+    {
+     "connector": "gmail",
+     "tool": "search_emails",
+     "permission": "auto",
+     "explicit": false
+    },
+    {
+     "connector": "gmail",
+     "tool": "send_email",
+     "permission": "needs_approval",
+     "explicit": false
+    },
+    {
+     "connector": "gmail",
+     "tool": "delete_thing",
+     "permission": "auto",
+     "explicit": false
+    },
+    {
+     "connector": "notion",
+     "tool": "search_pages",
+     "permission": "needs_approval",
+     "explicit": true
+    }
+   ]
+  },
+  {
+   "capability": "getAgentAlwaysAllowedTools",
+   "args": [
+    "off-bot"
+   ],
+   "updates": [],
+   "value": []
+  }
+ ],
+ [
+  {
+   "capability": "getAgentConnectors",
+   "args": [
+    "remote-bot"
+   ],
+   "updates": [],
+   "value": [
+    {
+     "id": "gmail",
+     "enabled": true
+    },
+    {
+     "id": "notion",
+     "enabled": true
+    }
+   ]
+  },
+  {
+   "capability": "getAgentConnectorTools",
+   "args": [
+    "remote-bot"
+   ],
+   "updates": [],
+   "value": [
+    {
+     "connector": "gmail",
+     "tool": "search_emails",
+     "permission": "auto",
+     "explicit": false
+    },
+    {
+     "connector": "gmail",
+     "tool": "send_email",
+     "permission": "needs_approval",
+     "explicit": true
+    },
+    {
+     "connector": "gmail",
+     "tool": "delete_thing",
+     "permission": "disabled",
+     "explicit": true
+    },
+    {
+     "connector": "notion",
+     "tool": "search_pages",
+     "permission": "auto",
+     "explicit": false
+    }
+   ]
+  },
+  {
+   "capability": "getAgentAlwaysAllowedTools",
+   "args": [
+    "remote-bot"
+   ],
+   "updates": [],
+   "value": []
+  },
+  {
+   "capability": "setAgentConnectorToolPermission",
+   "args": [
+    "remote-bot",
+    "gmail",
+    "send_email",
+    "disabled"
+   ],
+   "updates": [
+    {
+     "id": "remote-bot",
+     "current": {
+      "off": [],
+      "tools": {
+       "gmail": {
+        "send_email": "needs_approval",
+        "delete_thing": "disabled"
+       }
+      }
+     },
+     "stored": {
+      "off": [],
+      "tools": {
+       "gmail": {
+        "send_email": "disabled",
+        "delete_thing": "disabled"
+       }
+      }
+     },
+     "after": {
+      "off": [],
+      "tools": {
+       "gmail": {
+        "send_email": "disabled",
+        "delete_thing": "disabled"
+       }
+      }
+     }
+    }
+   ],
+   "value": {
+    "off": [],
+    "tools": {
+     "gmail": {
+      "send_email": "disabled",
+      "delete_thing": "disabled"
+     }
+    }
+   }
+  },
+  {
+   "capability": "getAgentConnectorTools",
+   "args": [
+    "remote-bot"
+   ],
+   "updates": [],
+   "value": [
+    {
+     "connector": "gmail",
+     "tool": "search_emails",
+     "permission": "auto",
+     "explicit": false
+    },
+    {
+     "connector": "gmail",
+     "tool": "send_email",
+     "permission": "disabled",
+     "explicit": true
+    },
+    {
+     "connector": "gmail",
+     "tool": "delete_thing",
+     "permission": "disabled",
+     "explicit": true
+    },
+    {
+     "connector": "notion",
+     "tool": "search_pages",
+     "permission": "auto",
+     "explicit": false
+    }
+   ]
+  }
+ ]
+]

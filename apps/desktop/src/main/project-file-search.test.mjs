@@ -6,21 +6,12 @@ import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { searchProjectDirectory } from './project-file-search.ts';
+import { projectIndexBuildsSettled, searchProjectDirectory } from './project-file-search.ts';
 
 async function tempRoot(t) {
   const root = await mkdtemp(join(tmpdir(), 'mixdog-file-search-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   return root;
-}
-
-async function eventually(check) {
-  for (let turn = 0; turn < 2_000; turn += 1) {
-    const value = await check();
-    if (value) return value;
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-  assert.fail('condition was not reached');
 }
 
 test('a stale index is served at once while it rebuilds in the background', async (t) => {
@@ -34,8 +25,8 @@ test('a stale index is served at once while it rebuilds in the background', asyn
   t.mock.timers.tick(61_000);
   // Stale: the caller gets the old list rather than waiting for a walk…
   assert.deepEqual(await searchProjectDirectory(root, '.ts', 10), ['first.ts']);
-  // …and a later search sees the rebuilt one.
-  await eventually(async () => (await searchProjectDirectory(root, '.ts', 10)).includes('second.ts'));
+  // …and once the background walk has finished, a later search sees the rebuilt one.
+  await projectIndexBuildsSettled();
   assert.deepEqual(await searchProjectDirectory(root, '.ts', 10), ['first.ts', 'second.ts']);
 });
 
@@ -49,11 +40,10 @@ test('a root that disappears stops serving its stale index', async (t) => {
   await rm(root, { recursive: true, force: true });
   t.mock.timers.tick(61_000);
   assert.deepEqual(await searchProjectDirectory(root, 'gone', 10), ['gone.ts']);
-  const failure = await eventually(() =>
-    searchProjectDirectory(root, 'gone', 10).then(
-      () => null,
-      (error) => error
-    )
+  await projectIndexBuildsSettled();
+  const failure = await searchProjectDirectory(root, 'gone', 10).then(
+    () => null,
+    (error) => error
   );
   assert.equal(failure.code, 'ENOENT');
 });

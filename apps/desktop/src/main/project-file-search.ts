@@ -365,6 +365,11 @@ function buildProjectIndex(root: string, includeIgnored: boolean, maxScannedEntr
   return build;
 }
 
+/** Resolves once every index walk in flight has finished (whether it built or failed): the signal that a background rebuild is done. */
+export async function projectIndexBuildsSettled(): Promise<void> {
+  await Promise.allSettled([...buildingIndexes.values()]);
+}
+
 async function projectIndexFor(
   root: string,
   includeIgnored: boolean,
