@@ -58,7 +58,12 @@ impl Scm {
             self.inspector.scan_without_line_stats(self.lane, reference).await
         }
         .map_err(crate::mutate::scm_error)?;
-        to_value(&scan.json)
+        // The scan is kept until something changes in the work tree; Node asked its remote list again once its minute was out.
+        let (names, url) = crate::inspect::status::remote_metadata(&self.git, cancel, Path::new(&scan.json.root), &RunOptions::read()).await?;
+        let mut value = to_value(&scan.json)?;
+        value["remote"] = Value::Bool(!names.is_empty());
+        value["remoteUrl"] = Value::String(url);
+        Ok(value)
     }
 
     pub async fn git_branches(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken) -> Result<Value, ScmFailure> {

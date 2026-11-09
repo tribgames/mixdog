@@ -60,9 +60,10 @@ delete process.env.MIXDOG_FEATURE_GIT;
 
 // `ghlogin_<pid>_<n>` (github-cli.ts): the scripted host has a fixed pid.
 Object.defineProperty(process, 'pid', { value: 4242 });
-// A worktree file's revision token (git-history.ts worktreeRevision) is `size:mtimeNs:ctimeNs:ino` of the file system. The
-// recording's file system is scripted the same way: the identity of a path, and a time that moves with the content.
-{
+// A worktree file's revision token (git-history.ts worktreeRevision) is `size:mtimeNs:ctimeNs:ino` of the file system. The golden
+// recording scripts the file system the same way (the identity of a path, and a time that moves with the content) so it is byte-
+// reproducible; the replay reads the real one, and Node answers the revision-bearing calls again on that same file system.
+if (!REPLAY) {
   const realStat = fs.promises.stat;
   const fnv = (text) => {
     let h = 0x811c9dc5n;
@@ -84,6 +85,10 @@ const pty = scriptedPty({ onSpawn: (spawn) => processes.push(spawn) });
 const main = (name) => importFrom(tree, `apps/desktop/src/main/${name}.ts`);
 const { createRemoteMethods, executeRemoteFrame } = await main('remote-methods');
 const { createDesktopOperations } = await main('desktop-operations');
+// The daemon that answers the phone starts git on its process-runner worker (desktop-service.ts:1052), so a failed command's text is\n// git-runner.ts gitFailure's (`Command failed: git commit ...`), not execFile's (which names the resolved git.exe).
+const { setGitProcessRunner } = await main('git-runner');
+const { runProcessOffThread } = await importFrom(tree, 'src/runtime/shared/process-runner.mjs');
+setGitProcessRunner(runProcessOffThread);
 const githubCli = await main('github-cli');
 githubCli.githubCliLoginTestHooks.pty = pty.module;
 // The sign-in ends when the continuation of its `gh auth setup-git` call has set the flow's state. Node has no event for that,
@@ -223,26 +228,21 @@ async function replayCall(call, params) {
   }
 }
 
-// The answers that differ from the recording for a reason of the recording's machine or of Node's own cache, not of the core. Each is
-// listed with its reason and still compared: a different difference than the one named here fails the replay.
-const KNOWN_DIFFERENCES = {
-  gitReview: 'revision is the file system identity (size:mtimeNs:ctimeNs:ino); the recording scripted the file system, the core reads the real one',
-  'gitReview-uncommitted': 'revision, as above',
-  'gitCommit-nothing-staged': "Node's message names the machine's git.exe path (the recording scripted it); the core names `git` (mixdog-scm/src/git.rs:310)",
-  'gitStatus-behind': "Node answered `remote:false` from its cached remote read taken before the remote was added; the core reads it fresh",
-};
-
 async function finishReplay() {
   replay.client.close?.();
   const exited = new Promise((resolve) => replay.core.once('exit', resolve));
   execFileSync('taskkill', ['/T', '/F', '/PID', String(replay.core.pid)], { stdio: 'ignore' });
   await exited;
   rmSync(WORK, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
-  const unexpected = replay.differences.filter((difference) => !difference.known);
-  console.log(`phone-scm replay over ${REPLAY}: ${replay.compared.length} compared, ${replay.differences.length - unexpected.length} known machine/cache differences, ${unexpected.length} unexpected, ${replay.skipped.length} not replayed`);
-  for (const difference of replay.differences) if (!difference.known) console.log(`DIFF ${difference.name}\n  node: ${JSON.stringify(difference.node)}\n  core: ${JSON.stringify(difference.core)}`);
-  for (const difference of replay.differences) if (difference.known) console.log(`KNOWN ${difference.name}: ${difference.known}`);
-  process.exit(unexpected.length ? 1 : 0);
+  console.log(`phone-scm replay over ${REPLAY}: ${replay.compared.length} compared, ${replay.differences.length} differ, ${replay.skipped.length} not replayed: ${replay.skipped.join(', ')}`);
+  for (const difference of replay.differences) console.log(`DIFF ${difference.name}\n  node: ${JSON.stringify(difference.node)}\n  core: ${JSON.stringify(difference.core)}`);
+  process.exit(replay.differences.length ? 1 : 0);
+}
+const LIVE_NODE = new Set(['gitReview', 'gitReview-uncommitted']);
+async function nodeFrame(call, params) {
+  const frame = await executeRemoteFrame(methods, JSON.stringify({ id: 1, method: call, params }));
+  const { id: _id, ...answer } = JSON.parse(JSON.stringify(frame));
+  return answer;
 }
 /** One phone call through the relay's frame executor. */
 async function rec(name, call, params, note) {
@@ -251,8 +251,11 @@ async function rec(name, call, params, note) {
     assert.ok(recorded, `${name} is not in the recording`);
     if (recorded.processes || recorded.world.ghInstalled) return replay.skipped.push(name), recorded.frame;
     const core = await replayCall(call, JSON.parse(JSON.stringify(params)));
+    // A revision is the file system's own identity (size, times, inode): it differs per machine and per run, so Node answers these
+    // again on the very files the core just read instead of the golden's scripted ones.
+    const expected = LIVE_NODE.has(name) ? await nodeFrame(call, params) : recorded.frame;
     replay.compared.push(name);
-    if (!isDeepStrictEqual(core, recorded.frame)) replay.differences.push({ name, node: recorded.frame, core, known: KNOWN_DIFFERENCES[name] });
+    if (!isDeepStrictEqual(core, expected)) replay.differences.push({ name, node: expected, core });
     return core;
   }
   covered.add(call);
@@ -471,7 +474,13 @@ await rec('gitFetch-no-remote', 'gitFetch', [R]);
 await rec('gitPull-no-remote', 'gitPull', [R]);
 await rec('gitSync-no-remote', 'gitSync', [R]);
 git(WORK, 'init', '-q', '--bare', '-b', 'main', ORIGIN);
+// Node answers `remote` from a read it keeps for 60 s per directory and never drops earlier (git-status.ts:179-207, TTL
+// git-read-utils.ts:6): a remote added right after a status shows only once that minute has passed. The wait is that wall-clock TTL.
+await rec('gitStatus-before-remote-add', 'gitStatus', [R]);
 git(R, 'remote', 'add', 'origin', ORIGIN);
+await rec('gitStatus-remote-just-added', 'gitStatus', [R]);
+await new Promise((resolve) => setTimeout(resolve, 61_000));
+await rec('gitStatus-remote-after-ttl', 'gitStatus', [R]);
 await rec('gitPush-no-upstream', 'gitPush', [R]);
 git(R, 'push', '-q', '-u', 'origin', 'main');
 await rec('gitPush-up-to-date', 'gitPush', [R]);

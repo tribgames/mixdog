@@ -3239,7 +3239,7 @@
       ],
       "frame": {
         "ok": false,
-        "error": "Command failed: C:\\Program Files\\Git\\mingw64\\bin\\git.exe commit -m Nothing to commit"
+        "error": "Command failed: git commit -m Nothing to commit"
       },
       "ops": [
         {
@@ -3249,7 +3249,7 @@
             "Nothing to commit"
           ],
           "error": {
-            "message": "Command failed: C:\\Program Files\\Git\\mingw64\\bin\\git.exe commit -m Nothing to commit"
+            "message": "Command failed: git commit -m Nothing to commit"
           }
         }
       ],
@@ -5518,6 +5518,207 @@
       }
     },
     {
+      "name": "gitStatus-before-remote-add",
+      "call": "gitStatus",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "repository": true,
+          "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "branch": "main",
+          "detached": false,
+          "unborn": false,
+          "upstream": false,
+          "upstreamName": "",
+          "remote": false,
+          "remoteUrl": "",
+          "ahead": 0,
+          "behind": 0,
+          "operation": "",
+          "files": [],
+          "untrackedOmitted": 0
+        }
+      },
+      "ops": [
+        {
+          "name": "gitStatus",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            {
+              "reuseLineStats": false,
+              "skipLineStats": false
+            }
+          ],
+          "result": {
+            "repository": true,
+            "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            "branch": "main",
+            "detached": false,
+            "unborn": false,
+            "upstream": false,
+            "upstreamName": "",
+            "remote": false,
+            "remoteUrl": "",
+            "ahead": 0,
+            "behind": 0,
+            "operation": "",
+            "files": [],
+            "untrackedOmitted": 0
+          }
+        }
+      ],
+      "world": {
+        "ghInstalled": false,
+        "ghAuth": false,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": false,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "gitStatus-remote-just-added",
+      "call": "gitStatus",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "repository": true,
+          "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "branch": "main",
+          "detached": false,
+          "unborn": false,
+          "upstream": false,
+          "upstreamName": "",
+          "remote": false,
+          "remoteUrl": "",
+          "ahead": 0,
+          "behind": 0,
+          "operation": "",
+          "files": [],
+          "untrackedOmitted": 0
+        }
+      },
+      "ops": [
+        {
+          "name": "gitStatus",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            {
+              "reuseLineStats": false,
+              "skipLineStats": false
+            }
+          ],
+          "result": {
+            "repository": true,
+            "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            "branch": "main",
+            "detached": false,
+            "unborn": false,
+            "upstream": false,
+            "upstreamName": "",
+            "remote": false,
+            "remoteUrl": "",
+            "ahead": 0,
+            "behind": 0,
+            "operation": "",
+            "files": [],
+            "untrackedOmitted": 0
+          }
+        }
+      ],
+      "world": {
+        "ghInstalled": false,
+        "ghAuth": false,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": false,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "gitStatus-remote-after-ttl",
+      "call": "gitStatus",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "repository": true,
+          "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "branch": "main",
+          "detached": false,
+          "unborn": false,
+          "upstream": false,
+          "upstreamName": "",
+          "remote": true,
+          "remoteUrl": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+          "ahead": 0,
+          "behind": 0,
+          "operation": "",
+          "files": [],
+          "untrackedOmitted": 0
+        }
+      },
+      "ops": [
+        {
+          "name": "gitStatus",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            {
+              "reuseLineStats": false,
+              "skipLineStats": false
+            }
+          ],
+          "result": {
+            "repository": true,
+            "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            "branch": "main",
+            "detached": false,
+            "unborn": false,
+            "upstream": false,
+            "upstreamName": "",
+            "remote": true,
+            "remoteUrl": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
+            "ahead": 0,
+            "behind": 0,
+            "operation": "",
+            "files": [],
+            "untrackedOmitted": 0
+          }
+        }
+      ],
+      "world": {
+        "ghInstalled": false,
+        "ghAuth": false,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": false,
+        "wingetInstallsSoffice": true,
+        "starred": false,
+        "ghApiDown": false
+      }
+    },
+    {
       "name": "gitPush-no-upstream",
       "call": "gitPush",
       "params": [
@@ -5665,8 +5866,8 @@
           "unborn": false,
           "upstream": true,
           "upstreamName": "origin/main",
-          "remote": false,
-          "remoteUrl": "",
+          "remote": true,
+          "remoteUrl": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
           "ahead": 0,
           "behind": 1,
           "operation": "",
@@ -5692,8 +5893,8 @@
             "unborn": false,
             "upstream": true,
             "upstreamName": "origin/main",
-            "remote": false,
-            "remoteUrl": "",
+            "remote": true,
+            "remoteUrl": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
             "ahead": 0,
             "behind": 1,
             "operation": "",
@@ -10569,8 +10770,8 @@
           "unborn": false,
           "upstream": true,
           "upstreamName": "origin/main",
-          "remote": false,
-          "remoteUrl": "",
+          "remote": true,
+          "remoteUrl": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
           "ahead": 1,
           "behind": 2,
           "operation": "",
@@ -10987,8 +11188,8 @@
           "unborn": false,
           "upstream": true,
           "upstreamName": "origin/main",
-          "remote": false,
-          "remoteUrl": "",
+          "remote": true,
+          "remoteUrl": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
           "ahead": 1,
           "behind": 2,
           "operation": "",
