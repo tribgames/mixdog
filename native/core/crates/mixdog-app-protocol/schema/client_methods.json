@@ -16331,6 +16331,13 @@
             "null"
           ]
         },
+        "snapshot": {
+          "description": "`true`: the reply also carries `requestSnapshot`, the provider request the thread's next send would carry (needs `threadId`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "threadId": {
           "type": [
             "string",
