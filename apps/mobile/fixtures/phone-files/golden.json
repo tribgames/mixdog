@@ -906,7 +906,9 @@
           "frame": {
             "ok": true,
             "value": {
-              "mtimeMs": 1794229841717.777
+              "mtimeMs": {
+                "$fileMtime": true
+              }
             }
           }
         },
@@ -953,7 +955,9 @@
           "frame": {
             "ok": true,
             "value": {
-              "mtimeMs": 1794229841728.7864
+              "mtimeMs": {
+                "$fileMtime": true
+              }
             }
           }
         },
@@ -970,7 +974,9 @@
           "frame": {
             "ok": true,
             "value": {
-              "mtimeMs": 1794229841737.3025
+              "mtimeMs": {
+                "$fileMtime": true
+              }
             }
           }
         },
@@ -987,7 +993,9 @@
           "frame": {
             "ok": true,
             "value": {
-              "mtimeMs": 1794229841751.3032
+              "mtimeMs": {
+                "$fileMtime": true
+              }
             }
           }
         },
@@ -1748,7 +1756,7 @@
             "value": {
               "content": "draft\n",
               "expectedContent": "export const a = 1;\n",
-              "updatedAt": 1794229841818
+              "updatedAt": 1780819750000
             }
           }
         },
@@ -1764,7 +1772,7 @@
             "value": {
               "content": "draft\n",
               "expectedContent": "export const a = 1;\n",
-              "updatedAt": 1794229841818
+              "updatedAt": 1780819750000
             }
           }
         },
@@ -2764,7 +2772,9 @@
               "mime": "image/png",
               "mtimeMs": 1767323045000,
               "size": 70,
-              "mediaAssetId": "79e253de-b279-4e11-ab3e-7848263f654e"
+              "mediaAssetId": {
+                "$lease": 0
+              }
             }
           }
         },
@@ -3680,7 +3690,9 @@
           "frame": {
             "ok": true,
             "value": {
-              "mtimeMs": 1794229845076.788
+              "mtimeMs": {
+                "$fileMtime": true
+              }
             }
           }
         },
@@ -3720,7 +3732,7 @@
             "value": {
               "content": "draft granted\n",
               "expectedContent": "granted edit\n",
-              "updatedAt": 1794229845087
+              "updatedAt": 1780819750000
             }
           }
         },
@@ -3738,7 +3750,7 @@
             "value": {
               "content": "draft granted\n",
               "expectedContent": "granted edit\n",
-              "updatedAt": 1794229845087
+              "updatedAt": 1780819750000
             }
           }
         },

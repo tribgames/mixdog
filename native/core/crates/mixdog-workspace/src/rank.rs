@@ -94,4 +94,14 @@ mod tests {
         let b = match_file("m.rs", "m").unwrap();
         assert_eq!(compare(("m.rs", &b), ("a/m.rs", &a)), Ordering::Less);
     }
+
+    /// Equal tier, segments and length fall to `localeCompare` (ICU: lowercase before its capital, accents after their letter), where a byte
+    /// compare puts every capital first.
+    #[test]
+    fn ties_break_as_node_locale_compare_does() {
+        let hit = |p: &str| (p.to_owned(), match_file(p, "m").unwrap());
+        let (lower, upper) = (hit("m.rs"), hit("M.rs"));
+        assert_eq!(compare((&lower.0, &lower.1), (&upper.0, &upper.1)), Ordering::Less);
+        assert_eq!(compare((&upper.0, &upper.1), (&lower.0, &lower.1)), Ordering::Greater);
+    }
 }

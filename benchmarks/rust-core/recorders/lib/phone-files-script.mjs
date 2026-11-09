@@ -8,12 +8,14 @@
 // answers that name it are the same on every run), and `{op:'write'|'remove'|'mkdir', ...}` (the world changing under the phone).
 import { existsSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 
 export const ROOT = 'D:\\mixdog-build\\tmp\\ph2-files';
 /** The modification time every file of the world starts with. */
 const EPOCH_MS = Date.UTC(2026, 0, 2, 3, 4, 5);
+/** The virtual clock both worlds run on: Node's `Date.now()` in the recording, the core's backup clock in the replay (`MIXDOG_FIXED_NOW_MS`). */
+export const FIXED_NOW_MS = Date.UTC(2026, 5, 7, 8, 9, 10);
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
 
@@ -358,6 +360,7 @@ export function filesRelayScript(world = filesWorld()) {
  */
 export async function play(script, driver) {
   const steps = [];
+  const leases = new Map();
   const tokens = new Map();
   const resolve = (value) =>
     Array.isArray(value)
@@ -369,7 +372,21 @@ export async function play(script, driver) {
         : value;
   for (const op of script.ops) {
     if (op.op === 'call') {
-      const { frame, hostCalls } = await driver.call(op.name, resolve(op.params));
+      const params = resolve(op.params);
+      const { frame, hostCalls } = await driver.call(op.name, params);
+      // A write answers the mtime the file ended up with, which the OS stamps: the answer is kept as the reference "the file's own mtime"
+      // when it is exactly what the file has (a mismatch stays literal and shows as a difference).
+      if (op.name === 'writeProjectFile' && frame.ok && typeof frame.value?.mtimeMs === 'number' && frame.value.mtimeMs === statSync(join(params[0], params[1])).mtimeMs) {
+        frame.value.mtimeMs = { $fileMtime: true };
+      }
+      // Node's lease id is `randomUUID()` (media-leases.ts:35): v4 format, one fresh id per preview. The trace keeps the order they
+      // were issued in; two answers sharing an id would share an index.
+      if (op.name === 'previewProjectFile' && frame.ok && typeof frame.value?.mediaAssetId === 'string') {
+        const id = frame.value.mediaAssetId;
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id)) throw new Error(`lease id ${id} is not a v4 uuid`);
+        if (!leases.has(id)) leases.set(id, leases.size);
+        frame.value.mediaAssetId = { $lease: leases.get(id) };
+      }
       steps.push({ call: op.name, params: op.params, frame, ...(hostCalls.length ? { hostCalls } : {}) });
     } else if (op.op === 'grant') {
       tokens.set(op.as, await driver.grant(op.path));

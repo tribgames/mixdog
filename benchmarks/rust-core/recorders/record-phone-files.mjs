@@ -11,7 +11,7 @@
 import { mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
-import { filesRelayScript, filesScript, filesWorld, play, treeOf, windowAnswers } from './lib/phone-files-script.mjs';
+import { FIXED_NOW_MS, filesRelayScript, filesScript, filesWorld, play, treeOf, windowAnswers } from './lib/phone-files-script.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const FIXTURES = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-files');
@@ -77,7 +77,13 @@ async function record(make) {
   const driver = {
     async call(name, params) {
       hostLog.length = 0;
-      const frame = await executeRemoteFrame(tables[windowUp ? 'with' : 'without'], JSON.stringify({ id: ++frameId, method: name, params }));
+      // The editor backup stamps `Date.now()`: those calls run on the virtual clock the core is given (every other call reads the real one,
+      // as the core's project catalog does, so the project list orders by recency in both).
+      const real = Date.now;
+      if (name.endsWith('EditorBackup')) Date.now = () => FIXED_NOW_MS;
+      const frame = await executeRemoteFrame(tables[windowUp ? 'with' : 'without'], JSON.stringify({ id: ++frameId, method: name, params })).finally(() => {
+        Date.now = real;
+      });
       const { id: _id, ...answer } = clone(frame);
       if (process.env.FILES_DEBUG) console.log(name, JSON.stringify(params).slice(0, 120), '=>', JSON.stringify(answer).slice(0, 300));
       return { frame: answer, hostCalls: hostLog.splice(0) };
