@@ -8,7 +8,8 @@
 // large synthetic transcript of `tests/long_log.rs` is written in.
 //
 //   node benchmarks/rust-core/recorders/record-long-session-log.mjs --tree <git checkout at --commit, with node_modules> --commit <40-hex>
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -62,22 +63,118 @@ for (let n = 5; n < 8; n += 1) {
 
 const logPath = join(data, 'sessions', `${id}.log.jsonl`);
 const log = readFileSync(logPath, 'utf8');
-const replay = await reader.readSessionLog(logPath);
+// Everything Node's reader returns for the bytes, none of it picked or reshaped.
+const readBack = async (path) => {
+  const r = await reader.readSessionLog(path);
+  return {
+    valid: r.valid, logId: r.logId, sessionId: r.sessionId, prev: r.prev, legacy: r.legacy, seq: r.seq, header: r.header,
+    messages: r.messages, messageCount: r.messageCount, size: r.size, tornTail: r.tornTail, skipped: r.skipped,
+    damage: r.damage, replayFrom: r.replayFrom,
+  };
+};
+const replay = await readBack(logPath);
 const kinds = log.split('\n').slice(0, -1).map((line) => JSON.parse(line).t);
 (await import(at('src/runtime/agent/orchestrator/session/store/session-writer-claim.mjs'))).releaseHeldSessionWriters();
-rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+rmSync(home, { recursive: true, force: true });
 
-writeJson(join(FIXTURES_ROOT, 'long-session-log', 'log.json'), {
-  id,
-  log,
-  kinds,
-  replay: { valid: replay.valid, logId: replay.logId, header: replay.header, messages: replay.messages, replayFrom: replay.replayFrom },
+// The same log with lines Node's reader does not count as records, a partial tail, CRLF line ends and bytes
+// that are not UTF-8: each as bytes, with what Node reads from them.
+const lines = log.split('\n').slice(0, -1);
+const last = lines.length;
+const blank = [lines[0], '', lines[1], '', '', ...lines.slice(2), ''].join('\n') + '\n';
+const malformed = [lines[0], '{"t":"append","s":2,"len":', lines[1], 'not json at all', ...lines.slice(2), '{"t":"patch"}'].join('\n') + '\n';
+const unknown = [
+  lines[0],
+  lines[1],
+  '{"t":"future","s":2}',
+  '[1,2]',
+  '"text"',
+  `{"t":"append","s":${last},"len":9,"messages":[]}`,
+  ...lines.slice(2),
+  `{"t":"session","s":${last},"v":1}`,
+].join('\n') + '\n';
+const tail = `${log}{"t":"append","s":${last},"len":9,"mess`;
+const crlf = lines.join('\r\n') + '\r\n';
+const invalidUtf8 = Buffer.from(log.replace('answer 7', 'answer \u0001'), 'utf8');
+invalidUtf8[invalidUtf8.indexOf(0x01)] = 0xff;
+const mixed = [lines[0], '', '{"t":"future","s":1}', lines[1], 'not json', ...lines.slice(2)].join('\r\n') + '\r\n{"t":"append","s":' + last + ',"len":';
+const caseBytes = {
+  'blank lines': Buffer.from(blank),
+  'malformed lines': Buffer.from(malformed),
+  'unknown records': Buffer.from(unknown),
+  'partial tail': Buffer.from(tail),
+  'CRLF line ends': Buffer.from(crlf),
+  'invalid UTF-8 in a message': invalidUtf8,
+  'all of them': Buffer.from(mixed),
+};
+const casesDir = mkdtempSync(join(tmpdir(), 'mixdog-long-log-cases-'));
+const cases = [];
+for (const [name, bytes] of Object.entries(caseBytes)) {
+  const path = join(casesDir, `${id}.log.jsonl`);
+  writeFileSync(path, bytes);
+  cases.push({ name, id, bytes: bytes.toString('base64'), replay: await readBack(path) });
+}
+
+// A long log in the shape 1.4.5 gives a long session: the whole history again in every snapshot. Written by this
+// generator through Node's own record encoders; the Rust test regenerates the bytes from `params` and must get the
+// recorded `logSha256` before it migrates them.
+const format = await import(at('src/runtime/agent/orchestrator/session/store/session-log-format.mjs'));
+const params = { id: 'sess_big', logId: '0123456789abcdef01234567', start: 60, rounds: 70, editEvery: 25, repeat: 40 };
+const bigMessage = (n) => ({
+  role: ['user', 'assistant', 'tool'][n % 3],
+  content: `message ${n}\n\t"quoted" ${'\u00e9\u{1F600} text '.repeat(params.repeat)}`,
 });
+const bigPath = join(casesDir, `${params.id}.log.jsonl`);
+const bigHash = createHash('sha256');
+const bigFd = openSync(bigPath, 'w');
+let bigBytes = 0;
+const put = (text) => {
+  const buf = Buffer.from(text);
+  writeSync(bigFd, buf);
+  bigHash.update(buf);
+  bigBytes += buf.length;
+};
+const history = [{ role: 'system', content: 'You are a coding agent.' }];
+for (let n = 0; n < params.start; n += 1) history.push(bigMessage(n));
+const jsons = () => history.map(format.messageJson);
+let next = params.start;
+put(format.encodeSessionRecord({ logId: params.logId, id: params.id, header: { id: params.id, title: 'first', updatedAt: 1 } }));
+put(format.encodeCompacted(1, jsons()));
+let seq = 2;
+for (let round = 0; round < params.rounds; round += 1) {
+  const added = [bigMessage(next), bigMessage(next + 1)];
+  next += 2;
+  history.push(...added);
+  put(format.encodeAppend(seq, history.length, added.map(format.messageJson)));
+  put(format.encodePatch(seq + 1, new Map([['updatedAt', JSON.stringify(round + 2)]]), []));
+  seq += 2;
+  history.push(bigMessage(next), bigMessage(next + 1));
+  next += 2;
+  put(format.encodeCompacted(seq, jsons()));
+  seq += 1;
+  if (round % params.editEvery === 0) {
+    const index = history.length - 1;
+    history[index] = bigMessage(next);
+    next += 1;
+    put(format.encodeEdit(seq, history.length, index, 1, [format.messageJson(history[index])]));
+    seq += 1;
+  }
+}
+history.pop();
+put(format.encodeRollback(seq, history.length));
+put(format.encodePatch(seq + 1, new Map([['title', JSON.stringify('last')]]), ['updatedAt']));
+put(`{"t":"append","s":${seq + 2},"len":${history.length + 1},"mess`);
+closeSync(bigFd);
+const large = { params, logBytes: bigBytes, logSha256: bigHash.digest('hex'), replay: await readBack(bigPath) };
+rmSync(casesDir, { recursive: true, force: true });
+
+writeJson(join(FIXTURES_ROOT, 'long-session-log', 'log.json'), { id, log, kinds, replay, cases });
+writeJson(join(FIXTURES_ROOT, 'long-session-log', 'large.json'), large);
 writeSetManifest(join(FIXTURES_ROOT, 'long-session-log'), {
   set: 'long-session-log',
   recorder: 'benchmarks/rust-core/recorders/record-long-session-log.mjs',
   command: 'node benchmarks/rust-core/recorders/record-long-session-log.mjs --tree <git checkout at --commit, with node_modules> --commit <40-hex>',
   identity,
 });
-console.log(`recorded ${kinds.length} records: ${kinds.join(' ')}`);
+console.log(`recorded ${kinds.length} records: ${kinds.join(' ')}; ${cases.length} cases; large log ${bigBytes} bytes, ${large.replay.messages.length} messages`);
 process.exit(0);

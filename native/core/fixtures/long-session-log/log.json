@@ -1,6 +1,6 @@
 {
   "id": "sess_longlog",
-  "log": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"6bc9e87d3cc6393ff4bab532\",\"id\":\"sess_longlog\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_longlog\",\"owner\":\"user\",\"agent\":\"lead\",\"closed\":false,\"generation\":0,\"updatedAt\":1700000000001,\"title\":\"first\",\"tags\":[\"a\"],\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\\nRules — follow them 😀\"},{\"role\":\"user\",\"content\":\"question 1   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 1\",\"usage\":{\"input\":1,\"output\":0.5}}]}\n{\"t\":\"append\",\"s\":2,\"len\":5,\"messages\":[{\"role\":\"user\",\"content\":\"question 2   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 2\",\"usage\":{\"input\":2,\"output\":1}}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"updatedAt\":1700000000002},\"unset\":[]}\n{\"t\":\"compacted\",\"s\":4,\"len\":7,\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\\nRules — follow them 😀\"},{\"role\":\"user\",\"content\":\"question 1   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 1\",\"usage\":{\"input\":1,\"output\":0.5}},{\"role\":\"user\",\"content\":\"question 2   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 2\",\"usage\":{\"input\":2,\"output\":1}},{\"role\":\"user\",\"content\":\"question 3   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 3\",\"usage\":{\"input\":3,\"output\":1.5}}]}\n{\"t\":\"patch\",\"s\":5,\"set\":{\"updatedAt\":1700000000003},\"unset\":[]}\n{\"t\":\"edit\",\"s\":6,\"len\":7,\"at\":2,\"del\":1,\"messages\":[{\"role\":\"tool\",\"tool_call_id\":\"call_9\",\"content\":\"output 9\\nline two\"}]}\n{\"t\":\"patch\",\"s\":7,\"set\":{\"updatedAt\":1700000000004},\"unset\":[]}\n{\"t\":\"rollback\",\"s\":8,\"len\":4}\n{\"t\":\"patch\",\"s\":9,\"set\":{\"updatedAt\":1700000000005},\"unset\":[]}\n{\"t\":\"patch\",\"s\":10,\"set\":{\"updatedAt\":1700000000006,\"title\":\"second\"},\"unset\":[\"tags\"]}\n{\"t\":\"compacted\",\"s\":11,\"len\":6,\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\\nRules — follow them 😀\"},{\"role\":\"user\",\"content\":\"question 1   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"tool\",\"tool_call_id\":\"call_9\",\"content\":\"output 9\\nline two\"},{\"role\":\"user\",\"content\":\"question 2   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"user\",\"content\":\"question 4   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 4\",\"usage\":{\"input\":4,\"output\":2}}]}\n{\"t\":\"patch\",\"s\":12,\"set\":{\"updatedAt\":1700000000007},\"unset\":[]}\n{\"t\":\"compacted\",\"s\":13,\"len\":8,\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\\nRules — follow them 😀\"},{\"role\":\"user\",\"content\":\"question 1   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"tool\",\"tool_call_id\":\"call_9\",\"content\":\"output 9\\nline two\"},{\"role\":\"user\",\"content\":\"question 2   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"user\",\"content\":\"question 4   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 4\",\"usage\":{\"input\":4,\"output\":2}},{\"role\":\"user\",\"content\":\"question 5   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 5\",\"usage\":{\"input\":5,\"output\":2.5}}]}\n{\"t\":\"patch\",\"s\":14,\"set\":{\"updatedAt\":1700000000008},\"unset\":[]}\n{\"t\":\"compacted\",\"s\":15,\"len\":10,\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\\nRules — follow them 😀\"},{\"role\":\"user\",\"content\":\"question 1   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"tool\",\"tool_call_id\":\"call_9\",\"content\":\"output 9\\nline two\"},{\"role\":\"user\",\"content\":\"question 2   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"user\",\"content\":\"question 4   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 4\",\"usage\":{\"input\":4,\"output\":2}},{\"role\":\"user\",\"content\":\"question 5   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 5\",\"usage\":{\"input\":5,\"output\":2.5}},{\"role\":\"user\",\"content\":\"question 6   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 6\",\"usage\":{\"input\":6,\"output\":3}}]}\n{\"t\":\"patch\",\"s\":16,\"set\":{\"updatedAt\":1700000000009},\"unset\":[]}\n{\"t\":\"compacted\",\"s\":17,\"len\":12,\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\\nRules — follow them 😀\"},{\"role\":\"user\",\"content\":\"question 1   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"tool\",\"tool_call_id\":\"call_9\",\"content\":\"output 9\\nline two\"},{\"role\":\"user\",\"content\":\"question 2   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"user\",\"content\":\"question 4   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 4\",\"usage\":{\"input\":4,\"output\":2}},{\"role\":\"user\",\"content\":\"question 5   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 5\",\"usage\":{\"input\":5,\"output\":2.5}},{\"role\":\"user\",\"content\":\"question 6   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 6\",\"usage\":{\"input\":6,\"output\":3}},{\"role\":\"user\",\"content\":\"question 7   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 7\",\"usage\":{\"input\":7,\"output\":3.5}}]}\n{\"t\":\"patch\",\"s\":18,\"set\":{\"updatedAt\":1700000000010},\"unset\":[]}\n",
+  "log": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"b3a29fa471d0b0f97b511037\",\"id\":\"sess_longlog\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_longlog\",\"owner\":\"user\",\"agent\":\"lead\",\"closed\":false,\"generation\":0,\"updatedAt\":1700000000001,\"title\":\"first\",\"tags\":[\"a\"],\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\\nRules — follow them 😀\"},{\"role\":\"user\",\"content\":\"question 1   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 1\",\"usage\":{\"input\":1,\"output\":0.5}}]}\n{\"t\":\"append\",\"s\":2,\"len\":5,\"messages\":[{\"role\":\"user\",\"content\":\"question 2   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 2\",\"usage\":{\"input\":2,\"output\":1}}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"updatedAt\":1700000000002},\"unset\":[]}\n{\"t\":\"compacted\",\"s\":4,\"len\":7,\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\\nRules — follow them 😀\"},{\"role\":\"user\",\"content\":\"question 1   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 1\",\"usage\":{\"input\":1,\"output\":0.5}},{\"role\":\"user\",\"content\":\"question 2   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 2\",\"usage\":{\"input\":2,\"output\":1}},{\"role\":\"user\",\"content\":\"question 3   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 3\",\"usage\":{\"input\":3,\"output\":1.5}}]}\n{\"t\":\"patch\",\"s\":5,\"set\":{\"updatedAt\":1700000000003},\"unset\":[]}\n{\"t\":\"edit\",\"s\":6,\"len\":7,\"at\":2,\"del\":1,\"messages\":[{\"role\":\"tool\",\"tool_call_id\":\"call_9\",\"content\":\"output 9\\nline two\"}]}\n{\"t\":\"patch\",\"s\":7,\"set\":{\"updatedAt\":1700000000004},\"unset\":[]}\n{\"t\":\"rollback\",\"s\":8,\"len\":4}\n{\"t\":\"patch\",\"s\":9,\"set\":{\"updatedAt\":1700000000005},\"unset\":[]}\n{\"t\":\"patch\",\"s\":10,\"set\":{\"updatedAt\":1700000000006,\"title\":\"second\"},\"unset\":[\"tags\"]}\n{\"t\":\"compacted\",\"s\":11,\"len\":6,\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\\nRules — follow them 😀\"},{\"role\":\"user\",\"content\":\"question 1   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"tool\",\"tool_call_id\":\"call_9\",\"content\":\"output 9\\nline two\"},{\"role\":\"user\",\"content\":\"question 2   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"user\",\"content\":\"question 4   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 4\",\"usage\":{\"input\":4,\"output\":2}}]}\n{\"t\":\"patch\",\"s\":12,\"set\":{\"updatedAt\":1700000000007},\"unset\":[]}\n{\"t\":\"compacted\",\"s\":13,\"len\":8,\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\\nRules — follow them 😀\"},{\"role\":\"user\",\"content\":\"question 1   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"tool\",\"tool_call_id\":\"call_9\",\"content\":\"output 9\\nline two\"},{\"role\":\"user\",\"content\":\"question 2   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"user\",\"content\":\"question 4   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 4\",\"usage\":{\"input\":4,\"output\":2}},{\"role\":\"user\",\"content\":\"question 5   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 5\",\"usage\":{\"input\":5,\"output\":2.5}}]}\n{\"t\":\"patch\",\"s\":14,\"set\":{\"updatedAt\":1700000000008},\"unset\":[]}\n{\"t\":\"compacted\",\"s\":15,\"len\":10,\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\\nRules — follow them 😀\"},{\"role\":\"user\",\"content\":\"question 1   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"tool\",\"tool_call_id\":\"call_9\",\"content\":\"output 9\\nline two\"},{\"role\":\"user\",\"content\":\"question 2   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"user\",\"content\":\"question 4   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 4\",\"usage\":{\"input\":4,\"output\":2}},{\"role\":\"user\",\"content\":\"question 5   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 5\",\"usage\":{\"input\":5,\"output\":2.5}},{\"role\":\"user\",\"content\":\"question 6   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 6\",\"usage\":{\"input\":6,\"output\":3}}]}\n{\"t\":\"patch\",\"s\":16,\"set\":{\"updatedAt\":1700000000009},\"unset\":[]}\n{\"t\":\"compacted\",\"s\":17,\"len\":12,\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\\nRules — follow them 😀\"},{\"role\":\"user\",\"content\":\"question 1   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"tool\",\"tool_call_id\":\"call_9\",\"content\":\"output 9\\nline two\"},{\"role\":\"user\",\"content\":\"question 2   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"user\",\"content\":\"question 4   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 4\",\"usage\":{\"input\":4,\"output\":2}},{\"role\":\"user\",\"content\":\"question 5   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 5\",\"usage\":{\"input\":5,\"output\":2.5}},{\"role\":\"user\",\"content\":\"question 6   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 6\",\"usage\":{\"input\":6,\"output\":3}},{\"role\":\"user\",\"content\":\"question 7   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 7\",\"usage\":{\"input\":7,\"output\":3.5}}]}\n{\"t\":\"patch\",\"s\":18,\"set\":{\"updatedAt\":1700000000010},\"unset\":[]}\n",
   "kinds": [
     "session",
     "compacted",
@@ -24,7 +24,11 @@
   ],
   "replay": {
     "valid": true,
-    "logId": "6bc9e87d3cc6393ff4bab532",
+    "logId": "b3a29fa471d0b0f97b511037",
+    "sessionId": "sess_longlog",
+    "prev": null,
+    "legacy": null,
+    "seq": 18,
     "header": {
       "id": "sess_longlog",
       "owner": "user",
@@ -102,6 +106,755 @@
         }
       }
     ],
+    "messageCount": 12,
+    "size": 4757,
+    "tornTail": null,
+    "skipped": [],
+    "damage": null,
     "replayFrom": 17
-  }
+  },
+  "cases": [
+    {
+      "name": "blank lines",
+      "id": "sess_longlog",
+      "bytes": "eyJ0Ijoic2Vzc2lvbiIsInMiOjAsInYiOjEsImxvZ0lkIjoiYjNhMjlmYTQ3MWQwYjBmOTdiNTExMDM3IiwiaWQiOiJzZXNzX2xvbmdsb2ciLCJwcmV2IjpudWxsLCJsZWdhY3kiOm51bGwsImhlYWRlciI6eyJpZCI6InNlc3NfbG9uZ2xvZyIsIm93bmVyIjoidXNlciIsImFnZW50IjoibGVhZCIsImNsb3NlZCI6ZmFsc2UsImdlbmVyYXRpb24iOjAsInVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwMSwidGl0bGUiOiJmaXJzdCIsInRhZ3MiOlsiYSJdLCJ0b29scyI6W119fQoKeyJ0IjoiY29tcGFjdGVkIiwicyI6MSwibGVuIjozLCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDEiLCJ1c2FnZSI6eyJpbnB1dCI6MSwib3V0cHV0IjowLjV9fV19CgoKeyJ0IjoiYXBwZW5kIiwicyI6MiwibGVuIjo1LCJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgMiIsInVzYWdlIjp7ImlucHV0IjoyLCJvdXRwdXQiOjF9fV19CnsidCI6InBhdGNoIiwicyI6Mywic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwMn0sInVuc2V0IjpbXX0KeyJ0IjoiY29tcGFjdGVkIiwicyI6NCwibGVuIjo3LCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDEiLCJ1c2FnZSI6eyJpbnB1dCI6MSwib3V0cHV0IjowLjV9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDIg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDIiLCJ1c2FnZSI6eyJpbnB1dCI6Miwib3V0cHV0IjoxfX0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAzIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciAzIiwidXNhZ2UiOnsiaW5wdXQiOjMsIm91dHB1dCI6MS41fX1dfQp7InQiOiJwYXRjaCIsInMiOjUsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDN9LCJ1bnNldCI6W119CnsidCI6ImVkaXQiLCJzIjo2LCJsZW4iOjcsImF0IjoyLCJkZWwiOjEsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidG9vbCIsInRvb2xfY2FsbF9pZCI6ImNhbGxfOSIsImNvbnRlbnQiOiJvdXRwdXQgOVxubGluZSB0d28ifV19CnsidCI6InBhdGNoIiwicyI6Nywic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwNH0sInVuc2V0IjpbXX0KeyJ0Ijoicm9sbGJhY2siLCJzIjo4LCJsZW4iOjR9CnsidCI6InBhdGNoIiwicyI6OSwic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwNX0sInVuc2V0IjpbXX0KeyJ0IjoicGF0Y2giLCJzIjoxMCwic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwNiwidGl0bGUiOiJzZWNvbmQifSwidW5zZXQiOlsidGFncyJdfQp7InQiOiJjb21wYWN0ZWQiLCJzIjoxMSwibGVuIjo2LCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJ0b29sIiwidG9vbF9jYWxsX2lkIjoiY2FsbF85IiwiY29udGVudCI6Im91dHB1dCA5XG5saW5lIHR3byJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNCDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNCIsInVzYWdlIjp7ImlucHV0Ijo0LCJvdXRwdXQiOjJ9fV19CnsidCI6InBhdGNoIiwicyI6MTIsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDd9LCJ1bnNldCI6W119CnsidCI6ImNvbXBhY3RlZCIsInMiOjEzLCJsZW4iOjgsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IllvdSBhcmUgYSBjb2RpbmcgYWdlbnQuXG5SdWxlcyDigJQgZm9sbG93IHRoZW0g8J+YgCJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InRvb2wiLCJ0b29sX2NhbGxfaWQiOiJjYWxsXzkiLCJjb250ZW50Ijoib3V0cHV0IDlcbmxpbmUgdHdvIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAyIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA0IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciA0IiwidXNhZ2UiOnsiaW5wdXQiOjQsIm91dHB1dCI6Mn19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNSIsInVzYWdlIjp7ImlucHV0Ijo1LCJvdXRwdXQiOjIuNX19XX0KeyJ0IjoicGF0Y2giLCJzIjoxNCwic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwOH0sInVuc2V0IjpbXX0KeyJ0IjoiY29tcGFjdGVkIiwicyI6MTUsImxlbiI6MTAsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IllvdSBhcmUgYSBjb2RpbmcgYWdlbnQuXG5SdWxlcyDigJQgZm9sbG93IHRoZW0g8J+YgCJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InRvb2wiLCJ0b29sX2NhbGxfaWQiOiJjYWxsXzkiLCJjb250ZW50Ijoib3V0cHV0IDlcbmxpbmUgdHdvIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAyIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA0IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciA0IiwidXNhZ2UiOnsiaW5wdXQiOjQsIm91dHB1dCI6Mn19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNSIsInVzYWdlIjp7ImlucHV0Ijo1LCJvdXRwdXQiOjIuNX19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNiIsInVzYWdlIjp7ImlucHV0Ijo2LCJvdXRwdXQiOjN9fV19CnsidCI6InBhdGNoIiwicyI6MTYsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDl9LCJ1bnNldCI6W119CnsidCI6ImNvbXBhY3RlZCIsInMiOjE3LCJsZW4iOjEyLCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJ0b29sIiwidG9vbF9jYWxsX2lkIjoiY2FsbF85IiwiY29udGVudCI6Im91dHB1dCA5XG5saW5lIHR3byJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNCDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNCIsInVzYWdlIjp7ImlucHV0Ijo0LCJvdXRwdXQiOjJ9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDUg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDUiLCJ1c2FnZSI6eyJpbnB1dCI6NSwib3V0cHV0IjoyLjV9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDYg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDYiLCJ1c2FnZSI6eyJpbnB1dCI6Niwib3V0cHV0IjozfX0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA3IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciA3IiwidXNhZ2UiOnsiaW5wdXQiOjcsIm91dHB1dCI6My41fX1dfQp7InQiOiJwYXRjaCIsInMiOjE4LCJzZXQiOnsidXBkYXRlZEF0IjoxNzAwMDAwMDAwMDEwfSwidW5zZXQiOltdfQoK",
+      "replay": {
+        "valid": true,
+        "logId": "b3a29fa471d0b0f97b511037",
+        "sessionId": "sess_longlog",
+        "prev": null,
+        "legacy": null,
+        "seq": 18,
+        "header": {
+          "id": "sess_longlog",
+          "owner": "user",
+          "agent": "lead",
+          "closed": false,
+          "generation": 0,
+          "updatedAt": 1700000000010,
+          "title": "second",
+          "tools": []
+        },
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a coding agent.\nRules — follow them 😀"
+          },
+          {
+            "role": "user",
+            "content": "question 1   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_9",
+            "content": "output 9\nline two"
+          },
+          {
+            "role": "user",
+            "content": "question 2   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "user",
+            "content": "question 4   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 4",
+            "usage": {
+              "input": 4,
+              "output": 2
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 5   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 5",
+            "usage": {
+              "input": 5,
+              "output": 2.5
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 6   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 6",
+            "usage": {
+              "input": 6,
+              "output": 3
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 7   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 7",
+            "usage": {
+              "input": 7,
+              "output": 3.5
+            }
+          }
+        ],
+        "messageCount": 12,
+        "size": 4761,
+        "tornTail": null,
+        "skipped": [
+          {
+            "offset": 266,
+            "length": 1
+          },
+          {
+            "offset": 535,
+            "length": 1
+          },
+          {
+            "offset": 536,
+            "length": 1
+          },
+          {
+            "offset": 4760,
+            "length": 1
+          }
+        ],
+        "damage": null,
+        "replayFrom": 17
+      }
+    },
+    {
+      "name": "malformed lines",
+      "id": "sess_longlog",
+      "bytes": "eyJ0Ijoic2Vzc2lvbiIsInMiOjAsInYiOjEsImxvZ0lkIjoiYjNhMjlmYTQ3MWQwYjBmOTdiNTExMDM3IiwiaWQiOiJzZXNzX2xvbmdsb2ciLCJwcmV2IjpudWxsLCJsZWdhY3kiOm51bGwsImhlYWRlciI6eyJpZCI6InNlc3NfbG9uZ2xvZyIsIm93bmVyIjoidXNlciIsImFnZW50IjoibGVhZCIsImNsb3NlZCI6ZmFsc2UsImdlbmVyYXRpb24iOjAsInVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwMSwidGl0bGUiOiJmaXJzdCIsInRhZ3MiOlsiYSJdLCJ0b29scyI6W119fQp7InQiOiJhcHBlbmQiLCJzIjoyLCJsZW4iOgp7InQiOiJjb21wYWN0ZWQiLCJzIjoxLCJsZW4iOjMsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IllvdSBhcmUgYSBjb2RpbmcgYWdlbnQuXG5SdWxlcyDigJQgZm9sbG93IHRoZW0g8J+YgCJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgMSIsInVzYWdlIjp7ImlucHV0IjoxLCJvdXRwdXQiOjAuNX19XX0Kbm90IGpzb24gYXQgYWxsCnsidCI6ImFwcGVuZCIsInMiOjIsImxlbiI6NSwibWVzc2FnZXMiOlt7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDIg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDIiLCJ1c2FnZSI6eyJpbnB1dCI6Miwib3V0cHV0IjoxfX1dfQp7InQiOiJwYXRjaCIsInMiOjMsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDJ9LCJ1bnNldCI6W119CnsidCI6ImNvbXBhY3RlZCIsInMiOjQsImxlbiI6NywibWVzc2FnZXMiOlt7InJvbGUiOiJzeXN0ZW0iLCJjb250ZW50IjoiWW91IGFyZSBhIGNvZGluZyBhZ2VudC5cblJ1bGVzIOKAlCBmb2xsb3cgdGhlbSDwn5iAIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAxIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciAxIiwidXNhZ2UiOnsiaW5wdXQiOjEsIm91dHB1dCI6MC41fX0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAyIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciAyIiwidXNhZ2UiOnsiaW5wdXQiOjIsIm91dHB1dCI6MX19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMyDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgMyIsInVzYWdlIjp7ImlucHV0IjozLCJvdXRwdXQiOjEuNX19XX0KeyJ0IjoicGF0Y2giLCJzIjo1LCJzZXQiOnsidXBkYXRlZEF0IjoxNzAwMDAwMDAwMDAzfSwidW5zZXQiOltdfQp7InQiOiJlZGl0IiwicyI6NiwibGVuIjo3LCJhdCI6MiwiZGVsIjoxLCJtZXNzYWdlcyI6W3sicm9sZSI6InRvb2wiLCJ0b29sX2NhbGxfaWQiOiJjYWxsXzkiLCJjb250ZW50Ijoib3V0cHV0IDlcbmxpbmUgdHdvIn1dfQp7InQiOiJwYXRjaCIsInMiOjcsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDR9LCJ1bnNldCI6W119CnsidCI6InJvbGxiYWNrIiwicyI6OCwibGVuIjo0fQp7InQiOiJwYXRjaCIsInMiOjksInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDV9LCJ1bnNldCI6W119CnsidCI6InBhdGNoIiwicyI6MTAsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDYsInRpdGxlIjoic2Vjb25kIn0sInVuc2V0IjpbInRhZ3MiXX0KeyJ0IjoiY29tcGFjdGVkIiwicyI6MTEsImxlbiI6NiwibWVzc2FnZXMiOlt7InJvbGUiOiJzeXN0ZW0iLCJjb250ZW50IjoiWW91IGFyZSBhIGNvZGluZyBhZ2VudC5cblJ1bGVzIOKAlCBmb2xsb3cgdGhlbSDwn5iAIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAxIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoidG9vbCIsInRvb2xfY2FsbF9pZCI6ImNhbGxfOSIsImNvbnRlbnQiOiJvdXRwdXQgOVxubGluZSB0d28ifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDIg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDQg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDQiLCJ1c2FnZSI6eyJpbnB1dCI6NCwib3V0cHV0IjoyfX1dfQp7InQiOiJwYXRjaCIsInMiOjEyLCJzZXQiOnsidXBkYXRlZEF0IjoxNzAwMDAwMDAwMDA3fSwidW5zZXQiOltdfQp7InQiOiJjb21wYWN0ZWQiLCJzIjoxMywibGVuIjo4LCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJ0b29sIiwidG9vbF9jYWxsX2lkIjoiY2FsbF85IiwiY29udGVudCI6Im91dHB1dCA5XG5saW5lIHR3byJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNCDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNCIsInVzYWdlIjp7ImlucHV0Ijo0LCJvdXRwdXQiOjJ9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDUg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDUiLCJ1c2FnZSI6eyJpbnB1dCI6NSwib3V0cHV0IjoyLjV9fV19CnsidCI6InBhdGNoIiwicyI6MTQsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDh9LCJ1bnNldCI6W119CnsidCI6ImNvbXBhY3RlZCIsInMiOjE1LCJsZW4iOjEwLCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJ0b29sIiwidG9vbF9jYWxsX2lkIjoiY2FsbF85IiwiY29udGVudCI6Im91dHB1dCA5XG5saW5lIHR3byJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNCDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNCIsInVzYWdlIjp7ImlucHV0Ijo0LCJvdXRwdXQiOjJ9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDUg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDUiLCJ1c2FnZSI6eyJpbnB1dCI6NSwib3V0cHV0IjoyLjV9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDYg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDYiLCJ1c2FnZSI6eyJpbnB1dCI6Niwib3V0cHV0IjozfX1dfQp7InQiOiJwYXRjaCIsInMiOjE2LCJzZXQiOnsidXBkYXRlZEF0IjoxNzAwMDAwMDAwMDA5fSwidW5zZXQiOltdfQp7InQiOiJjb21wYWN0ZWQiLCJzIjoxNywibGVuIjoxMiwibWVzc2FnZXMiOlt7InJvbGUiOiJzeXN0ZW0iLCJjb250ZW50IjoiWW91IGFyZSBhIGNvZGluZyBhZ2VudC5cblJ1bGVzIOKAlCBmb2xsb3cgdGhlbSDwn5iAIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAxIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoidG9vbCIsInRvb2xfY2FsbF9pZCI6ImNhbGxfOSIsImNvbnRlbnQiOiJvdXRwdXQgOVxubGluZSB0d28ifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDIg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDQg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDQiLCJ1c2FnZSI6eyJpbnB1dCI6NCwib3V0cHV0IjoyfX0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA1IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciA1IiwidXNhZ2UiOnsiaW5wdXQiOjUsIm91dHB1dCI6Mi41fX0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA2IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciA2IiwidXNhZ2UiOnsiaW5wdXQiOjYsIm91dHB1dCI6M319LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNyDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNyIsInVzYWdlIjp7ImlucHV0Ijo3LCJvdXRwdXQiOjMuNX19XX0KeyJ0IjoicGF0Y2giLCJzIjoxOCwic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAxMH0sInVuc2V0IjpbXX0KeyJ0IjoicGF0Y2gifQo=",
+      "replay": {
+        "valid": true,
+        "logId": "b3a29fa471d0b0f97b511037",
+        "sessionId": "sess_longlog",
+        "prev": null,
+        "legacy": null,
+        "seq": 18,
+        "header": {
+          "id": "sess_longlog",
+          "owner": "user",
+          "agent": "lead",
+          "closed": false,
+          "generation": 0,
+          "updatedAt": 1700000000010,
+          "title": "second",
+          "tools": []
+        },
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a coding agent.\nRules — follow them 😀"
+          },
+          {
+            "role": "user",
+            "content": "question 1   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_9",
+            "content": "output 9\nline two"
+          },
+          {
+            "role": "user",
+            "content": "question 2   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "user",
+            "content": "question 4   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 4",
+            "usage": {
+              "input": 4,
+              "output": 2
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 5   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 5",
+            "usage": {
+              "input": 5,
+              "output": 2.5
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 6   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 6",
+            "usage": {
+              "input": 6,
+              "output": 3
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 7   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 7",
+            "usage": {
+              "input": 7,
+              "output": 3.5
+            }
+          }
+        ],
+        "messageCount": 12,
+        "size": 4814,
+        "tornTail": null,
+        "skipped": [
+          {
+            "offset": 266,
+            "length": 27
+          },
+          {
+            "offset": 561,
+            "length": 16
+          },
+          {
+            "offset": 4800,
+            "length": 14
+          }
+        ],
+        "damage": null,
+        "replayFrom": 17
+      }
+    },
+    {
+      "name": "unknown records",
+      "id": "sess_longlog",
+      "bytes": "eyJ0Ijoic2Vzc2lvbiIsInMiOjAsInYiOjEsImxvZ0lkIjoiYjNhMjlmYTQ3MWQwYjBmOTdiNTExMDM3IiwiaWQiOiJzZXNzX2xvbmdsb2ciLCJwcmV2IjpudWxsLCJsZWdhY3kiOm51bGwsImhlYWRlciI6eyJpZCI6InNlc3NfbG9uZ2xvZyIsIm93bmVyIjoidXNlciIsImFnZW50IjoibGVhZCIsImNsb3NlZCI6ZmFsc2UsImdlbmVyYXRpb24iOjAsInVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwMSwidGl0bGUiOiJmaXJzdCIsInRhZ3MiOlsiYSJdLCJ0b29scyI6W119fQp7InQiOiJjb21wYWN0ZWQiLCJzIjoxLCJsZW4iOjMsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IllvdSBhcmUgYSBjb2RpbmcgYWdlbnQuXG5SdWxlcyDigJQgZm9sbG93IHRoZW0g8J+YgCJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgMSIsInVzYWdlIjp7ImlucHV0IjoxLCJvdXRwdXQiOjAuNX19XX0KeyJ0IjoiZnV0dXJlIiwicyI6Mn0KWzEsMl0KInRleHQiCnsidCI6ImFwcGVuZCIsInMiOjE5LCJsZW4iOjksIm1lc3NhZ2VzIjpbXX0KeyJ0IjoiYXBwZW5kIiwicyI6MiwibGVuIjo1LCJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgMiIsInVzYWdlIjp7ImlucHV0IjoyLCJvdXRwdXQiOjF9fV19CnsidCI6InBhdGNoIiwicyI6Mywic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwMn0sInVuc2V0IjpbXX0KeyJ0IjoiY29tcGFjdGVkIiwicyI6NCwibGVuIjo3LCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDEiLCJ1c2FnZSI6eyJpbnB1dCI6MSwib3V0cHV0IjowLjV9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDIg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDIiLCJ1c2FnZSI6eyJpbnB1dCI6Miwib3V0cHV0IjoxfX0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAzIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciAzIiwidXNhZ2UiOnsiaW5wdXQiOjMsIm91dHB1dCI6MS41fX1dfQp7InQiOiJwYXRjaCIsInMiOjUsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDN9LCJ1bnNldCI6W119CnsidCI6ImVkaXQiLCJzIjo2LCJsZW4iOjcsImF0IjoyLCJkZWwiOjEsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidG9vbCIsInRvb2xfY2FsbF9pZCI6ImNhbGxfOSIsImNvbnRlbnQiOiJvdXRwdXQgOVxubGluZSB0d28ifV19CnsidCI6InBhdGNoIiwicyI6Nywic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwNH0sInVuc2V0IjpbXX0KeyJ0Ijoicm9sbGJhY2siLCJzIjo4LCJsZW4iOjR9CnsidCI6InBhdGNoIiwicyI6OSwic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwNX0sInVuc2V0IjpbXX0KeyJ0IjoicGF0Y2giLCJzIjoxMCwic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwNiwidGl0bGUiOiJzZWNvbmQifSwidW5zZXQiOlsidGFncyJdfQp7InQiOiJjb21wYWN0ZWQiLCJzIjoxMSwibGVuIjo2LCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJ0b29sIiwidG9vbF9jYWxsX2lkIjoiY2FsbF85IiwiY29udGVudCI6Im91dHB1dCA5XG5saW5lIHR3byJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNCDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNCIsInVzYWdlIjp7ImlucHV0Ijo0LCJvdXRwdXQiOjJ9fV19CnsidCI6InBhdGNoIiwicyI6MTIsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDd9LCJ1bnNldCI6W119CnsidCI6ImNvbXBhY3RlZCIsInMiOjEzLCJsZW4iOjgsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IllvdSBhcmUgYSBjb2RpbmcgYWdlbnQuXG5SdWxlcyDigJQgZm9sbG93IHRoZW0g8J+YgCJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InRvb2wiLCJ0b29sX2NhbGxfaWQiOiJjYWxsXzkiLCJjb250ZW50Ijoib3V0cHV0IDlcbmxpbmUgdHdvIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAyIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA0IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciA0IiwidXNhZ2UiOnsiaW5wdXQiOjQsIm91dHB1dCI6Mn19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNSIsInVzYWdlIjp7ImlucHV0Ijo1LCJvdXRwdXQiOjIuNX19XX0KeyJ0IjoicGF0Y2giLCJzIjoxNCwic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwOH0sInVuc2V0IjpbXX0KeyJ0IjoiY29tcGFjdGVkIiwicyI6MTUsImxlbiI6MTAsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IllvdSBhcmUgYSBjb2RpbmcgYWdlbnQuXG5SdWxlcyDigJQgZm9sbG93IHRoZW0g8J+YgCJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InRvb2wiLCJ0b29sX2NhbGxfaWQiOiJjYWxsXzkiLCJjb250ZW50Ijoib3V0cHV0IDlcbmxpbmUgdHdvIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAyIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA0IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciA0IiwidXNhZ2UiOnsiaW5wdXQiOjQsIm91dHB1dCI6Mn19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNSIsInVzYWdlIjp7ImlucHV0Ijo1LCJvdXRwdXQiOjIuNX19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNiIsInVzYWdlIjp7ImlucHV0Ijo2LCJvdXRwdXQiOjN9fV19CnsidCI6InBhdGNoIiwicyI6MTYsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDl9LCJ1bnNldCI6W119CnsidCI6ImNvbXBhY3RlZCIsInMiOjE3LCJsZW4iOjEyLCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJ0b29sIiwidG9vbF9jYWxsX2lkIjoiY2FsbF85IiwiY29udGVudCI6Im91dHB1dCA5XG5saW5lIHR3byJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNCDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNCIsInVzYWdlIjp7ImlucHV0Ijo0LCJvdXRwdXQiOjJ9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDUg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDUiLCJ1c2FnZSI6eyJpbnB1dCI6NSwib3V0cHV0IjoyLjV9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDYg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDYiLCJ1c2FnZSI6eyJpbnB1dCI6Niwib3V0cHV0IjozfX0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA3IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciA3IiwidXNhZ2UiOnsiaW5wdXQiOjcsIm91dHB1dCI6My41fX1dfQp7InQiOiJwYXRjaCIsInMiOjE4LCJzZXQiOnsidXBkYXRlZEF0IjoxNzAwMDAwMDAwMDEwfSwidW5zZXQiOltdfQp7InQiOiJzZXNzaW9uIiwicyI6MTksInYiOjF9Cg==",
+      "replay": {
+        "valid": true,
+        "logId": "b3a29fa471d0b0f97b511037",
+        "sessionId": "sess_longlog",
+        "prev": null,
+        "legacy": null,
+        "seq": 18,
+        "header": {
+          "id": "sess_longlog",
+          "owner": "user",
+          "agent": "lead",
+          "closed": false,
+          "generation": 0,
+          "updatedAt": 1700000000010,
+          "title": "second",
+          "tools": []
+        },
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a coding agent.\nRules — follow them 😀"
+          },
+          {
+            "role": "user",
+            "content": "question 1   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_9",
+            "content": "output 9\nline two"
+          },
+          {
+            "role": "user",
+            "content": "question 2   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "user",
+            "content": "question 4   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 4",
+            "usage": {
+              "input": 4,
+              "output": 2
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 5   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 5",
+            "usage": {
+              "input": 5,
+              "output": 2.5
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 6   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 6",
+            "usage": {
+              "input": 6,
+              "output": 3
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 7   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 7",
+            "usage": {
+              "input": 7,
+              "output": 3.5
+            }
+          }
+        ],
+        "messageCount": 12,
+        "size": 4864,
+        "tornTail": null,
+        "skipped": [
+          {
+            "offset": 534,
+            "length": 21
+          },
+          {
+            "offset": 555,
+            "length": 6
+          },
+          {
+            "offset": 561,
+            "length": 7
+          },
+          {
+            "offset": 568,
+            "length": 44
+          },
+          {
+            "offset": 4835,
+            "length": 29
+          }
+        ],
+        "damage": null,
+        "replayFrom": 17
+      }
+    },
+    {
+      "name": "partial tail",
+      "id": "sess_longlog",
+      "bytes": "eyJ0Ijoic2Vzc2lvbiIsInMiOjAsInYiOjEsImxvZ0lkIjoiYjNhMjlmYTQ3MWQwYjBmOTdiNTExMDM3IiwiaWQiOiJzZXNzX2xvbmdsb2ciLCJwcmV2IjpudWxsLCJsZWdhY3kiOm51bGwsImhlYWRlciI6eyJpZCI6InNlc3NfbG9uZ2xvZyIsIm93bmVyIjoidXNlciIsImFnZW50IjoibGVhZCIsImNsb3NlZCI6ZmFsc2UsImdlbmVyYXRpb24iOjAsInVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwMSwidGl0bGUiOiJmaXJzdCIsInRhZ3MiOlsiYSJdLCJ0b29scyI6W119fQp7InQiOiJjb21wYWN0ZWQiLCJzIjoxLCJsZW4iOjMsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IllvdSBhcmUgYSBjb2RpbmcgYWdlbnQuXG5SdWxlcyDigJQgZm9sbG93IHRoZW0g8J+YgCJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgMSIsInVzYWdlIjp7ImlucHV0IjoxLCJvdXRwdXQiOjAuNX19XX0KeyJ0IjoiYXBwZW5kIiwicyI6MiwibGVuIjo1LCJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgMiIsInVzYWdlIjp7ImlucHV0IjoyLCJvdXRwdXQiOjF9fV19CnsidCI6InBhdGNoIiwicyI6Mywic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwMn0sInVuc2V0IjpbXX0KeyJ0IjoiY29tcGFjdGVkIiwicyI6NCwibGVuIjo3LCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDEiLCJ1c2FnZSI6eyJpbnB1dCI6MSwib3V0cHV0IjowLjV9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDIg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDIiLCJ1c2FnZSI6eyJpbnB1dCI6Miwib3V0cHV0IjoxfX0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAzIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciAzIiwidXNhZ2UiOnsiaW5wdXQiOjMsIm91dHB1dCI6MS41fX1dfQp7InQiOiJwYXRjaCIsInMiOjUsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDN9LCJ1bnNldCI6W119CnsidCI6ImVkaXQiLCJzIjo2LCJsZW4iOjcsImF0IjoyLCJkZWwiOjEsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidG9vbCIsInRvb2xfY2FsbF9pZCI6ImNhbGxfOSIsImNvbnRlbnQiOiJvdXRwdXQgOVxubGluZSB0d28ifV19CnsidCI6InBhdGNoIiwicyI6Nywic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwNH0sInVuc2V0IjpbXX0KeyJ0Ijoicm9sbGJhY2siLCJzIjo4LCJsZW4iOjR9CnsidCI6InBhdGNoIiwicyI6OSwic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwNX0sInVuc2V0IjpbXX0KeyJ0IjoicGF0Y2giLCJzIjoxMCwic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwNiwidGl0bGUiOiJzZWNvbmQifSwidW5zZXQiOlsidGFncyJdfQp7InQiOiJjb21wYWN0ZWQiLCJzIjoxMSwibGVuIjo2LCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJ0b29sIiwidG9vbF9jYWxsX2lkIjoiY2FsbF85IiwiY29udGVudCI6Im91dHB1dCA5XG5saW5lIHR3byJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNCDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNCIsInVzYWdlIjp7ImlucHV0Ijo0LCJvdXRwdXQiOjJ9fV19CnsidCI6InBhdGNoIiwicyI6MTIsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDd9LCJ1bnNldCI6W119CnsidCI6ImNvbXBhY3RlZCIsInMiOjEzLCJsZW4iOjgsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IllvdSBhcmUgYSBjb2RpbmcgYWdlbnQuXG5SdWxlcyDigJQgZm9sbG93IHRoZW0g8J+YgCJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InRvb2wiLCJ0b29sX2NhbGxfaWQiOiJjYWxsXzkiLCJjb250ZW50Ijoib3V0cHV0IDlcbmxpbmUgdHdvIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAyIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA0IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciA0IiwidXNhZ2UiOnsiaW5wdXQiOjQsIm91dHB1dCI6Mn19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNSIsInVzYWdlIjp7ImlucHV0Ijo1LCJvdXRwdXQiOjIuNX19XX0KeyJ0IjoicGF0Y2giLCJzIjoxNCwic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwOH0sInVuc2V0IjpbXX0KeyJ0IjoiY29tcGFjdGVkIiwicyI6MTUsImxlbiI6MTAsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IllvdSBhcmUgYSBjb2RpbmcgYWdlbnQuXG5SdWxlcyDigJQgZm9sbG93IHRoZW0g8J+YgCJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InRvb2wiLCJ0b29sX2NhbGxfaWQiOiJjYWxsXzkiLCJjb250ZW50Ijoib3V0cHV0IDlcbmxpbmUgdHdvIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAyIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA0IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciA0IiwidXNhZ2UiOnsiaW5wdXQiOjQsIm91dHB1dCI6Mn19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNSIsInVzYWdlIjp7ImlucHV0Ijo1LCJvdXRwdXQiOjIuNX19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNiIsInVzYWdlIjp7ImlucHV0Ijo2LCJvdXRwdXQiOjN9fV19CnsidCI6InBhdGNoIiwicyI6MTYsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDl9LCJ1bnNldCI6W119CnsidCI6ImNvbXBhY3RlZCIsInMiOjE3LCJsZW4iOjEyLCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJ0b29sIiwidG9vbF9jYWxsX2lkIjoiY2FsbF85IiwiY29udGVudCI6Im91dHB1dCA5XG5saW5lIHR3byJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNCDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNCIsInVzYWdlIjp7ImlucHV0Ijo0LCJvdXRwdXQiOjJ9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDUg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDUiLCJ1c2FnZSI6eyJpbnB1dCI6NSwib3V0cHV0IjoyLjV9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDYg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDYiLCJ1c2FnZSI6eyJpbnB1dCI6Niwib3V0cHV0IjozfX0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA3IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciA3IiwidXNhZ2UiOnsiaW5wdXQiOjcsIm91dHB1dCI6My41fX1dfQp7InQiOiJwYXRjaCIsInMiOjE4LCJzZXQiOnsidXBkYXRlZEF0IjoxNzAwMDAwMDAwMDEwfSwidW5zZXQiOltdfQp7InQiOiJhcHBlbmQiLCJzIjoxOSwibGVuIjo5LCJtZXNz",
+      "replay": {
+        "valid": true,
+        "logId": "b3a29fa471d0b0f97b511037",
+        "sessionId": "sess_longlog",
+        "prev": null,
+        "legacy": null,
+        "seq": 18,
+        "header": {
+          "id": "sess_longlog",
+          "owner": "user",
+          "agent": "lead",
+          "closed": false,
+          "generation": 0,
+          "updatedAt": 1700000000010,
+          "title": "second",
+          "tools": []
+        },
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a coding agent.\nRules — follow them 😀"
+          },
+          {
+            "role": "user",
+            "content": "question 1   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_9",
+            "content": "output 9\nline two"
+          },
+          {
+            "role": "user",
+            "content": "question 2   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "user",
+            "content": "question 4   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 4",
+            "usage": {
+              "input": 4,
+              "output": 2
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 5   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 5",
+            "usage": {
+              "input": 5,
+              "output": 2.5
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 6   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 6",
+            "usage": {
+              "input": 6,
+              "output": 3
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 7   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 7",
+            "usage": {
+              "input": 7,
+              "output": 3.5
+            }
+          }
+        ],
+        "messageCount": 12,
+        "size": 4791,
+        "tornTail": {
+          "offset": 4757,
+          "length": 34
+        },
+        "skipped": [],
+        "damage": null,
+        "replayFrom": 17
+      }
+    },
+    {
+      "name": "CRLF line ends",
+      "id": "sess_longlog",
+      "bytes": "eyJ0Ijoic2Vzc2lvbiIsInMiOjAsInYiOjEsImxvZ0lkIjoiYjNhMjlmYTQ3MWQwYjBmOTdiNTExMDM3IiwiaWQiOiJzZXNzX2xvbmdsb2ciLCJwcmV2IjpudWxsLCJsZWdhY3kiOm51bGwsImhlYWRlciI6eyJpZCI6InNlc3NfbG9uZ2xvZyIsIm93bmVyIjoidXNlciIsImFnZW50IjoibGVhZCIsImNsb3NlZCI6ZmFsc2UsImdlbmVyYXRpb24iOjAsInVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwMSwidGl0bGUiOiJmaXJzdCIsInRhZ3MiOlsiYSJdLCJ0b29scyI6W119fQ0KeyJ0IjoiY29tcGFjdGVkIiwicyI6MSwibGVuIjozLCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDEiLCJ1c2FnZSI6eyJpbnB1dCI6MSwib3V0cHV0IjowLjV9fV19DQp7InQiOiJhcHBlbmQiLCJzIjoyLCJsZW4iOjUsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAyIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciAyIiwidXNhZ2UiOnsiaW5wdXQiOjIsIm91dHB1dCI6MX19XX0NCnsidCI6InBhdGNoIiwicyI6Mywic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwMn0sInVuc2V0IjpbXX0NCnsidCI6ImNvbXBhY3RlZCIsInMiOjQsImxlbiI6NywibWVzc2FnZXMiOlt7InJvbGUiOiJzeXN0ZW0iLCJjb250ZW50IjoiWW91IGFyZSBhIGNvZGluZyBhZ2VudC5cblJ1bGVzIOKAlCBmb2xsb3cgdGhlbSDwn5iAIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAxIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciAxIiwidXNhZ2UiOnsiaW5wdXQiOjEsIm91dHB1dCI6MC41fX0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAyIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciAyIiwidXNhZ2UiOnsiaW5wdXQiOjIsIm91dHB1dCI6MX19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMyDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgMyIsInVzYWdlIjp7ImlucHV0IjozLCJvdXRwdXQiOjEuNX19XX0NCnsidCI6InBhdGNoIiwicyI6NSwic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwM30sInVuc2V0IjpbXX0NCnsidCI6ImVkaXQiLCJzIjo2LCJsZW4iOjcsImF0IjoyLCJkZWwiOjEsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidG9vbCIsInRvb2xfY2FsbF9pZCI6ImNhbGxfOSIsImNvbnRlbnQiOiJvdXRwdXQgOVxubGluZSB0d28ifV19DQp7InQiOiJwYXRjaCIsInMiOjcsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDR9LCJ1bnNldCI6W119DQp7InQiOiJyb2xsYmFjayIsInMiOjgsImxlbiI6NH0NCnsidCI6InBhdGNoIiwicyI6OSwic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwNX0sInVuc2V0IjpbXX0NCnsidCI6InBhdGNoIiwicyI6MTAsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDYsInRpdGxlIjoic2Vjb25kIn0sInVuc2V0IjpbInRhZ3MiXX0NCnsidCI6ImNvbXBhY3RlZCIsInMiOjExLCJsZW4iOjYsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IllvdSBhcmUgYSBjb2RpbmcgYWdlbnQuXG5SdWxlcyDigJQgZm9sbG93IHRoZW0g8J+YgCJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InRvb2wiLCJ0b29sX2NhbGxfaWQiOiJjYWxsXzkiLCJjb250ZW50Ijoib3V0cHV0IDlcbmxpbmUgdHdvIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAyIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA0IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciA0IiwidXNhZ2UiOnsiaW5wdXQiOjQsIm91dHB1dCI6Mn19XX0NCnsidCI6InBhdGNoIiwicyI6MTIsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDd9LCJ1bnNldCI6W119DQp7InQiOiJjb21wYWN0ZWQiLCJzIjoxMywibGVuIjo4LCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJ0b29sIiwidG9vbF9jYWxsX2lkIjoiY2FsbF85IiwiY29udGVudCI6Im91dHB1dCA5XG5saW5lIHR3byJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNCDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNCIsInVzYWdlIjp7ImlucHV0Ijo0LCJvdXRwdXQiOjJ9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDUg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDUiLCJ1c2FnZSI6eyJpbnB1dCI6NSwib3V0cHV0IjoyLjV9fV19DQp7InQiOiJwYXRjaCIsInMiOjE0LCJzZXQiOnsidXBkYXRlZEF0IjoxNzAwMDAwMDAwMDA4fSwidW5zZXQiOltdfQ0KeyJ0IjoiY29tcGFjdGVkIiwicyI6MTUsImxlbiI6MTAsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IllvdSBhcmUgYSBjb2RpbmcgYWdlbnQuXG5SdWxlcyDigJQgZm9sbG93IHRoZW0g8J+YgCJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InRvb2wiLCJ0b29sX2NhbGxfaWQiOiJjYWxsXzkiLCJjb250ZW50Ijoib3V0cHV0IDlcbmxpbmUgdHdvIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAyIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA0IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciA0IiwidXNhZ2UiOnsiaW5wdXQiOjQsIm91dHB1dCI6Mn19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNSIsInVzYWdlIjp7ImlucHV0Ijo1LCJvdXRwdXQiOjIuNX19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNiIsInVzYWdlIjp7ImlucHV0Ijo2LCJvdXRwdXQiOjN9fV19DQp7InQiOiJwYXRjaCIsInMiOjE2LCJzZXQiOnsidXBkYXRlZEF0IjoxNzAwMDAwMDAwMDA5fSwidW5zZXQiOltdfQ0KeyJ0IjoiY29tcGFjdGVkIiwicyI6MTcsImxlbiI6MTIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IllvdSBhcmUgYSBjb2RpbmcgYWdlbnQuXG5SdWxlcyDigJQgZm9sbG93IHRoZW0g8J+YgCJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InRvb2wiLCJ0b29sX2NhbGxfaWQiOiJjYWxsXzkiLCJjb250ZW50Ijoib3V0cHV0IDlcbmxpbmUgdHdvIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAyIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA0IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciA0IiwidXNhZ2UiOnsiaW5wdXQiOjQsIm91dHB1dCI6Mn19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNSIsInVzYWdlIjp7ImlucHV0Ijo1LCJvdXRwdXQiOjIuNX19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNiIsInVzYWdlIjp7ImlucHV0Ijo2LCJvdXRwdXQiOjN9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDcg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDciLCJ1c2FnZSI6eyJpbnB1dCI6Nywib3V0cHV0IjozLjV9fV19DQp7InQiOiJwYXRjaCIsInMiOjE4LCJzZXQiOnsidXBkYXRlZEF0IjoxNzAwMDAwMDAwMDEwfSwidW5zZXQiOltdfQ0K",
+      "replay": {
+        "valid": true,
+        "logId": "b3a29fa471d0b0f97b511037",
+        "sessionId": "sess_longlog",
+        "prev": null,
+        "legacy": null,
+        "seq": 18,
+        "header": {
+          "id": "sess_longlog",
+          "owner": "user",
+          "agent": "lead",
+          "closed": false,
+          "generation": 0,
+          "updatedAt": 1700000000010,
+          "title": "second",
+          "tools": []
+        },
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a coding agent.\nRules — follow them 😀"
+          },
+          {
+            "role": "user",
+            "content": "question 1   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_9",
+            "content": "output 9\nline two"
+          },
+          {
+            "role": "user",
+            "content": "question 2   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "user",
+            "content": "question 4   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 4",
+            "usage": {
+              "input": 4,
+              "output": 2
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 5   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 5",
+            "usage": {
+              "input": 5,
+              "output": 2.5
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 6   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 6",
+            "usage": {
+              "input": 6,
+              "output": 3
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 7   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 7",
+            "usage": {
+              "input": 7,
+              "output": 3.5
+            }
+          }
+        ],
+        "messageCount": 12,
+        "size": 4776,
+        "tornTail": null,
+        "skipped": [],
+        "damage": null,
+        "replayFrom": 17
+      }
+    },
+    {
+      "name": "invalid UTF-8 in a message",
+      "id": "sess_longlog",
+      "bytes": "eyJ0Ijoic2Vzc2lvbiIsInMiOjAsInYiOjEsImxvZ0lkIjoiYjNhMjlmYTQ3MWQwYjBmOTdiNTExMDM3IiwiaWQiOiJzZXNzX2xvbmdsb2ciLCJwcmV2IjpudWxsLCJsZWdhY3kiOm51bGwsImhlYWRlciI6eyJpZCI6InNlc3NfbG9uZ2xvZyIsIm93bmVyIjoidXNlciIsImFnZW50IjoibGVhZCIsImNsb3NlZCI6ZmFsc2UsImdlbmVyYXRpb24iOjAsInVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwMSwidGl0bGUiOiJmaXJzdCIsInRhZ3MiOlsiYSJdLCJ0b29scyI6W119fQp7InQiOiJjb21wYWN0ZWQiLCJzIjoxLCJsZW4iOjMsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IllvdSBhcmUgYSBjb2RpbmcgYWdlbnQuXG5SdWxlcyDigJQgZm9sbG93IHRoZW0g8J+YgCJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgMSIsInVzYWdlIjp7ImlucHV0IjoxLCJvdXRwdXQiOjAuNX19XX0KeyJ0IjoiYXBwZW5kIiwicyI6MiwibGVuIjo1LCJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgMiIsInVzYWdlIjp7ImlucHV0IjoyLCJvdXRwdXQiOjF9fV19CnsidCI6InBhdGNoIiwicyI6Mywic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwMn0sInVuc2V0IjpbXX0KeyJ0IjoiY29tcGFjdGVkIiwicyI6NCwibGVuIjo3LCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDEiLCJ1c2FnZSI6eyJpbnB1dCI6MSwib3V0cHV0IjowLjV9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDIg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDIiLCJ1c2FnZSI6eyJpbnB1dCI6Miwib3V0cHV0IjoxfX0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAzIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciAzIiwidXNhZ2UiOnsiaW5wdXQiOjMsIm91dHB1dCI6MS41fX1dfQp7InQiOiJwYXRjaCIsInMiOjUsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDN9LCJ1bnNldCI6W119CnsidCI6ImVkaXQiLCJzIjo2LCJsZW4iOjcsImF0IjoyLCJkZWwiOjEsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidG9vbCIsInRvb2xfY2FsbF9pZCI6ImNhbGxfOSIsImNvbnRlbnQiOiJvdXRwdXQgOVxubGluZSB0d28ifV19CnsidCI6InBhdGNoIiwicyI6Nywic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwNH0sInVuc2V0IjpbXX0KeyJ0Ijoicm9sbGJhY2siLCJzIjo4LCJsZW4iOjR9CnsidCI6InBhdGNoIiwicyI6OSwic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwNX0sInVuc2V0IjpbXX0KeyJ0IjoicGF0Y2giLCJzIjoxMCwic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwNiwidGl0bGUiOiJzZWNvbmQifSwidW5zZXQiOlsidGFncyJdfQp7InQiOiJjb21wYWN0ZWQiLCJzIjoxMSwibGVuIjo2LCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJ0b29sIiwidG9vbF9jYWxsX2lkIjoiY2FsbF85IiwiY29udGVudCI6Im91dHB1dCA5XG5saW5lIHR3byJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNCDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNCIsInVzYWdlIjp7ImlucHV0Ijo0LCJvdXRwdXQiOjJ9fV19CnsidCI6InBhdGNoIiwicyI6MTIsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDd9LCJ1bnNldCI6W119CnsidCI6ImNvbXBhY3RlZCIsInMiOjEzLCJsZW4iOjgsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IllvdSBhcmUgYSBjb2RpbmcgYWdlbnQuXG5SdWxlcyDigJQgZm9sbG93IHRoZW0g8J+YgCJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InRvb2wiLCJ0b29sX2NhbGxfaWQiOiJjYWxsXzkiLCJjb250ZW50Ijoib3V0cHV0IDlcbmxpbmUgdHdvIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAyIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA0IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciA0IiwidXNhZ2UiOnsiaW5wdXQiOjQsIm91dHB1dCI6Mn19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNSIsInVzYWdlIjp7ImlucHV0Ijo1LCJvdXRwdXQiOjIuNX19XX0KeyJ0IjoicGF0Y2giLCJzIjoxNCwic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwOH0sInVuc2V0IjpbXX0KeyJ0IjoiY29tcGFjdGVkIiwicyI6MTUsImxlbiI6MTAsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IllvdSBhcmUgYSBjb2RpbmcgYWdlbnQuXG5SdWxlcyDigJQgZm9sbG93IHRoZW0g8J+YgCJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InRvb2wiLCJ0b29sX2NhbGxfaWQiOiJjYWxsXzkiLCJjb250ZW50Ijoib3V0cHV0IDlcbmxpbmUgdHdvIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAyIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA0IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciA0IiwidXNhZ2UiOnsiaW5wdXQiOjQsIm91dHB1dCI6Mn19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNSIsInVzYWdlIjp7ImlucHV0Ijo1LCJvdXRwdXQiOjIuNX19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNiIsInVzYWdlIjp7ImlucHV0Ijo2LCJvdXRwdXQiOjN9fV19CnsidCI6InBhdGNoIiwicyI6MTYsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDl9LCJ1bnNldCI6W119CnsidCI6ImNvbXBhY3RlZCIsInMiOjE3LCJsZW4iOjEyLCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJ0b29sIiwidG9vbF9jYWxsX2lkIjoiY2FsbF85IiwiY29udGVudCI6Im91dHB1dCA5XG5saW5lIHR3byJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNCDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNCIsInVzYWdlIjp7ImlucHV0Ijo0LCJvdXRwdXQiOjJ9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDUg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDUiLCJ1c2FnZSI6eyJpbnB1dCI6NSwib3V0cHV0IjoyLjV9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDYg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDYiLCJ1c2FnZSI6eyJpbnB1dCI6Niwib3V0cHV0IjozfX0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA3IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciD/IiwidXNhZ2UiOnsiaW5wdXQiOjcsIm91dHB1dCI6My41fX1dfQp7InQiOiJwYXRjaCIsInMiOjE4LCJzZXQiOnsidXBkYXRlZEF0IjoxNzAwMDAwMDAwMDEwfSwidW5zZXQiOltdfQo=",
+      "replay": {
+        "valid": true,
+        "logId": "b3a29fa471d0b0f97b511037",
+        "sessionId": "sess_longlog",
+        "prev": null,
+        "legacy": null,
+        "seq": 18,
+        "header": {
+          "id": "sess_longlog",
+          "owner": "user",
+          "agent": "lead",
+          "closed": false,
+          "generation": 0,
+          "updatedAt": 1700000000010,
+          "title": "second",
+          "tools": []
+        },
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a coding agent.\nRules — follow them 😀"
+          },
+          {
+            "role": "user",
+            "content": "question 1   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_9",
+            "content": "output 9\nline two"
+          },
+          {
+            "role": "user",
+            "content": "question 2   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "user",
+            "content": "question 4   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 4",
+            "usage": {
+              "input": 4,
+              "output": 2
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 5   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 5",
+            "usage": {
+              "input": 5,
+              "output": 2.5
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 6   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 6",
+            "usage": {
+              "input": 6,
+              "output": 3
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 7   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer �",
+            "usage": {
+              "input": 7,
+              "output": 3.5
+            }
+          }
+        ],
+        "messageCount": 12,
+        "size": 4757,
+        "tornTail": null,
+        "skipped": [],
+        "damage": null,
+        "replayFrom": 17
+      }
+    },
+    {
+      "name": "all of them",
+      "id": "sess_longlog",
+      "bytes": "eyJ0Ijoic2Vzc2lvbiIsInMiOjAsInYiOjEsImxvZ0lkIjoiYjNhMjlmYTQ3MWQwYjBmOTdiNTExMDM3IiwiaWQiOiJzZXNzX2xvbmdsb2ciLCJwcmV2IjpudWxsLCJsZWdhY3kiOm51bGwsImhlYWRlciI6eyJpZCI6InNlc3NfbG9uZ2xvZyIsIm93bmVyIjoidXNlciIsImFnZW50IjoibGVhZCIsImNsb3NlZCI6ZmFsc2UsImdlbmVyYXRpb24iOjAsInVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwMSwidGl0bGUiOiJmaXJzdCIsInRhZ3MiOlsiYSJdLCJ0b29scyI6W119fQ0KDQp7InQiOiJmdXR1cmUiLCJzIjoxfQ0KeyJ0IjoiY29tcGFjdGVkIiwicyI6MSwibGVuIjozLCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDEiLCJ1c2FnZSI6eyJpbnB1dCI6MSwib3V0cHV0IjowLjV9fV19DQpub3QganNvbg0KeyJ0IjoiYXBwZW5kIiwicyI6MiwibGVuIjo1LCJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgMiIsInVzYWdlIjp7ImlucHV0IjoyLCJvdXRwdXQiOjF9fV19DQp7InQiOiJwYXRjaCIsInMiOjMsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDJ9LCJ1bnNldCI6W119DQp7InQiOiJjb21wYWN0ZWQiLCJzIjo0LCJsZW4iOjcsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IllvdSBhcmUgYSBjb2RpbmcgYWdlbnQuXG5SdWxlcyDigJQgZm9sbG93IHRoZW0g8J+YgCJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMSDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgMSIsInVzYWdlIjp7ImlucHV0IjoxLCJvdXRwdXQiOjAuNX19LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgMiIsInVzYWdlIjp7ImlucHV0IjoyLCJvdXRwdXQiOjF9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDMg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDMiLCJ1c2FnZSI6eyJpbnB1dCI6Mywib3V0cHV0IjoxLjV9fV19DQp7InQiOiJwYXRjaCIsInMiOjUsInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDN9LCJ1bnNldCI6W119DQp7InQiOiJlZGl0IiwicyI6NiwibGVuIjo3LCJhdCI6MiwiZGVsIjoxLCJtZXNzYWdlcyI6W3sicm9sZSI6InRvb2wiLCJ0b29sX2NhbGxfaWQiOiJjYWxsXzkiLCJjb250ZW50Ijoib3V0cHV0IDlcbmxpbmUgdHdvIn1dfQ0KeyJ0IjoicGF0Y2giLCJzIjo3LCJzZXQiOnsidXBkYXRlZEF0IjoxNzAwMDAwMDAwMDA0fSwidW5zZXQiOltdfQ0KeyJ0Ijoicm9sbGJhY2siLCJzIjo4LCJsZW4iOjR9DQp7InQiOiJwYXRjaCIsInMiOjksInNldCI6eyJ1cGRhdGVkQXQiOjE3MDAwMDAwMDAwMDV9LCJ1bnNldCI6W119DQp7InQiOiJwYXRjaCIsInMiOjEwLCJzZXQiOnsidXBkYXRlZEF0IjoxNzAwMDAwMDAwMDA2LCJ0aXRsZSI6InNlY29uZCJ9LCJ1bnNldCI6WyJ0YWdzIl19DQp7InQiOiJjb21wYWN0ZWQiLCJzIjoxMSwibGVuIjo2LCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJ0b29sIiwidG9vbF9jYWxsX2lkIjoiY2FsbF85IiwiY29udGVudCI6Im91dHB1dCA5XG5saW5lIHR3byJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNCDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNCIsInVzYWdlIjp7ImlucHV0Ijo0LCJvdXRwdXQiOjJ9fV19DQp7InQiOiJwYXRjaCIsInMiOjEyLCJzZXQiOnsidXBkYXRlZEF0IjoxNzAwMDAwMDAwMDA3fSwidW5zZXQiOltdfQ0KeyJ0IjoiY29tcGFjdGVkIiwicyI6MTMsImxlbiI6OCwibWVzc2FnZXMiOlt7InJvbGUiOiJzeXN0ZW0iLCJjb250ZW50IjoiWW91IGFyZSBhIGNvZGluZyBhZ2VudC5cblJ1bGVzIOKAlCBmb2xsb3cgdGhlbSDwn5iAIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiAxIOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoidG9vbCIsInRvb2xfY2FsbF9pZCI6ImNhbGxfOSIsImNvbnRlbnQiOiJvdXRwdXQgOVxubGluZSB0d28ifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDIg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDQg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDQiLCJ1c2FnZSI6eyJpbnB1dCI6NCwib3V0cHV0IjoyfX0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA1IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciA1IiwidXNhZ2UiOnsiaW5wdXQiOjUsIm91dHB1dCI6Mi41fX1dfQ0KeyJ0IjoicGF0Y2giLCJzIjoxNCwic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwOH0sInVuc2V0IjpbXX0NCnsidCI6ImNvbXBhY3RlZCIsInMiOjE1LCJsZW4iOjEwLCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJ0b29sIiwidG9vbF9jYWxsX2lkIjoiY2FsbF85IiwiY29udGVudCI6Im91dHB1dCA5XG5saW5lIHR3byJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNCDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNCIsInVzYWdlIjp7ImlucHV0Ijo0LCJvdXRwdXQiOjJ9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDUg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDUiLCJ1c2FnZSI6eyJpbnB1dCI6NSwib3V0cHV0IjoyLjV9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDYg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDYiLCJ1c2FnZSI6eyJpbnB1dCI6Niwib3V0cHV0IjozfX1dfQ0KeyJ0IjoicGF0Y2giLCJzIjoxNiwic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAwOX0sInVuc2V0IjpbXX0NCnsidCI6ImNvbXBhY3RlZCIsInMiOjE3LCJsZW4iOjEyLCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJZb3UgYXJlIGEgY29kaW5nIGFnZW50LlxuUnVsZXMg4oCUIGZvbGxvdyB0aGVtIPCfmIAifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDEg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJ0b29sIiwidG9vbF9jYWxsX2lkIjoiY2FsbF85IiwiY29udGVudCI6Im91dHB1dCA5XG5saW5lIHR3byJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gMiDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoicXVlc3Rpb24gNCDigKggd2l0aCBcInF1b3Rlc1wiXG5cdHRhYiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJhbnN3ZXIgNCIsInVzYWdlIjp7ImlucHV0Ijo0LCJvdXRwdXQiOjJ9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDUg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDUiLCJ1c2FnZSI6eyJpbnB1dCI6NSwib3V0cHV0IjoyLjV9fSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6InF1ZXN0aW9uIDYg4oCoIHdpdGggXCJxdW90ZXNcIlxuXHR0YWIifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiYW5zd2VyIDYiLCJ1c2FnZSI6eyJpbnB1dCI6Niwib3V0cHV0IjozfX0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJxdWVzdGlvbiA3IOKAqCB3aXRoIFwicXVvdGVzXCJcblx0dGFiIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6ImFuc3dlciA3IiwidXNhZ2UiOnsiaW5wdXQiOjcsIm91dHB1dCI6My41fX1dfQ0KeyJ0IjoicGF0Y2giLCJzIjoxOCwic2V0Ijp7InVwZGF0ZWRBdCI6MTcwMDAwMDAwMDAxMH0sInVuc2V0IjpbXX0NCnsidCI6ImFwcGVuZCIsInMiOjE5LCJsZW4iOg==",
+      "replay": {
+        "valid": true,
+        "logId": "b3a29fa471d0b0f97b511037",
+        "sessionId": "sess_longlog",
+        "prev": null,
+        "legacy": null,
+        "seq": 18,
+        "header": {
+          "id": "sess_longlog",
+          "owner": "user",
+          "agent": "lead",
+          "closed": false,
+          "generation": 0,
+          "updatedAt": 1700000000010,
+          "title": "second",
+          "tools": []
+        },
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a coding agent.\nRules — follow them 😀"
+          },
+          {
+            "role": "user",
+            "content": "question 1   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_9",
+            "content": "output 9\nline two"
+          },
+          {
+            "role": "user",
+            "content": "question 2   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "user",
+            "content": "question 4   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 4",
+            "usage": {
+              "input": 4,
+              "output": 2
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 5   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 5",
+            "usage": {
+              "input": 5,
+              "output": 2.5
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 6   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 6",
+            "usage": {
+              "input": 6,
+              "output": 3
+            }
+          },
+          {
+            "role": "user",
+            "content": "question 7   with \"quotes\"\n\ttab"
+          },
+          {
+            "role": "assistant",
+            "content": "answer 7",
+            "usage": {
+              "input": 7,
+              "output": 3.5
+            }
+          }
+        ],
+        "messageCount": 12,
+        "size": 4837,
+        "tornTail": {
+          "offset": 4810,
+          "length": 27
+        },
+        "skipped": [
+          {
+            "offset": 267,
+            "length": 2
+          },
+          {
+            "offset": 269,
+            "length": 22
+          },
+          {
+            "offset": 560,
+            "length": 10
+          }
+        ],
+        "damage": null,
+        "replayFrom": 17
+      }
+    }
+  ]
 }
