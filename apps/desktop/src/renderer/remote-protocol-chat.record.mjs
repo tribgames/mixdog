@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+// The shared exact export of b6f10295a (read-only): the recorder only imports from it.
 const [exportDir, outFile] = process.argv.slice(2);
 const COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 process.env.MIXDOG_DATA_DIR = await mkdtemp(join(tmpdir(), 'phone-chat-rec-'));
@@ -23,7 +24,7 @@ const full = (sessionId, extra = {}) => ({
   full: { sessionId, items: [], queued: [], busy: false, commandBusy: false, provider: 'p', model: 'm', fast: false, ...extra },
 });
 
-async function withHost(daemon, run) {
+async function withHost(daemon, run, remoteConfig = {}) {
   const calls = [];
   const client = new Proxy(
     {},
@@ -37,35 +38,59 @@ async function withHost(daemon, run) {
       },
     }
   );
+  const registered = [...(daemon.projects ?? [])];
+  const projectsStore = {
+    listProjects: () => registered,
+    addProject: (path) => {
+      let entry = registered.find((p) => p.path === path);
+      if (!entry) registered.push((entry = { name: path.split(/[\\\\/]/).pop(), path, addedAt: 1 }));
+      return entry;
+    },
+    touchProjectSelected() {},
+  };
   const root = await mkdtemp(join(tmpdir(), 'phone-chat-host-'));
   const host = await SessionHost.create(
     { userDataPath: root, resourcesPath: root, appPath: root, packaged: false },
     {
       attachSessionClient: async () => client,
-      loadProjects: async () => ({}),
-      loadSessionStore: async () => ({}),
+      loadProjects: async () => projectsStore,
+      loadSessionStore: async () => ({ listProjects: async () => daemon.projects ?? [] }),
       loadSessionSearch: async () => ({ searchSessionMessages: async () => daemon.search ?? [] }),
       loadStatuslineSegments: async () => ({}),
       executeCodeGraphTool: async () => ({}),
     }
   );
   const events = [];
+  const remoteCalls = [];
+  const { createRemoteMethods } = await import(pathToFileURL(join(exportDir, 'apps/desktop/src/main/remote-methods.ts')).href);
+  const remote = createRemoteMethods(
+    {
+      host,
+      hostRequest: async (method, args) => {
+        remoteCalls.push({ method, args });
+        return remoteConfig.hostReply;
+      },
+      approvalNotifications: remoteConfig.approvalNotifications,
+    },
+    remoteConfig.client
+  );
   host.subscribeSessions((s) => events.push({ event: 'sessions', ids: s.map((x) => x.id) }));
   host.subscribeSessionStates((u) => events.push({ event: 'sessionState', sessionId: u.sessionId, source: u.source }));
   try {
-    const result = await run(host);
-    return { result, daemonCalls: calls, events };
+    const result = await run(host, remote);
+    return { result, daemonCalls: calls, events, ...(remoteCalls.length ? { hostRequests: remoteCalls } : {}), ...(remoteConfig.client?.calls?.length ? { clientCalls: remoteConfig.client.calls } : {}) };
   } catch (error) {
-    return { error: String(error?.message ?? error), daemonCalls: calls, events };
+    return { error: String(error?.message ?? error), daemonCalls: calls, events, ...(remoteCalls.length ? { hostRequests: remoteCalls } : {}), ...(remoteConfig.client?.calls?.length ? { clientCalls: remoteConfig.client.calls } : {}) };
   } finally {
     await host.dispose().catch(() => {});
   }
 }
 
 const cases = [];
-const record = async (name, call, args, daemon, run) => cases.push({ name, call, args, daemon, node: await withHost(daemon, run) });
+const record = async (name, call, args, daemon, run, remoteConfig) => cases.push({ name, call, args, daemon, ...(remoteConfig?.note ? { scripted: remoteConfig.note } : {}), node: await withHost(daemon, run, remoteConfig) });
 
 const S = 'sess_a';
+const projectDir = await mkdtemp(join(tmpdir(), 'phone-chat-proj-'));
 await record('markSessionRead-changed', 'markSessionRead', [S, 3, false], { list: { sessions: [row(S)] } }, async (h) => {
   await h.listSessions();
   return h.markSessionRead(S, 3, false);
@@ -132,6 +157,127 @@ await record('listProviderModels', 'listProviderModels', [{ quick: false }], {
   ...control,
   read: { ...full('ctl'), value: [{ provider: 'p', id: 'm', name: 'M', effortOptions: [{ value: 'low', label: 'Low' }, { value: '', label: 'x' }], fastCapable: true, contextWindow: 1000 }, { provider: '', id: 'x' }] },
 }, (h) => h.listProviderModels({ quick: false }));
+
+// ── batch 2: the calls the first batch left out. Phone-method layer = createRemoteMethods (remote-methods.ts) over the real host.
+const clientOf = (extra = {}) => {
+  const calls = [];
+  return {
+    calls,
+    deviceName: async () => 'Pixel 9',
+    viewedSessionIds: () => [S],
+    heldTranscript: () => toolSnapshot,
+    requestRead: (id) => calls.push(['requestRead', id]),
+    requestTranscriptPage: (id, n) => calls.push(['requestTranscriptPage', id, n]),
+    releaseRead: (id) => calls.push(['releaseRead', id]),
+    staleView: () => false,
+    ...extra,
+  };
+};
+const toolRows = [{ kind: 'tool', id: 'tool1', result: 'full output', rawResult: { raw: 1 }, uiDiff: { d: 1 } }, { kind: 'user', id: 'u1', text: 'hi' }];
+const toolSnapshot = { items: toolRows };
+const noStale = {};
+
+await record('viewerDevice-named', 'viewerDevice', [], {}, (_h, r) => r.viewerDevice([]), { client: clientOf() });
+await record('viewerDevice-default', 'viewerDevice', [], {}, (_h, r) => r.viewerDevice([]), { client: clientOf({ deviceName: async () => '' }) });
+await record('readTranscriptItem-found', 'readTranscriptItem', [S, 'tool1'], { read: { ...full(S, { items: toolRows }) } }, (_h, r) =>
+  r.readTranscriptItem([S, 'tool1']), { client: clientOf() });
+await record('readTranscriptItem-not-viewed', 'readTranscriptItem', [S, 'tool1'], { read: full(S, { items: toolRows }) }, (_h, r) =>
+  r.readTranscriptItem([S, 'tool1']), { client: clientOf({ viewedSessionIds: () => [] }) });
+await record('readTranscriptItem-not-held', 'readTranscriptItem', [S, 'nope'], { read: full(S, { items: toolRows }) }, (_h, r) =>
+  r.readTranscriptItem([S, 'nope']), { client: clientOf() });
+const notifications = {
+  approvalAllowDecision: (_s, id) => (id === 'ap1' ? { approved: true, scope: 'once' } : undefined),
+  approvalPointerOnly: (_s, id) => id === 'ptr',
+};
+const notifNote = 'approvalNotifications is a scripted stand-in for push-notifier.ts (its rules are not under test)';
+await record('answerApprovalNotification-answered', 'answerApprovalNotification', [S, 'ap1', 'allow'], { approve: { ...full(S), approved: true } },
+  (_h, r) => r.answerApprovalNotification([S, 'ap1', 'allow']), { client: clientOf(), approvalNotifications: notifications, note: notifNote });
+await record('answerApprovalNotification-settled', 'answerApprovalNotification', [S, 'ap1', 'deny'], { approve: { ...full(S), approved: false } },
+  (_h, r) => r.answerApprovalNotification([S, 'ap1', 'deny']), { client: clientOf(), approvalNotifications: notifications, note: notifNote });
+await record('answerApprovalNotification-open', 'answerApprovalNotification', [S, 'ap2', 'allow'], {},
+  (_h, r) => r.answerApprovalNotification([S, 'ap2', 'allow']), { client: clientOf(), approvalNotifications: notifications, note: notifNote });
+await record('resolveToolApproval-pointer-only', 'resolveToolApprovalForSession', [S, 'ptr', { approved: true }], {},
+  (_h, r) => r.resolveToolApprovalForSession([S, 'ptr', { approved: true }]), { client: clientOf(), approvalNotifications: notifications, note: notifNote });
+await record('provideSecretInput-true', 'provideSecretInput', ['req1', 's3cret'], {}, (_h, r) => r.provideSecretInput(['req1', 's3cret']), {
+  client: clientOf(), hostReply: true, note: 'hostRequest (the window process) is scripted: the secret slot is not part of the daemon',
+});
+await record('provideSecretInput-false', 'provideSecretInput', ['req1', 's3cret'], {}, (_h, r) => r.provideSecretInput(['req1', 's3cret']), {
+  client: clientOf(), hostReply: false, note: 'hostRequest (the window process) is scripted: the secret slot is not part of the daemon',
+});
+await record('readCapabilities', 'readCapabilities', [[{ capability: 'getProfile', args: [] }]], { ...control, read: { ...full('ctl'), value: { name: 'Mixy' } } },
+  (_h, r) => r.readCapabilities([[{ capability: 'getProfile', args: [] }]]), { client: clientOf() });
+await record('readCapabilities-failed', 'readCapabilities', [[{ capability: 'getProfile', args: [] }]], { ...control, read: () => { throw new Error('profile unavailable'); } },
+  (_h, r) => r.readCapabilities([[{ capability: 'getProfile', args: [] }]]), { client: clientOf() });
+await record('prefetchSession-limit', 'prefetchSession', [S, 40, 'trace1'], { read: full(S, { items: toolRows }) },
+  (_h, r) => r.prefetchSession([S, 40, 'trace1']), { client: clientOf(), });
+await record('prefetchSession-fails', 'prefetchSession', [S, 40], { read: () => { throw new Error('read failed'); } },
+  (_h, r) => r.prefetchSession([S, 40]), { client: clientOf() });
+await record('setSessionArchived-true', 'setSessionArchived', [S, true], { ...control, list: { sessions: [row(S)] }, configure: { ...full('ctl'), value: {} } },
+  (_h, r) => r.setSessionArchived([S, true]), { client: clientOf() });
+await record('setSessionArchived-false', 'setSessionArchived', [S, false], { ...control, list: { sessions: [row(S)] }, configure: { ...full('ctl'), value: {} } },
+  (_h, r) => r.setSessionArchived([S, false]), { client: clientOf() });
+const submitEcho = (accepted) => (a) => ({ ...full(a.sessionId), sessionId: a.sessionId, accepted });
+const createEcho = (a) => full(a.sessionId ?? 'sess_new_1');
+await record('submitNewTask-accepted', 'submitNewTask', ['build it', { id: 'sub9' }, {}], { create: createEcho, submit: submitEcho(true), unsubscribe: {}, list: { sessions: [] } },
+  (_h, r) => r.submitNewTask(['build it', { id: 'sub9' }, {}]), { client: clientOf() });
+await record('submitNewTask-refused', 'submitNewTask', ['build it', { id: 'sub10' }, {}], { create: createEcho, submit: submitEcho(false), unsubscribe: {}, list: { sessions: [] } },
+  (_h, r) => r.submitNewTask(['build it', { id: 'sub10' }, {}]), { client: clientOf() });
+await record('submitNewTask-route', 'submitNewTask', ['build it', { id: 'sub11' }, { route: { provider: 'p2', model: 'm2' } }],
+  { create: createEcho, submit: submitEcho(true), configure: (a) => ({ ...full(a.sessionId), value: { provider: 'p2', model: 'm2' } }), unsubscribe: {}, list: { sessions: [] } },
+  (_h, r) => r.submitNewTask(['build it', { id: 'sub11' }, { route: { provider: 'p2', model: 'm2' } }]), { client: clientOf() });
+await record('inheritSession', 'inheritSession', [S, { provider: 'p2', model: 'm2' }, null],
+  { projects: [], list: { sessions: [row(S)] }, create: () => full('sess_heir'), configure: (a) => ({ ...full('sess_heir', { inherited: a.action === 'inheritFrom' }), value: a.action === 'inheritFrom' ? { messages: 3 } : {} }), unsubscribe: {} },
+  (_h, r) => r.inheritSession([S, { provider: 'p2', model: 'm2' }, null]), { client: clientOf() });
+await record('startProject', 'startProject', [projectDir], {}, (_h, r) => r.startProject([projectDir]), { client: clientOf() });
+await record('startProjectTask-registered', 'startProjectTask', [projectDir], { projects: [{ name: 'proj', path: projectDir, addedAt: 1 }] }, (_h, r) => r.startProjectTask([projectDir]), { client: clientOf() });
+await record('startProjectTask-unknown', 'startProjectTask', [projectDir], {}, (_h, r) => r.startProjectTask([projectDir]), { client: clientOf() });
+const missing = () => Object.assign(new Error('session is not available'), { code: 'SESSION_NOT_AVAILABLE' });
+const controlValue = (value) => ({ ...full('ctl'), value });
+const agentRead = (home) => (a) => {
+  if (a.action === 'listAgents') return controlValue(['agent1', 'agent2'].map((id) => ({ id, custom: true, kind: 'bot', name: id, route: { provider: 'p', model: 'm' } })));
+  if (a.action === 'agentDefinitionPresence') return controlValue({ agent1: 'present', agent2: 'present' });
+  if (a.action) return controlValue(null);
+  if (a.sessionId === 'ctl') return full('ctl');
+  if (home === 'missing') throw missing();
+  return full(a.sessionId, { provider: 'p', model: 'm' });
+};
+const homeDaemon = (home) => ({ ...control, read: agentRead(home), create: (a) => full(a.sessionId ?? 'ctl'), configure: (a) => controlValue(a.action === 'clearSession' ? null : {}), unsubscribe: {} });
+await record('openAgentHome-new', 'openAgentHome', ['agent1'], homeDaemon('missing'), (_h, r) => r.openAgentHome(['agent1']), { client: clientOf() });
+await record('openAgentHome-existing', 'openAgentHome', ['agent1'], homeDaemon('existing'), (_h, r) => r.openAgentHome(['agent1']), { client: clientOf() });
+await record('openAgentHome-unknown-agent', 'openAgentHome', ['nobody'], homeDaemon('missing'), (_h, r) => r.openAgentHome(['nobody']), { client: clientOf() });
+await record('resetAgentHome', 'resetAgentHome', ['agent1'], homeDaemon('existing'), (_h, r) => r.resetAgentHome(['agent1']), { client: clientOf() });
+const roomDaemon = { ...homeDaemon('existing'), read: (a) => (a.action === 'getLeadHomeRoute' ? controlValue({ provider: 'p', model: 'm' }) : agentRead('existing')(a)) };
+const roomConfig = { name: 'Room', members: ['agent1', 'agent2'] };
+await record('agentRoomAction-create', 'agentRoomAction', ['create', [roomConfig]], roomDaemon, (_h, r) => r.agentRoomAction(['create', [roomConfig]]), { client: clientOf() });
+await record('agentRoomAction-update', 'agentRoomAction', ['update', ['<roomId>', { name: 'Renamed' }]], roomDaemon, async (_h, r) => {
+  const { roomId } = await r.agentRoomAction(['create', [roomConfig]]);
+  return r.agentRoomAction(['update', [roomId, { name: 'Renamed' }]]);
+}, { client: clientOf(), note: 'the room id is the one the same host minted in create' });
+await record('agentRoomAction-remove', 'agentRoomAction', ['remove', ['<roomId>']], roomDaemon, async (_h, r) => {
+  const { roomId } = await r.agentRoomAction(['create', [roomConfig]]);
+  return r.agentRoomAction(['remove', [roomId]]);
+}, { client: clientOf(), note: 'the room id is the one the same host minted in create' });
+await record('agentRoomAction-unknown', 'agentRoomAction', ['explode', []], {}, (_h, r) => r.agentRoomAction(['explode', []]), { client: clientOf() });
+
+// submitFeedback: Node's own module over an injected fetch (the relay is not reachable from a recording).
+const { submitFeedback } = await import(pathToFileURL(join(exportDir, 'apps/desktop/src/main/feedback-client.ts')).href);
+const feedbackId = '3f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f';
+const feedbackInput = { id: feedbackId, kind: 'bug', message: 'it broke', replyTo: 'me@example.com' };
+for (const [name, respond] of [
+  ['submitFeedback-accepted', async () => new Response(JSON.stringify({ id: feedbackId, status: 'accepted' }), { status: 202 })],
+  ['submitFeedback-rate-limited', async () => new Response('{}', { status: 429 })],
+  ['submitFeedback-unavailable', async () => new Response('{}', { status: 500 })],
+  ['submitFeedback-bad-receipt', async () => new Response(JSON.stringify({ id: 'other', status: 'accepted' }), { status: 202 })],
+  ['submitFeedback-network', async () => { throw new Error('offline'); }],
+]) {
+  let result;
+  try {
+    result = { result: await submitFeedback(feedbackInput, { env: { MIXDOG_RELAY_URL: 'wss://relay.example' }, request: respond }) };
+  } catch (error) {
+    result = { error: error.message };
+  }
+  cases.push({ name, call: 'submitFeedback', args: [feedbackInput], daemon: {}, scripted: 'the relay HTTP answer is scripted; feedback-client.ts runs unchanged', node: { ...result, daemonCalls: [], events: [] } });
+}
 
 const manifest = {
   exact: true,
