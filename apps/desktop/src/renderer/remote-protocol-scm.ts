@@ -1,0 +1,237 @@
+// PH-2 "Source control" group of the phone over `mixdogd`: the git panel, commits, branches, pull requests, GitHub login and the
+// three installers. The phone still calls by Node's relay method names (remote-shim-api.ts); each answers as Node's host did
+// (remote-methods.ts at b6f10295a): the host's argument grammar first, then the desktop operation, then the frame the relay
+// sent back (`undefined` as null, a failure as the page's rebuilt Error with its `code`).
+//
+// The conversions are the desktop's own, shared with its operation lane: the request mapping and reply shapes
+// (shared/scm-operation-route.ts), the argument grammar (shared/scm-input.ts, shared/git-contract.mjs) and the core failure
+// (shared/core-error.ts).
+import { validateGithubRequest } from '../../../../src/runtime/github/contract.mjs';
+import { codedErrorParams } from '../shared/coded-error';
+import { coreFailure } from '../shared/core-error';
+import {
+  requiredCommitHash,
+  requiredGitIgnoreScope,
+  requiredGitResetMode,
+  requiredGitRevision,
+  requiredRepositoryCwd,
+  requiredReviewSource,
+} from '../shared/git-contract.mjs';
+import { SCM_OPERATION_ROUTES, SCM_REPLIES } from '../shared/scm-operation-route';
+import {
+  optionalGithubLoginOptions,
+  requiredGitBranchName,
+  requiredGitDiscardMode,
+  requiredGitGlobalConfigKey,
+  requiredGitLogLimit,
+  requiredGitLogOffset,
+  requiredGitLogQuery,
+  requiredGitOptionalMessage,
+  requiredGitPatch,
+  requiredGitPath,
+  requiredGitPaths,
+  requiredGitRequestContextInput,
+  requiredReviewDiffFiles,
+  requiredString,
+} from '../shared/scm-input';
+import type { NodeCall, PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
+
+/** The part of the protocol client this group uses. */
+interface ScmClient {
+  call(method: string, params: unknown): Promise<unknown>;
+}
+
+/** The one `code` Node's source-control errors carried to the page as a contract (git-mutations.ts GIT_RESET_DIRTY_CODE: "this
+ *  reset needs the user's confirmation"). The core names every other failure with a code of its own (`COMMAND_FAILED`,
+ *  `NO_OPERATION`, `UNKNOWN_FLOW`, ... mixdog-scm/src/error.rs) where Node's errors had none, so those do not reach the page. */
+const NODE_CONTRACT_CODES: ReadonlySet<string> = new Set(['git-reset-dirty-worktree']);
+
+/** What the page's rebuilt Error carried of a failed relay frame: the message, the error's own string `code`, and the public
+ *  display params that code declares (remote-shim-dispatch.ts at b6f10295a). */
+export function phoneCallError(error: unknown): unknown {
+  const failure = coreFailure(error);
+  if (!(failure instanceof Error)) return failure;
+  const given = (failure as { code?: unknown }).code;
+  const code = typeof given === 'string' && NODE_CONTRACT_CODES.has(given) ? given : undefined;
+  const params = codedErrorParams(code, (failure as { details?: unknown }).details);
+  const rebuilt: Error & { code?: string; details?: unknown } = new Error(failure.message || 'remote call failed.');
+  if (typeof code === 'string' && code) rebuilt.code = code;
+  if (params) rebuilt.details = params;
+  return rebuilt;
+}
+
+/** One desktop operation over the connection, answered as the relay's result frame carried it. */
+async function operate(host: PhoneProtocolHost, name: string, args: unknown[]): Promise<unknown> {
+  const client = host.client() as unknown as ScmClient;
+  const call = (method: string, params: unknown): Promise<unknown> => client.call(method, params);
+  try {
+    const route = SCM_OPERATION_ROUTES[name](args);
+    const reply = await call(route.method, route.params);
+    const value = await SCM_REPLIES[name](reply, { args, params: route.params, call });
+    return value === undefined ? null : value;
+  } catch (error) {
+    throw phoneCallError(error);
+  }
+}
+
+const operation =
+  (name: string, args: (params: unknown[]) => unknown[] = () => []): NodeCall =>
+  (params, host) =>
+    operate(host, name, args(params));
+
+const cwdOnly = (name: string): NodeCall => operation(name, ([cwd]) => [requiredRepositoryCwd(cwd)]);
+
+const record = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+
+export const adapter: PhoneProtocolAdapter = {
+  group: 'scm',
+  calls: {
+    // ── working tree and index ──
+    gitStatus: operation('gitStatus', ([cwd, options]) => {
+      const hint = record(options);
+      return [requiredRepositoryCwd(cwd), { reuseLineStats: hint.reuseLineStats === true, skipLineStats: hint.skipLineStats === true }];
+    }),
+    gitDiff: operation('gitDiff', ([cwd, path, staged, worktreeOnly, untracked]) => [
+      requiredRepositoryCwd(cwd),
+      requiredGitPath(path),
+      staged === true,
+      worktreeOnly === true,
+      untracked === true,
+    ]),
+    gitApplyPatch: operation('gitApplyPatch', ([cwd, path, patch, reverse]) => {
+      if (reverse !== undefined && typeof reverse !== 'boolean') throw new TypeError('git patch direction is invalid.');
+      return [requiredRepositoryCwd(cwd), requiredGitPath(path), requiredGitPatch(patch), reverse === true];
+    }),
+    gitStage: operation('gitStage', ([cwd, paths]) => [requiredRepositoryCwd(cwd), requiredGitPaths(paths)]),
+    gitUnstage: operation('gitUnstage', ([cwd, paths]) => [requiredRepositoryCwd(cwd), requiredGitPaths(paths)]),
+    gitIgnore: operation('gitIgnore', ([cwd, path, scope]) => [
+      requiredRepositoryCwd(cwd),
+      requiredGitPath(path),
+      requiredGitIgnoreScope(scope),
+    ]),
+    gitCommit: operation('gitCommit', ([cwd, message]) => [
+      requiredRepositoryCwd(cwd),
+      requiredString(message, 'commit message', 20_000),
+    ]),
+    gitCommitPaths: operation('gitCommitPaths', ([cwd, message, paths]) => [
+      requiredRepositoryCwd(cwd),
+      requiredString(message, 'commit message', 20_000),
+      requiredGitPaths(paths),
+    ]),
+    gitAmend: operation('gitAmend', ([cwd, message]) => [requiredRepositoryCwd(cwd), requiredGitOptionalMessage(message)]),
+    gitUndoLastCommit: cwdOnly('gitUndoLastCommit'),
+    gitRevert: operation('gitRevertFile', ([cwd, path, untracked, mode]) => [
+      requiredRepositoryCwd(cwd),
+      requiredGitPath(path),
+      untracked === true,
+      requiredGitDiscardMode(mode),
+    ]),
+    gitReview: operation('gitReview', ([cwd, source]) => [requiredRepositoryCwd(cwd), requiredReviewSource(source)]),
+    gitReviewDiff: operation('gitReviewDiff', ([cwd, path, untracked, source]) => [
+      requiredRepositoryCwd(cwd),
+      requiredGitPath(path),
+      untracked === true,
+      requiredReviewSource(source),
+    ]),
+    gitReviewDiffs: operation('gitReviewDiffs', ([cwd, files, source]) => [
+      requiredRepositoryCwd(cwd),
+      requiredReviewDiffFiles(files),
+      requiredReviewSource(source),
+    ]),
+    gitStash: operation('gitStash', ([cwd, message]) => [requiredRepositoryCwd(cwd), requiredGitOptionalMessage(message)]),
+    gitStashPop: cwdOnly('gitStashPop'),
+    gitStashList: cwdOnly('gitStashList'),
+    gitStashApply: operation('gitStashApply', ([cwd, ref]) => [requiredRepositoryCwd(cwd), requiredString(ref, 'stash ref', 64)]),
+    gitStashDrop: operation('gitStashDrop', ([cwd, ref]) => [requiredRepositoryCwd(cwd), requiredString(ref, 'stash ref', 64)]),
+
+    // ── branches, tags, the remote ──
+    gitBranches: cwdOnly('gitBranches'),
+    gitRenameBranch: operation('gitRenameBranch', ([cwd, branch, nextBranch]) => [
+      requiredRepositoryCwd(cwd),
+      requiredGitBranchName(branch),
+      requiredGitBranchName(nextBranch),
+    ]),
+    gitDeleteBranch: operation('gitDeleteBranch', ([cwd, branch]) => [requiredRepositoryCwd(cwd), requiredGitBranchName(branch)]),
+    gitCreateTag: operation('gitCreateTag', ([cwd, tag, hash]) => [
+      requiredRepositoryCwd(cwd),
+      requiredString(tag, 'git tag', 512),
+      requiredCommitHash(hash),
+    ]),
+    gitDeleteTag: operation('gitDeleteTag', ([cwd, tag]) => [requiredRepositoryCwd(cwd), requiredString(tag, 'git tag', 512)]),
+    gitPush: cwdOnly('gitPush'),
+    gitFetch: cwdOnly('gitFetch'),
+    gitPull: cwdOnly('gitPull'),
+    gitSync: cwdOnly('gitSync'),
+    gitContinue: cwdOnly('gitContinue'),
+    gitAbortOperation: cwdOnly('gitAbortOperation'),
+
+    // ── commit-addressed reads and moves, the global identity ──
+    gitLog: operation('gitLog', ([cwd, query, skip, limit]) => [
+      requiredRepositoryCwd(cwd),
+      requiredGitLogQuery(query),
+      requiredGitLogOffset(skip),
+      requiredGitLogLimit(limit),
+    ]),
+    gitShow: operation('gitShow', ([cwd, hash]) => [requiredRepositoryCwd(cwd), requiredCommitHash(hash)]),
+    gitShowDiff: operation('gitShowDiff', ([cwd, hash, path]) => [
+      requiredRepositoryCwd(cwd),
+      requiredCommitHash(hash),
+      requiredGitPath(path),
+    ]),
+    gitRequestContext: operation('gitRequestContext', ([cwd, input]) => [
+      requiredRepositoryCwd(cwd),
+      requiredGitRequestContextInput(input),
+    ]),
+    gitShowFile: operation('gitShowFile', ([cwd, rev, path]) => [
+      requiredRepositoryCwd(cwd),
+      requiredGitRevision(rev),
+      requiredGitPath(path),
+    ]),
+    gitResetToCommit: operation('gitResetToCommit', ([cwd, hash, mode, confirmedDirty]) => [
+      requiredRepositoryCwd(cwd),
+      requiredCommitHash(hash),
+      requiredGitResetMode(mode),
+      confirmedDirty === true,
+    ]),
+    gitRevertCommit: operation('gitRevertCommit', ([cwd, hash]) => [requiredRepositoryCwd(cwd), requiredCommitHash(hash)]),
+    gitCherryPickCommit: operation('gitCherryPickCommit', ([cwd, hash]) => [requiredRepositoryCwd(cwd), requiredCommitHash(hash)]),
+    gitGlobalConfig: operation('gitGlobalConfig'),
+    // Empty is a real value here: it UNSETS the key. Node then announced `notifySettingsChanged('git')` to the desktop's
+    // windows; the core does not (Rust gap, native/core/crates/mixdog-scm/src/desktop.rs git_global_config_write).
+    setGitGlobalConfig: operation('setGitGlobalConfig', ([key, value]) => {
+      if (typeof value !== 'string' || value.length > 500) {
+        throw new TypeError('value must be a string of at most 500 characters.');
+      }
+      return [requiredGitGlobalConfigKey(key), value];
+    }),
+
+    // ── tooling: installers and GitHub ──
+    githubStarStatus: operation('githubStarStatus'),
+    starGithub: operation('starGithub'),
+    gitCliStatus: operation('gitCliStatus'),
+    installGitCli: operation('installGitCli'),
+    libreOfficeStatus: operation('libreOfficeStatus', ([refresh]) => [refresh === true]),
+    installLibreOffice: operation('installLibreOffice'),
+    githubCliStatus: operation('githubCliStatus'),
+    githubRequest: operation('githubRequest', ([cwd, input]) => [requiredRepositoryCwd(cwd), validateGithubRequest(input)]),
+    installGithubCli: operation('installGithubCli'),
+    // A remote client opens the device page on its own browser, never the host's: the core's gh never opens one.
+    githubCliLoginStart: operation('githubCliLoginStart', () => [{ openBrowser: false }]),
+    githubCliLoginStatus: operation('githubCliLoginStatus', ([flowId]) => [requiredString(flowId, 'flowId', 200)]),
+    githubCliLoginOpenBrowser: operation('githubCliLoginOpenBrowser', ([flowId, options]) => [
+      requiredString(flowId, 'flowId', 200),
+      optionalGithubLoginOptions(options),
+    ]),
+    githubCliLoginCancel: operation('cancelGithubCliLogin', ([flowId]) => [requiredString(flowId, 'flowId', 200)]),
+    githubCliLogout: operation('githubCliLogout'),
+    githubCliAccount: operation('githubCliAccount'),
+    ghPrList: cwdOnly('ghPrList'),
+    ghPrDefaultBranch: cwdOnly('ghPrDefaultBranch'),
+    ghPrCreate: operation('ghPrCreate', ([cwd, input]) => [requiredRepositoryCwd(cwd), input]),
+    ghPrView: operation('ghPrView', ([cwd, number]) => [requiredRepositoryCwd(cwd), number]),
+    ghPrCheckout: operation('ghPrCheckout', ([cwd, number]) => [requiredRepositoryCwd(cwd), number]),
+    ghPrMerge: operation('ghPrMerge', ([cwd, number, method]) => [requiredRepositoryCwd(cwd), number, method]),
+    ghPrDiff: operation('ghPrDiff', ([cwd, number]) => [requiredRepositoryCwd(cwd), number]),
+  },
+};
