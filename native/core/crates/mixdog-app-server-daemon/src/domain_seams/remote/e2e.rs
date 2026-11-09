@@ -522,18 +522,43 @@ async fn answer(phone: &mut Phone, id: u64) -> Value {
 
 #[tokio::test(start_paused = true)]
 async fn a_reply_that_never_comes_fails_at_one_deadline_while_other_frames_keep_arriving() {
-    // A phone that is sent a frame for another id every second, forever (virtual time): each one used to restart the wait.
-    struct Chatter;
+    // A phone that is sent a frame for another id every second (each one used to restart the wait). The clock is paused and moves only by
+    // the `advance` calls below, so the frames and the instants are the test's, not the runtime's.
+    struct Chatter(mpsc::UnboundedReceiver<String>);
     impl Frames for Chatter {
         async fn next_frame(&mut self) -> String {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            json!({ "e": "T", "s": 1 }).to_string()
+            self.0.recv().await.expect("the test ended the frames before the wait failed")
         }
     }
-    let waiting = tokio::spawn(async { reply_within(&mut Chatter, 7, FRAME_WAIT).await });
-    let ended = tokio::time::timeout(Duration::from_secs(60), waiting).await.expect("the wait for the reply outlived its own deadline: a frame for another id restarted it");
-    let message = *ended.expect_err("the reply never came, so the wait must fail").into_panic().downcast::<String>().unwrap();
-    assert!(message.contains("no frame with id 7") && message.contains("10s") && message.contains("frame(s) for other ids"), "{message}");
+    async fn settle() {
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+    }
+    let (send, frames) = mpsc::unbounded_channel();
+    let started = tokio::time::Instant::now();
+    let waiting = tokio::spawn(async move { reply_within(&mut Chatter(frames), 7, FRAME_WAIT).await });
+    settle().await;
+    let unrelated = || json!({ "e": "T", "s": 1 }).to_string();
+    for second in 1..=9 {
+        tokio::time::advance(Duration::from_secs(1)).await;
+        send.send(unrelated()).unwrap();
+        settle().await;
+        assert!(!waiting.is_finished(), "the wait failed at {second}s, before its {FRAME_WAIT:?} deadline");
+    }
+    // Just before the deadline the wait is still pending, though nine frames for other ids have come.
+    tokio::time::advance(FRAME_WAIT - Duration::from_secs(9) - Duration::from_millis(1)).await;
+    send.send(unrelated()).unwrap();
+    settle().await;
+    assert_eq!(started.elapsed(), FRAME_WAIT - Duration::from_millis(1));
+    assert!(!waiting.is_finished(), "the wait failed 1ms before its {FRAME_WAIT:?} deadline");
+    // At the deadline it has failed, though a frame for another id had just come (a per-frame timeout would still be pending).
+    tokio::time::advance(Duration::from_millis(1)).await;
+    settle().await;
+    assert_eq!(started.elapsed(), FRAME_WAIT);
+    assert!(waiting.is_finished(), "the wait was still pending at its {FRAME_WAIT:?} deadline: a frame for another id restarted it");
+    let message = *waiting.await.expect_err("the reply never came, so the wait must fail").into_panic().downcast::<String>().unwrap();
+    assert!(message.contains("no frame with id 7") && message.contains("10 frame(s) for other ids"), "{message}");
 }
 
 async fn list(phone: &mut Phone, id: u64) -> Value {
