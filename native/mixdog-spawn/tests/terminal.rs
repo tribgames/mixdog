@@ -735,6 +735,22 @@ async fn the_manual_lease_clock_refuses_what_is_not_an_advance() {
     assert_eq!(clock.advance(1), "lapsed 1");
     rig.tabs.dispose(&id);
 }
+/// A control connection that leaves a line unfinished must not stop another connection's dvance from being answered.
+#[cfg(debug_assertions)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stalled_clock_connection_does_not_block_another() {
+    use std::io::Write;
+    let (rig, id, _first) = manual_lease_rig("manual-stalled").await;
+    let port: u16 = std::fs::read_to_string(std::env::temp_dir().join(format!("mixdog-lease-clock-{}-manual-stalled", std::process::id())).join("port")).unwrap().parse().unwrap();
+    let mut stalled = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    stalled.write_all(b"advance 1").unwrap();
+    let late = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    late.set_read_timeout(Some(std::time::Duration::from_secs(30))).unwrap();
+    let mut late = LeaseClock { reader: std::io::BufReader::new(late) };
+    rig.tabs.resize(&id, 50, 20, "A");
+    assert_eq!(late.advance(30_000), "lapsed 1", "a connection after a stalled one is still served");
+    rig.tabs.dispose(&id);
+}
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn activity_follows_the_shell_markers_and_focus() {
     let rig = rig("activity").await;

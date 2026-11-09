@@ -165,10 +165,16 @@
               80,
               24
             ],
-            "cursor": [
-              0,
-              0
-            ],
+            "buffer": "normal",
+            "cursor": {
+              "at": [
+                0,
+                0
+              ],
+              "visible": true,
+              "style": "block",
+              "blink": false
+            },
             "rows": []
           }
         }
@@ -194,30 +200,40 @@
               80,
               24
             ],
-            "cursor": [
-              41,
-              2
-            ],
+            "buffer": "normal",
+            "cursor": {
+              "at": [
+                41,
+                2
+              ],
+              "visible": true,
+              "style": "block",
+              "blink": false
+            },
             "rows": [
               {
                 "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_DONE",
                 "runs": [
                   [
                     41,
-                    13,
+                    12,
                     16777216,
                     11,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ],
                   [
                     54,
-                    19,
+                    15,
                     16777216,
                     7,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ]
                 ]
@@ -282,21 +298,29 @@
               100,
               30
             ],
-            "cursor": [
-              41,
-              4
-            ],
+            "buffer": "normal",
+            "cursor": {
+              "at": [
+                41,
+                4
+              ],
+              "visible": true,
+              "style": "block",
+              "blink": false
+            },
             "rows": [
               {
                 "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_DONE",
                 "runs": [
                   [
                     41,
-                    13,
+                    12,
                     16777216,
                     11,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ],
                   [
@@ -306,6 +330,8 @@
                     7,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ]
                 ]
@@ -318,11 +344,13 @@
                 "runs": [
                   [
                     41,
-                    13,
+                    12,
                     16777216,
                     11,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ],
                   [
@@ -332,6 +360,8 @@
                     7,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ]
                 ]
@@ -363,21 +393,29 @@
               100,
               30
             ],
-            "cursor": [
-              41,
-              4
-            ],
+            "buffer": "normal",
+            "cursor": {
+              "at": [
+                41,
+                4
+              ],
+              "visible": true,
+              "style": "block",
+              "blink": false
+            },
             "rows": [
               {
                 "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_DONE",
                 "runs": [
                   [
                     41,
-                    13,
+                    12,
                     16777216,
                     11,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ],
                   [
@@ -387,6 +425,8 @@
                     7,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ]
                 ]
@@ -399,11 +439,13 @@
                 "runs": [
                   [
                     41,
-                    13,
+                    12,
                     16777216,
                     11,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ],
                   [
@@ -413,6 +455,8 @@
                     7,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ]
                 ]
@@ -444,21 +488,29 @@
               100,
               30
             ],
-            "cursor": [
-              41,
-              4
-            ],
+            "buffer": "normal",
+            "cursor": {
+              "at": [
+                41,
+                4
+              ],
+              "visible": true,
+              "style": "block",
+              "blink": false
+            },
             "rows": [
               {
                 "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_DONE",
                 "runs": [
                   [
                     41,
-                    13,
+                    12,
                     16777216,
                     11,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ],
                   [
@@ -468,6 +520,8 @@
                     7,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ]
                 ]
@@ -480,11 +534,13 @@
                 "runs": [
                   [
                     41,
-                    13,
+                    12,
                     16777216,
                     11,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ],
                   [
@@ -494,6 +550,8 @@
                     7,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ]
                 ]
@@ -527,10 +585,16 @@
               80,
               24
             ],
-            "cursor": [
-              0,
-              0
-            ],
+            "buffer": "normal",
+            "cursor": {
+              "at": [
+                0,
+                0
+              ],
+              "visible": true,
+              "style": "block",
+              "blink": false
+            },
             "rows": []
           }
         }
@@ -560,21 +624,29 @@
               100,
               30
             ],
-            "cursor": [
-              41,
-              4
-            ],
+            "buffer": "normal",
+            "cursor": {
+              "at": [
+                41,
+                4
+              ],
+              "visible": true,
+              "style": "block",
+              "blink": false
+            },
             "rows": [
               {
                 "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_DONE",
                 "runs": [
                   [
                     41,
-                    13,
+                    12,
                     16777216,
                     11,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ],
                   [
@@ -584,6 +656,8 @@
                     7,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ]
                 ]
@@ -596,11 +670,13 @@
                 "runs": [
                   [
                     41,
-                    13,
+                    12,
                     16777216,
                     11,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ],
                   [
@@ -610,6 +686,8 @@
                     7,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ]
                 ]
@@ -665,6 +743,38 @@
         "value": null
       },
       {
+        "call": "folderWatch",
+        "params": [
+          "D:\\mixdog-build\\tmp\\ph2-terminal\\watched\\sub\\..",
+          true
+        ],
+        "value": null
+      },
+      {
+        "call": "folderWatch",
+        "params": [
+          "D:\\MIXDOG-BUILD\\TMP\\PH2-TERMINAL\\WATCHED",
+          true
+        ],
+        "value": null
+      },
+      {
+        "call": "folderUnwatch",
+        "params": [
+          "D:\\mixdog-build\\tmp\\ph2-terminal\\watched",
+          true
+        ],
+        "value": null
+      },
+      {
+        "call": "folderUnwatch",
+        "params": [
+          "d:\\mixdog-build\\tmp\\ph2-terminal\\watched",
+          true
+        ],
+        "value": null
+      },
+      {
         "snap": "end",
         "screens": {
           "term_ph2a": {
@@ -672,21 +782,29 @@
               100,
               30
             ],
-            "cursor": [
-              41,
-              4
-            ],
+            "buffer": "normal",
+            "cursor": {
+              "at": [
+                41,
+                4
+              ],
+              "visible": true,
+              "style": "block",
+              "blink": false
+            },
             "rows": [
               {
                 "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_DONE",
                 "runs": [
                   [
                     41,
-                    13,
+                    12,
                     16777216,
                     11,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ],
                   [
@@ -696,6 +814,8 @@
                     7,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ]
                 ]
@@ -708,11 +828,13 @@
                 "runs": [
                   [
                     41,
-                    13,
+                    12,
                     16777216,
                     11,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ],
                   [
@@ -722,6 +844,8 @@
                     7,
                     0,
                     -1,
+                    "",
+                    "0:0:0:0",
                     ""
                   ]
                 ]
@@ -831,6 +955,8 @@
     ],
     "folder": [
       "D:\\mixdog-build\\tmp\\ph2-terminal\\watched",
+      "D:\\mixdog-build\\tmp\\ph2-terminal\\watched",
+      "D:\\mixdog-build\\tmp\\ph2-terminal\\watched",
       "D:\\mixdog-build\\tmp\\ph2-terminal\\watched"
     ],
     "run": [
@@ -868,10 +994,16 @@
                 80,
                 24
               ],
-              "cursor": [
-                0,
-                0
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  0,
+                  0
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": []
             }
           }
@@ -890,10 +1022,16 @@
                 80,
                 24
               ],
-              "cursor": [
-                0,
-                0
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  0,
+                  0
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": []
             }
           }
@@ -912,10 +1050,16 @@
                 80,
                 24
               ],
-              "cursor": [
-                0,
-                0
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  0,
+                  0
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": []
             }
           }
@@ -934,10 +1078,16 @@
                 80,
                 24
               ],
-              "cursor": [
-                0,
-                0
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  0,
+                  0
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": []
             }
           }
@@ -956,10 +1106,16 @@
                 80,
                 24
               ],
-              "cursor": [
-                0,
-                0
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  0,
+                  0
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": []
             }
           }
@@ -1006,21 +1162,29 @@
                 101,
                 31
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1030,6 +1194,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1067,21 +1233,29 @@
                 101,
                 31
               ],
-              "cursor": [
-                41,
-                4
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  4
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1091,6 +1265,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1103,11 +1279,13 @@
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1117,6 +1295,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1151,21 +1331,29 @@
                 100,
                 30
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1175,6 +1363,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1206,21 +1396,29 @@
                 101,
                 31
               ],
-              "cursor": [
-                41,
-                4
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  4
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1230,6 +1428,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1242,11 +1442,13 @@
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1256,6 +1458,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1290,21 +1494,29 @@
                 102,
                 32
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1314,6 +1526,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1348,21 +1562,29 @@
                 104,
                 34
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1372,6 +1594,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1401,21 +1625,29 @@
                 103,
                 33
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1425,6 +1657,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1456,21 +1690,29 @@
                 100,
                 30
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1480,6 +1722,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1511,21 +1755,29 @@
                 101,
                 31
               ],
-              "cursor": [
-                41,
-                4
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  4
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1535,6 +1787,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1547,11 +1801,13 @@
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1561,6 +1817,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1592,21 +1850,29 @@
                 102,
                 32
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1616,6 +1882,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1647,21 +1915,29 @@
                 104,
                 34
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1671,6 +1947,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1697,21 +1975,29 @@
                 103,
                 33
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1721,6 +2007,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1752,21 +2040,29 @@
                 100,
                 30
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1776,6 +2072,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1802,21 +2100,29 @@
                 101,
                 31
               ],
-              "cursor": [
-                41,
-                4
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  4
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1826,6 +2132,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1838,11 +2146,13 @@
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1852,6 +2162,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1883,21 +2195,29 @@
                 102,
                 32
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1907,6 +2227,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1938,21 +2260,29 @@
                 104,
                 34
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -1962,6 +2292,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -1988,21 +2320,29 @@
                 103,
                 33
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2012,6 +2352,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2043,21 +2385,29 @@
                 100,
                 30
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2067,6 +2417,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2093,21 +2445,29 @@
                 101,
                 31
               ],
-              "cursor": [
-                41,
-                4
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  4
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2117,6 +2477,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2129,11 +2491,13 @@
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2143,6 +2507,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2174,21 +2540,29 @@
                 102,
                 32
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2198,6 +2572,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2229,21 +2605,29 @@
                 104,
                 34
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2253,6 +2637,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2279,21 +2665,29 @@
                 103,
                 33
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2303,6 +2697,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2334,21 +2730,29 @@
                 100,
                 30
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2358,6 +2762,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2384,21 +2790,29 @@
                 101,
                 31
               ],
-              "cursor": [
-                41,
-                4
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  4
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2408,6 +2822,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2420,11 +2836,13 @@
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2434,6 +2852,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2465,21 +2885,29 @@
                 102,
                 32
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2489,6 +2917,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2515,21 +2945,29 @@
                 104,
                 34
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2539,6 +2977,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2565,21 +3005,29 @@
                 103,
                 33
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2589,6 +3037,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2620,21 +3070,29 @@
                 100,
                 30
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2644,6 +3102,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2670,21 +3130,29 @@
                 101,
                 31
               ],
-              "cursor": [
-                41,
-                4
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  4
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2694,6 +3162,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2706,11 +3176,13 @@
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2720,6 +3192,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2751,21 +3225,29 @@
                 102,
                 32
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2775,6 +3257,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2801,21 +3285,29 @@
                 104,
                 34
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2825,6 +3317,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2851,21 +3345,29 @@
                 103,
                 33
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2875,6 +3377,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2906,21 +3410,29 @@
                 100,
                 30
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2930,6 +3442,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2956,21 +3470,29 @@
                 101,
                 31
               ],
-              "cursor": [
-                41,
-                4
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  4
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -2980,6 +3502,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -2992,11 +3516,13 @@
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3006,6 +3532,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3037,21 +3565,29 @@
                 102,
                 32
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3061,6 +3597,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3087,21 +3625,29 @@
                 104,
                 34
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3111,6 +3657,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3137,21 +3685,29 @@
                 103,
                 33
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3161,6 +3717,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3187,21 +3745,29 @@
                 100,
                 30
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3211,6 +3777,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3237,21 +3805,29 @@
                 101,
                 31
               ],
-              "cursor": [
-                41,
-                4
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  4
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3261,6 +3837,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3273,11 +3851,13 @@
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3287,6 +3867,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3318,21 +3900,29 @@
                 102,
                 32
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3342,6 +3932,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3368,21 +3960,29 @@
                 104,
                 34
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3392,6 +3992,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3418,21 +4020,29 @@
                 103,
                 33
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3442,6 +4052,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3468,21 +4080,29 @@
                 100,
                 30
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3492,6 +4112,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3518,21 +4140,29 @@
                 101,
                 31
               ],
-              "cursor": [
-                41,
-                4
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  4
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3542,6 +4172,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3554,11 +4186,13 @@
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3568,6 +4202,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3594,21 +4230,29 @@
                 102,
                 32
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3618,6 +4262,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3644,21 +4290,29 @@
                 104,
                 34
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3668,6 +4322,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3694,21 +4350,29 @@
                 103,
                 33
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3718,6 +4382,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3740,21 +4406,29 @@
                 100,
                 30
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3764,6 +4438,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3781,21 +4457,29 @@
                 101,
                 31
               ],
-              "cursor": [
-                41,
-                4
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  4
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3805,6 +4489,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3817,11 +4503,13 @@
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3831,6 +4519,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3848,21 +4538,29 @@
                 102,
                 32
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3872,6 +4570,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3889,21 +4589,29 @@
                 104,
                 34
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3913,6 +4621,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -3930,21 +4640,29 @@
                 103,
                 33
               ],
-              "cursor": [
-                41,
-                2
-              ],
+              "buffer": "normal",
+              "cursor": {
+                "at": [
+                  41,
+                  2
+                ],
+                "visible": true,
+                "style": "block",
+                "blink": false
+              },
               "rows": [
                 {
                   "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
                   "runs": [
                     [
                       41,
-                      13,
+                      12,
                       16777216,
                       11,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ],
                     [
@@ -3954,6 +4672,8 @@
                       7,
                       0,
                       -1,
+                      "",
+                      "0:0:0:0",
                       ""
                     ]
                   ]
@@ -4006,6 +4726,96 @@
         {
           "lane": "terminal",
           "on": false
+        }
+      ],
+      "activity": [
+        {
+          "id": "term_ph2_l1",
+          "state": "idle"
+        },
+        {
+          "id": "term_ph2_l2",
+          "state": "idle"
+        },
+        {
+          "id": "term_ph2_l4",
+          "state": "idle"
+        },
+        {
+          "id": "term_ph2_l5",
+          "state": "idle"
+        },
+        {
+          "id": "term_ph2_l6",
+          "state": "idle"
+        },
+        {
+          "id": "term_ph2_l2",
+          "state": "running"
+        },
+        {
+          "id": "term_ph2_l2",
+          "state": "finished"
+        },
+        {
+          "id": "term_ph2_l2",
+          "state": "running"
+        },
+        {
+          "id": "term_ph2_l2",
+          "state": "finished"
+        },
+        {
+          "id": "term_ph2_l1",
+          "state": "running"
+        },
+        {
+          "id": "term_ph2_l1",
+          "state": "finished"
+        },
+        {
+          "id": "term_ph2_l4",
+          "state": "running"
+        },
+        {
+          "id": "term_ph2_l4",
+          "state": "finished"
+        },
+        {
+          "id": "term_ph2_l5",
+          "state": "running"
+        },
+        {
+          "id": "term_ph2_l5",
+          "state": "finished"
+        },
+        {
+          "id": "term_ph2_l6",
+          "state": "running"
+        },
+        {
+          "id": "term_ph2_l6",
+          "state": "finished"
+        },
+        {
+          "id": "term_ph2_l1",
+          "state": null
+        },
+        {
+          "id": "term_ph2_l2",
+          "state": null
+        },
+        {
+          "id": "term_ph2_l4",
+          "state": null
+        },
+        {
+          "id": "term_ph2_l5",
+          "state": null
+        },
+        {
+          "id": "term_ph2_l6",
+          "state": null
         }
       ],
       "sizeOwner": [
@@ -4081,7 +4891,9 @@
           "rows": 0,
           "own": false
         }
-      ]
+      ],
+      "folder": [],
+      "run": []
     }
   }
 }

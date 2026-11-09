@@ -56,3 +56,33 @@ test('byte streams that draw the same screen are the same trace', async () => {
   assert.notEqual(redrawn, text);
   assert.deepEqual(await trace({ replay: redrawn, output: redrawn }), await trace({ replay: text, output: text }));
 });
+
+// Everything a user can see differs: each pair draws the same characters and differs in one visible thing.
+const visibly = {
+  'a hidden cursor': ['', '\x1b[?25l'],
+  'a block, bar or underline cursor': ['\x1b[2 q', '\x1b[6 q'],
+  'a blinking cursor': ['\x1b[2 q', '\x1b[1 q'],
+  'a straight, double, curly, dotted or dashed underline': ['\x1b[4mX\x1b[m', '\x1b[4:3mX\x1b[m'],
+  'an underline in red or green': ['\x1b[4m\x1b[58;2;255;0;0mX\x1b[m', '\x1b[4m\x1b[58;2;0;255;0mX\x1b[m'],
+  'an overline': ['X', '\x1b[53mX\x1b[m'],
+  'a link target': ['\x1b]8;;http://a\x07X\x1b]8;;\x07', '\x1b]8;;http://b\x07X\x1b]8;;\x07'],
+  'the alternate buffer': ['', '\x1b[?1049h'],
+};
+for (const [what, [left, right]] of Object.entries(visibly)) {
+  test(`${what} is a different screen`, async () => {
+    assert.notDeepEqual(await trace({ replay: text, output: `${text}${left}` }), await trace({ replay: text, output: `${text}${right}` }));
+  });
+}
+
+test('an underline colour that no underline shows is not a different screen', async () => {
+  assert.deepEqual(await trace({ replay: text, output: `${text}\x1b[58;2;255;0;0mX\x1b[m` }), await trace({ replay: text, output: `${text}X` }));
+});
+
+// What a blank cell does not show is not a difference; what it does show is.
+test('a foreground colour on blank cells is not a different screen, a background or an underline on them is', async () => {
+  const plain = await trace({ replay: text, output: `${text}ab` });
+  assert.deepEqual(await trace({ replay: text, output: `${text}ab\x1b[1;31m   \x1b[m\x1b[3D` }), plain);
+  assert.notDeepEqual(await trace({ replay: text, output: `${text}ab\x1b[41m   \x1b[m\x1b[3D` }), plain);
+  assert.notDeepEqual(await trace({ replay: text, output: `${text}ab\x1b[4m   \x1b[m\x1b[3D` }), plain);
+  assert.notDeepEqual(await trace({ replay: text, output: `${text}ab\x1b[7m   \x1b[m\x1b[3D` }), plain);
+});

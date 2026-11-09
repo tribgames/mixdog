@@ -4,7 +4,7 @@
 // Every answer, error text and event equals what Node's remote methods and relay pushes gave (b6f10295a: remote-methods.ts
 // `terminalRemoteMethods`, remote-relay-push-lanes.ts, run-dispatch.ts); the replay in apps/mobile compares them with the recordings.
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
-import { pathText, requiredString } from '../shared/remote-arguments';
+import { foldsCase, pathText, requiredString, resolveHostPath } from '../shared/remote-arguments';
 import { terminalActivityRows, terminalEnsureRequest, terminalReply, terminalRunPush } from '../shared/terminal-protocol';
 import { readTerminalActivityEvent } from '../shared/terminal-activity';
 import type { TerminalSizeOwnerEvent } from '../shared/terminal-size-owner';
@@ -28,12 +28,15 @@ const FILES_LANE = 'files';
 const REMEMBERED_RUNS = 256;
 
 
-/** A path argument as Node's `absoluteLocalPath` checked it; the host resolves it. A Windows drive, a UNC share or a root is absolute. */
+/** A path argument as Node's `absoluteLocalPath` made it: checked absolute (a Windows drive, a UNC share or a root), then resolved. */
 function absoluteHostPath(value: unknown): string {
   const text = pathText(value);
   if (!/^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(text)) throw new TypeError('path must be absolute.');
-  return text;
+  return resolveHostPath(text);
 }
+
+/** The registry key of Node's folder watches (`createFolderWatchRegistry`): the resolved path, folded to lower case on a Windows host. */
+const watchKey = (path: string, recursive: boolean): string => `${foldsCase(path) ? path.toLocaleLowerCase() : path}\0${recursive}`;
 
 /** The folders this phone watches: Node counted them per directory and recursion, so one OS watch served every caller. */
 const watches = new WeakMap<object, Map<string, { count: number; watchId: string; dir: string }>>();
@@ -183,7 +186,7 @@ export const adapter: PhoneProtocolAdapter = {
     },
     folderWatch: async ([dir, recursive], host) => {
       const path = absoluteHostPath(dir);
-      const key = `${path}\0${recursive === true}`;
+      const key = watchKey(path, recursive === true);
       const held = watches.get(host.ctx) ?? new Map();
       watches.set(host.ctx, held);
       const watch = held.get(key);
@@ -202,7 +205,7 @@ export const adapter: PhoneProtocolAdapter = {
       return null;
     },
     folderUnwatch: async ([dir, recursive], host) => {
-      const key = `${absoluteHostPath(dir)}\0${recursive === true}`;
+      const key = watchKey(absoluteHostPath(dir), recursive === true);
       const held = watches.get(host.ctx);
       const watch = held?.get(key);
       if (!held || !watch) return null;
@@ -214,14 +217,14 @@ export const adapter: PhoneProtocolAdapter = {
     },
   },
   fires: {
-    // Keystrokes and size wait for the synced connection as the phone's fire did; the router queues them in the terminal lane, behind
+    // Keystrokes and size wait for the connection only, as the phone's fire did (`ctx.connect()`, no view sync); the router queues them in the terminal lane, behind
     // a `termEnsure` still spawning, and drops a lost one. The returned promise is what holds the lane until they are sent.
     termWrite: async ([id, data], host) => {
-      await host.ctx.phone.synced();
+      await host.ctx.phone.start();
       host.client().notify('terminal/input', { tabId: String(id || ''), data: String(data ?? '') });
     },
     termResize: async ([id, cols, rows, phoneOwner], host) => {
-      await host.ctx.phone.synced();
+      await host.ctx.phone.start();
       host.client().notify('terminal/resize', {
         tabId: String(id || ''),
         cols: Number(cols),

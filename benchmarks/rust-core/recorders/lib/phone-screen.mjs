@@ -21,34 +21,52 @@ function played(text) {
   return term;
 }
 
-const FLAGS = ['isBold', 'isItalic', 'isDim', 'isUnderline', 'isBlink', 'isInverse', 'isInvisible', 'isStrikethrough'];
+const SHOWN_ON_BLANK = new Set(['isInverse', 'isUnderline', 'isStrikethrough', 'isOverline']);
+const FLAGS = ['isBold', 'isItalic', 'isDim', 'isUnderline', 'isBlink', 'isInverse', 'isInvisible', 'isStrikethrough', 'isOverline'];
 
-/** One row: its text, and a run `[from, length, fg, bg, flags]` for each stretch of cells that is not in the default style. */
-function row(line, cols, cell) {
+/** One row: its text, and a run `[from, length, fg, bg, flags, underline style, underline colour, link]` for each stretch of cells that is not in the default style. */
+function row(line, cols, cell, links) {
   const runs = [];
   for (let x = 0; x < cols; x += 1) {
     line.getCell(x, cell);
-    const style = [cell.getFgColorMode(), cell.getFgColor(), cell.getBgColorMode(), cell.getBgColor(), FLAGS.filter((flag) => cell[flag]()).join('+')];
-    if (style[0] === 0 && style[2] === 0 && style[4] === '') continue;
+    // The underline's style (straight, double, curly, dotted, dashed) and colour show only on an underlined cell; a link is its target.
+    const underline = cell.isUnderline() ? [cell.getUnderlineStyle(), cell.getUnderlineColorMode(), cell.getUnderlineColor(), cell.getUnderlineVariantOffset()] : [0, 0, 0, 0];
+    const link = cell.extended.urlId ? (links.getLinkData(cell.extended.urlId)?.uri ?? '') : '';
+    // An empty or blank cell shows its background, an underline, a strike or an overline, and (inverse) its foreground as a background;
+    // its foreground colour, bold, italic, dim, blink and invisible do not show. Two Node recordings of the same script differ only
+    // there: PSReadLine's colouring of the typed command reached 4 blank cells past its end in one and not in the other.
+    const blank = cell.getChars().trim() === '';
+    const shown = blank ? FLAGS.filter((flag) => cell[flag]() && SHOWN_ON_BLANK.has(flag)) : FLAGS.filter((flag) => cell[flag]());
+    const foreground = blank && !cell.isInverse() ? [0, 0] : [cell.getFgColorMode(), cell.getFgColor()];
+    const style = [...foreground, cell.getBgColorMode(), cell.getBgColor(), shown.join('+'), underline.join(':'), link];
+    if (style[0] === 0 && style[2] === 0 && style[4] === '' && style[6] === '') continue;
     const last = runs.at(-1);
     if (last && last[0] + last[1] === x && last.slice(2).join() === style.join()) last[1] += 1;
     else runs.push([x, 1, ...style]);
   }
-  // Blanks at the end of a row are not seen unless they carry a colour (the runs keep those); whether a shell wrote the space after its
-  // prompt or left the cell empty is not a difference on screen (two Node recordings differ in just that).
+  // Blanks at the end of a row are not seen unless they carry what a blank shows (the runs keep those); whether a shell wrote the space after
+  // its prompt or left the cell empty is not a difference on screen (two Node recordings differ in just that).
   const text = line.translateToString(true).trimEnd();
   return runs.length ? { text, runs } : { text };
 }
 
-/** The screen the text draws: the rows of the buffer (scrollback included, trailing blank rows dropped), the cursor, the size. */
+/** The screen the text draws: the rows of the buffer (scrollback included, trailing blank rows dropped), the cursor (place, whether it shows,
+ *  its shape and whether it blinks), which buffer is showing, the size. */
 export function screenOf(text) {
   const term = played(text);
   const buffer = term.buffer.active;
   const cell = buffer.getNullCell();
   const rows = [];
-  for (let y = 0; y < buffer.length; y += 1) rows.push(row(buffer.getLine(y), term.cols, cell));
+  const links = term._core._oscLinkService;
+  for (let y = 0; y < buffer.length; y += 1) rows.push(row(buffer.getLine(y), term.cols, cell, links));
   while (rows.length && rows.at(-1).text === '' && !rows.at(-1).runs) rows.pop();
-  const screen = { size: [term.cols, term.rows], cursor: [buffer.cursorX, buffer.baseY + buffer.cursorY], rows };
+  const cursor = {
+    at: [buffer.cursorX, buffer.baseY + buffer.cursorY],
+    visible: !term._core.coreService.isCursorHidden,
+    style: term.options.cursorStyle,
+    blink: term.options.cursorBlink,
+  };
+  const screen = { size: [term.cols, term.rows], buffer: buffer.type, cursor, rows };
   term.dispose();
   return screen;
 }
