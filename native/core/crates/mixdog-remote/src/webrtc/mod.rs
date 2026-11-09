@@ -14,6 +14,7 @@ pub mod input_order;
 pub mod liveview;
 mod outbound;
 mod peer;
+pub mod relay;
 pub mod signal;
 pub mod sources;
 pub mod track;
