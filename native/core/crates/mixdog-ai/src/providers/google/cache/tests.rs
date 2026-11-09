@@ -338,6 +338,56 @@ impl HttpSend for StallOnce {
     }
 }
 
+/// Runs only the backoff waits: the attempt and total limits never fire, so each failure the transport reports is the
+/// attempt's own, and the retry ladder runs to its end.
+struct LadderRuntime;
+
+impl CacheRuntime for LadderRuntime {
+    fn now_ms(&self) -> u64 {
+        0
+    }
+    fn spawn(&self, task: BoxFuture<'static, ()>) {
+        tokio::spawn(task);
+    }
+    fn spawn_after(&self, _delay_ms: u64, _task: BoxFuture<'static, ()>) {}
+    fn deadline(&self, ms: u64) -> BoxFuture<'static, ()> {
+        if ms >= 120_000 { Box::pin(futures::future::pending()) } else { Box::pin(futures::future::ready(())) }
+    }
+}
+
+/// The create's request is bounded by Node's total timer (`sites.geminiCacheCreate`: `armed` 180 s, the fetch rejected
+/// with `Gemini cachedContents.create total timed out after 180000ms`); the timeouts are retried and, once the ladder is
+/// spent, the create resolves no cache, as Node's catch does. Node also logs the failure on stderr; this port has no log.
+#[tokio::test(start_paused = true)]
+async fn a_create_the_transport_times_out_is_retried_then_resolves_no_cache() {
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_transport;
+
+    let g = golden();
+    let (tools, tool_config, contents) = parts(&g);
+    let system = system(1);
+    let transport = TimingOut::new();
+    let cache = ExplicitCache::new(
+        g["apiKey"].as_str().unwrap(),
+        "https://generativelanguage.googleapis.com",
+        transport.clone(),
+        Arc::new(LadderRuntime),
+        Arc::new(Registry::default()),
+        Tuning::default(),
+    );
+    let ask = Ask {
+        model: g["model"].as_str().unwrap(),
+        request: CacheRequest { system_instruction: &system, tools: &tools, tool_config: tool_config.as_ref(), contents: &contents },
+        state: None,
+        iteration: 1,
+        fork: false,
+    };
+    let answer = cache.ensure(ask).await;
+    assert_eq!(answer.cache_name, None);
+    assert!(transport.seen().len() > 1, "a timeout is retried");
+    assert_transport("geminiCacheCreate", &transport);
+}
+
 /// Node's `withRetry` around the create: an attempt stalled past the 120 s
 /// attempt limit is retried after the backoff, inside the 180 s total.
 #[tokio::test(start_paused = true)]

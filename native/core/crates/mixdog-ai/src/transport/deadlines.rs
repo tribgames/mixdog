@@ -5,7 +5,7 @@
 //! Redirects follow the Node call site: `fetch` follows by default (model calls, model lists, the
 //! updater, the cache); `redirect: 'error'` where the request bears credentials or is an auth call
 //! (every token exchange and login `*-oauth-*.mjs`, `devin-auth.mjs:184`, `devin-wire-transport.mjs:453`,
-//! `grok-oauth.mjs:512`, `antigravity-oauth-catalog.mjs:57`); the Cursor wire is raw HTTP/2, which never
+//! `grok-oauth.mjs:512`, `antigravity-oauth-login.mjs:72`); the Cursor wire is raw HTTP/2, which never
 //! follows, so its answers are returned as they are (`Manual`).
 //!
 //! The text of a connection failure ([`Surface`]) follows the Node call site too, as `golden/connect_errors.json`
@@ -77,12 +77,12 @@ pub const MUSE_KEY: Exchange = Exchange::new(Liveness::unary(secs(20)), Redirect
 
 /// Grok's refresh: `createTimeoutSignal(null, TOKEN_TIMEOUT_MS, 'grok-oauth refresh')`
 /// (`grok-oauth-tokens.mjs:304`), whose reason the fetch rejects with. Its authorization-code exchange is
-/// [`TOKEN_EXCHANGE`] (`grok-oauth-login.mjs:76` `AbortSignal.timeout`).
+/// [`TOKEN_EXCHANGE`] (`grok-oauth-login.mjs:95-96` `AbortSignal.timeout`, on the fetch of `:76`).
 pub const TOKEN_GROK: Exchange =
     Exchange::new(Liveness::unary(secs(30)), Redirect::Error, Surface::FetchLabeled("grok-oauth refresh"));
 
-/// Antigravity project lookup: `antigravity-oauth-tokens.mjs:78` 30_000; raw `fetch`
-/// (`antigravity-oauth-catalog.mjs:48-58` `postInternalJson`, `withTimeoutSignal` = `AbortSignal.timeout`).
+/// Antigravity project lookup: `antigravity-oauth-tokens.mjs:78` 30_000; raw `fetch` in `requestCodeAssist`
+/// (`antigravity-oauth-login.mjs:60-74`, `redirect: 'error'` `:72`, `withTimeoutSignal` `:73` = `AbortSignal.timeout`).
 pub const ANTIGRAVITY_PROJECT: Exchange = Exchange::new(Liveness::unary(secs(30)), Redirect::Error, Surface::FetchSignal);
 
 /// Devin's unary RPCs (`devinUnary`, `devin-wire-transport.mjs:469`): a raw `fetch` with `redirect: 'error'` (`:453`)

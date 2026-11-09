@@ -248,18 +248,38 @@ async fn a_refusal_of_the_transport_reads_as_nodes_fetch_failed_or_timeout() {
         }
     }
 
-    let get = |fault: Option<TransportFault>, bare: bool| async move {
-        let http: Arc<dyn HttpSend> = Arc::new(Refusing(fault));
-        let usage = if bare { RoutedUsageHttp::following(http) } else { RoutedUsageHttp::new(http) };
-        usage.get("https://x.test/a", &[], Duration::from_secs(1)).await.err().unwrap()
-    };
-    let io = Some(TransportFault::Io { os_code: None });
+    let http: Arc<dyn HttpSend> = Arc::new(Refusing(None));
     // No typed fault: Node's `fetch failed`.
-    let undecided = get(None, false).await;
+    let undecided = RoutedUsageHttp::new(http).get("https://x.test/a", &[], Duration::from_secs(1)).await.err().unwrap();
     assert_eq!((undecided.message.as_str(), undecided.status), ("fetch failed", None));
-    // The timer's own text, by the call's timer: `AbortSignal.timeout` and a bare `AbortController`.
-    assert_eq!(get(io.clone(), false).await.message, "The operation was aborted due to timeout");
-    assert_eq!(get(io, true).await.message, "This operation was aborted");
+}
+
+/// The OAuth usage reads are `AbortSignal.timeout` fetches (`sites.oauthUsage`, `oauth-usage.mjs:247`): the read ends at
+/// Node's window with the signal's own text.
+#[tokio::test(start_paused = true)]
+async fn an_oauth_usage_read_ends_as_nodes_does_when_its_timer_fires() {
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_thrown;
+    use crate::transport::site_probe::assert_transport;
+
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let io = || CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    let transport = TimingOut::new();
+    let versions = ClientVersions::new(Net::from(&json!([])), dir.path().to_path_buf(), io(), Arc::new(Vars(HashMap::new())));
+    let usage = OAuthUsage::new(UsageDeps {
+        http: Arc::new(RoutedUsageHttp::new(transport.clone())),
+        source: Arc::new(Flow { auth: json!({ "access_token": "a", "account_id": "x" }), forced: Value::Null, refreshed: Mutex::new(false) }),
+        grok: Arc::new(GrokVersionHeaders::new(versions)),
+        history: Arc::new(History::default()),
+        store: AccountStore::new(dir.path().to_path_buf(), io()),
+        io: io(),
+        log: Arc::new(|_| {}),
+        data_dir: dir.path().join("data"),
+    });
+    let error = usage.fetch_codex_reset_credits("default").await.err().expect("never answers");
+    assert_transport("oauthUsage", &transport);
+    assert_thrown("oauthUsage", &error.message);
 }
 /// The OpenCode Go status read is a bare `AbortController` timer (`sites.opencodeGoUsage`).
 #[tokio::test(start_paused = true)]
