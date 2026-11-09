@@ -239,9 +239,13 @@ async fn replay(case: &Value) {
 async fn provider_chunk(chunk: usize) {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
     let cases = golden["cases"].as_array().unwrap();
-    for case in &cases[mixdog_rt::testing::chunk_range(cases.len(), chunk, PER_PROVIDER)] {
-        replay(case).await;
-    }
+    together(cases[mixdog_rt::testing::chunk_range(cases.len(), chunk, PER_PROVIDER)].iter().map(replay)).await;
+}
+
+/// The cases of one test at once: each has its own login, port and directory, and each connection the recording
+/// shows refused takes two seconds on Windows.
+async fn together(cases: impl Iterator<Item = impl Future<Output = ()>>) {
+    futures::future::join_all(cases).await;
 }
 
 mixdog_rt::replay_chunks!(PROVIDER_TESTS, #[tokio::test] async provider_chunk; [
@@ -339,7 +343,7 @@ async fn the_mimo_callback_answers_as_nodes() {
     use mixdog_ai::providers::compat::login::mimo::key_name_path;
 
     let golden: Value = serde_json::from_str(LOCAL).unwrap();
-    for case in golden["mimo"].as_array().unwrap() {
+    together(golden["mimo"].as_array().unwrap().iter().map(async |case| {
         let title = case["title"].as_str().unwrap();
         let served = Arc::new(Served(Mutex::new(case["served"].as_array().unwrap().iter().cloned().collect())));
         let dir = tempfile::tempdir().unwrap();
@@ -353,7 +357,8 @@ async fn the_mimo_callback_answers_as_nodes() {
             check_step(session.as_ref(), port, &request, &step["answer"], &format!("mimo {title}: {} {}", step["method"], step["target"])).await;
         }
         check_end(session.as_ref(), case, &served, &format!("mimo {title}")).await;
-    }
+    }))
+    .await;
 }
 
 #[tokio::test]
@@ -362,7 +367,7 @@ async fn the_command_code_callback_answers_as_nodes() {
     use mixdog_ai::providers::compat::login::command_code::CommandCodeLogin;
 
     let golden: Value = serde_json::from_str(LOCAL).unwrap();
-    for case in golden["commandCode"].as_array().unwrap() {
+    together(golden["commandCode"].as_array().unwrap().iter().map(async |case| {
         let title = case["title"].as_str().unwrap();
         let served = Arc::new(Served(Mutex::new(case["served"].as_array().unwrap().iter().cloned().collect())));
         let dir = tempfile::tempdir().unwrap();
@@ -389,5 +394,6 @@ async fn the_command_code_callback_answers_as_nodes() {
             check_step(session.as_ref(), port, &request, &step["answer"], &format!("command code {title}: {} {}", step["method"], step["target"])).await;
         }
         check_end(session.as_ref(), case, &served, &format!("command code {title}")).await;
-    }
+    }))
+    .await;
 }
