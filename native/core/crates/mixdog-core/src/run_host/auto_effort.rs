@@ -138,12 +138,28 @@ pub struct EffortDecisionLog {
     env: EnvReader,
     plugin_data: PathBuf,
     lane: DurabilityIo,
+    /// The appends still running, for the tests to await.
+    #[cfg(test)]
+    appends: Mutex<Vec<futures::future::BoxFuture<'static, ()>>>,
 }
 
 impl EffortDecisionLog {
     /// `plugin_data` is `resolvePluginData()` when `MIXDOG_DATA_DIR` is not set.
     pub fn new(env: EnvReader, plugin_data: PathBuf, lane: DurabilityIo) -> Self {
-        Self { env, plugin_data, lane }
+        Self {
+            env,
+            plugin_data,
+            lane,
+            #[cfg(test)]
+            appends: Mutex::default(),
+        }
+    }
+
+    /// Returns once every append recorded so far has landed.
+    #[cfg(test)]
+    async fn appended(&self) {
+        let appends = std::mem::take(&mut *self.appends.lock().unwrap());
+        futures::future::join_all(appends).await;
     }
 
     /// `process.env.MIXDOG_EFFORT_DECISIONS_LOG || join(resolvePluginData(), 'effort-judge',
@@ -164,7 +180,15 @@ impl EffortDiagnostics for EffortDecisionLog {
         let job = move |lane: &mixdog_rt::InLane<DurabilityIo>| {
             let _ = mixdog_statefile::append_file(lane, &path, line.as_bytes());
         };
-        drop(self.lane.submit(&CancellationToken::new(), job));
+        let submitted = self.lane.submit(&CancellationToken::new(), job);
+        #[cfg(test)]
+        if let Ok(append) = submitted {
+            self.appends.lock().unwrap().push(Box::pin(async move {
+                let _ = append.await;
+            }));
+        }
+        #[cfg(not(test))]
+        drop(submitted);
     }
 
     fn warn(&self, line: &str) {

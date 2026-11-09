@@ -197,7 +197,7 @@ async fn a_program_that_does_not_exist_fails_the_step_with_its_spawn_text() {
     assert!(report.steps[0].output.contains("ENOENT"), "{}", report.steps[0].output);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_command_over_its_time_limit_is_killed_and_reported_timed_out() {
     let dir = tempfile::tempdir().unwrap();
     let options = RunOptions { timeout: Duration::from_millis(300), ..RunOptions::default() };
@@ -550,14 +550,16 @@ async fn the_daemon_jobs_reconcile_at_start_and_clean_up_on_the_hour() {
     let maintenance = Arc::new(open_maintenance(&rig, Arc::default()));
     let lines: Arc<Mutex<Vec<String>>> = Arc::default();
     let sink = lines.clone();
+    let logged = Arc::new(tokio::sync::Notify::new());
+    let announce = logged.clone();
     let schedule = MaintenanceSchedule::new();
     let clock: mixdog_core_base::maintenance::Clock = Arc::new(|| 1_000);
-    maintenance.start(&schedule, &clock, Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())), CancellationToken::new());
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    while lines.lock().unwrap().is_empty() {
-        assert!(std::time::Instant::now() < deadline, "the startup reconcile logged nothing");
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    maintenance.start(&schedule, &clock, Arc::new(move |line| {
+        sink.lock().unwrap().push(line.to_owned());
+        announce.notify_one();
+    }), CancellationToken::new());
+    // The sink's notification keeps its permit, so a line logged before this wait still wakes it.
+    logged.notified().await;
     assert_eq!(*lines.lock().unwrap(), ["worktree reconcile: removed 1, recovered 0, pruned 0, incomplete 0, errors 0"]);
     let (due, hour) = (1_000 + 3 * 60_000, 60 * 60_000);
     assert!(schedule.run_tasks(false, due - 1).await.ran.is_empty());

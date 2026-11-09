@@ -471,7 +471,7 @@ mod tests {
         drop(caller);
         pc.gate.notify_one();
         // Nobody polls the read now but its own task: it still reaches the PC's answer.
-        tokio::time::timeout(Duration::from_secs(5), pc.answered.notified()).await.expect("the read ran without its callers");
+        pc.answered.notified().await;
         let outcome = joined.await;
         assert_eq!(without_traits(outcome.unwrap().unwrap()).keys().collect::<Vec<_>>(), ["openai"]);
         {
