@@ -20,6 +20,7 @@ use super::SessionDirectory;
 use super::SessionHandle;
 use super::seams::RunOutcome;
 use super::testing::Rig;
+use super::testing::eventually_on_until;
 use super::tests::eventually_on;
 use super::tests::idle;
 use super::tests::start_routed_thread;
@@ -177,19 +178,19 @@ async fn a_side_question_in_flight_is_canceled_by_cancel_side_or_a_newer_questio
     let handle = start_thread(&directory).await;
     let begun = |n: usize| rig.side.begins.load(std::sync::atomic::Ordering::SeqCst) == n;
 
-    let first = {
+    let mut first = {
         let (handle, q) = (handle.clone(), json!({ "question": "one" }));
         tokio::spawn(async move { call(&handle, "thread/askSide", q, "s-1").await })
     };
-    eventually_on(&[&rig.side.began], || begun(1).then_some(())).await;
+    eventually_on_until(&[&rig.side.began], || begun(1).then_some(()), &mut first).await;
     assert_eq!(call(&handle, "thread/cancelSide", json!({}), "s-2").await.expect("canceled"), Value::Null);
     assert_eq!(plain_error(first.await.expect("joined").expect_err("canceled")), "Side question canceled.");
 
-    let second = {
+    let mut second = {
         let (handle, q) = (handle.clone(), json!({ "question": "two" }));
         tokio::spawn(async move { call(&handle, "thread/askSide", q, "s-3").await })
     };
-    eventually_on(&[&rig.side.began], || (begun(2) && super::testing::lock(&rig.side.prompts).len() == 2).then_some(())).await;
+    eventually_on_until(&[&rig.side.began], || (begun(2) && super::testing::lock(&rig.side.prompts).len() == 2).then_some(()), &mut second).await;
     *super::testing::lock(&rig.side.reply) = Some(reply("done", false));
     assert_eq!(call(&handle, "thread/askSide", json!({ "question": "three" }), "s-4").await.expect("answered"), json!({ "text": "done" }));
     assert_eq!(plain_error(second.await.expect("joined").expect_err("replaced")), "Side question canceled.");
@@ -430,11 +431,11 @@ async fn a_retry_waits_for_a_running_compaction() {
     let (handle, key, seen) = quota_failed_thread(&rig, false).await;
     let hold = Arc::new(tokio::sync::Notify::new());
     *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
-    let compacting = {
+    let mut compacting = {
         let handle = handle.clone();
         tokio::spawn(async move { call(&handle, "thread/compact/start", json!({}), "c-1").await })
     };
-    eventually_on(&[&rig.compaction.called], || (!super::testing::lock(&rig.compaction.calls).is_empty()).then_some(())).await;
+    eventually_on_until(&[&rig.compaction.called], || (!super::testing::lock(&rig.compaction.calls).is_empty()).then_some(()), &mut compacting).await;
     assert_eq!(call(&handle, "turn/retryFailed", json!({ "turnKey": key }), "r-1").await.expect("answered"), json!(false));
     hold.notify_one();
     compacting.await.expect("joined").expect("compacted");

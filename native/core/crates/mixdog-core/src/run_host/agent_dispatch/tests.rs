@@ -480,6 +480,7 @@ async fn the_inline_host_hands_the_dispatcher_what_nodes_host_handed_it() {
     let wakes = [&watch.1];
     let watched = mixdog_core_session::session::testing::eventually_on(&wakes, || (watch.live() == 1).then_some(()));
     tokio::select! {
+        biased;
         () = watched => {}
         ended = &mut hanging => panic!("the hanging run ended before it was watched: {ended:?}"),
     }

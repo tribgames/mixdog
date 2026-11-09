@@ -250,7 +250,7 @@ async fn a_write_that_lands_first_is_read_by_the_load_and_kept() {
 
 /// A writer that keeps changing the header (an armed key among them) neither stalls the load nor
 /// loses its own keys: the load completes in one update and the writer's last write stands.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_writer_that_keeps_writing_neither_stalls_the_load_nor_loses_its_keys() {
     let golden = golden();
     let case = &golden["arm"][0];
@@ -266,6 +266,7 @@ async fn a_writer_that_keeps_writing_neither_stalls_the_load_nor_loses_its_keys(
                 store.write(Map::from_iter([("title".to_owned(), json!(round)), ("skillLoadedTools".to_owned(), json!(["recall"]))]));
                 // The next write follows the arm's next step, or comes at once when the arm has ended.
                 tokio::select! {
+                    biased;
                     () = store.touched.notified() => {}
                     _ = ended.wait_for(|ended| *ended) => {}
                 }
@@ -279,10 +280,14 @@ async fn a_writer_that_keeps_writing_neither_stalls_the_load_nor_loses_its_keys(
         armed
     };
     let mut writer = std::pin::pin!(writer);
+    // A virtual millisecond that passes only when every task is idle: the load and the writer then wait on each other (a load that
+    // stalls without touching the store leaves the writer waiting for it), so this is the stall's failing path.
+    let stalled = tokio::time::sleep(std::time::Duration::from_millis(1));
     let armed = tokio::select! {
         biased;
         armed = arming => armed,
         () = writer.as_mut() => panic!("the writer ran out of rounds before the load ended"),
+        () = stalled => panic!("the load stalled: it neither touched the store nor finished"),
     };
     assert!(futures::poll!(writer.as_mut()).is_ready(), "the writer is released when the load ends");
     armed.expect("armed");

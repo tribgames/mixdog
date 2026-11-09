@@ -557,10 +557,11 @@ async fn a_session_working_in_any_way_the_host_counts_is_not_moved() {
             _ => {
                 *lock(&world.rig.compaction.hold) = Some(hold.clone());
                 let running = handle.clone();
-                compacting = Some(tokio::spawn(async move {
+                let mut task = tokio::spawn(async move {
                     running.request(request("thread/compact/start", with_op(json!({ "threadId": "sess_working" }), 2), Some(2))).await
-                }));
-                eventually_on(&[stepped], || handle.cell.compacting.load(Ordering::SeqCst).then_some(())).await;
+                });
+                crate::session::testing::eventually_on_until(&[stepped], || handle.cell.compacting.load(Ordering::SeqCst).then_some(()), &mut task).await;
+                compacting = Some(task);
             }
         }
         let repo = world.workspace.repo.to_string_lossy().into_owned();

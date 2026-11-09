@@ -122,13 +122,33 @@ mod tests {
         }
     }
 
-    /// Moves the paused clock one second at a time, by explicit advance, and after each second waits for every watchdog still
-    /// running (`signals` are theirs; one that has aborted has ended) to have swept.
-    async fn run_for(seconds: u64, sweeps: &Sweeps, signals: &[&Cancel]) {
+    fn dog(watchdog: &Option<Watchdog>) -> &Watchdog {
+        watchdog.as_ref().expect("armed")
+    }
+
+    /// Moves the paused clock one second at a time, only by this explicit advance, and after each second waits for every
+    /// watchdog still running (a pair of its task and its signal; one that has aborted has ended) to have swept.
+    async fn run_for(seconds: u64, sweeps: &Sweeps, dogs: &[(&Watchdog, &Cancel)]) {
         for _ in 0..seconds {
-            let want = sweeps.seen() + signals.iter().filter(|signal| !signal.is_aborted()).count() as u64;
-            tokio::time::advance(Duration::from_secs(1)).await;
-            mixdog_core_session::session::testing::eventually_on(&[&sweeps.woke], || (sweeps.seen() >= want).then_some(())).await;
+            let running: Vec<&Watchdog> = dogs.iter().filter(|(_, signal)| !signal.is_aborted()).map(|(dog, _)| *dog).collect();
+            let want = sweeps.seen() + running.len() as u64;
+            tokio::time::advance(SWEEP).await;
+            // The guard is a virtual millisecond that can pass only when every task is idle, which is when no sweep is coming:
+            // the runtime then moves the clock to the guard (before the next sweep, a second away). So a sweep that is not made
+            // by the advance above, a sweep task that has ended or panicked, and a clock that is moved by anything but the
+            // advance, each end in this assertion instead of a wait that never ends or one the idle clock quietly satisfies.
+            let guard = tokio::time::sleep(Duration::from_millis(1));
+            tokio::pin!(guard);
+            let wakes: [&tokio::sync::Notify; 1] = [&sweeps.woke];
+            tokio::select! {
+                biased;
+                () = mixdog_core_session::session::testing::eventually_on(&wakes, || (sweeps.seen() >= want).then_some(())) => {}
+                () = &mut guard => panic!(
+                    "the advance did not bring the sweeps: {} of {want} seen; sweep tasks finished: {:?}",
+                    sweeps.seen(),
+                    running.iter().map(|dog| dog.0.is_finished()).collect::<Vec<_>>()
+                ),
+            }
         }
     }
 
@@ -140,15 +160,32 @@ mod tests {
         (Watchdog::arm(unattended, POLICY, signal.clone(), clock, counted(&sweeps, snapshot), || {}), signal, sweeps)
     }
 
+    /// Node's `startDispatchWatchdog` (`agent-dispatch/watchdog.mjs`, pinned commit b6f10295a) makes its `setInterval(…, 1000)`
+    /// as it arms, so the first sweep is one second after arming however long the run takes to get going. Here the task's first
+    /// poll comes only after the clock has moved a full period: a sweep timed from that first poll would come a second later.
+    #[tokio::test(start_paused = true)]
+    async fn the_first_sweep_is_one_period_after_arming_however_late_the_task_first_runs() {
+        let first = Arc::new(AtomicI64::new(-1));
+        let (watchdog, signal, sweeps) = {
+            let first = first.clone();
+            start(true, move |now| {
+                let _ = first.compare_exchange(-1, now, Ordering::SeqCst, Ordering::SeqCst);
+                Some(streaming(now))
+            })
+        };
+        run_for(1, &sweeps, &[(dog(&watchdog), &signal)]).await;
+        assert_eq!(first.load(Ordering::SeqCst), T0 + 1_000, "the first sweep is at Node's 1000 ms after arming");
+    }
+
     #[tokio::test(start_paused = true)]
     async fn an_unattended_silent_run_is_aborted_with_nodes_stale_sentence() {
         let (watchdog, signal, sweeps) = start(true, |_| Some(streaming(T0)));
         assert!(watchdog.is_some());
         assert_eq!(node_verdict(0, false, 60_000), None);
-        run_for(60, &sweeps, &[&signal]).await;
+        run_for(60, &sweeps, &[(dog(&watchdog), &signal)]).await;
         assert!(!signal.is_aborted());
         let stale = node_verdict(0, false, 61_000).expect("Node stops the run at 61 s");
-        run_for(1, &sweeps, &[&signal]).await;
+        run_for(1, &sweeps, &[(dog(&watchdog), &signal)]).await;
         assert!(signal.is_aborted());
         assert_eq!(signal.reason(), stale);
     }
@@ -174,20 +211,20 @@ mod tests {
                 Some(snapshot)
             })
         };
-        run_for(50, &sweeps, &[&signal]).await;
+        let dogs = [(dog(&watchdog), &signal)];
+        run_for(50, &sweeps, &dogs).await;
         last.store(T0 + 50_000, Ordering::SeqCst);
         assert_eq!(node_verdict(50_000, false, 110_000), None);
-        run_for(60, &sweeps, &[&signal]).await;
+        run_for(60, &sweeps, &dogs).await;
         assert!(!signal.is_aborted(), "60 s after the progress is within budget");
         waiting.store(true, Ordering::SeqCst);
         assert_eq!(node_verdict(0, true, 700_000), None);
-        run_for(600, &sweeps, &[&signal]).await;
+        run_for(600, &sweeps, &dogs).await;
         assert!(!signal.is_aborted(), "a turn waiting on the user is not stalled");
         waiting.store(false, Ordering::SeqCst);
         let stale = node_verdict(50_000, false, 111_000).expect("Node stops the run once the approval is answered");
-        run_for(2, &sweeps, &[&signal]).await;
+        run_for(2, &sweeps, &dogs).await;
         assert_eq!(signal.reason(), stale);
-        drop(watchdog);
     }
 
     #[tokio::test(start_paused = true)]
@@ -201,20 +238,20 @@ mod tests {
             let hook = { let (signal, reaped) = (signal.clone(), reaped.clone()); move || { assert!(!signal.is_aborted(), "armed before the abort"); reaped.fetch_add(1, Ordering::SeqCst); } };
             (Watchdog::arm(true, POLICY, signal.clone(), clock, counted(&sweeps, move |_| Some(streaming(last))), hook), signal)
         };
-        let (_live, live) = arm(T0 + 3_600_000);
-        run_for(120, &sweeps, &[&live]).await;
+        let (live_dog, live) = arm(T0 + 3_600_000);
+        run_for(120, &sweeps, &[(dog(&live_dog), &live)]).await;
         assert!(!live.is_aborted());
         assert_eq!(reaped.load(Ordering::SeqCst), 0);
-        let (_stale, stale) = arm(T0 - 100_000);
-        run_for(5, &sweeps, &[&live, &stale]).await;
+        let (stale_dog, stale) = arm(T0 - 100_000);
+        run_for(5, &sweeps, &[(dog(&live_dog), &live), (dog(&stale_dog), &stale)]).await;
         assert!(stale.is_aborted());
         assert_eq!(reaped.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_run_with_no_progress_snapshot_yet_gets_no_verdict() {
-        let (_watchdog, signal, sweeps) = start(true, |_| None);
-        run_for(3_600, &sweeps, &[&signal]).await;
+        let (watchdog, signal, sweeps) = start(true, |_| None);
+        run_for(3_600, &sweeps, &[(dog(&watchdog), &signal)]).await;
         assert!(!signal.is_aborted());
     }
 }

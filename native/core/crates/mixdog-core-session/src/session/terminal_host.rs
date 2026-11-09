@@ -175,15 +175,23 @@ mod tests {
         // A pane that claims what it was asked to show.
         let claimer = {
             let (feeds_ref, waits) = (&feeds, waits.clone());
-            let reveal = host.reveal("s1", &target, std::slice::from_ref(&target));
+            let targets = std::slice::from_ref(&target);
+            let mut reveal = std::pin::pin!(host.reveal("s1", &target, targets));
             let claim = async {
-                let (_, _, params) = eventually_on(&[&feeds_ref.published], || feeds_ref.frames("app").into_iter().nth(1)).await;
+                // A reveal that ends without publishing its request is the failure, not a wait for a frame that never comes.
+                let wakes: [&tokio::sync::Notify; 1] = [&feeds_ref.published];
+                let (_, _, params) = tokio::select! {
+                    biased;
+                    frame = eventually_on(&wakes, || feeds_ref.frames("app").into_iter().nth(1)) => frame,
+                    shown = reveal.as_mut() => panic!("the reveal ended before it published its request: {shown}"),
+                };
                 let request = params["requestId"].as_str().unwrap().to_owned();
                 assert_eq!(params["kind"], "terminal");
                 assert_eq!(params["terminalId"], "session-terminal:s1");
                 waits.notify(Method("ui/terminalRun/claimed"), json!({ "requestId": request }), ConnectionId(1));
             };
-            tokio::join!(reveal, claim).0
+            claim.await;
+            reveal.await
         };
         assert!(claimer, "a claimed request is shown");
     }
