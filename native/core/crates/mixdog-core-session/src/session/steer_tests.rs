@@ -29,6 +29,9 @@ use super::tests::eventually_on;
 use super::tests::idle;
 use super::tests::turn;
 
+/// More turns than any recorded case queues.
+const RUNS_LEFT: usize = 16;
+
 fn golden() -> Value {
     serde_json::from_str(include_str!("../../../../fixtures/capability-refusals/golden.json")).expect("golden.json")
 }
@@ -94,7 +97,8 @@ async fn a_steer_prioritizes_as_nodes_prioritize_queued_does() {
         }
         for named in turns {
             let rig = Rig::new();
-            let release: Arc<tokio::sync::Notify> = Arc::default();
+            // A turn's gate is a count of turns let through, so a release made before the turn reaches it is not lost or merged.
+            let release = Arc::new(tokio::sync::Semaphore::new(0));
             let started: Arc<Mutex<Vec<Value>>> = Arc::default();
             let entered: Arc<tokio::sync::Notify> = Arc::default();
             // `started` is changed by the script, not by an actor step, so it has a signal of its own.
@@ -107,7 +111,7 @@ async fn a_steer_prioritizes_as_nodes_prioritize_queued_does() {
                     changed.notify_waiters();
                     run.port.input_durable().await.expect("input durable");
                     entry.notify_one();
-                    gate.notified().await;
+                    gate.acquire().await.expect("gate open").forget();
                     RunOutcome::Completed(Default::default())
                 })
             }));
@@ -152,7 +156,7 @@ async fn a_steer_prioritizes_as_nodes_prioritize_queued_does() {
                         eventually_on(&[&handle.cell.stepped], || (pending(&rig, &id) == *want_after).then_some(())).await;
                         assert_eq!(dequeued(&rig, &id), json!([]), "{label}: a busy thread defers the drain");
                         assert_eq!(*lock(&started), vec![json!("work")], "{label}");
-                        release.notify_one();
+                        release.add_permits(1);
                     }
                     eventually_on(&[&handle.cell.stepped], || (dequeued(&rig, &id) == drained).then_some(())).await;
                     if !busy {
@@ -162,15 +166,15 @@ async fn a_steer_prioritizes_as_nodes_prioritize_queued_does() {
                     let mut runs = if busy { vec![json!("work")] } else { Vec::new() };
                     runs.extend(taken);
                     eventually_on(&[&handle.cell.stepped, &started_changed], || (*lock(&started) == runs).then_some(())).await;
-                    release.notify_one();
-                    // What the drain leaves queued: the recorded `pendingAfterDrain` (the slash commands it passes over).
-                    eventually_on(&[&handle.cell.stepped], || (idle(&handle).then(|| live(&handle)) == Some(case["pendingAfterDrain"].clone())).then_some(())).await;
+                    // What the drain leaves queued: the recorded `pendingAfterDrain` (the slash commands it passes over). It is read
+                    // while the drain's turn is held: once that turn settles, the thread goes on to the next queued entry, so the
+                    // queue the drain left is a state of the held turn, not one an idle thread rests in.
+                    eventually_on(&[&handle.cell.stepped], || (live(&handle) == case["pendingAfterDrain"]).then_some(())).await;
                 }
                 other => panic!("{label}: recorded count {other:?}"),
             }
-            if busy && case["reply"]["count"] == 0 {
-                release.notify_one();
-            }
+            // Every turn still to run (the queued entries that follow the drain's) is let through, so the thread comes to rest.
+            release.add_permits(RUNS_LEFT);
             eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
         }
     }
