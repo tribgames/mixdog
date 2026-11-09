@@ -32,6 +32,8 @@ function rig() {
 test('the set is sent when it changes and not repeated when it does not', () => {
   const { sent, client, state, source } = rig();
   const reporter = createScreenReporter(client, source);
+  assert.deepEqual(sent, [], 'nothing is stated before the connection has synced its view');
+  reporter.synced();
   assert.deepEqual(sent, [{ method: SCREEN_SESSIONS_CHANGED, params: { sessionIds: ['t1'], browserId: 'b1', foreground: true } }]);
   reporter.refresh();
   assert.equal(sent.length, 1, 'an unchanged set is not sent again');
@@ -43,6 +45,7 @@ test('the set is sent when it changes and not repeated when it does not', () => 
 test('a hidden page or a backgrounded app sends the empty set', () => {
   const { sent, client, state, source } = rig();
   const reporter = createScreenReporter(client, source);
+  reporter.synced();
   state.active = false;
   reporter.refresh();
   assert.deepEqual(sent.at(-1)?.params, { sessionIds: [], browserId: 'b1', foreground: false });
@@ -51,17 +54,23 @@ test('a hidden page or a backgrounded app sends the empty set', () => {
   assert.deepEqual(sent.at(-1)?.params, { sessionIds: ['t1'], browserId: 'b1', foreground: true });
 });
 
-test('every new connection sends the set again, and nothing is sent while not ready', () => {
+test('every new connection sends the set again once it has synced, and nothing is sent before or while not ready', () => {
   const { sent, client, state, source, status } = rig();
   const reporter = createScreenReporter(client, source);
+  reporter.synced();
   status(RECONNECTING);
   state.threads = ['t9'];
   reporter.refresh();
   assert.equal(sent.length, 1, 'no send while the connection is down');
   status(READY);
+  assert.equal(sent.length, 1, 'a ready connection that has not synced states nothing');
+  reporter.refresh();
+  assert.equal(sent.length, 1);
+  reporter.synced();
   assert.deepEqual(sent.at(-1)?.params, { sessionIds: ['t9'], browserId: 'b1', foreground: true });
   status(RECONNECTING);
   status(READY);
+  reporter.synced();
   assert.equal(sent.length, 3, 'the same set is sent again on the next connection');
 });
 
@@ -69,6 +78,7 @@ test('the visualize panels on screen are reported whatever the page visibility, 
   const { sent, client, state, source } = rig();
   const panels = { shown: ['t1', 't1', 't3'] };
   const reporter = createScreenReporter(client, { ...source, visualizePanels: () => panels.shown });
+  reporter.synced();
   assert.deepEqual(sent[0]?.params, { sessionIds: ['t1'], browserId: 'b1', visualizeSessionIds: ['t1', 't3'], foreground: true });
   state.active = false;
   reporter.refresh();
@@ -82,6 +92,7 @@ test('the browser id is optional and clipped to 64 units; a stopped reporter is 
   const { sent, client, state, source, status } = rig();
   state.browserId = undefined;
   const reporter = createScreenReporter(client, source);
+  reporter.synced();
   assert.deepEqual(sent[0]?.params, { sessionIds: ['t1'], foreground: true });
   state.browserId = 'x'.repeat(80);
   reporter.refresh();
@@ -89,5 +100,6 @@ test('the browser id is optional and clipped to 64 units; a stopped reporter is 
   reporter.stop();
   status(RECONNECTING);
   status(READY);
+  reporter.synced();
   assert.equal(sent.length, 2);
 });

@@ -116,6 +116,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     ctx.restoredVisibleSessionIds = [];
     setRemoteConnectionState('connected');
     window.dispatchEvent(new Event(REMOTE_CONNECTION_READY_EVENT));
+    phone?.screen?.synced();
     // Terminal panes can hold PTY ids from the connection that died: told only after the replacement settled.
     if (reconnected) window.dispatchEvent(new Event('mixdog:remote-reconnected'));
   };
