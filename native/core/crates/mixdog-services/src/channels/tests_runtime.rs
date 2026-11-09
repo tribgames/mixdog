@@ -518,7 +518,13 @@ async fn reload_config_rearms_the_scheduler_and_leaves_the_agent_runtime_alone()
     e.schedules.upsert(&sched("late")).await.unwrap();
     assert!(e.runtime.scheduler().status().is_empty());
     let reloaded = tools.handle_tool_call("reload_config", &json!({})).await;
-    assert_eq!(reloaded["content"][0]["text"], "config reloaded — schedules, webhooks, events re-registered");
+    // Node's real `reload_config` after `ensureStandaloneEnvironment` (MIXDOG_STANDALONE=1): `fixtures/standalone-defaults`.
+    let twin: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/standalone-defaults/twin.json")).unwrap()).unwrap();
+    for recorded in twin["reloads"].as_array().unwrap() {
+        assert_eq!(recorded["standaloneAfterStart"], "1");
+        assert_eq!(recorded["runtimeReloads"], 1);
+        assert_eq!(reloaded, recorded["result"]);
+    }
     assert_eq!(e.runtime.scheduler().status().len(), 1, "a schedule saved after the start is armed by the reload");
     e.runtime.stop_owned_runtime("test").await.unwrap();
 }

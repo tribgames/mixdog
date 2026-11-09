@@ -143,7 +143,19 @@ const backupFolders = (dir) => {
 };
 
 const states = [];
-function state(name, { root = new Map(), data = new Map(), runs = 1, noDataDir = false }) {
+function state(name, { root = new Map(), data = new Map(), runs = 1, noDataDir = false, clock = null }) {
+  // A pinned clock makes the backup folder name known, so a state can hold folders that clash with the one the pass claims.
+  const RealDate = globalThis.Date;
+  if (clock) {
+    globalThis.Date = class extends RealDate {
+      constructor(...a) {
+        super(...(a.length ? a : [clock]));
+      }
+      static now() {
+        return RealDate.parse(clock);
+      }
+    };
+  }
   const base = mkdtempSync(join(work, 's-'));
   const rootDir = join(base, 'package');
   const dataDir = join(base, 'data');
@@ -176,11 +188,12 @@ function state(name, { root = new Map(), data = new Map(), runs = 1, noDataDir =
     process.stdout.write = out;
     process.stderr.write = err;
     for (const restore of patched) restore();
+    globalThis.Date = RealDate;
   }
   const backups = backupFolders(dataDir);
   for (const folder of backups) if (!/^defaults-separation-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(-\d+)?$/.test(folder)) throw new Error(`backup folder ${folder}`);
   const files = (map) => Object.fromEntries([...map].filter(([, v]) => v !== null).map(([k, v]) => [k, enc(v)]));
-  states.push({ name, root: Object.fromEntries([...root].map(([k, v]) => [k, v === null ? null : enc(v)])), noDataDir, before: files(data), runs, after, error, logs });
+  states.push({ name, root: Object.fromEntries([...root].map(([k, v]) => [k, v === null ? null : enc(v)])), noDataDir, clock, before: files(data), runs, after, error, logs });
   rmSync(base, { recursive: true, force: true });
 }
 
@@ -254,6 +267,15 @@ state('skill-as-file', { data: new Map([[`skills/${sk}`, Buffer.from('not a fold
 state('skills-root-missing', { data: merge(new Map([[`agents/${ag}/AGENT.md`, picks.agents[0].old.get('AGENT.md')]])) });
 state('user-own-items', { data: new Map([['skills/mine/SKILL.md', Buffer.from('mine\n')], ['agents/mine/AGENT.md', Buffer.from('---\nname: Mine\n---\n\nBody\n')], ['workflows/mine/WORKFLOW.md', Buffer.from('Body\n')], ['output-styles/mine.md', Buffer.from('mine\n')], ['output-styles/notes.txt', Buffer.from('x')], [`output-styles/${picks.outputStyles[0].name.replace(/\.md$/, '')}.d/a.md`, Buffer.from('x')], ['orchestration/mine.md', Buffer.from('mine\n')]]) });
 state('backups-blocked-by-a-file', { data: merge(old('agents'), new Map([['backups', Buffer.from('a file')]])) });
+// The backup folder of the pass is `defaults-separation-<ISO with : and . as ->`; an existing one is never reused (`-2`, `-3`, ...).
+const CLOCK = '2026-01-02T03:04:05.678Z';
+const clashing = (...names) => new Map(names.map((n) => [`backups/defaults-separation-2026-01-02T03-04-05-678Z${n}/keep.txt`, Buffer.from('earlier\n')]));
+state('backup-folder-clash-once', { clock: CLOCK, data: merge(old('agents'), clashing('')) });
+state('backup-folder-clash-twice', { clock: CLOCK, data: merge(old('agents'), clashing('', '-2')) });
+state('backup-folder-clash-gap', { clock: CLOCK, data: merge(old('agents'), clashing('', '-3')) });
+state('backup-folder-pinned-clock', { clock: CLOCK, data: oldEvery() });
+// The marker only saves repeating the sweep: a write that fails (the marker path is a folder) is swallowed.
+state('marker-is-a-folder', { data: merge(oldEvery(), new Map([[`${HISTORY_MARKER_FILE}/x`, Buffer.from('x')]])) });
 state('no-data-dir', { noDataDir: true });
 state('empty-data-dir', {});
 state('no-plugin-manifest', { root: new Map([['defaults/plugin.json', null]]), data: oldEvery() });

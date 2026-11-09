@@ -1,0 +1,122 @@
+{
+  "warmup": [
+    {
+      "embedWarmup": null,
+      "onnxRuntimeSupported": true,
+      "warmupCanStart": false,
+      "onDemandCanStart": true
+    },
+    {
+      "embedWarmup": "0",
+      "onnxRuntimeSupported": true,
+      "warmupCanStart": false,
+      "onDemandCanStart": true
+    },
+    {
+      "embedWarmup": "1",
+      "onnxRuntimeSupported": true,
+      "warmupCanStart": true,
+      "onDemandCanStart": true
+    },
+    {
+      "embedWarmup": "false",
+      "onnxRuntimeSupported": true,
+      "warmupCanStart": false,
+      "onDemandCanStart": true
+    },
+    {
+      "embedWarmup": "FALSE",
+      "onnxRuntimeSupported": true,
+      "warmupCanStart": false,
+      "onDemandCanStart": true
+    },
+    {
+      "embedWarmup": " no ",
+      "onnxRuntimeSupported": true,
+      "warmupCanStart": false,
+      "onDemandCanStart": true
+    },
+    {
+      "embedWarmup": "off",
+      "onnxRuntimeSupported": true,
+      "warmupCanStart": false,
+      "onDemandCanStart": true
+    },
+    {
+      "embedWarmup": "true",
+      "onnxRuntimeSupported": true,
+      "warmupCanStart": true,
+      "onDemandCanStart": true
+    },
+    {
+      "embedWarmup": "on",
+      "onnxRuntimeSupported": true,
+      "warmupCanStart": true,
+      "onDemandCanStart": true
+    },
+    {
+      "embedWarmup": "YES",
+      "onnxRuntimeSupported": true,
+      "warmupCanStart": true,
+      "onDemandCanStart": true
+    },
+    {
+      "embedWarmup": "",
+      "onnxRuntimeSupported": true,
+      "warmupCanStart": true,
+      "onDemandCanStart": true
+    },
+    {
+      "embedWarmup": "  ",
+      "onnxRuntimeSupported": true,
+      "warmupCanStart": true,
+      "onDemandCanStart": true
+    },
+    {
+      "embedWarmup": "maybe",
+      "onnxRuntimeSupported": true,
+      "warmupCanStart": true,
+      "onDemandCanStart": true
+    },
+    {
+      "embedWarmup": "2",
+      "onnxRuntimeSupported": true,
+      "warmupCanStart": true,
+      "onDemandCanStart": true
+    }
+  ],
+  "reloads": [
+    {
+      "standalone": null,
+      "standaloneAfterStart": "1",
+      "runtimeReloads": 1,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "config reloaded — schedules, webhooks, events re-registered"
+          }
+        ]
+      },
+      "dataDirEntries": [
+        ".shipped-history-retired"
+      ]
+    },
+    {
+      "standalone": "1",
+      "standaloneAfterStart": "1",
+      "runtimeReloads": 1,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "config reloaded — schedules, webhooks, events re-registered"
+          }
+        ]
+      },
+      "dataDirEntries": [
+        ".shipped-history-retired"
+      ]
+    }
+  ]
+}

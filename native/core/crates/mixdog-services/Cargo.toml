@@ -66,6 +66,8 @@ windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem", "Win32
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
+# The subscriber `mixdogd` installs, to show which `tracing` lines reach stderr by default.
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 # The relay fixture of the webhook tunnel tests: a WebSocket server that sees the leg's request.
 tokio-tungstenite = { workspace = true, features = ["connect", "handshake", "rustls-tls-native-roots"] }
 # The real process manager the tidy tests spawn under, as mixdog-scm's tests do.
