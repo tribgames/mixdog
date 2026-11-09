@@ -69,7 +69,22 @@ impl DirectorySessions {
     }
 
     async fn patch(&self, session_id: &str, set: Map<String, Value>) -> Result<(), RoomError> {
-        match self.state.patch_header(&ThreadId::from(session_id), set, vec![]).await {
+        self.patch_unset(session_id, set, vec![]).await
+    }
+
+    /// The desktop's sidebar marks are the header's own positive stamps (`archivedAt`, `retiredAt`): the thread rows read them, a
+    /// boolean under another key marks nothing.
+    async fn mark(&self, session_id: &str, key: &str, on: bool) -> Result<(), RoomError> {
+        if on {
+            let at = chrono::Utc::now().timestamp_millis();
+            self.patch(session_id, Map::from_iter([(key.to_owned(), json!(at))])).await
+        } else {
+            self.patch_unset(session_id, Map::new(), vec![key.to_owned()]).await
+        }
+    }
+
+    async fn patch_unset(&self, session_id: &str, set: Map<String, Value>, unset: Vec<String>) -> Result<(), RoomError> {
+        match self.state.patch_header(&ThreadId::from(session_id), set, unset).await {
             Ok(()) | Err(PortError::NotFound { .. }) => Ok(()),
             Err(error) => Err(port(error)),
         }
@@ -96,7 +111,12 @@ impl SessionOps for DirectorySessions {
         self.directory
             .create_with_id(ThreadId::from(session_id), header, params.clone())
             .await
-            .map_err(port)
+            .map_err(port)?;
+        // Node stamps a new session twice: the record at `createdAt`, then the setup save (tools, title) that sets `updatedAt` from its
+        // own clock read (`session-record.mjs:192-193`, then the `patch` of `updatedAt` with the setup fields: a room log recorded
+        // createdAt 1794261561810, updatedAt 1794261561825).
+        let saved = chrono::Utc::now().timestamp_millis();
+        self.patch(session_id, Map::from_iter([("updatedAt".to_owned(), json!(saved))])).await
     }
 
     async fn set_route(&self, session_id: &str, route: &Value) -> Result<(), RoomError> {
@@ -108,15 +128,15 @@ impl SessionOps for DirectorySessions {
     }
 
     async fn set_archived(&self, session_id: &str, archived: bool) -> Result<(), RoomError> {
-        self.patch(session_id, Map::from_iter([("archived".to_owned(), json!(archived))])).await
+        self.mark(session_id, "archivedAt", archived).await
     }
 
     async fn is_retired(&self, session_id: &str) -> Result<bool, RoomError> {
-        Ok(self.header(session_id).await?.and_then(|h| h.get("retired").and_then(Value::as_bool)).unwrap_or(false))
+        Ok(self.header(session_id).await?.and_then(|h| h.get("retiredAt").and_then(Value::as_f64)).is_some_and(|at| at > 0.0))
     }
 
     async fn set_retired(&self, session_id: &str, retired: bool) -> Result<(), RoomError> {
-        self.patch(session_id, Map::from_iter([("retired".to_owned(), json!(retired))])).await
+        self.mark(session_id, "retiredAt", retired).await
     }
 
     async fn rename(&self, session_id: &str, title: &str) -> Result<(), RoomError> {

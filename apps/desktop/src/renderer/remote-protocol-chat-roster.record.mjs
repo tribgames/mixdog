@@ -80,6 +80,23 @@ const sessionClient = await import(pathToFileURL(join(exportDir, 'src/standalone
 const { createSessionProtocolClient } = await import(pathToFileURL(join(exportDir, 'src/standalone/session-protocol.mjs')).href);
 const { createDesktopRuntime } = await import(pathToFileURL(join(exportDir, 'src/standalone/daemon-desktop-runtime.mjs')).href);
 
+// In production the host runs inside the daemon and reaches it through the daemon-local session bridge (daemon-local-session-bridge.mjs:30
+// calls `handleCall` with no revision), which the daemon reads as revision 0 (session-action.mjs:221): at revision 0 a read action such as
+// `agentDefinitionPresence` (session-protocol.mjs:12) is accepted on the configure lane, where this host sends it (session-host-transport.ts
+// callAction: READ_CAPABILITIES lacks it). This recorder's client reaches the daemon over TCP, so it registers as revision 0 too -- the one
+// digit of the register body (session-client.mjs:577 `revision: SESSION_REVISION`, 6); every Node module runs unchanged.
+{
+  const http = (await import('node:http')).default;
+  const request = http.request;
+  http.request = function (...args) {
+    const req = request.apply(this, args);
+    if (args.find((a) => a && typeof a === 'object' && a.path)?.path === '/client/register') {
+      const write = req.write;
+      req.write = (chunk, ...rest) => write.call(req, String(chunk).replace('"revision":6', '"revision":0'), ...rest);
+    }
+    return req;
+  };
+}
 const deadline = createDeadline(300_000, () => 'node roster recording');
 const discovery = await deadline.race(sessionClient.ensureDaemon({ cwd: envPaths.workspace, attempts: 2, readyTimeoutMs: 60_000 }), 'the Node daemon');
 const turnsDone = new Map();
@@ -186,15 +203,13 @@ const ACTIONS = [
     made.room = created.roomId;
     made.roomLog = created.sessionId;
   }],
-  // The agent is deleted. The host archives its home once the definition is proven deleted -- through `agentDefinitionPresence`, which this
-  // export's desktop contract (shared/contract-capabilities.ts READ_CAPABILITIES) does not list as a read, so it is sent as a configure and
-  // refused ("session action agentDefinitionPresence is unavailable"). The refusal is the host's own warning, noted below; the roster is
-  // whatever the host then lists.
+  // The agent is deleted: the host proves it through `agentDefinitionPresence`, then archives the agent's home (agent-home-sessions.ts
+  // archiveDeleted), names it, and drops the bot from its rooms (agent-rooms.ts forgetMember). It runs after the delete's reply (`void
+  // retireAgentHomes`, session-host-lifecycle.ts:1171), so the action ends when the home row says it was retired.
   ['agent-delete', async () => {
     await host.invokeCapability('deleteAgentDefinition', [made.botOne]);
-    await deadline.race(retireWarned.promise, 'the host to try to archive the deleted agent\'s home');
-  }],
-];
+    await settled((rows) => rows.find((row) => row.id === made.botOneHome)?.agentDeleted === true && !rows.find((row) => row.id === made.roomLog)?.agentRoom?.members.includes(made.botOne), 'the deleted agent\'s home to be retired and the bot to leave its room');
+  }],];
 const roster = () => listed();
 function desktop(rows) {
   const listeners = new Set();
