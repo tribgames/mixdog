@@ -1,0 +1,206 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { build } from 'esbuild';
+import puppeteer from 'puppeteer-core';
+import { resolveUsageStatsPeriod } from './test-support/usage-stats-period.recorded.mjs';
+
+// Vite gives every dynamic import its own chunk, so a surface only loads what
+// it opens. esbuild cannot code-split an `iife` bundle, so it inlines those
+// chunks instead — for this surface that dragged in the editor chunk, and with
+// it Monaco, 16MB of editor sources and Monaco's `?worker` imports, a Vite-only
+// suffix esbuild has no way to resolve. Holding the dynamic-import boundary
+// external reproduces the graph this surface really loads: token usage opens no
+// editor, and a lazy module it did need would surface as a renderer error.
+const lazyChunkBoundary = {
+  name: 'lazy-chunk-boundary',
+  setup(pluginBuild) {
+    pluginBuild.onResolve({ filter: /.*/ }, (args) =>
+      args.kind === 'dynamic-import' ? { path: args.path, external: true } : null
+    );
+  },
+};
+
+test('token usage stays centered and scrollable with titlebar insets, empty results and small viewports', async (t) => {
+  const resolveDir = fileURLToPath(new URL('.', import.meta.url));
+  const [bundle, styles] = await Promise.all([
+    build({
+      stdin: {
+        resolveDir,
+        loader: 'tsx',
+        // The inherit surface's model picker reaches TUI-shared modules that
+        // read \`process\` and \`import.meta.url\` at module scope. As in the
+        // renderer entries (main.tsx, bootstrap.tsx) the process shim loads
+        // first, and the URL is a chunk's, as Vite's ESM output gives it.
+        contents: `
+          import "./process-shim";
+          import React from "react";
+          import { createRoot } from "react-dom/client";
+          import { CommandSurface } from "./CommandSurface";
+
+          const root = createRoot(document.getElementById("root"));
+          const period = ${JSON.stringify(
+            resolveUsageStatsPeriod({
+              view: 'hour',
+              now: new Date(2026, 8, 13, 12).getTime(),
+            })
+          )};
+          window.renderStats = (state) => {
+            const empty = state === "empty";
+            const route = {
+              turns: empty ? 0 : 1, sessions: empty ? 0 : 1,
+              input: empty ? 0 : 1000, output: empty ? 0 : 200,
+              tokens: empty ? 0 : 1200, cacheRead: 0, cacheWrite: 0,
+              cacheTokens: 0, costUsd: 0, costCoverage: 1, share: 1, models: [],
+            };
+            const value = {
+              period, range: { days: period.days, firstDay: "2026-09-01" },
+              totals: route,
+              providers: empty ? [] : [{ ...route, provider: "openai", providerKind: "api" }],
+              daily: [], hourly: [], coverage: {},
+            };
+            const api = {
+              invokeCapability: () => state === "loading"
+                ? new Promise(() => {})
+                : Promise.resolve({ value }),
+            };
+            root.render(<CommandSurface key={state} surface="stats" open onClose={() => {}} api={api} />);
+          };
+        `,
+      },
+      bundle: true,
+      write: false,
+      outfile: 'usage-stats-layout.js',
+      format: 'iife',
+      jsx: 'automatic',
+      define: {
+        'process.env.NODE_ENV': '"production"',
+        'import.meta.url': '"http://mixdog.test/assets/index.js"',
+      },
+      plugins: [lazyChunkBoundary],
+    }),
+    build({
+      stdin: {
+        resolveDir,
+        loader: 'css',
+        contents: '@import "./font-faces.css"; @import "./ui/tokens.css"; @import "./desktop.css";',
+      },
+      outfile: 'usage-stats-layout.css',
+      bundle: true,
+      write: false,
+      loader: { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' },
+    }),
+  ]);
+  const browser = await puppeteer.launch({
+    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
+    headless: true,
+  });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.setContent('<!doctype html><html><head></head><body><div id="root"></div></body></html>');
+  await page.addStyleTag({ content: styles.outputFiles[0].text });
+  for (const file of bundle.outputFiles.filter((file) => file.path.endsWith('.css'))) {
+    await page.addStyleTag({ content: file.text });
+  }
+  // A 35px Window Controls Overlay caption, as the layer insets it: below the
+  // caption and above the bottom edge by the window's margin.
+  await page.addStyleTag({
+    content: `
+      html:not([data-mixdog-mobile-tabs]) .mixdog-settings-layer {
+        --settings-layer-safe-top: calc(35px + var(--settings-layer-margin));
+      }
+    `,
+  });
+  await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
+
+  for (const viewport of [
+    { width: 1160, height: 831 },
+    { width: 1440, height: 1100 },
+    // Short but wide: a compact height once dropped the bottom margin.
+    { width: 1382, height: 593 },
+    { width: 640, height: 400 },
+    { width: 412, height: 870, mobile: true },
+  ]) {
+    await page.setViewport({ width: viewport.width, height: viewport.height });
+    await page.evaluate(({ mobile }) => {
+      document.documentElement.toggleAttribute('data-mixdog-mobile-tabs', Boolean(mobile));
+    }, viewport);
+    for (const state of ['loading', 'populated', 'empty']) {
+      await page.evaluate((state) => window.renderStats(state), state);
+      await page.waitForFunction(
+        (state) => {
+          const surface = document.querySelector('.stats-surface');
+          if (!surface) return false;
+          if (state === 'loading') return surface.dataset.loading === 'true';
+          if (surface.dataset.loading === 'true') return false;
+          return state === 'empty'
+            ? surface.dataset.empty === 'true'
+            : Boolean(surface.querySelector('.stats-provider-row'));
+        },
+        {},
+        state
+      );
+      const layout = await page.evaluate(async () => {
+        await document.fonts.ready;
+        // Measure the settled card: the dialog's entrance scales it in.
+        await Promise.all(
+          document
+            .getAnimations()
+            .filter((animation) => Number.isFinite(animation.effect?.getComputedTiming().endTime))
+            .map((animation) => animation.finished.catch(() => undefined))
+        );
+        const dialog = document.querySelector('.command-surface');
+        const body = dialog.querySelector('.mixdog-settings__body');
+        const layer = dialog.parentElement;
+        const rect = dialog.getBoundingClientRect();
+        body.scrollTop = body.scrollHeight;
+        return {
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom,
+          layerOverflow: layer.scrollHeight - layer.clientHeight,
+          bodyOverflow: body.scrollHeight - body.clientHeight,
+          scrollTop: body.scrollTop,
+          scrollEnd: body.scrollHeight - body.clientHeight - body.scrollTop,
+        };
+      });
+      const label = `${state} at ${viewport.width}x${viewport.height}`;
+      assert.ok(
+        Math.abs(layout.left - (viewport.width - layout.right)) <= 1,
+        `horizontal center: ${label}, left=${layout.left}, right inset=${viewport.width - layout.right}`
+      );
+      // Centered in what the caption leaves, inside margins that grow with
+      // the window and never close, however short it is; with content it
+      // fills them.
+      const caption = viewport.mobile ? 0 : 35;
+      const margin = viewport.mobile ? 12 : Math.min(72, Math.max(16, viewport.height * 0.06));
+      assert.ok(
+        Math.abs(layout.top - caption - (viewport.height - layout.bottom)) <= 1,
+        `vertical center below the caption: ${label}, top=${layout.top}, bottom inset=${viewport.height - layout.bottom}`
+      );
+      const place = `top=${layout.top}, bottom=${layout.bottom}, margin=${margin}`;
+      assert.ok(layout.top >= caption + margin - 1, `titlebar clearance: ${label}, ${place}`);
+      assert.ok(layout.bottom <= viewport.height - margin + 1, `bottom clearance: ${label}, ${place}`);
+      if (state !== 'empty') {
+        // With content the card fills its margins; a desktop window stops it
+        // at 760px (user: 팝업 상하 최대 크기) and its body scrolls, while the
+        // phone sheet keeps filling the screen.
+        const room = viewport.height - caption - 2 * margin;
+        const height = viewport.mobile ? room : Math.min(760, room);
+        assert.ok(
+          Math.abs(layout.bottom - layout.top - height) <= 1,
+          `fills its margins up to the desktop 760px cap: ${label}, ${place}`
+        );
+      }
+      assert.ok(layout.layerOverflow <= 1, `overlay does not scroll: ${label}`);
+      assert.ok(Math.abs(layout.scrollEnd) <= 1, `body reaches its last content: ${label}`);
+      if (viewport.height === 400 && state !== 'empty') {
+        assert.ok(layout.bodyOverflow > 0 && layout.scrollTop > 0, `small-window content scrolls: ${label}`);
+      }
+    }
+  }
+  assert.deepEqual(errors, [], 'no renderer errors');
+});
