@@ -41,6 +41,8 @@ const { createKeyedListDeltaDecoder } = await load('shared/list-delta.ts');
 const { createRemoteRosterCache, readRosterStamp } = await load('shared/remote-roster-cache.ts');
 const { createRemoteCatalog } = await load('shared/remote-catalog.ts');
 const { desktopSessionSummaries } = await load('main/desktop-state.ts');
+const { DesktopSessionMetadata } = await load('main/desktop-session-metadata.ts');
+const { byActivityThenId } = await import(pathToFileURL(join(exportDir, 'src/runtime/agent/orchestrator/session/catalog-db/schema.mjs')).href);
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const wait = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -55,11 +57,37 @@ const raw = (n, extra = {}) => ({
   messageCount: 4,
   cwd: n % 2 ? 'C:\\proj\\a' : 'C:\\proj\\b',
   desktopSession: { classification: 'project', projectPath: n % 2 ? 'C:\\proj\\a' : 'C:\\proj\\b' },
+  ...(n === 0 ? { working: true } : {}),
+  ...(n === 1 ? { agentWorking: true, lastUsedAt: 1500 } : {}),
+  ...(n === 2 ? { inheritedFromSessionId: 'sess_0' } : {}),
   ...extra,
 });
 // The store lists newest activity first, then by id (the catalog's order; the core lists the same way).
 const ordered = (rows) => [...rows].sort((a, b) => (Number(b.lastUsedAt) || b.updatedAt) - (Number(a.lastUsedAt) || a.updatedAt) || (a.id < b.id ? -1 : 1));
-const roster = (rows) => desktopSessionSummaries(ordered(rows), {}, {}, '');
+// What the host laid over the projection (session-host.ts sessionCatalog): Node's own DesktopSessionMetadata overlays, run unchanged
+// over the state a user left (archived, favorite, a deleted bot's home, a read cursor).
+const meta = new DesktopSessionMetadata(() => process.env.MIXDOG_DATA_DIR ?? '.');
+Object.assign(meta, {
+  titleMap: {}, nameMap: {}, archivedMap: { sess_3: 1 }, favoriteMap: { sess_2: 1 }, retiredMap: { sess_4: 1 },
+  readMap: { sess_1: { messageCount: 3, revision: 2 } },
+});
+const roster = (rows) =>
+  meta.withReadCursors(meta.withFavoriteFlags(meta.withRetiredFlags(meta.withArchiveFlags(desktopSessionSummaries(ordered(rows), meta.titles, meta.names, '')))));
+// The same rows as the core carries them (its `ThreadSummary`): the stored row flattened, the overlays as fields of the row.
+const coreOf = ({ desktopSession, inheritedFromSessionId, working, agentWorking, ...row }) => ({
+  ...row,
+  classification: desktopSession.classification,
+  projectPath: desktopSession.projectPath,
+  ...(inheritedFromSessionId ? { forkedFromId: inheritedFromSessionId } : {}),
+  activityAt: Number(row.lastUsedAt) || row.updatedAt,
+  ...(working || agentWorking ? { working: true } : {}),
+  ...(working ? { leadWorking: true } : {}),
+  ...(agentWorking ? { agentWorking: true } : {}),
+  ...(meta.archivedMap[row.id] ? { archived: true } : {}),
+  ...(meta.favoriteMap[row.id] ? { favorite: true } : {}),
+  ...(meta.retiredMap[row.id] ? { agentDeleted: true } : {}),
+  ...(meta.readMap[row.id] ? { readMessageCount: meta.readMap[row.id].messageCount, readRevision: meta.readMap[row.id].revision } : {}),
+});
 
 function desktop(rows) {
   const listeners = new Set();
@@ -140,7 +168,7 @@ function phone() {
 const kind = (frames) => frames.filter((f) => f.event === 'sessions').map((f) => (f.payload.__listCatch ? 'catch-up' : f.payload.rows ? 'baseline' : 'delta'));
 
 const steps = [];
-const note = (name, core, p, frames) => steps.push({ name, coreRows: plain(ordered(core)), frames: frames ? kind(frames) : undefined, published: p.published.splice(0), roster: plain(p.rows) });
+const note = (name, core, p, frames) => steps.push({ name, coreRows: plain(ordered(core).map(coreOf)), frames: frames ? kind(frames) : undefined, published: p.published.splice(0), roster: plain(p.rows) });
 const settle = async () => { await wait(60); };
 
 const R1 = [0, 1, 2, 3, 4].map((n) => raw(n));
@@ -186,6 +214,13 @@ const R4 = R3b.map((r) => (r.id === 'sess_4' ? { ...r, messageCount: 9 } : r));
 d.publish(R4);
 note('live-push-after-restart', R4, p);
 await settle();
+
+// Node's catalog order over ties, lastUsedAt over updatedAt, and rows with no activity at all (schema.mjs byActivityThenId).
+const tieRows = [
+  raw(10, { updatedAt: 500 }), raw(11, { updatedAt: 500 }), raw(12, { updatedAt: 500, id: 'sess_09' }), raw(13, { updatedAt: 100, lastUsedAt: 900 }),
+  raw(14, { updatedAt: 900 }), raw(15, { updatedAt: 0 }), raw(16, { updatedAt: 0, id: 'sess_A' }), raw(17, { updatedAt: 0, lastUsedAt: 0, id: 'sess_a' }),
+];
+steps.push({ name: 'order-ties', coreRows: plain(tieRows.map(coreOf)), order: [...tieRows].sort(byActivityThenId).map((r) => r.id) });
 
 const manifest = { exact: true, commit: COMMIT, tree: execFileSync('git', ['-C', NODE_CHECKOUT, 'rev-parse', `${COMMIT}^{tree}`]).toString().trim(), filesCompared: checked, crlfOnlyDifferences: eolOnly, source: 'git archive of the whole tree, every file compared with its git blob id; remote-view-sync.ts, remote-relay-catalog.ts, view-synchronizer.ts, list-delta.ts, remote-roster-cache.ts run unchanged' };
 writeFileSync(outFile, `${JSON.stringify({ manifest, steps }, null, 2)}\n`);

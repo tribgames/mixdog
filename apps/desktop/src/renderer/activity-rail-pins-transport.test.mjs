@@ -1,36 +1,31 @@
+// The phone's activity-rail pins: reads and saves reach the host as requests, and a pushed state reaches the page's listeners until it
+// unsubscribes. Ported from the Node-socket test onto the phone API rig.
+// Not ported: "a clear relay hint cannot change pin preferences" and the unknown-pin frame -- there are no clear relay hints on a protocol
+// connection; what a phone hears of the pins is the one global push the core sends after the lane registration, recorded from Node in
+// apps/mobile/fixtures/phone-lifecycle/lane-pushes.json ("activity rail pins" -> activity-rail-pins-changed) and replayed by
+// remote-shim-lifecycle.slow.test.mjs.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ACTIVITY_RAIL_PINS_EVENT } from '../shared/activity-rail-pins.ts';
-import { createRemoteApi } from './remote-shim-api.ts';
-import { publishedCeilings, withShim } from './remote-shim-test-harness.mjs';
+import { settle, withPhoneApi } from './test-support/phone-api-rig.mjs';
 
-test('paired web pins use the real encrypted request and notification paths', async () => {
-  await withShim({}, async ({ ctx, dial }) => {
-    const api = createRemoteApi(ctx);
-    const leg = await dial({ ready: publishedCeilings(4096, 4096) });
+test('paired web pins use the request path and reach listeners until they unsubscribe', async () => {
+  const initial = { pins: ['projects', 'sessions'], revision: 1 };
+  const saved = { pins: ['search', 'projects'], revision: 2 };
+  const handlers = { readActivityRailPins: () => initial, updateActivityRailPins: () => saved };
+  await withPhoneApi(handlers, async ({ ctx, api, calls }) => {
     const received = [];
     const unsubscribe = api.subscribeActivityRailPins((state) => received.push(state));
-    const initial = { pins: ['projects', 'sessions'], revision: 1 };
-    const reading = api.readActivityRailPins();
-    const read = await leg.nextPayload();
-    assert.equal(read.method, 'readActivityRailPins');
-    await leg.deliver({ id: read.id, ok: true, value: initial });
-    assert.deepEqual(await reading, initial);
-    const saving = api.updateActivityRailPins(['search', 'projects']);
-    const update = await leg.nextPayload();
-    assert.equal(update.method, 'updateActivityRailPins');
-    assert.deepEqual(update.params, [['search', 'projects']]);
-    const saved = { pins: ['search', 'projects'], revision: 2 };
-    await leg.deliver({ id: update.id, ok: true, value: saved });
-    assert.deepEqual(await saving, saved);
-    ctx.handleMessage({ event: ACTIVITY_RAIL_PINS_EVENT, payload: saved }, false);
-    assert.deepEqual(received, [], 'clear relay hints cannot change pin preferences');
-    await leg.deliver({ event: ACTIVITY_RAIL_PINS_EVENT, payload: saved });
-    assert.deepEqual(received, [saved]);
-    await leg.deliver({ event: ACTIVITY_RAIL_PINS_EVENT, payload: { pins: ['unknown'], revision: 3 } });
+    assert.deepEqual(await api.readActivityRailPins(), initial);
+    assert.deepEqual(await api.updateActivityRailPins(['search', 'projects']), saved);
+    await settle();
+    assert.deepEqual(calls, [
+      { method: 'readActivityRailPins', params: [] },
+      { method: 'updateActivityRailPins', params: [['search', 'projects']] },
+    ]);
+    ctx.fanOut(ctx.activityRailPinsListeners, saved);
     assert.deepEqual(received, [saved]);
     unsubscribe();
-    await leg.deliver({ event: ACTIVITY_RAIL_PINS_EVENT, payload: { pins: [], revision: 3 } });
+    ctx.fanOut(ctx.activityRailPinsListeners, { pins: [], revision: 3 });
     assert.deepEqual(received, [saved]);
   });
 });
