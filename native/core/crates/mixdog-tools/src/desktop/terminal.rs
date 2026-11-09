@@ -715,7 +715,7 @@ mod tests {
     /// output is the shell's own, so text is compared by relation to the full snapshot.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn the_tab_list_and_snapshots_equal_nodes_recorded_payloads() {
-        let recorded: Value = serde_json::from_str(include_str!("../../../../fixtures/desktop/terminal/session-tabs.json")).unwrap();
+        let recorded: Value = serde_json::from_str(include_str!("../../../../fixtures/terminal-tabs/session-tabs.json")).unwrap();
         let cwd = std::env::temp_dir().display().to_string();
         let fill = |value: &Value| serde_json::from_str::<Value>(&value.to_string().replace("{cwd}", &cwd.replace('\\', "\\\\"))).unwrap();
         let manager = mixdog_spawn::LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, mixdog_spawn::ProcessConfig::default());

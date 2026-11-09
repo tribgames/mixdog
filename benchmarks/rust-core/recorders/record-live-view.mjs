@@ -12,9 +12,10 @@
 //   node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-live-view.mjs --tree <git archive of b6f10295a with node_modules>
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { FIXTURES_ROOT, REPO_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, REPO_ROOT, commitStage, importFrom, parseArgs, resolveTree, exactProductIdentity, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
-const tree = resolveTree(parseArgs());
+const args = parseArgs();
+const tree = resolveTree(args);
 const NODE_COMMIT = execFileSync('git', ['rev-parse', 'b6f10295a^{commit}'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
 const recorder = 'benchmarks/rust-core/recorders/record-live-view.mjs';
 const finalDir = join(FIXTURES_ROOT, 'live-view');
@@ -956,8 +957,7 @@ writeSetManifest(stage, {
   set: 'live-view',
   recorder,
   command: `node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs ${recorder} --tree <tree>`,
-  identityTree: tree,
-  identityRef: NODE_COMMIT,
+  identity: exactProductIdentity(tree, NODE_COMMIT),
 });
 commitStage(stage, finalDir);
 console.log(`recorded ${signals.client.length} client, ${signals.desktop.length} desktop, ${signals.channel.length} channel, ${relayScenarios.length} relay and ${viewerScenarios.length} viewer scenarios`);

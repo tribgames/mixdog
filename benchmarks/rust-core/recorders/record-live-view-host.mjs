@@ -10,7 +10,7 @@
 import { execFileSync } from 'node:child_process';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
-import { FIXTURES_ROOT, REPO_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, REPO_ROOT, commitStage, importFrom, parseArgs, resolveTree, exactProductIdentity, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
 // The host draws connection ids from randomBytes: a counter instead, so ids are the same in every run.
 const nodeCrypto = createRequire(import.meta.url)('node:crypto');
@@ -18,7 +18,8 @@ let idSeq = 0;
 nodeCrypto.randomBytes = () => ({ toString: () => `connection-id-${String(++idSeq).padStart(4, '0')}` });
 syncBuiltinESMExports();
 
-const tree = resolveTree(parseArgs());
+const args = parseArgs();
+const tree = resolveTree(args);
 const NODE_COMMIT = execFileSync('git', ['rev-parse', 'b6f10295a^{commit}'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
 const recorder = 'benchmarks/rust-core/recorders/record-live-view-host.mjs';
 const finalDir = join(FIXTURES_ROOT, 'live-view-host');
@@ -436,8 +437,7 @@ writeSetManifest(stage, {
   set: 'live-view-host',
   recorder,
   command: `node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs ${recorder} --tree <tree>`,
-  identityTree: tree,
-  identityRef: NODE_COMMIT,
+  identity: exactProductIdentity(tree, NODE_COMMIT),
 });
 commitStage(stage, finalDir);
 console.log(`recorded ${scenarios.length} host scenarios`);
