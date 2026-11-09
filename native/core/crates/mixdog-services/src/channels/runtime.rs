@@ -61,6 +61,13 @@ pub struct ChannelRuntime {
     /// Node's `closeRequested` for the channel start: once cancelled (by `shutdown_scheduled_start`)
     /// no deferred start runs or is scheduled.
     shutdown: CancellationToken,
+    /// Held while a start arms the scheduler and syncs the webhook (listener bind, relay identity).
+    /// Node runs that stretch without yielding to a request, so a readback sees it done or not begun.
+    arming: tokio::sync::Mutex<()>,
+    /// Held by a scheduled start from the moment it is scheduled until it has armed, so a readback
+    /// right after a save sees the start done (Node's timer-0 start runs before the next request).
+    scheduled: Arc<tokio::sync::Mutex<()>>,
+    stamp_hold: Arc<Mutex<Option<crate::scheduler::StampHold>>>,
 }
 
 /// What the app shows as the worker's state.
@@ -92,7 +99,25 @@ impl ChannelRuntime {
             start_gate: Gate::new(),
             reload_gate: Gate::new(),
             shutdown: CancellationToken::new(),
+            arming: tokio::sync::Mutex::new(()),
+            scheduled: Arc::new(tokio::sync::Mutex::new(())),
+            stamp_hold: Arc::new(Mutex::new(None)),
         })
+    }
+
+    /// Returns once no start is between arming the scheduler and finishing the webhook sync.
+    pub async fn arming_settled(&self) {
+        let settle = async {
+            drop(self.scheduled.lock().await);
+            drop(self.arming.lock().await);
+        };
+        // A start stuck in provider init must not hold a readback for good.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), settle).await;
+    }
+
+    /// Lets the next-fire writes of the last start go (after a readback has been served).
+    pub fn release_stamps(&self) {
+        self.stamp_hold.lock().unwrap().take();
     }
 
     /// The token a start or reload runs under: the current epoch, ended by the next stop.
@@ -149,7 +174,9 @@ impl ChannelRuntime {
             return;
         }
         let (runtime, epoch, closing) = (Arc::clone(self), st.epoch.clone(), closing.clone());
+        let pending = Arc::clone(&self.scheduled).try_lock_owned().ok();
         st.scheduled_start = Some(tokio::spawn(async move {
+            let _pending = pending;
             let start = async {
                 // `isCloseRequested()` is checked again once the probe has answered.
                 if !active.await || closing.is_cancelled() || runtime.shutdown.is_cancelled() {
@@ -198,10 +225,23 @@ impl ChannelRuntime {
         if self.state.lock().unwrap().stop_requested {
             return Ok(());
         }
+        let _arming = self.arming.lock().await;
         let rows = self.armed_schedules().await.map_err(|e| e.to_string())?;
+        // Node's order (`automation-start.mjs:30-32`): the scheduler arms, then the webhook sync binds
+        // the listener and its bound callback creates the relay identity; the arming's database write
+        // (`scheduler.mjs:313`) lands after both, so a readback sees the identity before the next fire.
+        let hold = self.scheduler.hold_stamps();
         self.scheduler.reload_config(rows, false);
         self.scheduler.start();
         let synced = self.services.sync(false).await;
+        // Node's stamp write is a database round trip that lands after the next request's read; the
+        // hold lasts until a setup readback has been served (elease_stamps), or a moment at most.
+        *self.stamp_hold.lock().unwrap() = Some(hold);
+        let this = Arc::clone(&self.stamp_hold);
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            this.lock().unwrap().take();
+        });
         self.state.lock().unwrap().automation_running = true;
         mixdog_rt::node_stderr!("mixdog: automation runtime up");
         synced
@@ -213,8 +253,13 @@ impl ChannelRuntime {
         let already = self.state.lock().unwrap().automation_running;
         if !already {
             let rows = self.armed_schedules().await.map_err(|e| e.to_string())?;
+            let hold = self.scheduler.hold_stamps();
             self.scheduler.reload_config(rows, false);
             self.scheduler.start();
+            let synced = self.services.sync(false).await;
+            drop(hold);
+            self.state.lock().unwrap().automation_running = true;
+            return synced;
         }
         let synced = self.services.sync(false).await;
         self.state.lock().unwrap().automation_running = true;

@@ -386,10 +386,13 @@ impl ChannelAdmin {
     }
 
     pub async fn get_channel_setup(&self) -> Done {
+        self.d.runtime.arming_settled().await;
         let webhook = self.d.settings.webhook().await?;
         let mut view = serde_json::to_value(webhook).map_err(|e| e.to_string())?;
         view["publicUrl"] = self.d.base.hook_public_base().await?.into();
-        Ok(json!({"webhook": view, "schedules": self.list_schedules().await?, "webhooks": self.list_webhooks().await?}))
+        let setup = json!({"webhook": view, "schedules": self.list_schedules().await?, "webhooks": self.list_webhooks().await?});
+        self.d.runtime.release_stamps();
+        Ok(setup)
     }
 
     // ---- the settings and the runtime --------------------------------------------------
