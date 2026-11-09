@@ -38,8 +38,13 @@ pub fn mtime_ns(meta: &Metadata) -> i128 {
         .unwrap_or(0)
 }
 
+/// Node's `mtimeMs` (`msFromTimeSpec` in lib/internal/fs/utils.js): whole seconds times 1000 plus the nanosecond remainder over 1e6,
+/// each a double. One division of the whole nanosecond count rounds differently from it in the last bits.
 pub fn mtime_ms(meta: &Metadata) -> f64 {
-    mtime_ns(meta) as f64 / 1_000_000.0
+    let ns = mtime_ns(meta);
+    let secs = ns.div_euclid(1_000_000_000);
+    let nanos = ns.rem_euclid(1_000_000_000);
+    secs as f64 * 1000.0 + nanos as f64 / 1_000_000.0
 }
 
 #[cfg(unix)]

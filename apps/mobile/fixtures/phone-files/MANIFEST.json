@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 5362929,
+      "bytes": 5363108,
       "path": "golden.json",
-      "sha256": "10c80889694677c201a32803c05bc69b30c3d7578970f7f5937a48d62a7f72b7"
+      "sha256": "462a5136190283424d5db4aaa5de1aeee327f11b79b1decc71e8f6776715c720"
     }
   ],
   "product": {
@@ -28,5 +28,5 @@
   "recorder": "benchmarks/rust-core/recorders/record-phone-files.mjs",
   "set": "phone-files",
   "steps": 221,
-  "totalBytes": 5362929
+  "totalBytes": 5363108
 }

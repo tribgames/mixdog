@@ -95,6 +95,20 @@ async fn call(env: &Env, method: &'static str, params: Value) -> Result<Value, C
     }
 }
 
+/// A path the connection may not reach is refused as Node refused it: the coded "Project is not available." for a folder that is no
+/// registered project, the plain "Path is outside the project." for an entry beyond its folder.
+fn refused<T>(result: &Result<T, CoreError>) -> bool {
+    match result {
+        Err(CoreError::PermissionDenied { .. }) => true,
+        Err(CoreError::DomainError { code, message, .. }) => {
+            let text = message.as_deref();
+            (code.as_deref() == Some("PROJECT_UNAVAILABLE") && text == Some("Project is not available."))
+                || (code.is_none() && matches!(text, Some("Path is outside the project." | "Path resolves outside the project.")))
+        }
+        _ => false,
+    }
+}
+
 struct NoneGone;
 
 #[async_trait::async_trait]
@@ -180,6 +194,65 @@ async fn a_paired_device_reads_one_granted_file_outside_its_projects_and_nothing
     assert!(matches!(plain, Err(CoreError::PermissionDenied { .. })), "{plain:?}");
 }
 
+/// The phone's other file calls over a one-file permission (Node's `remoteFileTarget`): the write, the entry path, the preview with its media
+/// lease, and the preview range all name the granted file alone.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_one_file_permission_writes_names_previews_and_leases_that_file_alone() {
+    let env = env();
+    env.service.set_phone_grants(
+        Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(NoneGone))),
+        Arc::new(|connection: ConnectionId| (connection.0 == 1).then(|| "phone-1".to_owned())),
+    );
+    let outside = env.root.parent().unwrap().join("granted-calls");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("note.txt"), "hi\n").unwrap();
+    std::fs::write(outside.join("pic.png"), [0x89, b'P', b'N', b'G', 1, 2, 3, 4]).unwrap();
+    std::fs::write(outside.join("other.txt"), "secret\n").unwrap();
+    let grant = |name: &str| call(&env, "transfer/grant/mint", json!({ "path": outside.join(name).to_string_lossy() }));
+    let note = grant("note.txt").await.unwrap()["accessToken"].as_str().unwrap().to_owned();
+    let pic = grant("pic.png").await.unwrap()["accessToken"].as_str().unwrap().to_owned();
+    let target = |rel: &str, token: &str| json!({ "root": outside.to_string_lossy(), "rel": rel, "accessToken": token });
+
+    let mut write = target("note.txt", &note);
+    write["content"] = json!("changed\n");
+    write["expectedContent"] = json!("hi\n");
+    call(&env, "projectFs/writeText", write).await.unwrap();
+    assert_eq!(std::fs::read_to_string(outside.join("note.txt")).unwrap(), "changed\n");
+    let mut aside = target("other.txt", &note);
+    aside["content"] = json!("x");
+    aside["expectedContent"] = json!("secret\n");
+    let refused = call(&env, "projectFs/writeText", aside).await;
+    assert!(format!("{refused:?}").contains("The selected-file permission does not match this path."), "{refused:?}");
+    assert_eq!(std::fs::read_to_string(outside.join("other.txt")).unwrap(), "secret\n");
+
+    let named = call(&env, "projectFs/entryPath", target("note.txt", &note)).await.unwrap();
+    assert_eq!(named["path"], outside.join("note.txt").to_string_lossy().as_ref());
+
+    let previewed = call(&env, "projectFs/previewFile", target("pic.png", &pic)).await.unwrap();
+    assert_eq!((previewed["kind"].clone(), previewed["size"].clone()), (json!("image"), json!(8)));
+    let leased = env.service.file_leases().open(previewed["mediaAssetId"].as_str().unwrap()).expect("the preview leased the file");
+    assert_eq!(leased.size, 8);
+    let mut range = target("pic.png", &pic);
+    range["offset"] = json!(4);
+    range["length"] = json!(2);
+    let part = call(&env, "projectFs/previewRange", range).await.unwrap();
+    assert_eq!((part["data"].clone(), part["offset"].clone(), part["size"].clone()), (json!("AQI="), json!(4), json!(8)));
+}
+
+/// With no desktop window to render or trash, the calls that need one answer the missing capability (the adapter words it as Node's
+/// "The desktop app is unavailable on this connection.").
+#[tokio::test(flavor = "multi_thread")]
+async fn host_only_file_calls_answer_the_missing_desktop_capability_without_a_window() {
+    let env = env();
+    for (method, extra) in [("projectFs/captureSnapshot", json!({})), ("projectFs/localPageUrl", json!({})), ("projectFs/trash", json!({ "viaHost": true }))] {
+        let mut params = json!({ "root": env.root.to_string_lossy(), "rel": "a.txt" });
+        params.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let answered = call(&env, method, params).await;
+        assert!(matches!(&answered, Err(CoreError::CapabilityUnavailable { capability, .. }) if &**capability == "desktopHost"), "{method}: {answered:?}");
+    }
+    assert!(env.root.join("a.txt").exists(), "nothing was trashed");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_local_connection_reads_any_absolute_folder_while_a_relay_is_held_to_the_projects() {
     let env = env();
@@ -188,7 +261,7 @@ async fn a_local_connection_reads_any_absolute_folder_while_a_relay_is_held_to_t
     std::fs::write(outside.join("note.txt"), "hello\n").unwrap();
     let params = json!({ "root": outside.to_string_lossy(), "rel": "note.txt" });
     // The `…In` operations of Node take any root the window resolved; the relay is the strict origin.
-    assert!(matches!(call(&env, "projectFs/readText", params.clone()).await, Err(CoreError::PermissionDenied { .. })));
+    assert!(refused(&call(&env, "projectFs/readText", params.clone()).await));
     let mut local = request("projectFs/readText", params.clone());
     local.ctx = CallContext::connection(ConnectionId(1), Origin::Local, CancellationToken::new());
     let Reply::Value(read) = env.service.call(local).await.unwrap() else { panic!("readText answers with a value") };
@@ -355,7 +428,7 @@ async fn paths_outside_the_registry_or_project_are_refused_with_permission_denie
     let env = env();
     let outside = env.root.parent().unwrap().join("other");
     std::fs::create_dir_all(&outside).unwrap();
-    let denied = |r: Result<Value, CoreError>| matches!(r, Err(CoreError::PermissionDenied { origin: Origin::Relay, .. }));
+    let denied = |r: Result<Value, CoreError>| refused(&r);
     assert!(denied(call(&env, "projectFs/listDir", json!({ "root": outside.to_string_lossy(), "rel": "." })).await));
     let root = env.root.to_string_lossy().into_owned();
     assert!(denied(call(&env, "projectFs/readText", json!({ "root": root, "rel": "../other/x" })).await));
@@ -736,10 +809,10 @@ async fn code_graph_queries_pass_the_tools_arguments_and_return_its_text() {
     let outline = call(&env, "project/codeGraph", json!({ "path": root, "mode": "symbols", "query": "src/main.rs" })).await.unwrap();
     assert_eq!(outline, json!(format!("{root}|{}", json!({ "mode": "symbols", "files": "src/main.rs", "limit": 200 }))));
     let long = "x".repeat(257);
-    let refused = call(&env, "project/codeGraph", json!({ "path": root, "mode": "references", "query": long })).await;
-    assert!(matches!(&refused, Err(CoreError::InvalidParams { expected, .. }) if &**expected == "Symbol is invalid."), "{refused:?}");
+    let too_long = call(&env, "project/codeGraph", json!({ "path": root, "mode": "references", "query": long })).await;
+    assert!(matches!(&too_long, Err(CoreError::InvalidParams { expected, .. }) if &**expected == "Symbol is invalid."), "{too_long:?}");
     let denied = call(&env, "project/codeGraph", json!({ "path": env.root.parent().unwrap().to_string_lossy(), "mode": "symbols", "query": "a" })).await;
-    assert!(matches!(denied, Err(CoreError::PermissionDenied { .. })));
+    assert!(refused(&denied), "{denied:?}");
 }
 
 fn futures_block<F: std::future::Future>(f: F) -> F::Output {
@@ -779,7 +852,12 @@ fn expect_error(message: &str, got: &CoreError, ctx: &str) {
             // Search-pattern text is shown to the user: byte-equal. Others map by reason.
             if message.starts_with("Invalid search pattern") { &**expected == message } else { message == "Entry name is invalid." }
         }
-        CoreError::DomainError { code, .. } => message.starts_with("ENOENT") && code.as_deref() == Some("notFound"),
+        CoreError::DomainError { code, message: got, .. } => match code.as_deref() {
+            Some("ENOENT") => message.starts_with("ENOENT"),
+            // Node's plain `Error`: the text, no code.
+            None => got.as_deref() == Some(message),
+            _ => false,
+        },
         _ => false,
     };
     assert!(ok, "{ctx}: recorded {message:?}, got {got:?}");
@@ -894,7 +972,7 @@ async fn recorded_transfer_reads_replay_through_the_transfer_methods() {
     assert_eq!(began["mimeType"], entry("authorize")["result"]["mime"]);
     // authorize(outside): a path out of the project is refused.
     let outside = call(&env, "transfer/beginRead", json!({ "source": { "kind": "file", "root": root, "rel": "../x" } })).await;
-    assert!(matches!(outside, Err(CoreError::PermissionDenied { .. })));
+    assert!(refused(&outside), "{outside:?}");
     let id = began["transferId"].as_str().unwrap().to_owned();
     // readRange: the recorded bytes.
     let range = call(&env, "transfer/readRange", json!({ "transferId": id, "offset": 0, "length": 64 })).await.unwrap();
@@ -990,7 +1068,7 @@ async fn recorded_editor_files_replay_identically() {
                 if !std::path::Path::new(root).exists() {
                     // A folder that is not there cannot be a registered project: the boundary refuses it.
                     let denied = call(&env, "projectFs/readEditorSettings", json!({ "root": root, "rel": input["rel"] })).await;
-                    assert!(matches!(denied, Err(CoreError::PermissionDenied { .. })), "{label}: {denied:?}");
+                    assert!(refused(&denied), "{label}: {denied:?}");
                     continue;
                 }
                 env.service.catalog().add(root, &CancellationToken::new(), None).await.unwrap();
@@ -1226,6 +1304,7 @@ async fn recorded_start_calls_resolve_the_folder_node_did() {
                         assert!(node_message.contains(&format!("realpath '{named}'")), "{name}: {node_message}");
                     }
                     Some("notADirectory") => assert_eq!(message.as_deref(), Some(node_message), "{name}"),
+                    Some("PROJECT_UNAVAILABLE") => assert_eq!(message.as_deref(), Some(node_message), "{name}"),
                     other => panic!("{name}: unexpected code {other:?}"),
                 }
             }
