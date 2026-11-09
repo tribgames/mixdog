@@ -19,17 +19,16 @@ const settle = async () => {
 };
 // The footer is stale-while-revalidate: a render returns the cached values and schedules the refreshes it needs, and
 // some depend on an earlier one (the OAuth arm check gates the quota segment). Each render therefore waits for the
-// refreshes it scheduled to complete (the signal above). The settled text is the first one that a render made after
-// the refreshes completed reproduces on the next such render.
+// refreshes it scheduled to complete (the signal above). The settled text is the render after which no new tracked
+// operation (setImmediate or fs/promises call) has started: the dependent-refresh chain is finite, and there is
+// deliberately no iteration cap.
 const settledText = async () => {
-  await renderStatusline(args);
-  await settle();
-  let previous = await renderStatusline(args);
+  globalThis.__footerNewStage();
   for (;;) {
     await settle();
+    const before = globalThis.__footerOperations();
     const text = await renderStatusline(args);
-    if (text === previous) return text;
-    previous = text;
+    if (globalThis.__footerOperations() === before) return text;
   }
 };
 const startRouteMetaLoad = async () => {
