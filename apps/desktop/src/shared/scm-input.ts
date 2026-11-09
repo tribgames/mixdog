@@ -28,37 +28,37 @@ export function requiredGitGlobalConfigKey(value: unknown): DesktopGitGlobalConf
   throw new TypeError('key must be user.name, user.email, or init.defaultBranch.');
 }
 
-export function requiredGitPaths(value: unknown): string[] {
+export function requiredGitPaths(value: unknown, family?: string): string[] {
   if (!Array.isArray(value) || value.length === 0 || value.length > 500) {
     throw new TypeError('git paths are invalid.');
   }
-  return value.map(requiredGitPath);
+  return value.map((path) => requiredGitPath(path, family));
 }
 
 /** Island Git request: the listed files (may be empty) and an optional base branch. */
-export function requiredGitRequestContextInput(value: unknown): { paths: string[]; base: string } {
+export function requiredGitRequestContextInput(value: unknown, family?: string): { paths: string[]; base: string } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('git request input is invalid.');
   const { paths, base } = value as Record<string, unknown>;
   if (!Array.isArray(paths) || paths.length > 500) throw new TypeError('git paths are invalid.');
   return {
-    paths: paths.map(requiredGitPath),
+    paths: paths.map((path) => requiredGitPath(path, family)),
     base: base === undefined || base === '' ? '' : requiredGitBranchName(base),
   };
 }
 
-export function requiredReviewDiffFiles(value: unknown): { path: string; untracked: boolean }[] {
+export function requiredReviewDiffFiles(value: unknown, family?: string): { path: string; untracked: boolean }[] {
   if (!Array.isArray(value) || value.length > 512) throw new TypeError('git review files are invalid.');
   return value.map((entry) => {
     if (typeof entry !== 'object' || entry === null) throw new TypeError('git review file is invalid.');
     const { path, untracked } = entry as { path?: unknown; untracked?: unknown };
-    return { path: requiredGitPath(path), untracked: untracked === true };
+    return { path: requiredGitPath(path, family), untracked: untracked === true };
   });
 }
 
-export function requiredGitPath(value: unknown): string {
+export function requiredGitPath(value: unknown, family?: string): string {
   const path = requiredString(value, 'git path', 4_096);
   if (
-    isAbsolutePath(path) ||
+    isAbsolutePath(path, family) ||
     path.includes('\0') ||
     path
       .replace(/\\/g, '/')

@@ -1,15 +1,16 @@
 // Git argument grammar shared by the desktop's host (main/git-contract.mjs re-exports it) and the phone's protocol adapter
 // (renderer/remote-protocol-scm.ts): no Node imports, so the web build can take it.
 
-/** Absolute on the PC whichever it runs: `/x`, `\x`, `\\host\share`, `C:\x`, `C:/x` (node:path's win32 rule, which holds every
- *  posix-absolute path too). The phone cannot know the PC's platform, and the core checks the path again on the PC itself. */
-export function isAbsolutePath(value) {
-  return /^(?:[A-Za-z]:[\\/]|[\\/])/.test(value);
+/** `path.isAbsolute` on the PC's platform. `family` is the `platformFamily` the PC's core named in `initialize` ('windows' or
+ *  'unix'): on a PC running Windows `/x`, `\x`, `\\host\share`, `C:\x` and `C:/x` are absolute (node:path's win32 rule), on any
+ *  other only `/x` is. Without one (the desktop's own host) the win32 rule applies, which holds every posix-absolute path too. */
+export function isAbsolutePath(value, family = 'windows') {
+  return family === 'windows' ? /^(?:[A-Za-z]:[\\/]|[\\/])/.test(value) : value.startsWith('/');
 }
 
-export function requiredRepositoryCwd(value) {
+export function requiredRepositoryCwd(value, family) {
   const cwd = typeof value === 'string' ? value.trim() : '';
-  if (!cwd || !isAbsolutePath(cwd)) throw new TypeError('A project directory is required.');
+  if (!cwd || !isAbsolutePath(cwd, family)) throw new TypeError('A project directory is required.');
   return cwd;
 }
 

@@ -40,6 +40,8 @@ function scriptedCore(recorded, { coreCodes = false } = {}) {
   let next = 0;
   let started = null;
   return {
+    // The PC's initialize answer: Node checked what is absolute on the PC it ran on.
+    server: { platformFamily: golden.platform === 'win32' ? 'windows' : 'unix' },
     requests,
     left: () => expected.length - next,
     async call(method, params) {
@@ -125,4 +127,18 @@ test('phone-scm keeps Node\'s barrier: a read submitted behind a slow write star
   release();
   assert.deepEqual(await Promise.all(answers), ordering.answers);
   assert.deepEqual(log, ordering.order);
+});
+test('phone-scm checks an absolute path by the platform of the PC\'s initialize answer', async () => {
+  const asked = [];
+  const on = (platformFamily) => ({ client: () => ({ server: { platformFamily }, call: async (method) => (asked.push(method), null) }) });
+  const status = (cwd, platformFamily) => adapter.calls.gitStatus([cwd], on(platformFamily));
+  await assert.rejects(status('C:\\repo', 'unix'), { message: 'A project directory is required.' });
+  await assert.rejects(status('\\repo', 'unix'), { message: 'A project directory is required.' });
+  assert.deepEqual(asked, []);
+  await status('/repo', 'unix');
+  await status('C:\\repo', 'windows');
+  await status('/repo', 'windows');
+  assert.deepEqual(asked, ['git/status', 'git/status', 'git/status']);
+  await assert.rejects(adapter.calls.gitDiff(['/repo', 'C:\\x'], on('windows')), { message: 'git path is invalid.' });
+  await adapter.calls.gitDiff(['/repo', 'C:\\x'], on('unix'));
 });
