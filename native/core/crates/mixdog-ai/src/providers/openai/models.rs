@@ -370,14 +370,16 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_catalog_that_outlives_its_timer_reads_as_nodes() {
         use crate::providers::openai::config::{CodexIdentity, NoFacts, OpenAiConfig};
-        use crate::transport::site_probe::{TimingOut, assert_transport};
+        use crate::transport::site_probe::{TimingOut, assert_rejected_as_nodes, assert_transport};
 
         let identity = CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "0.166.0".into(), beta_features: "b".into() };
         let config = OpenAiConfig::codex(false, false, identity, Arc::new(NoFacts), Arc::new(Ctx));
         let transport = TimingOut::new();
         let models = OpenAiModels::new(OpenAiCodec::new(config, TransportKind::Http1), transport.clone(), Arc::new(Creds), ListingLookup::new());
-        models.list_models().await.expect_err("never answers");
+        let error = models.list_models().await.expect_err("never answers");
         assert_transport("openaiCatalog", &transport);
+        // Node's catalog swallows the failure (it resolves empty); the catalog store above this listing does the same.
+        assert_rejected_as_nodes("openaiCatalog", &error.message);
     }
 
     #[test]

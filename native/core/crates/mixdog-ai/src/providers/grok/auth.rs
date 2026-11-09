@@ -31,6 +31,7 @@ use crate::oauth::PkceProvider;
 use crate::oauth::Probe;
 use crate::oauth::RefreshFailure;
 use crate::oauth::classify_refresh_failure;
+use crate::oauth::http::request_failed;
 use crate::providers::connect::ConnectFailure;
 use crate::providers::connect::provider_error;
 use crate::providers::connect::rewrite::Credential;
@@ -423,9 +424,10 @@ impl PkceProvider for GrokLogin {
                 TOKEN_EXCHANGE,
             )
             .await
-            .map_err(|e| failed("transport", e.message))?;
+            .map_err(|e| failed("transport", request_failed("[grok-oauth] token exchange", &e)))?;
         let success = head.is_success();
-        let response = head.read_all().await.map_err(|e| failed("transport", e.message))?;
+        // `oauthRequestError` words the fetch's failure and the body read's alike (`grok-oauth-login.mjs:100`, `:110`).
+        let response = head.read_all().await.map_err(|e| failed("transport", request_failed("[grok-oauth] token exchange", &e)))?;
         let json: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
         if !success {
             let status = response.status.unwrap_or(0);
@@ -508,9 +510,9 @@ mod tests {
     async fn a_grok_request_that_outlives_its_timer_reads_as_nodes_site() {
         use crate::oauth::CredentialIo;
         use crate::transport::site_probe::TimingOut;
-        use crate::transport::site_probe::assert_node_wraps;
         use crate::transport::site_probe::assert_thrown;
         use crate::transport::site_probe::assert_transport;
+        use crate::transport::site_probe::login_message;
 
         let tokens = StoredTokens {
             access_token: "a".into(),
@@ -538,10 +540,10 @@ mod tests {
             CredentialIo { read: rt.interactive_io, write: rt.durability_io },
         );
         let login = GrokLogin::new(transport.clone(), file, "https://auth.x.ai/authorize", "https://auth.x.ai/oauth2/token").unwrap();
-        login.exchange("abc", "v", "http://127.0.0.1:56121/callback").await.expect_err("the exchange never answers");
+        let failure = login.exchange("abc", "v", "http://127.0.0.1:56121/callback").await.expect_err("the exchange never answers");
         assert_transport("grokCodeExchange", &transport);
-        // Node words the exchange's failure itself (`oauthRequestError`); the Rust login passes the transport's text.
-        assert_node_wraps("grokCodeExchange");
+        // Node words the exchange's failure itself (`oauthRequestError`), and so does the Rust login.
+        assert_thrown("grokCodeExchange", login_message(&failure));
     }
 
     #[test]
