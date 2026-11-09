@@ -269,11 +269,7 @@ async function child(specPath, rootArg, treeArg) {
       const full = join(dir, name);
       if (statSync(full).isDirectory()) {
         const rel = normalizeText(relative(root, full).split(sep).join('/'));
-        // Node's config write (atomic rename with its owner-only ACL step) makes Windows create the empty shell folders
-        // home/AppData/{Local,Roaming} under the redirected USERPROFILE; no Mixdog code names them (no 'Roaming' in src/,
-        // and a snapshot, read or bare node process leaves them out). They are the host's, not the guard's, so they
-        // are not part of the recorded tree.
-        if (!/^home\/AppData(\/(Local|Roaming))?$/.test(rel)) dirs.push(rel);
+        dirs.push(rel);
         walk(full);
         continue;
       }
@@ -284,6 +280,15 @@ async function child(specPath, rootArg, treeArg) {
     }
   };
   walk(root);
+  // Node's config write secures its temp file with a powershell.exe (file-permissions.mjs:344, the ACL helper); a bare
+  // `powershell.exe -NoProfile` under the redirected USERPROFILE makes Windows create exactly the empty folders
+  // home/AppData, home/AppData/Local and home/AppData/Roaming. Those three, and only while the whole subtree is
+  // empty, are the host's and not the guard's: anything else below them is recorded.
+  const shellFolders = ['home/AppData', 'home/AppData/Local', 'home/AppData/Roaming'];
+  const belowAppData = (path) => path.startsWith('home/AppData/');
+  if (dirs.includes('home/AppData') && dirs.filter(belowAppData).every((d) => shellFolders.includes(d)) && !Object.keys(files).some(belowAppData)) {
+    for (const folder of shellFolders) if (dirs.includes(folder)) dirs.splice(dirs.indexOf(folder), 1);
+  }
   writeFileSync(out, JSON.stringify({ name: scenario.name, env: scenario.env ?? {}, ops: scenario.ops, results, dirs: dirs.sort(), files, dataDirKey: data.toLowerCase(), scopeName: scopeToken() }));
 }
 
