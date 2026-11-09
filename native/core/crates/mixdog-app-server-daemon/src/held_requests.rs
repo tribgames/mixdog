@@ -103,6 +103,8 @@ pub struct HeldRequests {
     home: Arc<dyn HeldHome>,
     now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
     pending: Mutex<HashMap<String, Entry>>,
+    /// Held while a delivery is started, so the deliveries of all requests start in the order they were posted.
+    starts: Mutex<()>,
 }
 
 /// `clean(value, limit)` of `held-message.mjs`.
@@ -127,7 +129,7 @@ fn scope_of(name: &str) -> Option<ApprovalRemember> {
 
 impl HeldRequests {
     pub fn new(home: Arc<dyn HeldHome>, now_ms: Arc<dyn Fn() -> i64 + Send + Sync>) -> Arc<Self> {
-        Arc::new(Self { home, now_ms, pending: Mutex::new(HashMap::new()) })
+        Arc::new(Self { home, now_ms, pending: Mutex::new(HashMap::new()), starts: Mutex::new(()) })
     }
 
     /// The approval entry point of one thread's run: held when the thread is an unattended run
@@ -225,9 +227,20 @@ impl HeldRequests {
     }
 
     /// `post(agentId, held)`: starts the delivery and does not wait for it (`void post(...)`). Delivery waits for the home thread's
-    /// queue to persist the row; the push, the answer and the audit never wait on that.
+    /// queue to persist the row; the push, the answer and the audit never wait on that. Node starts the deliveries in call order
+    /// (`Promise.resolve().then(deliver)`, one microtask each): the delivery is polled to its first wait right here, under `starts`,
+    /// so the home thread's queue sees the pending row before the settled one; the rest of it runs on a task of its own.
     fn post(&self, agent_id: &str, held: &HeldRequest) {
-        post_row(Arc::clone(&self.home), agent_id.to_owned(), held.clone());
+        let (home, agent_id, held) = (Arc::clone(&self.home), agent_id.to_owned(), held.clone());
+        let mut delivery = Box::pin(async move {
+            if let Err(error) = home.deliver(&agent_id, &held).await {
+                tracing::warn!(id = held.id, "held request could not be delivered: {error}");
+            }
+        });
+        let _order = self.starts.lock().unwrap_or_else(PoisonError::into_inner);
+        if delivery.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop())).is_pending() {
+            drop(mixdog_rt::spawn("held-request-deliver", mixdog_rt::TaskClass::Work, delivery));
+        }
     }
 
     /// `resolve(id, decision)`: false when `id` is not pending (already settled). Answers the
@@ -274,8 +287,8 @@ impl HeldRequests {
         settled.device = Some(clean(&answer.device, 80)).filter(|d| !d.is_empty());
         let at = (self.now_ms)();
         let kind = answer.connection_kind.unwrap_or(ConnectionKind::Desktop);
-        let _ = entry.reply.send(ApprovalResolution::Decided { decision, device: answer.device, connection_kind: kind, at });
         self.post(&settled.agent_id, &settled);
+        let _ = entry.reply.send(ApprovalResolution::Decided { decision, device: answer.device, connection_kind: kind, at });
         true
     }
 
@@ -378,21 +391,12 @@ impl Drop for CancelGuard<'_> {
         let mut settled = entry.held;
         settled.status = HeldRequestStatus::Denied;
         let home = Arc::clone(&self.held.home);
-        post_row(Arc::clone(&home), settled.agent_id.clone(), settled.clone());
+        self.held.post(&settled.agent_id, &settled);
         // The abort's own answer (`reason: 'run cancelled'`, no device) is audited as any other, whether or not the row was delivered.
         drop(mixdog_rt::spawn("held-request-cancel", mixdog_rt::TaskClass::Work, async move {
             record_decision(home.grants().as_ref(), &settled, &entry.remember, false, "deny", None, "").await;
         }));
     }
-}
-
-/// Delivers one row on a task of its own; a failure is logged.
-fn post_row(home: Arc<dyn HeldHome>, agent_id: String, held: HeldRequest) {
-    drop(mixdog_rt::spawn("held-request-deliver", mixdog_rt::TaskClass::Work, async move {
-        if let Err(error) = home.deliver(&agent_id, &held).await {
-            tracing::warn!(id = held.id, "held request could not be delivered: {error}");
-        }
-    }));
 }
 
 struct HeldApprovals {
@@ -455,6 +459,8 @@ mod tests {
         stall_all: AtomicBool,
         pushed: Permits,
         audited: Arc<Permits>,
+        /// The status of every delivery, in the order the deliveries were started (before any wait).
+        started: Mutex<Vec<HeldRequestStatus>>,
     }
 
     /// The store, signalling each audit line it takes.
@@ -484,6 +490,7 @@ mod tests {
             self.attached.load(Ordering::SeqCst)
         }
         async fn deliver(&self, agent_id: &str, held: &HeldRequest) -> Result<(), String> {
+            self.started.lock().unwrap().push(held.status);
             if self.stall_all.load(Ordering::SeqCst) || (held.status != HeldRequestStatus::Pending && self.stall_settled.load(Ordering::SeqCst)) {
                 std::future::pending::<()>().await;
             }
@@ -636,6 +643,28 @@ mod tests {
         home.audited.acquire().await.unwrap().forget();
         assert!(held.pending().is_empty());
         assert!(home.rows.lock().unwrap().is_empty(), "no row was ever delivered");
+    }
+
+    /// Node starts the deliveries in call order, whatever they wait on (`Promise.resolve().then(deliver)` per `post`): the pending
+    /// row's delivery is under way, waiting on a home thread that never answers, before the answer posts the settled row. Both
+    /// are polled once by hand with no yield in between, so no task of the runtime can have started either for us.
+    #[test]
+    fn deliveries_start_in_the_order_they_are_posted_even_when_the_first_never_completes() {
+        let _ = mixdog_rt::testing::tokens();
+        let home = Arc::new(Home::default());
+        home.stall_all.store(true, Ordering::SeqCst);
+        let held = HeldRequests::new(home.clone(), Arc::new(|| 42));
+        let gate = held.gate_for(ThreadId::from("sess_rmem_abcdef_ann"), Arc::new(Inner));
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        let mut asking = Box::pin(gate.request(ask()));
+        assert!(asking.as_mut().poll(&mut context).is_pending());
+        assert_eq!(*home.started.lock().unwrap(), [HeldRequestStatus::Pending], "the pending delivery started with the hold");
+        assert_eq!(home.pushes.lock().unwrap().len(), 1);
+        let id = held.pending()[0].id.clone();
+        let mut resolving = Box::pin(held.resolve(&id, HeldAnswer { approved: true, ..HeldAnswer::default() }));
+        assert!(matches!(resolving.as_mut().poll(&mut context), std::task::Poll::Ready(true)));
+        assert_eq!(*home.started.lock().unwrap(), [HeldRequestStatus::Pending, HeldRequestStatus::Approved]);
+        assert!(matches!(asking.as_mut().poll(&mut context), std::task::Poll::Ready(ApprovalResolution::Decided { .. })));
     }
 
     #[tokio::test]

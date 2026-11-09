@@ -80,6 +80,13 @@
               }
             }
           ],
+          "persisted": [
+            {
+              "agentId": "ann",
+              "id": "held_00000000-0000-4000-8000-000000000001",
+              "status": "pending"
+            }
+          ],
           "pushes": [
             {
               "sessionId": "sess_home_ann",
@@ -143,6 +150,13 @@
                 },
                 "device": "Pixel"
               }
+            }
+          ],
+          "persisted": [
+            {
+              "agentId": "ann",
+              "id": "held_00000000-0000-4000-8000-000000000001",
+              "status": "approved"
             }
           ],
           "pushes": [],
@@ -285,6 +299,13 @@
               }
             }
           ],
+          "persisted": [
+            {
+              "agentId": "ann",
+              "id": "held_00000000-0000-4000-8000-000000000001",
+              "status": "pending"
+            }
+          ],
           "pushes": [
             {
               "sessionId": "sess_home_ann",
@@ -332,6 +353,13 @@
                 },
                 "device": "Pixel"
               }
+            }
+          ],
+          "persisted": [
+            {
+              "agentId": "ann",
+              "id": "held_00000000-0000-4000-8000-000000000001",
+              "status": "denied"
             }
           ],
           "pushes": [],
@@ -439,6 +467,13 @@
               }
             }
           ],
+          "persisted": [
+            {
+              "agentId": "ann",
+              "id": "held_00000000-0000-4000-8000-000000000001",
+              "status": "pending"
+            }
+          ],
           "pushes": [
             {
               "sessionId": "sess_home_ann",
@@ -491,6 +526,13 @@
                 },
                 "device": "Pixel"
               }
+            }
+          ],
+          "persisted": [
+            {
+              "agentId": "ann",
+              "id": "held_00000000-0000-4000-8000-000000000001",
+              "status": "approved"
             }
           ],
           "pushes": [],
@@ -579,6 +621,7 @@
             }
           },
           "deliveries": [],
+          "persisted": [],
           "pushes": [],
           "uiAsks": [
             {
@@ -662,6 +705,7 @@
             }
           },
           "deliveries": [],
+          "persisted": [],
           "pushes": [],
           "uiAsks": [
             {
@@ -756,6 +800,7 @@
             }
           },
           "deliveries": [],
+          "persisted": [],
           "pushes": [],
           "uiAsks": []
         },
@@ -836,6 +881,7 @@
             }
           },
           "deliveries": [],
+          "persisted": [],
           "pushes": [],
           "uiAsks": []
         },
@@ -923,6 +969,7 @@
             }
           },
           "deliveries": [],
+          "persisted": [],
           "pushes": [],
           "uiAsks": []
         },
@@ -1055,6 +1102,13 @@
               }
             }
           ],
+          "persisted": [
+            {
+              "agentId": "ann",
+              "id": "held_00000000-0000-4000-8000-000000000001",
+              "status": "pending"
+            }
+          ],
           "pushes": [
             {
               "sessionId": "sess_home_ann",
@@ -1090,6 +1144,13 @@
                   "sessionId": "sess_rmem_room123abc_ann"
                 }
               }
+            }
+          ],
+          "persisted": [
+            {
+              "agentId": "ann",
+              "id": "held_00000000-0000-4000-8000-000000000002",
+              "status": "pending"
             }
           ],
           "pushes": [
@@ -1140,6 +1201,13 @@
                 },
                 "device": "Pixel"
               }
+            }
+          ],
+          "persisted": [
+            {
+              "agentId": "ann",
+              "id": "held_00000000-0000-4000-8000-000000000002",
+              "status": "denied"
             }
           ],
           "pushes": [],
@@ -1198,6 +1266,13 @@
                 },
                 "device": "Pixel"
               }
+            }
+          ],
+          "persisted": [
+            {
+              "agentId": "ann",
+              "id": "held_00000000-0000-4000-8000-000000000001",
+              "status": "approved"
             }
           ],
           "pushes": [],
@@ -1295,6 +1370,7 @@
             "denial": "Error: tool \"shell\" denied by hook: approval required but no approval UI is available (needs approval)"
           },
           "deliveries": [],
+          "persisted": [],
           "pushes": [],
           "uiAsks": []
         },
@@ -1367,6 +1443,7 @@
             }
           },
           "deliveries": [],
+          "persisted": [],
           "pushes": [],
           "uiAsks": []
         },
@@ -1439,6 +1516,7 @@
             }
           },
           "deliveries": [],
+          "persisted": [],
           "pushes": [],
           "uiAsks": []
         },
@@ -1567,6 +1645,7 @@
             }
           },
           "deliveries": [],
+          "persisted": [],
           "pushes": [],
           "uiAsks": [
             {
@@ -1607,6 +1686,13 @@
               }
             }
           ],
+          "persisted": [
+            {
+              "agentId": "ann",
+              "id": "held_00000000-0000-4000-8000-000000000001",
+              "status": "pending"
+            }
+          ],
           "pushes": [
             {
               "sessionId": "sess_home_ann",
@@ -1635,6 +1721,7 @@
             "denial": "Error: tool \"shell\" was not approved: not now. Do not retry it or reach the same result another way; report it."
           },
           "deliveries": [],
+          "persisted": [],
           "pushes": [],
           "uiAsks": [
             {
@@ -1689,6 +1776,13 @@
                 },
                 "device": "Pixel"
               }
+            }
+          ],
+          "persisted": [
+            {
+              "agentId": "ann",
+              "id": "held_00000000-0000-4000-8000-000000000001",
+              "status": "approved"
             }
           ],
           "pushes": [],
@@ -1755,7 +1849,7 @@
     {
       "name": "a delivery that never completes holds back neither the push, nor the answer, nor the audit",
       "now": 1800013000000,
-      "stallDelivery": true,
+      "stallDelivery": "all",
       "script": [
         {
           "op": "ask",
@@ -1826,6 +1920,7 @@
               }
             }
           ],
+          "persisted": [],
           "pushes": [
             {
               "sessionId": "sess_home_ann",
@@ -1891,6 +1986,7 @@
               }
             }
           ],
+          "persisted": [],
           "pushes": [],
           "uiAsks": []
         },
@@ -1962,8 +2058,369 @@
       }
     },
     {
-      "name": "a held request never expires: it still waits after a virtual day",
+      "name": "a slow pending delivery: the answer arrives first, both deliveries start in order, the settled row persists before the pending one",
       "now": 1800014000000,
+      "stallDelivery": "pending-until-release",
+      "script": [
+        {
+          "op": "ask",
+          "id": "a",
+          "session": "room",
+          "call": {
+            "name": "github",
+            "args": {
+              "action": "pr.comment",
+              "repo": "o/r",
+              "number": 4,
+              "body": "ARG-SENTINEL-77"
+            }
+          },
+          "hook": null,
+          "ui": null
+        },
+        {
+          "op": "answer",
+          "ask": "a",
+          "decision": {
+            "approved": true,
+            "response": "approve",
+            "device": "Pixel"
+          }
+        },
+        {
+          "op": "release"
+        },
+        {
+          "op": "facts"
+        }
+      ],
+      "trace": [
+        {
+          "op": "ask",
+          "id": "a",
+          "session": "sess_rmem_room123abc_ann",
+          "state": "held",
+          "deliveries": [
+            {
+              "agentId": "ann",
+              "held": {
+                "id": "held_00000000-0000-4000-8000-000000000001",
+                "status": "pending",
+                "agentId": "ann",
+                "kind": "outbound",
+                "tool": "github",
+                "target": "o/r#4",
+                "reason": "This sends or posts outside Mixdog; it needs your approval.",
+                "payload": "ARG-SENTINEL-77",
+                "action": "comment",
+                "account": "github.com",
+                "editable": [
+                  "body"
+                ],
+                "details": {},
+                "remember": [
+                  "once",
+                  "agent"
+                ],
+                "run": {
+                  "kind": "room",
+                  "name": "room123abc",
+                  "sessionId": "sess_rmem_room123abc_ann"
+                }
+              }
+            }
+          ],
+          "persisted": [],
+          "pushes": [
+            {
+              "sessionId": "sess_home_ann",
+              "agentId": "ann",
+              "agentName": "ann",
+              "requestId": "held_00000000-0000-4000-8000-000000000001"
+            }
+          ],
+          "uiAsks": []
+        },
+        {
+          "op": "answer",
+          "ask": "a",
+          "requestId": "held_00000000-0000-4000-8000-000000000001",
+          "accepted": true,
+          "outcome": {
+            "allowed": true,
+            "name": "github",
+            "args": {
+              "action": "pr.comment",
+              "repo": "o/r",
+              "number": 4,
+              "body": "ARG-SENTINEL-77"
+            }
+          },
+          "deliveries": [
+            {
+              "agentId": "ann",
+              "held": {
+                "id": "held_00000000-0000-4000-8000-000000000001",
+                "status": "approved",
+                "agentId": "ann",
+                "kind": "outbound",
+                "tool": "github",
+                "target": "o/r#4",
+                "reason": "This sends or posts outside Mixdog; it needs your approval.",
+                "payload": "ARG-SENTINEL-77",
+                "action": "comment",
+                "account": "github.com",
+                "editable": [
+                  "body"
+                ],
+                "details": {},
+                "remember": [
+                  "once",
+                  "agent"
+                ],
+                "run": {
+                  "kind": "room",
+                  "name": "room123abc",
+                  "sessionId": "sess_rmem_room123abc_ann"
+                },
+                "device": "Pixel"
+              }
+            }
+          ],
+          "persisted": [
+            {
+              "agentId": "ann",
+              "id": "held_00000000-0000-4000-8000-000000000001",
+              "status": "approved"
+            }
+          ],
+          "pushes": [],
+          "uiAsks": []
+        },
+        {
+          "op": "release",
+          "released": 1,
+          "deliveries": [],
+          "persisted": [
+            {
+              "agentId": "ann",
+              "id": "held_00000000-0000-4000-8000-000000000001",
+              "status": "pending"
+            }
+          ],
+          "pushes": [],
+          "uiAsks": []
+        },
+        {
+          "op": "facts",
+          "facts": {
+            "sessions": [],
+            "tasks": [],
+            "approvals": 0,
+            "routines": []
+          }
+        }
+      ],
+      "audit": [
+        {
+          "at": 1800014000000,
+          "agentId": "ann",
+          "kind": "outbound",
+          "action": "comment",
+          "tool": "github",
+          "target": "o/r#4",
+          "decision": "approve",
+          "device": "Pixel"
+        },
+        {
+          "at": 1800014000000,
+          "agentId": "ann",
+          "kind": "outbound",
+          "action": "comment",
+          "tool": "github:pr.comment",
+          "target": "o/r#4",
+          "decision": "approve",
+          "device": "Pixel"
+        }
+      ],
+      "grants": [],
+      "timers": {
+        "registered": 0,
+        "pending": 0
+      }
+    },
+    {
+      "name": "a pending delivery that never completes: the settled row still persists",
+      "now": 1800015000000,
+      "stallDelivery": "pending",
+      "script": [
+        {
+          "op": "ask",
+          "id": "a",
+          "session": "room",
+          "call": {
+            "name": "github",
+            "args": {
+              "action": "pr.comment",
+              "repo": "o/r",
+              "number": 4,
+              "body": "ARG-SENTINEL-77"
+            }
+          },
+          "hook": null,
+          "ui": null
+        },
+        {
+          "op": "answer",
+          "ask": "a",
+          "decision": {
+            "approved": false,
+            "response": "deny",
+            "reason": "not now",
+            "device": "Pixel"
+          }
+        },
+        {
+          "op": "facts"
+        }
+      ],
+      "trace": [
+        {
+          "op": "ask",
+          "id": "a",
+          "session": "sess_rmem_room123abc_ann",
+          "state": "held",
+          "deliveries": [
+            {
+              "agentId": "ann",
+              "held": {
+                "id": "held_00000000-0000-4000-8000-000000000001",
+                "status": "pending",
+                "agentId": "ann",
+                "kind": "outbound",
+                "tool": "github",
+                "target": "o/r#4",
+                "reason": "This sends or posts outside Mixdog; it needs your approval.",
+                "payload": "ARG-SENTINEL-77",
+                "action": "comment",
+                "account": "github.com",
+                "editable": [
+                  "body"
+                ],
+                "details": {},
+                "remember": [
+                  "once",
+                  "agent"
+                ],
+                "run": {
+                  "kind": "room",
+                  "name": "room123abc",
+                  "sessionId": "sess_rmem_room123abc_ann"
+                }
+              }
+            }
+          ],
+          "persisted": [],
+          "pushes": [
+            {
+              "sessionId": "sess_home_ann",
+              "agentId": "ann",
+              "agentName": "ann",
+              "requestId": "held_00000000-0000-4000-8000-000000000001"
+            }
+          ],
+          "uiAsks": []
+        },
+        {
+          "op": "answer",
+          "ask": "a",
+          "requestId": "held_00000000-0000-4000-8000-000000000001",
+          "accepted": true,
+          "outcome": {
+            "denial": "Error: tool \"github\" was not approved: not now. Do not retry it or reach the same result another way; report it."
+          },
+          "deliveries": [
+            {
+              "agentId": "ann",
+              "held": {
+                "id": "held_00000000-0000-4000-8000-000000000001",
+                "status": "denied",
+                "agentId": "ann",
+                "kind": "outbound",
+                "tool": "github",
+                "target": "o/r#4",
+                "reason": "This sends or posts outside Mixdog; it needs your approval.",
+                "payload": "ARG-SENTINEL-77",
+                "action": "comment",
+                "account": "github.com",
+                "editable": [
+                  "body"
+                ],
+                "details": {},
+                "remember": [
+                  "once",
+                  "agent"
+                ],
+                "run": {
+                  "kind": "room",
+                  "name": "room123abc",
+                  "sessionId": "sess_rmem_room123abc_ann"
+                },
+                "device": "Pixel"
+              }
+            }
+          ],
+          "persisted": [
+            {
+              "agentId": "ann",
+              "id": "held_00000000-0000-4000-8000-000000000001",
+              "status": "denied"
+            }
+          ],
+          "pushes": [],
+          "uiAsks": []
+        },
+        {
+          "op": "facts",
+          "facts": {
+            "sessions": [],
+            "tasks": [],
+            "approvals": 0,
+            "routines": []
+          }
+        }
+      ],
+      "audit": [
+        {
+          "at": 1800015000000,
+          "agentId": "ann",
+          "kind": "outbound",
+          "action": "comment",
+          "tool": "github",
+          "target": "o/r#4",
+          "decision": "deny",
+          "device": "Pixel"
+        },
+        {
+          "at": 1800015000000,
+          "agentId": "ann",
+          "kind": "outbound",
+          "action": "comment",
+          "tool": "github:pr.comment",
+          "target": "o/r#4",
+          "decision": "deny",
+          "device": "Pixel"
+        }
+      ],
+      "grants": [],
+      "timers": {
+        "registered": 0,
+        "pending": 0
+      }
+    },
+    {
+      "name": "a held request never expires: it still waits after a virtual day",
+      "now": 1800016000000,
       "script": [
         {
           "op": "ask",
@@ -2037,6 +2494,13 @@
               }
             }
           ],
+          "persisted": [
+            {
+              "agentId": "ann",
+              "id": "held_00000000-0000-4000-8000-000000000001",
+              "status": "pending"
+            }
+          ],
           "pushes": [
             {
               "sessionId": "sess_home_ann",
@@ -2050,8 +2514,7 @@
         {
           "op": "advance",
           "ms": 86400000,
-          "now": 1800100400000,
-          "fired": 0
+          "now": 1800102400000
         },
         {
           "op": "facts",
@@ -2108,6 +2571,13 @@
               }
             }
           ],
+          "persisted": [
+            {
+              "agentId": "ann",
+              "id": "held_00000000-0000-4000-8000-000000000001",
+              "status": "approved"
+            }
+          ],
           "pushes": [],
           "uiAsks": []
         },
@@ -2123,7 +2593,7 @@
       ],
       "audit": [
         {
-          "at": 1800100400000,
+          "at": 1800102400000,
           "agentId": "ann",
           "kind": "outbound",
           "action": "comment",
@@ -2133,7 +2603,7 @@
           "device": "Pixel"
         },
         {
-          "at": 1800100400000,
+          "at": 1800102400000,
           "agentId": "ann",
           "kind": "outbound",
           "action": "comment",

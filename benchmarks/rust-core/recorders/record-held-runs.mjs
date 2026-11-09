@@ -19,7 +19,7 @@
 //
 // Output: native/core/fixtures/held-runs/golden.json (+ MANIFEST.json, identity exact at the commit). The `script` of each scenario is
 // the recorder's input; the Rust replay drives the composed gate with the same script and compares its whole trace.
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import nodeCrypto from 'node:crypto';
 import { register, syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -122,7 +122,10 @@ const SCENARIOS = [
       { op: 'facts' },
     ],
   },
-  { name: 'a delivery that never completes holds back neither the push, nor the answer, nor the audit', stallDelivery: true, script: [ask('a', 'room', COMMENT), { op: 'facts' }, { op: 'answer', ask: 'a', decision: APPROVE_AGENT }, { op: 'facts' }] },
+  { name: 'a delivery that never completes holds back neither the push, nor the answer, nor the audit', stallDelivery: 'all', script: [ask('a', 'room', COMMENT), { op: 'facts' }, { op: 'answer', ask: 'a', decision: APPROVE_AGENT }, { op: 'facts' }] },
+  // Both deliveries start in call order (pending, then approved) though the pending one is slow: the settled row persists first, then the slow one.
+  { name: 'a slow pending delivery: the answer arrives first, both deliveries start in order, the settled row persists before the pending one', stallDelivery: 'pending-until-release', script: [ask('a', 'room', COMMENT), { op: 'answer', ask: 'a', decision: APPROVE }, { op: 'release' }, { op: 'facts' }] },
+  { name: 'a pending delivery that never completes: the settled row still persists', stallDelivery: 'pending', script: [ask('a', 'room', COMMENT), { op: 'answer', ask: 'a', decision: DENY }, { op: 'facts' }] },
   { name: 'a held request never expires: it still waits after a virtual day', script: [ask('a', 'room', COMMENT), { op: 'advance', ms: 86_400_000 }, { op: 'facts' }, { op: 'answer', ask: 'a', decision: APPROVE }, { op: 'facts' }] },
 ];
 
@@ -136,7 +139,10 @@ async function runScenario(index, scenario) {
   setHumanGateStore(store);
   globalThis.__heldDeliveries = [];
   globalThis.__heldRecords = [];
-  globalThis.__stallDelivery = scenario.stallDelivery === true;
+  globalThis.__stallDelivery = scenario.stallDelivery;
+  globalThis.__heldPersisted = [];
+  globalThis.__releases = [];
+  globalThis.__auditOwed = false;
   const pushes = [];
   let waiter = null;
   const unregister = registerHeldRequestNotifier((event) => {
@@ -146,14 +152,16 @@ async function runScenario(index, scenario) {
   const uiAsks = [];
   const marks = [];
   const asks = new Map();
-  const seen = { deliveries: 0, pushes: 0, uiAsks: 0 };
+  const seen = { deliveries: 0, persisted: 0, pushes: 0, uiAsks: 0 };
   const fresh = () => {
     const out = {
       deliveries: globalThis.__heldDeliveries.slice(seen.deliveries).map((d) => ({ agentId: d.agentId, held: d.held })),
+      persisted: globalThis.__heldPersisted.slice(seen.persisted),
       pushes: pushes.slice(seen.pushes),
       uiAsks: uiAsks.slice(seen.uiAsks),
     };
     seen.deliveries = globalThis.__heldDeliveries.length;
+    seen.persisted = globalThis.__heldPersisted.length;
     seen.pushes = pushes.length;
     seen.uiAsks = uiAsks.length;
     return out;
@@ -168,6 +176,16 @@ async function runScenario(index, scenario) {
         resolve();
       };
       globalThis.__onHeldDelivery = check;
+      check();
+    });
+  const persisted = (count) =>
+    new Promise((resolve) => {
+      const check = () => {
+        if (globalThis.__heldPersisted.length < count) return;
+        globalThis.__onHeldPersisted = undefined;
+        resolve();
+      };
+      globalThis.__onHeldPersisted = check;
       check();
     });
   const present = (result) => (result.denial !== undefined ? { denial: result.denial } : { allowed: true, name: result.name, args: result.args });
@@ -218,34 +236,37 @@ async function runScenario(index, scenario) {
       await delivered(seen.deliveries + 1);
       await Promise.all(globalThis.__heldRecords);
       trace.push({ op: 'answer', ask: op.ask, requestId: entry.heldId, accepted, outcome, ...fresh() });
+    } else if (op.op === 'release') {
+      // The slow home thread persists the rows it was holding, in the order it was asked.
+      const releasing = globalThis.__releases.splice(0);
+      const done = persisted(globalThis.__heldPersisted.length + releasing.length);
+      for (const release of releasing) release();
+      await done;
+      trace.push({ op: 'release', released: releasing.length, ...fresh() });
     } else if (op.op === 'advance') {
-      const firedBefore = timers.fired;
       await advance(op.ms);
-      trace.push({ op: 'advance', ms: op.ms, now: NOW, fired: timers.fired - firedBefore });
+      trace.push({ op: 'advance', ms: op.ms, now: NOW });
     } else throw new Error(`unknown op ${op.op}`);
   }
   await Promise.all(globalThis.__heldRecords);
   for (const unmark of marks) unmark();
   unregister();
   setHumanGateStore(null);
-  const readLines = (file) => {
-    try {
-      return readFileSync(join(sandbox, `human-gate-${index}`, file), 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
-    } catch {
-      return [];
-    }
-  };
-  let grants = [];
-  try {
-    grants = JSON.parse(readFileSync(join(sandbox, `human-gate-${index}`, 'grants.json'), 'utf8')).grants;
-  } catch {}
+  // The audit file exists exactly when a record call carried a gate (hooks lib); a missing one then, an unexpected one, or a line
+  // that does not parse fails the recording. `recordAudit` is the only writer and ends every line with a newline.
+  const auditFile = join(sandbox, `human-gate-${index}`, 'audit.jsonl');
+  if (existsSync(auditFile) !== globalThis.__auditOwed) throw new Error(`${scenario.name}: audit file ${existsSync(auditFile) ? 'present' : 'missing'}, owed: ${globalThis.__auditOwed}`);
+  const audit = existsSync(auditFile) ? readFileSync(auditFile, 'utf8').split('\n').slice(0, -1).map((line) => JSON.parse(line)) : [];
+  // `grants.json` is written only by a grant; a scenario that stored none has no file.
+  const grantsFile = join(sandbox, `human-gate-${index}`, 'grants.json');
+  const grants = existsSync(grantsFile) ? JSON.parse(readFileSync(grantsFile, 'utf8')).grants : [];
   return {
     name: scenario.name,
     now: NOW_BASE + index * 1_000_000,
-    ...(scenario.stallDelivery ? { stallDelivery: true } : {}),
+    ...(scenario.stallDelivery ? { stallDelivery: scenario.stallDelivery } : {}),
     script: scenario.script,
     trace,
-    audit: readLines('audit.jsonl'),
+    audit,
     grants,
     timers: { registered: timers.registered, pending: timers.queue.length },
   };

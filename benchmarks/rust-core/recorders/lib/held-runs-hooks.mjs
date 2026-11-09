@@ -10,8 +10,16 @@ export async function load(url, context, nextLoad) {
     const source = `export async function deliverHeldRequest(agentId, held) {
   (globalThis.__heldDeliveries ??= []).push({ agentId, held: structuredClone(held) });
   globalThis.__onHeldDelivery?.();
-  // A scenario can make the home thread's queue never persist a row: the delivery is recorded and its promise never settles.
-  if (globalThis.__stallDelivery) return new Promise(() => {});
+  // A scenario can make the home thread's queue slow: 'all' never persists a row, 'pending' never persists a pending row, and
+  // 'pending-until-release' persists it once the script releases it. A delivery is recorded as persisted when it completes.
+  const stall = globalThis.__stallDelivery;
+  const slow = stall === 'all' || (held.status === 'pending' && (stall === 'pending' || stall === 'pending-until-release'));
+  if (slow) {
+    if (stall !== 'pending-until-release') return new Promise(() => {});
+    await new Promise((release) => (globalThis.__releases ??= []).push(release));
+  }
+  (globalThis.__heldPersisted ??= []).push({ agentId, id: held.id, status: held.status });
+  globalThis.__onHeldPersisted?.();
   return true;
 }
 `;
@@ -22,6 +30,8 @@ export async function load(url, context, nextLoad) {
 export * from ${JSON.stringify(`${url}?real`)};
 let chain = Promise.resolve();
 export const recordHumanDecision = (...args) => {
+  // The real function writes nothing without a gate: an audit file is owed exactly when some call carried one.
+  if (args[0]) globalThis.__auditOwed = true;
   const run = chain.then(() => real.recordHumanDecision(...args));
   chain = run.catch(() => {});
   (globalThis.__heldRecords ??= []).push(run);
