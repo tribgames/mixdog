@@ -4277,7 +4277,12 @@ export type ToolsToolsStatusParams = { threadId?: ThreadId, query?: string,
  * `true`: the reply also carries `requestSnapshot`, the provider request the thread's next send
  * would carry (needs `threadId`).
  */
-snapshot?: boolean, };
+snapshot?: boolean,
+/**
+ * With snapshot: the user message the snapshot's request carries as its last turn, as the send of that message would;
+ * a thread with no user turn yet cannot be encoded by every provider (Gemini refuses a request with nothing to send).
+ */
+snapshotUserMessage?: string, };
 
 /**
  * Params of `transfer/abort`.
