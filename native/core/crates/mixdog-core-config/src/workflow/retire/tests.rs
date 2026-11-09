@@ -9,8 +9,14 @@ use serde_json::Value;
 
 use super::*;
 
-fn twin() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/shipped-retirement/twin.json")).expect("twin.json")
+/// `windows`: the states recorded on Windows (junctions, a second volume, open handles); `linux`: the states recorded on Linux
+/// (symbolic links through the native copy), with Node v22.20.0 on Alpine (musl) and a tmpfs as the second mount.
+fn twin(set: &str) -> Value {
+    let text = match set {
+        "linux" => include_str!("../../../../../fixtures/shipped-retirement-linux/twin.json"),
+        _ => include_str!("../../../../../fixtures/shipped-retirement/twin.json"),
+    };
+    serde_json::from_str(text).expect("twin.json")
 }
 
 fn bytes_of(encoded: &Value) -> Vec<u8> {
@@ -74,6 +80,13 @@ fn portable(target: &Path, data: &Path, external: Option<&Path>) -> String {
     }
     if let Some(rest) = external.and_then(under) {
         return format!("<external>{rest}");
+    }
+    // Linux: a link a rename kept (its text as written) and one to a path that does not exist (`/nonexistent-dir/..`).
+    if !text.starts_with('/') {
+        return format!("<text>{text}");
+    }
+    if text.starts_with("/nonexistent-dir/") {
+        return format!("<abs>{text}");
     }
     panic!("link target {text}");
 }
@@ -143,6 +156,7 @@ fn hold(path: &Path, share: &str) -> std::fs::File {
 
 const CHILD: &str = "MIXDOG_RETIRE_REPLAY_CHILD";
 const THIS_TEST: &str = "workflow::retire::tests::every_recorded_state_leaves_the_data_dir_node_left";
+const LINUX_TEST: &str = "workflow::retire::tests::every_recorded_linux_state_leaves_the_data_dir_node_left";
 
 /// What Node's recorded `logs` of a state wrote to each stream: `console.log`/`info`/`debug` print a line to stdout,
 /// `warn`/`error` to stderr, `process.stdout/stderr.write` chunks as they are.
@@ -166,18 +180,28 @@ fn recorded_streams(state: &Value) -> (String, String) {
 /// child's whole stderr what Node wrote to stderr. The child itself asserts every tree, marker and error.
 #[tokio::test]
 async fn every_recorded_state_leaves_the_data_dir_node_left() {
+    replay_in_child("windows", THIS_TEST).await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn every_recorded_linux_state_leaves_the_data_dir_node_left() {
+    replay_in_child("linux", LINUX_TEST).await;
+}
+
+async fn replay_in_child(set: &str, this_test: &str) {
     if std::env::var_os(CHILD).is_some() {
-        return replay_all().await;
+        return replay_all(set).await;
     }
     let child = std::process::Command::new(std::env::current_exe().expect("test binary"))
-        .args(["--exact", THIS_TEST, "--nocapture", "--test-threads=1"])
+        .args(["--exact", this_test, "--nocapture", "--test-threads=1"])
         .env(CHILD, "1")
         .output()
         .expect("child");
     let (stdout, stderr) = (String::from_utf8_lossy(&child.stdout).into_owned(), String::from_utf8_lossy(&child.stderr).into_owned());
     assert!(child.status.success(), "child replay failed:\n{stdout}\n{stderr}");
     let (mut expected_err, mut seen) = (String::new(), 0);
-    for state in twin()["states"].as_array().expect("states") {
+    for state in twin(set)["states"].as_array().expect("states") {
         let name = state["name"].as_str().expect("name");
         let (begin, end) = (format!("\u{1}STATE {name}\n"), format!("\u{1}DONE {name}\n"));
         let from = stdout.find(&begin).unwrap_or_else(|| panic!("{name}: no marker")) + begin.len();
@@ -187,12 +211,12 @@ async fn every_recorded_state_leaves_the_data_dir_node_left() {
         expected_err.push_str(&err);
         seen += 1;
     }
-    assert!(seen > 60, "{seen} states");
+    assert!(seen > if set == "linux" { 10 } else { 60 }, "{seen} states");
     assert_eq!(stderr, expected_err, "what the pass writes to stderr");
 }
 
-async fn replay_all() {
-    let twin = twin();
+async fn replay_all(set: &str) {
+    let twin = twin(set);
     let world = twin["world"].as_object().expect("world");
     let states = twin["states"].as_array().expect("states");
     for state in states {
@@ -211,7 +235,7 @@ async fn replay_all() {
             std::fs::create_dir_all(&data).expect("data");
         }
         lay(&data, state["before"].as_object().expect("before"));
-        let windows_only = !state["links"].as_array().expect("links").is_empty() || state["crossVolume"] == true || !state["locks"].as_array().expect("locks").is_empty();
+        let windows_only = set != "linux" && (!state["links"].as_array().expect("links").is_empty() || state["crossVolume"] == true || !state["locks"].as_array().expect("locks").is_empty());
         if windows_only && cfg!(not(windows)) {
             // Recorded with junctions, a second volume and open handles of Windows: nothing to replay them on here.
             println!("\u{1}DONE {name}");
@@ -235,7 +259,24 @@ async fn replay_all() {
             let holds: Vec<std::fs::File> = state["locks"].as_array().expect("locks").iter().map(|lock| hold(&data.join(lock[0].as_str().expect("path")), lock[1].as_str().expect("share"))).collect();
             (external, holds)
         };
-        #[cfg(not(windows))]
+        // Linux: the symbolic links as written, then `backups` linked to a folder of another mount (/dev/shm, a tmpfs), where the
+        // rename fails with EXDEV and the native copy runs.
+        #[cfg(unix)]
+        let external: Option<tempfile::TempDir> = {
+            use std::os::unix::fs::MetadataExt;
+            for link in state["symlinks"].as_array().into_iter().flatten() {
+                let (path, text) = (link[0].as_str().expect("path"), link[1].as_str().expect("text"));
+                std::fs::create_dir_all(data.join(path).parent().expect("parent")).expect("link folder");
+                std::os::unix::fs::symlink(text, data.join(path)).expect("symlink");
+            }
+            (state["crossVolume"] == true).then(|| {
+                let folder = tempfile::Builder::new().prefix("mixdog-retire-").tempdir_in("/dev/shm").expect("external");
+                assert_ne!(std::fs::metadata(folder.path()).expect("shm").dev(), std::fs::metadata(&data).expect("data").dev(), "{name}: needs a second mount");
+                std::os::unix::fs::symlink(folder.path(), data.join("backups")).expect("backups link");
+                folder
+            })
+        };
+        #[cfg(all(not(windows), not(unix)))]
         let external: Option<tempfile::TempDir> = None;
         let mut error = None;
         for (run, after) in state["after"].as_array().expect("after").iter().enumerate() {

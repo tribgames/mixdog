@@ -10,7 +10,7 @@
 //
 //   node benchmarks/rust-core/recorders/record-shipped-retirement.mjs --tree <git checkout at --commit, with node_modules> --commit <40-hex>
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, parse } from 'node:path';
@@ -20,7 +20,7 @@ const cli = parseArgs();
 const tree = resolveTree(cli);
 const commit = cli.get('commit');
 const identity = commitCheckoutIdentity(tree, commit);
-const outDir = cli.get('out') ?? join(FIXTURES_ROOT, 'shipped-retirement');
+const outDir = cli.get('out') ?? join(FIXTURES_ROOT, process.platform === 'linux' ? 'shipped-retirement-linux' : 'shipped-retirement');
 const stage = stageSet(outDir);
 
 const { ensureStandaloneEnvironment } = await importFrom(tree, 'src/session-runtime/services/seeds.mjs');
@@ -109,8 +109,11 @@ const [stampOf] = [(overrides = new Map()) => {
 
 const work = mkdtempSync(join(tmpdir(), 'shipped-retirement-'));
 // The folder of another volume for the EXDEV states: the Public profile of the system drive (writable by any user).
-const OTHER_VOLUME = join(`${process.env.SystemDrive}\\`, 'Users', 'Public');
-if (parse(OTHER_VOLUME).root.toLowerCase() === parse(work).root.toLowerCase()) throw new Error(`${OTHER_VOLUME} is on the volume of ${work}: the EXDEV states need two volumes`);
+// On Linux (RETIRE_OTHER_VOLUME: a folder of another mount than TMPDIR) only the states marked `linux` are recorded, into their own set.
+const LINUX = process.platform === 'linux';
+const OTHER_VOLUME = LINUX ? process.env.RETIRE_OTHER_VOLUME : join(`${process.env.SystemDrive}\\`, 'Users', 'Public');
+const sameVolume = LINUX ? statSync(OTHER_VOLUME).dev === statSync(work).dev : parse(OTHER_VOLUME).root.toLowerCase() === parse(work).root.toLowerCase();
+if (sameVolume) throw new Error(`${OTHER_VOLUME} is on the volume of ${work}: the EXDEV states need two volumes`);
 function materialize(dir, overrides = new Map(), data = false) {
   const files = data ? overrides : new Map([...world, ...overrides]);
   mkdirSync(dir, { recursive: true });
@@ -136,6 +139,8 @@ function snapshot(dir, ctx) {
       const external = ctx.external.replace(/\\/g, '/');
       if (text === external || text.startsWith(`${external}/`)) return `<external>${text.slice(external.length)}`;
     }
+    if (LINUX && !text.startsWith('/')) return `<text>${text}`;
+    if (LINUX && text.startsWith('/nonexistent-dir/')) return `<abs>${text}`;
     throw new Error(`link target ${target}`);
   };
   const walk = (current, prefix) => {
@@ -170,7 +175,8 @@ const backupFolders = (dir) => {
 };
 
 const states = [];
-function state(name, { root = new Map(), data = new Map(), runs = 1, noDataDir = false, clock = null, base: given = null, prepared = false, links = [], crossVolume = false, locks = [] }) {
+function state(name, { root = new Map(), data = new Map(), runs = 1, noDataDir = false, clock = null, base: given = null, prepared = false, links = [], crossVolume = false, locks = [], symlinks = [], linux = false }) {
+  if (linux !== LINUX) return;
   // A pinned clock makes the backup folder name known, so a state can hold folders that clash with the one the pass claims.
   const RealDate = globalThis.Date;
   if (clock) {
@@ -190,6 +196,11 @@ function state(name, { root = new Map(), data = new Map(), runs = 1, noDataDir =
   if (!noDataDir) mkdirSync(dataDir, { recursive: true });
   if (!prepared) materialize(dataDir, data, true);
   for (const [path, target] of links) symlinkSync(join(dataDir, target), join(dataDir, path), 'junction');
+  // Symbolic links with their text as given (relative or not), made after the files.
+  for (const [path, text] of symlinks) {
+    mkdirSync(dirname(join(dataDir, path)), { recursive: true });
+    symlinkSync(text, join(dataDir, path));
+  }
   // `backups` on another volume: the pass's rename into it fails with EXDEV and falls back to copy and remove.
   let external = null;
   if (crossVolume) {
@@ -230,7 +241,7 @@ function state(name, { root = new Map(), data = new Map(), runs = 1, noDataDir =
   const backups = backupFolders(dataDir);
   for (const folder of backups) if (!/^defaults-separation-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(-\d+)?$/.test(folder)) throw new Error(`backup folder ${folder}`);
   const files = (map) => Object.fromEntries([...map].filter(([, v]) => v !== null).map(([k, v]) => [k, enc(v)]));
-  states.push({ name, root: Object.fromEntries([...root].map(([k, v]) => [k, v === null ? null : enc(v)])), noDataDir, clock, links, crossVolume, locks, before: files(data), runs, after, externalAfter, error, logs });
+  states.push({ name, root: Object.fromEntries([...root].map(([k, v]) => [k, v === null ? null : enc(v)])), noDataDir, clock, links, symlinks, crossVolume, locks, before: files(data), runs, after, externalAfter, error, logs });
   // A given base still holds the lockers' files: its owner removes it once they let go.
   if (external) rmSync(external, { recursive: true, force: true });
   if (!given) rmSync(base, { recursive: true, force: true });
@@ -238,6 +249,7 @@ function state(name, { root = new Map(), data = new Map(), runs = 1, noDataDir =
 
 /** `state` over files another process holds open: [relative data path, 'Read' (others may read, not delete) | 'None'] each. */
 async function lockedState(name, opts) {
+  if (LINUX) return;
   const base = mkdtempSync(join(work, 's-'));
   const dataDir = join(base, 'data');
   mkdirSync(dataDir, { recursive: true });
@@ -355,6 +367,44 @@ await lockedState('locked-last-file-read-share', { clock: CLOCK, runs: 2, data: 
 await lockedState('locked-pack-read-share', { clock: CLOCK, data: merge(old('agents'), oldEvery()), locks: [[`agents/${ag}/AGENT.md`, 'Read']] });
 await lockedState('locked-file-no-share-unreadable', { clock: CLOCK, data: merge(old('skills'), stray(skillDir, '0.orig')), locks: [[`${skillDir}/0.orig`, 'None']] });
 await lockedState('locked-last-file-cross-volume', { clock: CLOCK, data: merge(old('skills'), stray(skillDir, 'zzzz.orig')), locks: [[`${skillDir}/zzzz.orig`, 'Read']], crossVolume: true });
+// A pack's ignorable stray (`*.bak`, `*.orig`, `*.tmp`, `*~`) passes eligibility without being read, so a stray held without sharing
+// makes the rename fail and the copy fail part-way: the copy keeps the entries copied before, both sources stay, the move counts as failed.
+const packFor = (kind, entry, name) => `${KINDS[kind].dest}/${name}`;
+const agentDir = packFor('agents', 'AGENT.md', ag), workflowDir = packFor('workflows', 'WORKFLOW.md', wf);
+await lockedState('failed-copy-agent-stray-first', { clock: CLOCK, runs: 2, data: merge(old('agents'), stray(agentDir, '0.bak')), locks: [[`${agentDir}/0.bak`, 'None']] });
+await lockedState('failed-copy-agent-stray-middle', { clock: CLOCK, runs: 2, data: merge(old('agents'), stray(agentDir, 'AGENT.md.BAK'), stray(agentDir, 'zz.orig')), locks: [[`${agentDir}/AGENT.md.BAK`, 'None']] });
+await lockedState('failed-copy-workflow-stray-middle', { clock: CLOCK, data: merge(old('workflows'), stray(workflowDir, 'WORKFLOW.md.BAK'), stray(workflowDir, 'zz.tmp')), locks: [[`${workflowDir}/WORKFLOW.md.BAK`, 'None']] });
+await lockedState('failed-copy-agent-stray-cross-volume', { clock: CLOCK, data: merge(old('agents'), stray(agentDir, 'AGENT.md.BAK'), stray(agentDir, 'zz.orig')), locks: [[`${agentDir}/AGENT.md.BAK`, 'None']], crossVolume: true });
+// Linux: the native copy of a symbolic link writes weakly_canonical(absolute(<its folder>/<link text>)): an absolute path, `..`
+// normalised, the links met on the way resolved as far as they exist. A rename keeps the text as it is.
+{
+  const base = new Map([['linked/e.txt', Buffer.from('linked\n')], ['linked/sub/f.txt', Buffer.from('f\n')]]);
+  const skill = `skills/${sk}`;
+  const cases = {
+    relative: [[`${skill}/up`, '../../linked/e.txt']],
+    'relative-dir': [[`${skill}/updir`, '../../linked']],
+    'nested-folder': [[`${skill}/sub/deep/inner`, '../../../../linked/e.txt']],
+    'through-intermediate-link': [['hop', 'linked'], [`${skill}/via`, '../../hop/e.txt']],
+    'through-two-intermediate-links': [['hop', 'linked'], ['hop2', 'hop'], [`${skill}/via2`, '../../hop2/sub/f.txt']],
+    'dotdot-through-link': [['hop', 'linked/sub'], [`${skill}/back`, '../../hop/../e.txt']],
+    dangling: [[`${skill}/gone`, '../../nothing/x']],
+    'dangling-behind-link': [['hop', 'linked'], [`${skill}/gone2`, '../../hop/missing/../more.txt']],
+    absolute: [[`${skill}/abs`, '/nonexistent-dir/x/../y']],
+    'link-to-link': [[`${skill}/first`, 'second'], [`${skill}/second`, '../../linked/e.txt']],
+    'link-with-dot-segments': [[`${skill}/dots`, './../.././linked//e.txt']],
+  };
+  state('linux-skill-links-renamed', { linux: true, data: merge(old('skills'), base), symlinks: [[`${skill}/up`, '../../linked/e.txt'], ['hop', 'linked'], [`${skill}/via`, '../../hop/e.txt'], [`${skill}/gone`, '../../nothing/x']] });
+  for (const [label, symlinks] of Object.entries(cases)) state(`linux-cross-volume-skill-link-${label}`, { linux: true, clock: CLOCK, data: merge(old('skills'), base), symlinks, crossVolume: true });
+  state('linux-cross-volume-skill-all-links', { linux: true, clock: CLOCK, data: merge(old('skills'), base), symlinks: [['hop', 'linked'], ...Object.values(cases).flat().filter(([p]) => p.startsWith(skill) && p !== `${skill}/via2` && p !== `${skill}/back` && p !== `${skill}/gone2` && p !== `${skill}/first` && p !== `${skill}/second`)], crossVolume: true });
+}
+if (LINUX) {
+  writeJson(join(stage, 'twin.json'), { world: Object.fromEntries([...world].map(([k, v]) => [k, enc(v)])), states });
+  writeSetManifest(stage, { set: 'shipped-retirement-linux', recorder: 'benchmarks/rust-core/recorders/record-shipped-retirement.mjs', command: `RETIRE_OTHER_VOLUME=<a mount other than TMPDIR> node benchmarks/rust-core/recorders/record-shipped-retirement.mjs --tree <git checkout of ${commit}> --commit ${commit} (on Linux, Node ${process.version})`, identity });
+  commitStage(stage, outDir);
+  rmSync(work, { recursive: true, force: true });
+  console.log(`shipped-retirement-linux: ${states.length} states -> ${outDir}`);
+  process.exit(0);
+}
 state('no-data-dir', { noDataDir: true });
 state('empty-data-dir', {});
 state('no-plugin-manifest', { root: new Map([['defaults/plugin.json', null]]), data: oldEvery() });
