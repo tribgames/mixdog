@@ -10,6 +10,7 @@ import { SCENARIOS, T0 } from './footer-golden/scenarios.mjs';
 
 process.env.TZ = 'UTC';
 process.env.COLORTERM = 'truecolor';
+const { createCatalogWarmth } = await import('./catalog-warmth.mjs');
 const { createFooterInputs } = await import('./footer-inputs.mjs');
 const { createFooterRenderer } = await import('./footer-render.mjs');
 
@@ -44,7 +45,10 @@ for (const scenario of SCENARIOS) {
     const dir = writeScenarioFiles(scenario);
     t.after(() => rmSync(dir, { recursive: true, force: true }));
     let clock = T0;
-    const inputs = createFooterInputs({ dataDir: dir, configDir: join(dir, 'config'), env: {}, now: () => clock });
+    // The pricing catalogs are resident only once a model list has been loaded (`warm`).
+    const warmth = createCatalogWarmth({ dataDir: () => dir });
+    if (scenario.warm) await warmth.warm();
+    const inputs = createFooterInputs({ dataDir: dir, configDir: join(dir, 'config'), env: {}, now: () => clock, warmth });
     const { provider, model } = scenario.args;
     const step = (footer, now) => {
       clock = now;

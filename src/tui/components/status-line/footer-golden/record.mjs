@@ -54,6 +54,7 @@ for (const scenario of SCENARIOS) {
           FOOTER_COLS: String(scenario.cols),
           FOOTER_ARGS: JSON.stringify(scenario.args),
           ...(scenario.steps ? { FOOTER_STEPS: JSON.stringify(scenario.steps) } : {}),
+          ...(scenario.warm ? { FOOTER_WARM: '1' } : {}),
         },
       }
     );

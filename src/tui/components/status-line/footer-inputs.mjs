@@ -26,6 +26,7 @@ import { dirname, join } from 'node:path';
 import { readJsonStateSync, writeFileAtomicSync } from '../../../runtime/shared/atomic-file.mjs';
 import { withFileLockSync } from '../../../runtime/shared/file-lock.mjs';
 import { resolvePluginData } from '../../../runtime/shared/plugin-paths.mjs';
+import { defaultCatalogWarmth } from './catalog-warmth.mjs';
 
 const REFRESH_MS = 500;
 const CLAUDE_MAX_AGE_MS = 10 * 60 * 1000;
@@ -185,6 +186,7 @@ export function createFooterInputs({
   configDir = process.env.MIXDOG_CONFIG_DIR || join(homedir(), '.mixdog'),
   env = process.env,
   now = Date.now,
+  warmth = defaultCatalogWarmth,
 } = {}) {
   let held = { key: '', at: -Infinity, data: null };
   const loadUsageEvents = createUsageEventReader(dataDir, now);
@@ -234,6 +236,7 @@ export function createFooterInputs({
     };
     return {
       rosterRows,
+      catalogs: warmth.get(),
       usageCache: readJson(join(dataDir, 'gateway-oauth-usage-cache.json')),
       accountId: accounts?.providers?.[provider]?.selectedId || 'default',
       config,

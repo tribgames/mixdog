@@ -91,6 +91,42 @@
    "expected": "\u001b[1mlab-model-9\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
   },
   {
+   "name": "warm catalogs: a models.dev name for a model the roster files do not name",
+   "expected": "\u001b[1mReview Catalog Name\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
+   "name": "warm catalogs: the models.dev name wins over a roster row name",
+   "expected": "\u001b[1mCatalog Name\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
+   "name": "warm catalogs: a LiteLLM row describes the model, so the roster row name is not used",
+   "expected": "\u001b[1mreview-gem-1\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
+   "name": "warm catalogs: the same state before any model list was loaded still uses the roster row",
+   "expected": "\u001b[1mRoster Gem\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
+   "name": "warm catalogs: a relay takes the name of the vendor row that serves the model",
+   "expected": "\u001b[1mVendor Served Nine\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
+   "name": "warm catalogs: a vendor row without prices names nothing for the relay",
+   "expected": "\u001b[1mvendor-served-9\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
+   "name": "warm catalogs: the contributor suffix of a models.dev name is dropped",
+   "expected": "\u001b[1mMuse Spark 1.3\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
+   "name": "warm catalogs: a model no catalog lists keeps its roster name",
+   "expected": "\u001b[1mRoster Name\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
+   "name": "warm catalogs: a catalog file without a payload stays cold",
+   "expected": "\u001b[1mRoster Name\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
    "name": "gateway default of another provider drops the primary status, the cached snapshot still shows",
    "expected": "\u001b[1mGPT-5.5\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m \u001b[1mHigh\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136m5H\u001b[0m  \u001b[38;2;0;170;75m42%\u001b[0m \u001b[38;2;136;136;136m↻ 10:00\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136m7D\u001b[0m  \u001b[38;2;255;193;7m71%\u001b[0m \u001b[38;2;136;136;136m↻ 01-18 08:00\u001b[0m"
   },

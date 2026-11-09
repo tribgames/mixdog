@@ -3,6 +3,11 @@ import { pathToFileURL } from 'node:url';
 
 const { renderStatusline } = await import(pathToFileURL(join(process.env.FOOTER_TREE, 'src', 'ui', 'statusline.mjs')).href);
 const args = JSON.parse(process.env.FOOTER_ARGS);
+if (process.env.FOOTER_WARM) {
+  // A model list was loaded (the picker, the boot prefetch): the pricing catalogs are resident, read from the data dir.
+  const { warmCatalogFromDisk } = await import(pathToFileURL(join(process.env.FOOTER_TREE, 'src', 'runtime', 'shared', 'llm', 'model-catalog.mjs')).href);
+  await warmCatalogFromDisk();
+}
 const steps = process.env.FOOTER_STEPS ? JSON.parse(process.env.FOOTER_STEPS) : null;
 const T0 = Number(process.env.FOOTER_T0);
 const settle = async () => {
