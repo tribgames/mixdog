@@ -10,9 +10,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { format } from 'node:util';
-import { App } from './App.jsx';
-import { setFooterUsageSource } from './components/statusline-render.mjs';
-import { cancelPendingMouseTrackingRestores } from './app/use-mouse-input.mjs';
+import { App } from './App.jsx';import { cancelPendingMouseTrackingRestores } from './app/use-mouse-input.mjs';
 import { createSessionRuntime } from './session.mjs';
 import { registerRenderFrameSource, scheduleRenderFrameAck, TUI_RENDER_FPS } from './session/render-timing.mjs';
 import { installProcessSignalCleanup } from './lib/process-shutdown.mjs';
@@ -681,10 +679,7 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     // instead of the list and a switch repainted nothing here. Bind the three
     // theme methods locally (same pattern as the ink selection helpers below)
     // and mirror the switch to the core, which stores it unless persist is false.
-    if (store.isRemoteSession === true) bindLocalThemeMethods(store);
-    // The footer's route spend and local budgets read the core's usage ledger (usage/getUsageRequests).
-    setFooterUsageSource((options) => store.getUsageRequests?.(options));
-    bootProfile('store:ready', { ms: (performance.now() - startedAt).toFixed(1) });
+    if (store.isRemoteSession === true) bindLocalThemeMethods(store);    bootProfile('store:ready', { ms: (performance.now() - startedAt).toFixed(1) });
   } catch (error) {
     splash.stop();
     stopPerfProbe();

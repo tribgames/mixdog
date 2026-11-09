@@ -14,21 +14,19 @@ const PROCESS_STARTED_AT = Date.now() - Math.floor((Number(process.uptime?.()) |
 const inputs = createFooterInputs();
 const renderer = createFooterRenderer();
 
-/** Hands the footer the session's usage-requests read (route spend and local budgets come from the ledger). */
-export function setFooterUsageSource(source) {
-  inputs.setUsageSource(source);
-}
-
 export async function renderStatusline(args) {
   try {
     const data = await inputs.read(args.provider, args.model);
     const now = Date.now();
     const shell = shellStripStatus(args.shellJobs, now);
-    return renderer(
+    const text = renderer.render(
       { ...args, shellStatus: shell },
       data,
       { now, cols: terminalColumns(), processStartedAt: PROCESS_STARTED_AT, isPidAlive }
     );
+    // The caches the text came from refresh after the call, as Node's footer did (setImmediate).
+    setImmediate(renderer.flush);
+    return text;
   } catch {
     return localBootStatusLine(args);
   }

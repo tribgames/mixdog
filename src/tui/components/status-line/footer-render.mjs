@@ -7,7 +7,10 @@
  *   quota windows .... `gateway-oauth-usage-cache.json` (`usageCache`), keyed by provider, model and the
  *                      selected account of `provider-accounts.json` (`accountId`)
  *   balance .......... the cache entry's `balance`, else the config's `gateway`/provider `balance`
- *   SESS spend ....... usage events of the route since this footer first showed it (`usageEvents`)
+ *   SESS spend ....... the events of `gateway-usage.local.jsonl` (`usageEvents`) of the route since this footer
+ *                      first showed it
+ *   route of the status the config's `gateway`, the session-route store and the Claude-current route
+ *                      (gateway-status.mjs; `gatewayFiles`)
  *   configured windows the config's `gateway`/provider `quotaWindows`, spent by `usageEvents`
  *   Memory ........... `memory-cycle-state.json` (`memoryCycle`)
  * The colours are the canonical footer palette; the TUI re-tones them (statusline-ansi-bridge).
@@ -16,11 +19,11 @@ import { rgb, rgbSgr } from '../../lib/ansi.mjs';
 import { measuredContextUsage, contextMeasurementLabel } from '../../../../packages/protocol-client/src/rows/context-measurement.mjs';
 import { displayModelName, effortDisplayLabel, shortenModelName } from '../../../../packages/protocol-client/src/rows/model-display.mjs';
 import { formatElapsed, num, timeMs } from '../../lib/statusline-format.mjs';
+import { configuredGatewayRoute } from './gateway-status.mjs';
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
 const STALE_CACHE_TTL_MS = 7 * DAY_MS;
-const MAX_USAGE_EVENTS = 5000;
 const USAGE_EVENT_TTL_MS = 35 * DAY_MS;
 const MEMORY_CYCLE_FRESH_MS = 10 * 60_000;
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -252,13 +255,18 @@ function windowsFromObject(obj, now) {
 }
 
 function usageEventsOf(data, now) {
-  const rows = Array.isArray(data.usageEvents) ? data.usageEvents.slice(-MAX_USAGE_EVENTS) : [];
+  const rows = Array.isArray(data.usageEvents) ? data.usageEvents : [];
   const cutoff = now - USAGE_EVENT_TTL_MS;
   return rows.filter((e) => num(e?.ts) >= cutoff);
 }
 
 /** `buildGatewayLimits(route, null, snapshot)`: the windows, the balance and the session spend of a route. */
 function buildGatewayLimits(route, snapshot, data, env, state) {
+  // Node's footer loads the limits module on first use: the first call fails and starts the load.
+  if (!state.routeMetaLoaded) {
+    state.routeMetaLoaded = true;
+    throw new Error('statusline route-meta not loaded');
+  }
   const gateway = isRecord(data.config?.gateway) ? data.config.gateway : {};
   const agent = isRecord(data.config?.agent) ? data.config.agent : {};
   const agentSection = agent.agent?.providers ? agent.agent : agent;
@@ -468,78 +476,154 @@ function acceptQuotaSnapshot(held, incoming) {
   return incomingAsOf >= heldAsOf;
 }
 
+const QUOTA_CACHE_MS = 500;
+const MEMORY_CYCLE_CACHE_MS = 1000;
+const MEMORY_CYCLE_BACKLOG_WARN = 500;
+
+// Node's footer answers from caches it refreshes after the render call (stale while revalidate): `schedule`
+// queues such a refresh, which the owner of the renderer runs after the call (`flush`).
+const schedule = (state, task) => state.pending.push(task);
+
+/** The status of the gateway for the route (Node's `loadGatewayQuotaStatus`): the cached one, refreshed after the call. */
+function gatewayQuotaStatus(args, data, env, state) {
+  const { provider, model, effort, fast, sessionId, clientHostPid } = args;
+  const routeKey = [
+    String(provider || ''),
+    String(model || ''),
+    String(effort || ''),
+    fast === true ? 'fast' : '',
+    String(sessionId || ''),
+    String(clientHostPid || ''),
+  ].join('\0');
+  const routeContextWindow = num(args.displayContextWindow) > 0 ? num(args.displayContextWindow) : num(args.contextWindow);
+  const activeContextTokens = measuredContextUsage({ stats: args.stats }).used;
+  const key = [
+    routeKey,
+    String(routeContextWindow ?? ''),
+    String(args.rawContextWindow ?? ''),
+    String(args.autoCompactTokenLimit ?? ''),
+    Math.floor((Number(activeContextTokens) || 0) / 1024),
+  ].join('\0');
+  const cache = state.gateway;
+  if (cache.key === key && env.now - cache.at < QUOTA_CACHE_MS) return cache.value;
+  if (!cache.inflight) {
+    cache.inflight = true;
+    schedule(state, () => {
+      let value = null;
+      try {
+        const configured = configuredGatewayRoute(args, data.gatewayFiles);
+        if (configured) {
+          const windows = cachedQuotaWindowsFallback(configured.provider, configured.model, data.usageCache, env.processStartedAt);
+          const status = {
+            ...configured,
+            quotaWindows: windows.quotaWindows,
+            quotaWindowsAsOf: num(windows.cachedAt),
+            quotaWindowsOwned: false,
+            balance: null,
+            routeSpend: null,
+          };
+          const cliProvider = String(provider || '').trim();
+          const cliModel = String(model || '').trim();
+          const statusProvider = String(status.provider || '').trim();
+          const statusModel = String(status.model || '').trim();
+          if (
+            !(cliProvider && statusProvider && statusProvider !== cliProvider) &&
+            !(cliModel && statusModel && statusModel !== cliModel)
+          ) {
+            value = status;
+          }
+        }
+      } catch {
+        value = null;
+      }
+      state.gateway = { key, routeKey, at: env.now, value, inflight: false };
+    });
+  }
+  return cache.routeKey === routeKey ? cache.value : null;
+}
+
+/** Whether an OAuth route may show its usage: after this process has seen its first confirmed reading. */
+function oauthUsageSegmentReady(route, data, env, state) {
+  if (!route.provider.includes('oauth')) return true;
+  if (state.armedProviders.has(route.provider)) return true;
+  if (!state.armChecks.has(route.provider)) {
+    state.armChecks.add(route.provider);
+    schedule(state, () => {
+      const snapshot = readCachedUsageSnapshot(route, data.usageCache, env.now);
+      const cachedAt = num(snapshot?.cachedAt);
+      if (cachedAt > 0 && cachedAt >= env.processStartedAt) state.armedProviders.add(route.provider);
+      state.armChecks.delete(route.provider);
+    });
+  }
+  return false;
+}
+
+/** Node's `fallbackQuotaStatus`: the cached limits of the route (snapshot windows, balance, spend), refreshed after the call. */
+function fallbackQuotaStatus(route, data, env, state) {
+  if (!route.provider) return null;
+  const cacheKey = `${route.provider}\0${route.model}`;
+  const cache = state.fallback;
+  if (cache.key === cacheKey && env.now - cache.at < QUOTA_CACHE_MS) return cache.value;
+  if (!cache.inflight) {
+    cache.inflight = true;
+    schedule(state, () => {
+      let value = null;
+      try {
+        let snapshot = route.provider.includes('oauth') ? readCachedUsageSnapshot(route, data.usageCache, env.now) : null;
+        if (snapshot) {
+          const cachedAt = num(snapshot.cachedAt);
+          if (!cachedAt || cachedAt < env.processStartedAt) snapshot = { ...snapshot, quotaWindows: [] };
+        }
+        const limits = buildGatewayLimits(route, snapshot, data, env, state);
+        if (limits.quotaWindows.length || limits.balance || limits.routeSpend) {
+          value = {
+            provider: route.provider,
+            model: route.model,
+            providerKind: route.providerKind,
+            quotaWindows: limits.quotaWindows,
+            quotaWindowsAsOf: num(snapshot?.cachedAt),
+            quotaWindowsOwned: false,
+            balance: limits.balance || null,
+            routeSpend: limits.routeSpend || null,
+          };
+        }
+      } catch {
+        value = null;
+      }
+      state.fallback = { key: cacheKey, at: env.now, value, inflight: false };
+    });
+  }
+  return cache.key === cacheKey ? cache.value : null;
+}
+
 function quotaSegmentsFor(args, data, env, state, colors) {
   const { provider, model, effort, fast, sessionId, clientHostPid } = args;
   const providerLower = String(provider || '').trim().toLowerCase();
-  const accountId = data.accountId || 'default';
-  const route = { provider: providerLower, model: String(model || '').trim(), accountId, providerKind: providerKind(providerLower) };
-
-  // The status the gateway reports for this route: its windows are the cache entry the process has seen refreshed.
-  const gatewayEnabled = data.config?.modules?.gateway?.enabled !== false;
-  const fallbackWindows = cachedQuotaWindowsFallback(providerLower, route.model, data.usageCache, env.processStartedAt);
-  const primary =
-    gatewayEnabled && providerLower && route.model
-      ? {
-          provider: providerLower,
-          model: route.model,
-          providerKind: providerKind(providerLower),
-          quotaWindows: fallbackWindows.quotaWindows,
-          quotaWindowsAsOf: num(fallbackWindows.cachedAt),
-          quotaWindowsOwned: false,
-          balance: null,
-          routeSpend: null,
-        }
-      : null;
-
-  // An OAuth route shows nothing until this process has seen its first confirmed reading, then stays armed.
-  let usageReady = true;
-  if (providerLower.includes('oauth')) {
-    if (!state.armedProviders.has(providerLower)) {
-      const seen = readCachedUsageSnapshot(route, data.usageCache, env.now);
-      const cachedAt = num(seen?.cachedAt);
-      if (cachedAt > 0 && cachedAt >= env.processStartedAt) state.armedProviders.add(providerLower);
-    }
-    usageReady = state.armedProviders.has(providerLower);
-  }
-
-  let fallback = null;
-  if (usageReady && providerLower) {
-    let snapshot = providerLower.includes('oauth') ? readCachedUsageSnapshot(route, data.usageCache, env.now) : null;
-    if (snapshot) {
-      const cachedAt = num(snapshot.cachedAt);
-      if (!cachedAt || cachedAt < env.processStartedAt) snapshot = { ...snapshot, quotaWindows: [] };
-    }
-    const limits = buildGatewayLimits(route, snapshot, data, env, state);
-    if (limits.quotaWindows.length || limits.balance || limits.routeSpend) {
-      fallback = {
-        provider: providerLower,
-        model: route.model,
-        providerKind: route.providerKind,
-        quotaWindows: limits.quotaWindows,
-        quotaWindowsAsOf: num(snapshot?.cachedAt),
-        quotaWindowsOwned: false,
-        balance: limits.balance || null,
-        routeSpend: limits.routeSpend || null,
-      };
-    }
-  }
-  const matches = primary && (!providerLower || primary.provider === providerLower) ? primary : null;
-
+  const route = {
+    provider: providerLower,
+    model: String(model || '').trim(),
+    accountId: data.accountId || 'default',
+    providerKind: providerKind(providerLower),
+  };
+  const gatewayStatus = gatewayQuotaStatus(args, data, env, state);
+  const usageReady = oauthUsageSegmentReady(route, data, env, state);
   let quotaStatus = null;
   if (usageReady) {
-    if (!matches) quotaStatus = fallback;
-    else if (!fallback) quotaStatus = matches;
+    const fallback = fallbackQuotaStatus(route, data, env, state);
+    const primary = gatewayStatus;
+    if (!primary) quotaStatus = fallback || null;
+    else if (!fallback) quotaStatus = primary;
     else {
-      const usePrimaryWindows = matches.quotaWindows.length > 0;
+      const usePrimaryWindows = Array.isArray(primary.quotaWindows) && primary.quotaWindows.length > 0;
       quotaStatus = {
         ...fallback,
-        ...matches,
-        quotaWindows: usePrimaryWindows ? matches.quotaWindows : fallback.quotaWindows || [],
-        quotaWindowsAsOf: usePrimaryWindows ? num(matches.quotaWindowsAsOf) : num(fallback.quotaWindowsAsOf),
-        quotaWindowsOwned: usePrimaryWindows ? matches.quotaWindowsOwned === true : fallback.quotaWindowsOwned === true,
-        balance: matches.balance || fallback.balance || null,
-        routeSpend: matches.routeSpend || fallback.routeSpend || null,
-        providerKind: matches.providerKind || fallback.providerKind,
+        ...primary,
+        quotaWindows: usePrimaryWindows ? primary.quotaWindows : fallback.quotaWindows || [],
+        quotaWindowsAsOf: usePrimaryWindows ? num(primary.quotaWindowsAsOf) : num(fallback.quotaWindowsAsOf),
+        quotaWindowsOwned: usePrimaryWindows ? primary.quotaWindowsOwned === true : fallback.quotaWindowsOwned === true,
+        balance: primary.balance || fallback.balance || null,
+        routeSpend: primary.routeSpend || fallback.routeSpend || null,
+        providerKind: primary.providerKind || fallback.providerKind || providerKind(primary.provider || fallback.provider),
       };
     }
   }
@@ -653,7 +737,7 @@ function runningAgentWorkers(agentWorkers, agentJobs) {
   return running;
 }
 
-function activitySegments(args, data, env, colors, shellStatus) {
+function activitySegments(args, data, env, colors, shellStatus, state) {
   const { R, B, D, GRN, YLW } = colors;
   const parts = [];
   const spin = `${GRN}${SPINNER_FRAMES[Math.floor(env.now / SPINNER_FRAME_MS) % SPINNER_FRAMES.length]}${R}`;
@@ -678,28 +762,58 @@ function activitySegments(args, data, env, colors, shellStatus) {
     const started = web ? num(web.startedAt) : 0;
     segment('Web Searching', started > 0 ? formatElapsed(env.now - started) : '');
   }
-  const cycle = data.memoryCycle;
-  if (isRecord(cycle)) {
-    const runningCycle = cycle.running || null;
-    const fresh = Number(cycle.updatedAt) > env.now - MEMORY_CYCLE_FRESH_MS;
-    const ownerAlive = !Number(runningCycle?.pid) || env.isPidAlive(Number(runningCycle.pid));
-    if (fresh && ownerAlive && runningCycle?.cycle === 'cycle1' && Number(runningCycle.started_at) > 0) {
-      segment('Memory', formatElapsed(env.now - Number(runningCycle.started_at)));
-    }
+  // The memory-cycle reading is cached for a second and refreshed after the call, like the quota readings.
+  const memory = state.memory;
+  if (env.now - memory.at >= MEMORY_CYCLE_CACHE_MS && !memory.inflight) {
+    memory.inflight = true;
+    schedule(state, () => {
+      let value = null;
+      const cycle = data.memoryCycle;
+      if (isRecord(cycle)) {
+        const runningCycle = cycle.running || null;
+        const fresh = Number(cycle.updatedAt) > env.now - MEMORY_CYCLE_FRESH_MS;
+        const ownerAlive = !Number(runningCycle?.pid) || env.isPidAlive(Number(runningCycle.pid));
+        if (fresh && ownerAlive && runningCycle?.cycle === 'cycle1' && Number(runningCycle.started_at) > 0) {
+          value = { kind: 'running', startedAt: Number(runningCycle.started_at) };
+        } else if (fresh) {
+          const pending = Number(cycle.backlog?.unchunked) || 0;
+          if (pending > MEMORY_CYCLE_BACKLOG_WARN) value = { kind: 'backlog', pending };
+        }
+      }
+      state.memory = { at: env.now, value, inflight: false };
+    });
   }
+  if (memory.value?.kind === 'running') segment('Memory', formatElapsed(env.now - memory.value.startedAt));
   return parts;
 }
 
 /* ── the footer ─────────────────────────────────────────────────────────────────────────────────────── */
 
-/** A footer renderer: its state (the displayed quota readings, the route's spend section) lives as long as it does. */
-export function createFooterRenderer() {
-  const state = { routeSectionKey: null, routeSectionStartedAt: 0, armedProviders: new Set(), held: new Map() };
+/**
+ * A footer renderer: its state (the cached quota and memory readings, the displayed quota segments, the route's
+ * spend section) lives as long as it does. Like Node's footer it answers from caches and refreshes them after the
+ * call: `render` returns the text, `flush` runs the refreshes it queued (the caller does that on the next
+ * macrotask, as Node's `setImmediate` did). `routeMetaLoaded` is a footer that has already had its first
+ * refresh (Node's limits module is loaded by the first one).
+ */
+export function createFooterRenderer({ routeMetaLoaded = false } = {}) {
+  const state = {
+    routeMetaLoaded,
+    pending: [],
+    gateway: { key: '', routeKey: '', at: 0, value: null, inflight: false },
+    fallback: { key: '', at: 0, value: null, inflight: false },
+    memory: { at: 0, value: null, inflight: false },
+    armedProviders: new Set(),
+    armChecks: new Set(),
+    routeSectionKey: null,
+    routeSectionStartedAt: 0,
+    held: new Map(),
+  };
   /**
    * `args` are the statusline arguments of the TUI (route, stats, windows, agents, tools, `shellStatus`);
    * `data` the files' contents (see the header); `env` is `{ now, cols, processStartedAt, isPidAlive }`.
    */
-  return function render(args, data, env) {
+  function render(args, data, env) {
     const colors = palette();
     const { R, D } = colors;
     const stats = args.stats && typeof args.stats === 'object' ? args.stats : {};
@@ -716,9 +830,16 @@ export function createFooterRenderer() {
       formatContextSegment(ctxPct, env.cols, stats.currentContextSource, colors),
       ...quotaSegmentsFor(args, data, env, state, colors),
     ].filter(Boolean);
-    const l2Parts = activitySegments(args, data, env, colors, args.shellStatus || { count: 0, unconfirmed: 0, elapsedLabel: '' });
+    const l2Parts = activitySegments(args, data, env, colors, args.shellStatus || { count: 0, unconfirmed: 0, elapsedLabel: '' }, state);
     const l1 = l1Parts.join(sep) || 'mixdog';
     const l2 = l2Parts.join(sep);
     return l2 ? `${l1}\n${l2}` : l1;
-  };
+  }
+  /** Runs the cache refreshes the renders so far queued; true when there were any. */
+  function flush() {
+    const tasks = state.pending.splice(0);
+    for (const task of tasks) task();
+    return tasks.length > 0;
+  }
+  return { render, flush };
 }

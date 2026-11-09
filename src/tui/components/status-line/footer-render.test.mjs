@@ -23,34 +23,59 @@ test('the golden covers every scenario, recorded from b6f10295a', () => {
   );
 });
 
+function writeScenarioFiles(scenario) {
+  const dir = mkdtempSync(join(tmpdir(), 'footer-render-'));
+  for (const [name, content] of Object.entries(scenario.files)) {
+    mkdirSync(dirname(join(dir, name)), { recursive: true });
+    writeFileSync(join(dir, name), content);
+  }
+  for (const [name, content] of Object.entries(scenario.configFiles || {})) {
+    mkdirSync(dirname(join(dir, 'config', name)), { recursive: true });
+    writeFileSync(join(dir, 'config', name), content);
+  }
+  return dir;
+}
+
+const NO_SHELLS = { count: 0, unconfirmed: 0, elapsedLabel: '' };
+
 for (const scenario of SCENARIOS) {
+  const recorded = golden.scenarios.find((s) => s.name === scenario.name);
   test(`footer text equals Node's: ${scenario.name}`, async (t) => {
-    const dir = mkdtempSync(join(tmpdir(), 'footer-render-'));
+    const dir = writeScenarioFiles(scenario);
     t.after(() => rmSync(dir, { recursive: true, force: true }));
-    for (const [name, content] of Object.entries(scenario.files)) {
-      mkdirSync(dirname(join(dir, name)), { recursive: true });
-      writeFileSync(join(dir, name), content);
-    }
-    // mixdogd writes no gateway-usage.local.jsonl: the usage ledger's requests stand in for its events.
-    const eventsText = scenario.files['gateway-usage.local.jsonl'] || '';
-    const events = eventsText.split('\n').filter(Boolean).map((line) => JSON.parse(line));
-    const inputs = createFooterInputs({
-      dataDir: dir,
-      now: () => T0,
-      readUsageRequests: async ({ model }) => ({ requests: events.filter((e) => e.model === model) }),
-    });
-    const render = createFooterRenderer();
+    let clock = T0;
+    const inputs = createFooterInputs({ dataDir: dir, configDir: join(dir, 'config'), env: {}, now: () => clock });
     const { provider, model } = scenario.args;
+    const step = (footer, now) => {
+      clock = now;
+      return inputs.read(provider, model).then((data) => ({
+        text: footer.render({ ...scenario.args, shellStatus: NO_SHELLS }, data, {
+          now,
+          cols: scenario.cols,
+          processStartedAt: T0 - 200,
+          isPidAlive: () => true,
+        }),
+        footer,
+      }));
+    };
+    if (scenario.steps) {
+      // The first renders: the text at each offset, the refreshes it queued running between the renders.
+      const footer = createFooterRenderer();
+      const texts = [];
+      for (const advance of scenario.steps) {
+        texts.push((await step(footer, T0 + advance)).text);
+        footer.flush();
+      }
+      assert.deepEqual(texts, recorded.expected);
+      return;
+    }
+    // The settled text: a footer that has had its first refresh, rendered with its refreshes run.
+    const footer = createFooterRenderer({ routeMetaLoaded: true });
     let text = '';
     for (let i = 0; i < 3; i += 1) {
-      const data = await inputs.read(provider, model);
-      text = render(
-        { ...scenario.args, shellStatus: { count: 0, unconfirmed: 0, elapsedLabel: '' } },
-        data,
-        { now: T0, cols: scenario.cols, processStartedAt: T0 - 200, isPidAlive: () => true }
-      );
+      text = (await step(footer, T0)).text;
+      footer.flush();
     }
-    const expected = golden.scenarios.find((s) => s.name === scenario.name).expected;
-    assert.equal(text, expected);
+    assert.equal(text, recorded.expected);
   });
 }

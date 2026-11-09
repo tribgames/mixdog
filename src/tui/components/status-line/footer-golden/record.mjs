@@ -22,6 +22,13 @@ for (const scenario of SCENARIOS) {
       mkdirSync(dirname(join(dir, name)), { recursive: true });
       writeFileSync(join(dir, name), content);
     }
+    // The config dir (settings.json of the Claude-current route) is a folder of its own.
+    for (const [name, content] of Object.entries(scenario.configFiles || {})) {
+      mkdirSync(dirname(join(dir, 'config', name)), { recursive: true });
+      writeFileSync(join(dir, 'config', name), content);
+    }
+    const env = { ...process.env };
+    for (const name of Object.keys(env)) if (name.startsWith('ANTHROPIC_DEFAULT_')) delete env[name];
     const run = spawnSync(
       process.execPath,
       ['--import', pathToFileURL(join(here, 'date-shim.mjs')).href, join(here, 'record-child.mjs')],
@@ -29,22 +36,25 @@ for (const scenario of SCENARIOS) {
         cwd: tree,
         encoding: 'utf8',
         env: {
-          ...process.env,
+          ...env,
           TZ: 'UTC',
           FORCE_COLOR: '1',
           COLORTERM: 'truecolor',
           NO_COLOR: '',
           MIXDOG_DATA_DIR: dir,
           MIXDOG_HOME: join(dir, 'home'),
+          MIXDOG_CONFIG_DIR: join(dir, 'config'),
           FOOTER_T0: String(T0),
           FOOTER_TREE: tree,
           FOOTER_COLS: String(scenario.cols),
           FOOTER_ARGS: JSON.stringify(scenario.args),
+          ...(scenario.steps ? { FOOTER_STEPS: JSON.stringify(scenario.steps) } : {}),
         },
       }
     );
     if (run.status !== 0) throw new Error(`${scenario.name}: ${run.stderr}`);
-    recorded.push({ name: scenario.name, expected: JSON.parse(run.stdout) });
+    const result = JSON.parse(run.stdout);
+    recorded.push(scenario.steps ? { name: scenario.name, steps: scenario.steps, expected: result } : { name: scenario.name, expected: result });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
