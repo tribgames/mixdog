@@ -14,17 +14,18 @@
 //
 // Scratch repositories live under D:\mixdog-build\tmp\phone-ph2-scm-rec and are deleted when the run ends.
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs, { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
-import { installScriptedProcesses, scriptedPty } from './lib/phone-scm-world.mjs';
+import { installScriptedProcesses, scriptedPty, serveShims } from './lib/phone-scm-world.mjs';
 
+const REAL_HOME = process.env.USERPROFILE;
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
-const WORK = 'D:\\mixdog-build\\tmp\\phone-ph2-scm-rec';
+const WORK = process.env.PHONE_SCM_WORK ?? 'D:\\mixdog-build\\tmp\\phone-ph2-scm-rec';
 const FIXTURES = join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'fixtures', 'phone-scm');
 const args = parseArgs();
 // `--replay <mixdogd.exe>`: the same scripted scenario, but each call goes through the phone's adapter to a built `mixdogd` and its
@@ -178,6 +179,7 @@ let replay = null;
 if (REPLAY) {
   const golden = JSON.parse(readFileSync(join(FIXTURES, 'golden.json'), 'utf8'));
   const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
+  if (process.env.PHONE_SCM_VERBOSE) console.error('stage: imports');
   const { adapter } = await here('apps/desktop/src/renderer/remote-protocol-scm.ts');
   const { connect, sessionReducer } = await here('packages/protocol-client/src/index.ts');
   const { createWsConnector } = await here('apps/desktop/src/main/protocol/ws-connector.ts');
@@ -187,23 +189,81 @@ if (REPLAY) {
   // The install layout: the manifest beside the binary names the JS runtime (a build output has none of its own).
   const manifest = join(REPLAY, '..', 'js-runtime.json');
   if (!existsSync(manifest)) writeFileSync(manifest, JSON.stringify({ program: process.execPath, packageRoot: REPO_ROOT }));
+  // The tools the core spawns are executables of lib/scripted-tool.rs, answered by the same script as Node's (see serveShims).
+  if (process.env.PHONE_SCM_VERBOSE) console.error('stage: shim');
+  const shimExe = join(WORK, 'shim', 'scripted-tool.exe');
+  mkdirSync(join(WORK, 'shim'), { recursive: true });
+  const built = spawnSync('rustc', ['-O', '--edition', '2021', join(REPO_ROOT, 'benchmarks', 'rust-core', 'recorders', 'lib', 'scripted-tool.rs'), '-o', shimExe], { cwd: REPO_ROOT, encoding: 'utf8', env: { ...process.env, RUSTUP_HOME: join(REAL_HOME, '.rustup'), CARGO_HOME: join(REAL_HOME, '.cargo') } });
+  assert.equal(built.status, 0, built.stderr);
+  const originalPath = process.env.PATH.split(';').filter((dir) => dir !== join(WORK, 'bin'));
+  const realGit = originalPath.map((dir) => join(dir, 'git.exe')).find((file) => existsSync(file));
+  const lad = join(WORK, 'lad');
+  const pf = join(WORK, 'pf');
+  const shims = await serveShims({
+    engine: scripted.engine,
+    onSpawn: (spawn) => processes.push(spawn),
+    shim: shimExe,
+    places: {
+      gh: join(lad, 'Microsoft', 'WinGet', 'Links', 'gh.exe'),
+      winget: join(WORK, 'bin', 'winget.exe'),
+      git: join(WORK, 'bin', 'git.exe'),
+      soffice: join(pf, 'LibreOffice', 'program', 'soffice.com'),
+    },
+  });
+  process.env.PHONE_SCM_REAL_GIT = realGit;
+  shims.sync();
+  // Nothing the core spawns may reach this machine's own tools (an installer, an account tool, a browser). The environment is built,
+  // not inherited: one Path (a second PATH key beside the inherited Path left the real one in force once), holding only this
+  // world's bin folder and the Windows system folders; every install place the product probes is a folder of this world.
+  const systemRoot = process.env.SystemRoot;
+  const world86 = join(WORK, 'pf86');
+  const coreEnv = {};
+  for (const [key, value] of Object.entries(process.env)) if (!/^(path|programfiles|programw6432|programfiles\(x86\)|localappdata|appdata)$/i.test(key)) coreEnv[key] = value;
+  Object.assign(coreEnv, {
+    Path: [join(WORK, 'bin'), join(systemRoot, 'System32'), systemRoot].join(';'),
+    LOCALAPPDATA: lad,
+    APPDATA: join(WORK, 'appdata'),
+    ProgramFiles: pf,
+    ProgramW6432: pf,
+    'ProgramFiles(x86)': world86,
+    PHONE_SCM_SHIM: shims.address,
+    MIXDOG_HOME: join(WORK, 'home', '.mixdog'),
+    MIXDOG_CONFIG_DIR: join(WORK, 'config'),
+    MIXDOG_RUNTIME_ROOT: runtimeRoot,
+  });
+  const inside = (file) => resolve(file).toLowerCase().startsWith(`${resolve(WORK).toLowerCase()}\\`);
+  assert.equal(Object.keys(coreEnv).filter((key) => /^path$/i.test(key)).length, 1, 'the core gets exactly one Path');
+  for (const key of ['LOCALAPPDATA', 'APPDATA', 'ProgramFiles', 'ProgramW6432', 'ProgramFiles(x86)']) assert.ok(inside(coreEnv[key]), `${key} is outside this world: ${coreEnv[key]}`);
+  for (const tool of ['gh', 'winget', 'soffice', 'soffice.com', 'git']) {
+    // The product's lookup is the child's own: where.exe resolves a name against the very environment the core will get.
+    const found = spawnSync(join(systemRoot, 'System32', 'where.exe'), [tool], { cwd: WORK, env: coreEnv, encoding: 'utf8' });
+    assert.deepEqual(found.stdout.split(/\r?\n/).filter((line) => line && !inside(line)), [], `${tool} resolves outside this world`);
+  }
   const core = spawn(REPLAY, ['serve'], {
-    env: { ...process.env, MIXDOG_HOME: join(WORK, 'home', '.mixdog'), MIXDOG_CONFIG_DIR: join(WORK, 'config'), MIXDOG_RUNTIME_ROOT: runtimeRoot },
+    env: coreEnv,
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   let stderr = '';
-  core.stderr.on('data', (chunk) => (stderr += chunk));
-  const endpoint = await (async () => {
-    for (let waited = 0; waited < 400_000; waited += 100) {
-      if (core.exitCode !== null) throw new Error(`mixdogd exited ${core.exitCode}:\n${stderr}`);
+  core.stderr.on('data', (chunk) => {
+    stderr += chunk;
+    if (process.env.PHONE_SCM_VERBOSE) console.error('[core]', String(chunk).trimEnd());
+  });
+  // The daemon publishes daemon.json when it serves: wait for that file to appear (a watch on its folder), or for the daemon to exit.
+  const endpoint = await new Promise((resolve, reject) => {
+    const watcher = fs.watch(runtimeRoot);
+    const done = (fn, value) => (watcher.close(), fn(value));
+    const look = () => {
       try {
-        return parseDiscovery(readFileSync(join(runtimeRoot, 'daemon.json'), 'utf8'));
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        done(resolve, parseDiscovery(readFileSync(join(runtimeRoot, 'daemon.json'), 'utf8')));
+      } catch (error) {
+        if (process.env.PHONE_SCM_VERBOSE) console.error('look', error.message);
       }
-    }
-    throw new Error(`mixdogd did not serve in 400 s:\n${stderr}`);
-  })();
+    };
+    watcher.on('change', look);
+    core.once('exit', (code) => done(reject, new Error(`mixdogd exited ${code}:\n${stderr}`)));
+    look();
+  });
+  if (process.env.PHONE_SCM_VERBOSE) console.error('endpoint', JSON.stringify(endpoint));
   const client = await connect({
     target: { id: 'core' },
     connector: createWsConnector(async () => endpoint),
@@ -215,13 +275,16 @@ if (REPLAY) {
   });
   const host = { client: () => client };
   const byName = new Map(golden.cases.map((entry) => [entry.name, entry]));
-  replay = { core, client, host, adapter, byName, compared: [], skipped: [], differences: [] };
+  replay = { core, client, host, adapter, byName, shims, compared: [], differences: [] };
 }
 
 /** The phone's adapter against the core: the frame the relay would carry. */
 async function replayCall(call, params) {
   try {
-    const value = await replay.adapter.calls[call](params, replay.host);
+    // A call that never answers is a defect to name, not a hang to wait out.
+    let timer;
+    const stalled = new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(`the core never answered ${call}`)), 120_000)));
+    const value = await Promise.race([replay.adapter.calls[call](params, replay.host), stalled]).finally(() => clearTimeout(timer));
     return { ok: true, value: value === undefined ? null : clone(value) };
   } catch (error) {
     return { ok: false, error: error.message, ...(typeof error.code === 'string' && error.code ? { errorCode: error.code } : {}), ...(error.details === undefined ? {} : { errorParams: error.details }) };
@@ -234,9 +297,27 @@ async function finishReplay() {
   execFileSync('taskkill', ['/T', '/F', '/PID', String(replay.core.pid)], { stdio: 'ignore' });
   await exited;
   rmSync(WORK, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
-  console.log(`phone-scm replay over ${REPLAY}: ${replay.compared.length} compared, ${replay.differences.length} differ, ${replay.skipped.length} not replayed: ${replay.skipped.join(', ')}`);
+  console.log(`phone-scm replay over ${REPLAY}: ${replay.compared.length} compared, ${replay.differences.length} differ, ${replay.byName.size - replay.compared.length} of the recording not replayed`);
   for (const difference of replay.differences) console.log(`DIFF ${difference.name}\n  node: ${JSON.stringify(difference.node)}\n  core: ${JSON.stringify(difference.core)}`);
   process.exit(replay.differences.length ? 1 : 0);
+}
+// A login flow's id is `ghlogin_<pid>_<n>` in both products. Node's recording pins its pid (4242); the core's is its own process's,
+// so the core's answer is read with that pid as the recording's. Nothing else is rewritten.
+const coreParams = (params) => JSON.parse(JSON.stringify(params).replaceAll('ghlogin_4242_', `ghlogin_${replay.core.pid}_`));
+const flowOf = (n) => (replay ? withDeadline(replay.shims.flow(n), `the core never ran gh auth login (flow ${n})`) : pty.spawned[n]);
+function withDeadline(promise, message) {
+  let timer;
+  const stalled = new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(message)), 60_000)));
+  return Promise.race([promise, stalled]).finally(() => clearTimeout(timer));
+}
+// The core reads the gh output on its own time (Node's scripted pty is synchronous): ask for the flow until it shows what gh printed.
+async function settled(flowId, ready) {
+  if (!replay) return;
+  for (let asked = 0; asked < 5000; asked += 1) if (ready((await replayCall('githubCliLoginStatus', coreParams([flowId]))).value)) return;
+  throw new Error(`flow ${flowId} never showed what gh printed`);
+}
+function mapFlowIds(frame) {
+  return JSON.parse(JSON.stringify(frame).replaceAll(`ghlogin_${replay.core.pid}_`, 'ghlogin_4242_'));
 }
 const LIVE_NODE = new Set(['gitReview', 'gitReview-uncommitted']);
 async function nodeFrame(call, params) {
@@ -249,8 +330,15 @@ async function rec(name, call, params, note) {
   if (replay) {
     const recorded = replay.byName.get(name);
     assert.ok(recorded, `${name} is not in the recording`);
-    if (recorded.processes || recorded.world.ghInstalled) return replay.skipped.push(name), recorded.frame;
-    const core = await replayCall(call, JSON.parse(JSON.stringify(params)));
+    if (process.env.PHONE_SCM_VERBOSE) console.error('replay', name);
+    replay.shims.sync();
+    processes.length = 0;
+    const core = mapFlowIds(await replayCall(call, coreParams(params)));
+    replay.shims.sync();
+    // The tools the core ran, as Node ran them: the same programs with the same arguments, in the same order.
+    // A tool the script says is absent (spawn ENOENT) ran nowhere: there is no executable for the core to start.
+    const ran = (list) => (list ?? []).filter((entry) => entry.reply?.code !== -1).map(({ tool, argv }) => ({ tool, argv }));
+    if (!isDeepStrictEqual(ran(processes), ran(recorded.processes))) replay.differences.push({ name: `${name} (processes)`, node: ran(recorded.processes), core: ran(processes) });
     // A revision is the file system's own identity (size, times, inode): it differs per machine and per run, so Node answers these
     // again on the very files the core just read instead of the golden's scripted ones.
     const expected = LIVE_NODE.has(name) ? await nodeFrame(call, params) : recorded.frame;
@@ -519,7 +607,6 @@ await rec('gitAbortOperation-merge', 'gitAbortOperation', [R]);
 await rec('gitPull-bad-cwd', 'gitPull', ['']);
 
 // ═══ 6. GitHub: the CLI is not installed yet ═══
-if (replay) await finishReplay();
 await rec('githubCliStatus-not-installed', 'githubCliStatus', []);
 await rec('githubStarStatus-no-gh', 'githubStarStatus', []);
 await rec('githubCliAccount-not-installed', 'githubCliAccount', []);
@@ -550,12 +637,15 @@ world.ghApiDown = false;
 
 // Sign-in: gh's device flow through a PTY (a scripted one). A flow's code appears when gh prints it; a flow ends when gh exits.
 const started = await rec('githubCliLoginStart', 'githubCliLoginStart', []);
+if (replay && !started.ok) throw new Error(`the core did not start the sign-in: ${JSON.stringify(started)}`);
 const flowId = started.value.flowId;
 await rec('githubCliLoginStatus-pending', 'githubCliLoginStatus', [flowId]);
-const first = pty.spawned[0];
+const first = await flowOf(0);
 first.print('! First copy your one-time code: ABCD-1234\nPress Enter to open github.com in your browser...\n');
+await settled(flowId, (state) => state?.code);
 await rec('githubCliLoginStatus-code', 'githubCliLoginStatus', [flowId]);
 first.print('Open https://github.com/login/device in your browser\n');
+await settled(flowId, (state) => state?.url);
 await rec('githubCliLoginOpenBrowser', 'githubCliLoginOpenBrowser', [flowId, { openBrowser: false }]);
 await rec('githubCliLoginOpenBrowser-no-options', 'githubCliLoginOpenBrowser', [flowId]);
 await rec('githubCliLoginOpenBrowser-bad-options', 'githubCliLoginOpenBrowser', [flowId, 'yes']);
@@ -567,7 +657,7 @@ await rec('githubCliLoginStatus-cancelled', 'githubCliLoginStatus', [flowId]);
 await rec('githubCliLoginCancel-unknown-flow', 'githubCliLoginCancel', [flowId]);
 
 const second = await rec('githubCliLoginStart-again', 'githubCliLoginStart', []);
-const secondFlow = pty.spawned[1];
+const secondFlow = await flowOf(1);
 secondFlow.print('First copy your one-time code: WXYZ-9876\nhttps://github.com/login/device\n');
 // gh exits 0 once the browser step is done; Node then reads `gh auth status` and runs `gh auth setup-git`. The sign-in is
 // complete when that command returns: the scripted runner is Node's `exec()` seam and says so by the scripted rule's own reply.
@@ -576,12 +666,14 @@ const setupDone = new Promise((resolve) => {
   setupSettled = resolve;
 });
 secondFlow.exit(0);
-await setupDone;
+if (replay) await settled(second.value.flowId, (state) => state?.state !== 'pending');
+else await setupDone;
 await rec('githubCliLoginStatus-success', 'githubCliLoginStatus', [second.value.flowId]);
 const third = await rec('githubCliLoginStart-third', 'githubCliLoginStart', []);
-const thirdFlow = pty.spawned[2];
+const thirdFlow = await flowOf(2);
 thirdFlow.print('error connecting to github.com\nplease try again later\n');
 thirdFlow.exit(1);
+await settled(third.value.flowId, (state) => state?.state !== 'pending');
 await rec('githubCliLoginStatus-error', 'githubCliLoginStatus', [third.value.flowId]);
 await rec('githubCliLoginCancel-failed-flow', 'githubCliLoginCancel', [third.value.flowId]);
 
@@ -648,6 +740,7 @@ await rec('installLibreOffice-present', 'installLibreOffice', []);
 await rec('libreOfficeStatus-installed', 'libreOfficeStatus', []);
 await rec('libreOfficeStatus-refresh', 'libreOfficeStatus', [true]);
 
+if (replay) await finishReplay();
 // ═══ 10. ordering: a read behind a slow write ═══
 // Node's per-connection barrier (remote-call-queue.ts): the calls ride the queue the relay clients use. The write is held on a
 // gate until every later call was submitted and the loop turned over; the recording keeps which calls had started while it was
