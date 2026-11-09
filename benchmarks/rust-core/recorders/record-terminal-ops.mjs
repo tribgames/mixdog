@@ -3,7 +3,8 @@
 // termSessionTabs, termSnapshot, termResize), into fixtures/terminal-ops/failure-paths.json, which
 // native/mixdog-spawn/tests/terminal.rs replays on real tabs. The operations are the real dispatcher
 // (`createDesktopOperations`) over the real TerminalManager; only the PTY is a scripted stand-in injected
-// where the manager loads node-pty, so the recorded text is the script's own.
+// where the manager loads node-pty, so the recorded text is the script's own. Every answer is recorded whole (text, cursors relative to the tab's
+// base, flags, tabs with all their fields); the replay drives real tabs with the same script (`script` below) and compares them whole.
 //   node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-terminal-ops.mjs --tree <git archive of b6f10295a with node_modules> --commit b6f10295a2f698afc85332467192de28500bd146
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -77,6 +78,11 @@ const record = async (name, op, input, shape) => {
 const session = (value) => (value && typeof value === 'object' ? { ...value, id: GENERATED.test(value.id) ? '<generated>' : value.id } : value);
 
 const S = 'session-terminal:S';
+// What the tab prints (lines, each ended `\r\n`) and how it exits: the replay's scripted shell does exactly this.
+const script = { first: ['hello', 'world'], second: ['more'], exitCode: 7 };
+const lines = (list) => list.map((line) => `${line}\r\n`).join('');
+const CWD = '{cwd}';
+const PROFILE = { path: 'powershell.exe' };
 // -- termSessionTabs: what the operation makes of a missing, empty, odd or unknown session id.
 for (const input of [[], [''], [null], [123], ['nope']]) await record(`tabs of ${JSON.stringify(input)} with no tab open`, 'termSessionTabs', input);
 
@@ -84,14 +90,15 @@ for (const input of [[], [''], [null], [123], ['nope']]) await record(`tabs of $
 for (const input of [[], [''], [null], ['nope'], [S]]) await record(`attach ${JSON.stringify(input)} before anything runs`, 'termAttach', input);
 
 // -- termEnsure: ids the manager does not accept become generated ones; an accepted id is reused.
-await record('ensure a session tab', 'termEnsure', [S, null, null], session);
-for (const input of [[null, null, null], ['bad id', null, null], ['term_', null, null], ['', null, null], ['session-terminal:', null, null]]) {
+await record('ensure a session tab', 'termEnsure', [S, CWD, PROFILE], session);
+for (const input of [[null, CWD, PROFILE], ['bad id', CWD, PROFILE], ['term_', CWD, PROFILE], ['', CWD, PROFILE], ['session-terminal:', CWD, PROFILE]]) {
   await record(`ensure ${JSON.stringify(input[0])}`, 'termEnsure', input, session);
 }
-byId.get(S).data('hello\r\nworld\r\n');
-await record('ensure the same id again replays what it printed', 'termEnsure', [S, null, null], session);
+byId.get(S).data(lines(script.first));
+await record('ensure the same id again replays what it printed', 'termEnsure', [S, CWD, PROFILE], session);
 await record('attach the running tab', 'termAttach', [S]);
-byId.get(S).data('more\r\n');
+await record('tabs of S while it runs', 'termSessionTabs', ['S']);
+byId.get(S).data(lines(script.second));
 
 // -- termSnapshot: a cursor given absolutely, relative to the tab's base (an epoch that differs per run).
 const first = (await ops.invoke('termSnapshot', [S, undefined])) ?? (() => { throw new Error('no snapshot'); })();
@@ -111,16 +118,16 @@ for (const input of [[], [''], [null], ['nope'], ['nope', 5], [S.toUpperCase()]]
 // -- a phone's size claim travels in the attach payload, and releasing it takes it away.
 await record('a phone claims the size', 'termResize', [S, 100, 30, 'client-a']);
 await record('attach while the phone owns the size', 'termAttach', [S]);
-await record('ensure while the phone owns the size', 'termEnsure', [S, null, null], session);
+await record('ensure while the phone owns the size', 'termEnsure', [S, CWD, PROFILE], session);
 await record('the phone releases it', 'termResize', [S, 0, 0, 'client-a']);
 await record('attach after the release', 'termAttach', [S]);
 
 // -- an exited tab: not attachable, still snapshot-able, and ensured again it starts from nothing.
-byId.get(S).exit({ exitCode: 7 });
+byId.get(S).exit({ exitCode: script.exitCode });
 await record('attach an exited tab', 'termAttach', [S]);
 cases.push({ name: 'snapshot an exited tab', op: 'termSnapshot', args: [S], ...(await call('termSnapshot', [S], shape)) });
-await record('tabs of S after the exit', 'termSessionTabs', ['S'], (tabs) => tabs.map((t) => ({ tab: t.tab, id: t.id, running: t.running })));
-await record('ensure the exited id again', 'termEnsure', [S, null, null], session);
+await record('tabs of S after the exit', 'termSessionTabs', ['S'], (tabs) => tabs);
+await record('ensure the exited id again', 'termEnsure', [S, CWD, PROFILE], session);
 await record('attach the respawned tab', 'termAttach', [S]);
 
 // -- dispose: gone for attach and snapshot.
@@ -131,7 +138,8 @@ await record('tabs after the dispose', 'termSessionTabs', ['S']);
 await record('write to a tab that is not there', 'termWrite', ['nope', 'x']);
 
 const stage = stageSet(finalDir, []);
-writeJson(join(stage, 'failure-paths.json'), { total, cases });
+writeJson(join(stage, 'failure-paths.json'), { total, script, cwd: CWD, cases });
+console.log(`recorded ${cases.length} cases`);
 writeSetManifest(stage, {
   set: 'terminal-ops',
   recorder,

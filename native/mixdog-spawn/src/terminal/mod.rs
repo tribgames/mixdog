@@ -116,6 +116,10 @@ pub struct TerminalConfig {
     /// Wall clock in milliseconds; read once per spawn, for the cursor epoch.
     pub now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
     pub events: Arc<dyn TerminalEvents>,
+    /// Tests only: tabs run over pipes, not a PTY (which adds sequences of its own), so the bytes a scripted child writes are
+    /// exactly the bytes the replay window holds. See `crate::scripted`.
+    #[cfg(feature = "core-test")]
+    pub piped: bool,
 }
 
 impl TerminalConfig {
@@ -130,7 +134,17 @@ impl TerminalConfig {
                     .map_or(0, |d| d.as_millis() as u64)
             }),
             events,
+            #[cfg(feature = "core-test")]
+            piped: false,
         }
+    }
+
+    fn pty_size(&self, cols: u16, rows: u16) -> Option<PtySize> {
+        #[cfg(feature = "core-test")]
+        if self.piped {
+            return None;
+        }
+        Some(PtySize { cols, rows })
     }
 }
 
@@ -695,7 +709,7 @@ impl TerminalTabs {
                 set,
                 remove: self.config.env_remove.clone(),
             },
-            pty: Some(PtySize { cols, rows }),
+            pty: self.config.pty_size(cols, rows),
             stdin_piped: true,
             output: OutputMode::Merged,
             owner: ProcessOwner::TerminalTab {

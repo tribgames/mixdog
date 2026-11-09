@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 10190,
+      "bytes": 11107,
       "path": "failure-paths.json",
-      "sha256": "daeaa1603e6b750d8be03deba15a7523ece19ae2da2066be449485a0907f22b0"
+      "sha256": "6248977a557a69c704fc3d6d7624a846dbb87cae6635a0dfb240f444366346d9"
     }
   ],
   "product": {
@@ -27,5 +27,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-terminal-ops.mjs",
   "set": "terminal-ops",
-  "totalBytes": 10190
+  "totalBytes": 11107
 }

@@ -44,9 +44,11 @@ manager.ptyModule = Promise.resolve({
     return pty;
   },
 });
+const ownBase = {};
 const ensure = async (id) => {
   manager.lastSpawn = id;
   await manager.ensure(id, CWD, null);
+  ownBase[id] = manager.snapshot(id)?.cursor;
 };
 
 // Spawned out of order: the listing must come back ordered by tab number.
@@ -67,6 +69,8 @@ const since = (cursor) => manager.snapshot('session-terminal:S', cursor);
 // The recorded facts are relative to the cursor base (an epoch that differs per run).
 const rel = (n) => n - base;
 const shape = (snap) => (snap === null ? null : { text: snap.text, cursor: rel(snap.cursor), reset: snap.reset });
+// A tab other than S has its own base; its cursor is recorded against that, never against S's.
+const shapeOwn = (id, snap) => (snap === null ? null : { text: snap.text, cursor: snap.cursor - ownBase[id], reset: snap.reset });
 const snapshots = {
   all: shape(second),
   sinceFirstCursor: shape(since(first.cursor)),
@@ -76,13 +80,13 @@ const snapshots = {
   belowWindow: shape(since(base - 1)),
   pastEnd: shape(since(second.cursor + 1)),
   unknown: shape(manager.snapshot('session-terminal:nope')),
-  other: shape(manager.snapshot('session-terminal:T')),
+  other: shapeOwn('session-terminal:T', manager.snapshot('session-terminal:T')),
 };
 
 // An exited tab stays listed, as not running, and its snapshot ends with the exit line.
 ptys.get('session-terminal:S:3').exit({ exitCode: 7 });
 const exited = manager.sessionTabs('S');
-const exitedSnapshot = shape(manager.snapshot('session-terminal:S:3'));
+const exitedSnapshot = shapeOwn('session-terminal:S:3', manager.snapshot('session-terminal:S:3'));
 manager.dispose('session-terminal:S:2');
 const afterDispose = { tabs: manager.sessionTabs('S'), snapshot: manager.snapshot('session-terminal:S:2') };
 
