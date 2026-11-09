@@ -20,7 +20,7 @@ import {
   workspaceSearchOptions,
   workspaceTextWrites,
 } from '../shared/remote-files-arguments';
-import type { NodeCall, PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
+import type { PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
 
 type Client = ProtocolClient<SessionFold>;
 type Params = Record<string, unknown>;
