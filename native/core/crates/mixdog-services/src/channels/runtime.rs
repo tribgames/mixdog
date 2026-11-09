@@ -21,6 +21,9 @@ struct State {
     bridge_connected: bool,
     bridge_starting: bool,
     automation_running: bool,
+    /// An automation start is between its first await and the sync (`automationStartPromise`): a stop
+    /// counts it as in flight, as Node's `stopOwnedRuntime` does.
+    automation_starting: bool,
     stop_requested: bool,
     /// Ends every start and reload that began before the last stop: a stop never waits behind
     /// a start or reload that is stuck, it cancels it (the gates drop the stuck section).
@@ -47,6 +50,21 @@ impl Drop for StartFlag<'_> {
     }
 }
 
+/// Clears `automation_starting` however the automation start ends (a cancelled one included).
+struct AutomationStartFlag<'a>(&'a Mutex<State>);
+
+impl Drop for AutomationStartFlag<'_> {
+    fn drop(&mut self) {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).automation_starting = false;
+    }
+}
+
+/// Why a background job must wait for an idle runtime, or `None` when idle (`timer-arm.mjs` `busyReason`).
+pub type BusyProbe = Arc<dyn Fn() -> Option<&'static str> + Send + Sync>;
+
+/// `onChannelStartTimer`'s `hasActiveAutomation()`, asked afresh each time the deferred start runs.
+pub type ActiveProbe = Arc<dyn Fn() -> std::pin::Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
+
 pub struct ChannelRuntime {
     scheduler: Scheduler,
     schedules: Arc<dyn ScheduleRecords>,
@@ -61,6 +79,10 @@ pub struct ChannelRuntime {
     /// Node's `closeRequested` for the channel start: once cancelled (by `shutdown_scheduled_start`)
     /// no deferred start runs or is scheduled.
     shutdown: CancellationToken,
+    /// `busyReason()`: bound by the composition once the session directory exists.
+    busy: std::sync::OnceLock<BusyProbe>,
+    /// `wakeDeferredWarmups()`: wakes the deferred start that parked on a busy runtime.
+    start_wake: tokio::sync::Notify,
 }
 
 /// What the app shows as the worker's state.
@@ -92,7 +114,19 @@ impl ChannelRuntime {
             start_gate: Gate::new(),
             reload_gate: Gate::new(),
             shutdown: CancellationToken::new(),
+            busy: std::sync::OnceLock::new(),
+            start_wake: tokio::sync::Notify::new(),
         })
+    }
+
+    /// Binds the busy probe the deferred start parks on (a turn running, a session being created).
+    pub fn bind_busy(&self, probe: BusyProbe) {
+        let _ = self.busy.set(probe);
+    }
+
+    /// The runtime's busy state changed (`wakeDeferredWarmups`): a parked start checks again.
+    pub fn wake_parked_start(&self) {
+        self.start_wake.notify_waiters();
     }
 
     /// The token a start or reload runs under: the current epoch, ended by the next stop.
@@ -143,7 +177,12 @@ impl ChannelRuntime {
     /// runs, not now) says something is enabled. A start already scheduled or running, or a
     /// shutdown, schedules nothing. The task is bound to the epoch current now, so a stop
     /// ends it wherever it is, and to the shutdown, which cancels and joins it.
-    pub fn schedule_automation_start(self: &Arc<Self>, closing: &CancellationToken, active: impl Future<Output = bool> + Send + 'static) {
+    ///
+    /// `busy_aware` is `scheduleChannelStart` (a save): a turn running or a session being created
+    /// parks the start until the next wake (`channel-start.mjs:50-56`, `timer-arm.mjs` `park`/`wake`),
+    /// then the whole callback runs again. The boot autostart (`scheduleAutomationAutostart`,
+    /// `channel-start.mjs:75-95`) does not look at the busy state.
+    pub fn schedule_automation_start(self: &Arc<Self>, closing: &CancellationToken, active: ActiveProbe, busy_aware: bool) {
         let mut st = self.state.lock().unwrap();
         if closing.is_cancelled() || self.shutdown.is_cancelled() || st.scheduled_start.as_ref().is_some_and(|task| !task.is_finished()) {
             return;
@@ -151,9 +190,20 @@ impl ChannelRuntime {
         let (runtime, epoch, closing) = (Arc::clone(self), st.epoch.clone(), closing.clone());
         st.scheduled_start = Some(tokio::spawn(async move {
             let start = async {
-                // `isCloseRequested()` is checked again once the probe has answered.
-                if !active.await || closing.is_cancelled() || runtime.shutdown.is_cancelled() {
-                    return;
+                loop {
+                    // The wake is registered before the busy state is read, so a wake in between is not lost.
+                    let woke = runtime.start_wake.notified();
+                    tokio::pin!(woke);
+                    woke.as_mut().enable();
+                    // `isCloseRequested()` is checked again once the probe has answered.
+                    if !active().await || closing.is_cancelled() || runtime.shutdown.is_cancelled() {
+                        return;
+                    }
+                    if busy_aware && runtime.busy.get().is_some_and(|busy| busy().is_some()) {
+                        woke.await;
+                        continue;
+                    }
+                    break;
                 }
                 if let Err(error) = runtime.start_automation_under(&epoch).await {
                     tracing::warn!("mixdog channels: automation start failed: {error}");
@@ -194,6 +244,8 @@ impl ChannelRuntime {
                 st.stop_requested = false;
             }
         }
+        self.state.lock().unwrap().automation_starting = true;
+        let _starting = AutomationStartFlag(&self.state);
         self.init_providers().await;
         if self.state.lock().unwrap().stop_requested {
             return Ok(());
@@ -201,10 +253,11 @@ impl ChannelRuntime {
         let rows = self.armed_schedules().await.map_err(|e| e.to_string())?;
         self.scheduler.reload_config(rows, false);
         self.scheduler.start();
-        let synced = self.services.sync(false).await;
+        // Node's `syncWebhookAndEventRuntime()` is synchronous: the runtime counts as up as the sync is
+        // launched, before the listener has bound (`automation-start.mjs:30-42`).
         self.state.lock().unwrap().automation_running = true;
         mixdog_rt::node_stderr!("mixdog: automation runtime up");
-        synced
+        self.services.sync(false).await
     }
 
     /// Activation after an automation-only start must not double-arm the scheduler; the
@@ -298,11 +351,11 @@ impl ChannelLifecycle for ChannelRuntime {
     async fn stop_owned_runtime(&self, reason: &str) -> Result<(), String> {
         let epoch = {
             let mut st = self.state.lock().unwrap();
-            if !st.bridge_connected && !st.bridge_starting && !st.automation_running {
+            if !st.bridge_connected && !st.bridge_starting && !st.automation_running && !st.automation_starting {
                 return Ok(());
             }
             // Signal an in-flight start to abort at its next checkpoint.
-            if st.bridge_starting {
+            if st.bridge_starting || st.automation_starting {
                 st.stop_requested = true;
             }
             // Cut short every start and reload in flight, stuck or not, so the teardown never
@@ -321,6 +374,7 @@ impl ChannelLifecycle for ChannelRuntime {
             let mut st = self.state.lock().unwrap();
             st.automation_running = false;
             st.bridge_connected = false;
+            st.stop_requested = false;
         }
         tracing::info!("mixdog channels: standby: {reason}");
         Ok(())

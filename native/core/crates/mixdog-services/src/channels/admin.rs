@@ -416,11 +416,34 @@ impl ChannelAdmin {
     /// its reload request (`ensureAutomationRuntime`); the daemon calls it once it is serving,
     /// which is the boot-time start check.
     pub fn schedule_automation_start(&self) {
+        self.schedule_start(true);
+    }
+
+    /// The session directory's busy state (`getActiveTurnCount() > 0` / `getSessionCreatePromise()`).
+    pub fn bind_busy(&self, probe: super::runtime::BusyProbe) {
+        self.d.runtime.bind_busy(probe);
+    }
+
+    /// `wakeDeferredWarmups()`: the busy state changed.
+    pub fn wake_deferred_start(&self) {
+        self.d.runtime.wake_parked_start();
+    }
+
+    /// `scheduleAutomationAutostart`: the boot-time start, which does not wait for an idle runtime.
+    pub fn schedule_automation_autostart(&self) {
+        self.schedule_start(false);
+    }
+
+    fn schedule_start(&self, busy_aware: bool) {
         if self.d.channel_start_disabled {
             return;
         }
         let Some(admin) = self.this.upgrade() else { return };
-        self.d.runtime.schedule_automation_start(&self.d.close_requested, async move { admin.has_active_automation().await });
+        let active: super::runtime::ActiveProbe = Arc::new(move || {
+            let admin = Arc::clone(&admin);
+            Box::pin(async move { admin.has_active_automation().await })
+        });
+        self.d.runtime.schedule_automation_start(&self.d.close_requested, active, busy_aware);
     }
 
     pub async fn set_webhook_config(&self, patch: &Value) -> Done {
