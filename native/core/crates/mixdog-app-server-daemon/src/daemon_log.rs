@@ -367,6 +367,12 @@ fn rotate_if_needed(lane: &InLane<MaintenanceIo>, file: &dyn LogFile, known: &mu
     Ok(())
 }
 
+/// The two lines `announceDaemonReady` logs once the redirect is installed (daemon.mjs:856-857): the ready line (`ms` as `toFixed(0)`) and the profiler's `daemon-ready` mark
+/// (`totalMs` rounded to one decimal, printed as a JS number: no `.0`).
+pub fn ready_lines(port: u16, pid: u32, ms: f64) -> [String; 2] {
+    [format!("ready port={port} pid={pid} in {ms:.0}ms"), format!("boot-phase phase=daemon-ready status=mark totalMs={}", (ms * 10.0).round() / 10.0)]
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -655,6 +661,9 @@ mod tests {
         locked(&fd2).push_str(&mixdog_rt::node_log::bare("[mod] raw before ready"));
         log.enable_file_logging();
         let node = log.node_sink();
+        for line in ready_lines(54366, 4242, 463.4) {
+            log.log(&line);
+        }
         log.log("after ready");
         node(Daemon, Stderr, "[mod] single line");
         node(Daemon, Stderr, "[mod] first\n[mod] second");
@@ -664,7 +673,31 @@ mod tests {
         log.flush().await;
         let file = String::from_utf8(mixdog_statefile::read_content(&path).unwrap().unwrap()).unwrap();
         let written = format!("{}{}", locked(&fd2), file);
-        assert_eq!(mask_stamps(&written), golden["file"].as_str().unwrap());
+        assert_eq!(mask_ready_fields(&mask_stamps(&written)), golden["file"].as_str().unwrap());
+    }
+
+    /// The ready row's port, pid and duration and the mark's `totalMs` replaced by the recording's tokens, each checked for its shape (digits, the mark's optional one decimal).
+    fn mask_ready_fields(text: &str) -> String {
+        let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+        text.split_inclusive('\n')
+            .map(|row| {
+                let body = row.trim_end_matches('\n');
+                let ending = &row[body.len()..];
+                if let Some(rest) = body.strip_prefix("[<ISO>] [daemon] ready port=") {
+                    let (port, rest) = rest.split_once(" pid=").unwrap();
+                    let (pid, rest) = rest.split_once(" in ").unwrap();
+                    let ms = rest.strip_suffix("ms").unwrap();
+                    assert!(digits(port) && digits(pid) && digits(ms), "{body}");
+                    return format!("[<ISO>] [daemon] ready port=<PORT> pid=<PID> in <MS>ms{ending}");
+                }
+                if let Some(total) = body.strip_prefix("[<ISO>] [daemon] boot-phase phase=daemon-ready status=mark totalMs=") {
+                    let (whole, decimal) = total.split_once('.').map_or((total, "0"), |(w, d)| (w, d));
+                    assert!(digits(whole) && decimal.len() == 1 && digits(decimal), "{body}");
+                    return format!("[<ISO>] [daemon] boot-phase phase=daemon-ready status=mark totalMs=<TOTAL>{ending}");
+                }
+                row.to_owned()
+            })
+            .collect()
     }
 
     /// A cancelled run leaves its drainer unstarted; flush returns instead of waiting on it.

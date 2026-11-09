@@ -19,6 +19,13 @@ if (role === 'child') {
   process.stderr.write('[mod] raw before ready\n');
   log.enableFileLogging();
   log.installRedirect();
+  // `announceDaemonReady` (daemon.mjs:856-857) with the real profiler; port, pid and the two durations are masked below.
+  const { performance } = await import('node:perf_hooks');
+  const { createBootPhaseProfiler } = await import(pathToFileURL(path.join(root, 'src/standalone/boot-phase-profiler.mjs')).href);
+  const startedAt = performance.now();
+  const bootPhases = createBootPhaseProfiler({ log: log.log, startedAt });
+  log.log(`ready port=${54366} pid=${process.pid} in ${(performance.now() - startedAt).toFixed(0)}ms`);
+  bootPhases.mark('daemon-ready');
   log.log('after ready');
   process.stderr.write('[mod] single line\n');
   process.stderr.write('[mod] first\n[mod] second\n');
@@ -35,6 +42,10 @@ const fd = fs.openSync(file, 'a');
 const run = spawnSync(process.execPath, [process.argv[1], root, 'child', file], { stdio: ['ignore', fd, fd] });
 if (run.status !== 0) throw new Error(`child exited ${run.status}`);
 const text = fs.readFileSync(file, 'utf8');
-const masked = text.replace(/\[\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z\] /g, '[<ISO>] ');
+const masked = text
+  .replace(/\[\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z\] /g, '[<ISO>] ')
+  .replace(/^(\[<ISO>\] \[daemon\] ready port=)\d+ pid=\d+ in \d+ms$/m, '$1<PORT> pid=<PID> in <MS>ms')
+  .replace(/^(\[<ISO>\] \[daemon\] boot-phase phase=daemon-ready status=mark totalMs=)\d+(\.\d)?$/m, '$1<TOTAL>');
+if (!masked.includes('<PORT>') || !masked.includes('<TOTAL>')) throw new Error('ready rows did not have the expected shape');
 fs.rmSync(dir, { recursive: true, force: true });
 process.stdout.write(`${JSON.stringify({ file: masked }, null, 2)}\n`);

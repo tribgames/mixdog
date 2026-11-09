@@ -122,6 +122,7 @@ pub fn run() -> Result<(), ServeError> {
 ///
 /// The core is the real composition (see [`compose`]); the transport and the server attach here.
 async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), ServeError> {
+    let booted_at = std::time::Instant::now();
     // Every install ships the manifest: a missing or broken one is a startup error.
     let js_runtime = js_runtime::resolve_current_on(tokens.interactive_io).await?;
     // The install names its ONNX Runtime library in the same manifest; one that names none has no models.
@@ -189,14 +190,6 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     tracing::info!("core composed");
     // From here the core's own stop procedure gives everything back: a failure before the core serves runs it with Node's boot-error reason (`daemon.mjs:1347`).
     let served = async {
-        // The webhook event queue ticks from here (Node starts it with the channels): it takes the proof that startup finished.
-        mixdog_rt::spawn("event-pipeline", mixdog_rt::TaskClass::Work, core.event_pipeline().clone().run(started.clone(), stop.clone()));
-        // Node's idle cleanup starts with the session runtime (`runtime-bootstrap.mjs:97`): first cycle one interval after the start, then every interval; it ends with the run token.
-        mixdog_rt::spawn("idle-sweep", mixdog_rt::TaskClass::Work, session_sweep::run(started.clone(), core.sweep_store(&sweep_dir, stop.clone()), session_sweep::CLEANUP_INTERVAL, stop.clone()));
-        // The sub-agent retention is part of that same cycle in Node (`_retainSubAgents`): same start, same first delay, ended by the stop procedure before the directory shuts down.
-        core.start_sub_agent_retention();
-        // Mixy's heartbeat (`daemon.mjs:1212`): after the session service and the routine host exist, before the recoveries.
-        core.start_heartbeat();
         let serving = serving::attach(booting, core.clone(), outgoing).await?;
         serving.lifecycle.set_serving()?;
         Ok::<_, ServeError>(serving)
@@ -217,6 +210,22 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     if std::env::var("MIXDOG_DAEMON_ALLOW_STDERR").as_deref() != Ok("1") {
         mixdog_rt::node_log::install(ready_log.node_sink());
     }
+    // `announceDaemonReady` (daemon.mjs:856-857), the first two rows the file gets: the ready line (Node's `port` is the front door the clients discover; here the RPC listener) and the
+    // boot-phase mark, whose `totalMs` is one decimal and prints as a JS number does.
+    let ready_ms = booted_at.elapsed().as_secs_f64() * 1000.0;
+    for line in daemon_log::ready_lines(serving.discovery.rpc_port().unwrap_or(0), std::process::id(), ready_ms) {
+        ready_log.log(&line);
+    }
+    // The tasks Node starts after ready (the webhook queue with the channels, the idle sweep and the retention with the session runtime's first interval, the heartbeat's first tick): their
+    // lines land after the redirect, stamped, as Node's do.
+    // The webhook event queue ticks from here: it takes the proof that startup finished.
+    mixdog_rt::spawn("event-pipeline", mixdog_rt::TaskClass::Work, core.event_pipeline().clone().run(started.clone(), stop.clone()));
+    // Node's idle cleanup starts with the session runtime (`runtime-bootstrap.mjs:97`): first cycle one interval after the start, then every interval; it ends with the run token.
+    mixdog_rt::spawn("idle-sweep", mixdog_rt::TaskClass::Work, session_sweep::run(started.clone(), core.sweep_store(&sweep_dir, stop.clone()), session_sweep::CLEANUP_INTERVAL, stop.clone()));
+    // The sub-agent retention is part of that same cycle in Node (`_retainSubAgents`): same start, same first delay, ended by the stop procedure before the directory shuts down.
+    core.start_sub_agent_retention();
+    // Mixy's heartbeat (`daemon.mjs:1212`): its first check comes one `FIRST_TICK` later.
+    core.start_heartbeat();
     // The report-only stall monitor (LR §5.4): the runtime probe and the lanes' wedge watch. It lives as long as the process serves.
     let _stall_monitor = serving.watch_stalls(executors.clone());
     // A stop that arrived on the way is handed over now: the watcher has been live since boot.
