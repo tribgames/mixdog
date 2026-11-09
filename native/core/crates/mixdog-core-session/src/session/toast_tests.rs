@@ -121,6 +121,49 @@ async fn a_posted_notice_is_the_toast_node_showed() {
     assert!(!directory.push_toast(&ThreadId::from("not-loaded"), "x", "info").await);
 }
 
+/// An earlier record the store has not acknowledged holds the outbox, and with it the toast: `push_toast` (the sign-in notice
+/// that MCP's reply waits for, as Node posted it before returning) answers only once the toast's runtime frame is published,
+/// never while the record before it is still held.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_toast_behind_an_unacknowledged_record_answers_only_when_it_is_published() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let (arrived, go) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
+    *super::testing::lock(&rig.store.commit_gate) = Some((arrived.clone(), go.1));
+    let renamed = {
+        let (handle, id) = (handle.clone(), handle.id.clone());
+        tokio::spawn(async move {
+            let rename = CoreRequest {
+                method: Method("thread/name/set"),
+                params: json!({ "threadId": id, "opId": "op-name", "title": "renamed" }),
+                op: Some(OpId::from("op-name")),
+                ctx: CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, CancellationToken::new()),
+            };
+            handle.request(rename).await
+        })
+    };
+    // The record is at the store, unacknowledged.
+    arrived.notified().await;
+
+    let mut toast = Box::pin(directory.push_toast(&handle.id, "mcp sign-in started: linear", "info"));
+    assert!(futures::poll!(toast.as_mut()).is_pending());
+    // The inbox is in order: once this answers, the actor has taken the toast.
+    let (tx, taken) = tokio::sync::oneshot::channel();
+    handle.inbox.send(super::actor::Inbox::QuotaFacts { tx }).await.expect("the actor takes the inbox");
+    taken.await.expect("the actor answers");
+
+    assert!(futures::poll!(toast.as_mut()).is_pending(), "the held toast is not yet answered");
+    assert!(published_toasts(&rig, &handle.id).is_none_or(|toasts| toasts.is_empty()), "nothing of it is published");
+    assert!(!renamed.is_finished(), "the record before it is still held");
+
+    go.0.send(()).expect("the commit waits");
+    assert!(toast.await, "answered once published");
+    let shown = published_toasts(&rig, &handle.id).expect("published");
+    assert_eq!(shown.iter().map(|toast| toast["text"].clone()).collect::<Vec<_>>(), [json!("mcp sign-in started: linear")]);
+    renamed.await.expect("joined").expect("name/set");
+}
+
 /// `thread/clear` empties the queue and cancels the timers: past the toast's 3 s nothing more is published.
 #[tokio::test(start_paused = true)]
 async fn a_cleared_session_publishes_no_expiry() {

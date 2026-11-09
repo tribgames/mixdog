@@ -30,7 +30,8 @@ pub enum CompactionCommit {
 
 impl super::SessionDirectory {
     /// `pushNotice(text, tone)` of the runtime hosting `thread` (no `transcript` option): a toast
-    /// of the session, in its state when this returns. `false` when no loaded session hosts it.
+    /// of the session, published to its clients when this returns (after any earlier record the session still holds
+    /// unacknowledged). `false` when no loaded session hosts it, or it stopped first.
     pub async fn push_toast(&self, thread: &ThreadId, text: &str, tone: &str) -> bool {
         let Some(handle) = self.handle(thread) else { return false };
         let (tx, rx) = tokio::sync::oneshot::channel();

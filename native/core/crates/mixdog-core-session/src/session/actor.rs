@@ -585,6 +585,8 @@ pub(crate) struct SessionActor {
     goal_tail: Option<tokio::task::JoinHandle<()>>,
     /// The expiry timer of each toast in the queue (`toastTimers`), by toast id: `thread/clear` and the thread's close cancel them.
     toast_timers: std::collections::HashMap<String, tokio::task::AbortHandle>,
+    /// Callers released by this pump's entries ([`Effect::AfterPublish`]), told once its frames are published.
+    after_publish: Vec<oneshot::Sender<()>>,
     /// The surfaced tool calls running now (`createActiveToolTracker`'s `activeToolCalls`), by call id: category, count and start.
     active_calls: std::collections::BTreeMap<String, (&'static str, i64, i64)>,
     /// How many settings changes this thread announced (`setupChangeSeq`).
@@ -881,6 +883,7 @@ impl SessionActor {
             goal_deferred: false,
             goal_tail: None,
             toast_timers: std::collections::HashMap::new(),
+            after_publish: Vec::new(),
             active_calls: std::collections::BTreeMap::new(),
             setup_changes: 0,
             prompt_appends: Default::default(),
@@ -1782,6 +1785,9 @@ impl SessionActor {
         if !notes.is_empty() {
             self.publish(notes);
         }
+        for released in self.after_publish.drain(..) {
+            let _ = released.send(());
+        }
         self.publish_cell();
     }
 
@@ -2031,6 +2037,7 @@ impl SessionActor {
                 self.begin_quota_settlement(&turn);
                 self.settle_goal(settle);
             }
+            Effect::AfterPublish(tx) => self.after_publish.push(tx),
         }
     }
 
@@ -2074,6 +2081,8 @@ impl SessionActor {
                     tracing::error!("the failed turn {} was not recorded, so its end is not shown and its quota is not settled: {error:?}", turn.as_str());
                     self.settle_goal(settle);
                 }
+                // Its change was never shown: the waiter learns it by the dropped sender.
+                Effect::AfterPublish(_) => {}
             }
         }
     }
@@ -2595,7 +2604,7 @@ impl SessionActor {
         };
         // `failTurn` (`turn.mjs:570`): the failure's text is a toast of the transcript's owner, besides the end.
         let detail = live_record.get("detail").and_then(Value::as_str).map(super::live_rows::polish_notice_text).unwrap_or_default();
-        self.push_toast(&detail, "error", Some("transcript"));
+        self.push_toast(&detail, "error", Some("transcript"), Vec::new());
         let row = super::live_end::live_end_row(failed.live, &facts, failed.route_meta, "failed", None, &live_record, &new_id());
         let end = super::transcript::live_end(row, turn.as_str());
         let amend = failed.last.and_then(|last| self.amend_last_with(last, super::failure_record::failed_completion(&record, &facts)));
@@ -3426,9 +3435,13 @@ impl SessionActor {
     }
 
     /// `pushToast` (`notice-surface.mjs`): a transient notice of the session, shown in the runtime section's `toasts` for `TOAST_TTL` and then removed. Empty text is no toast.
-    fn push_toast(&mut self, text: &str, tone: &str, owner: Option<&str>) {
+    /// `effects` run when the toast's change is released; for an empty text, at once.
+    fn push_toast(&mut self, text: &str, tone: &str, owner: Option<&str>, effects: Vec<Effect>) {
         let text = mixdog_js::js_trim(text);
         if text.is_empty() {
+            for effect in effects {
+                self.effect_done(effect);
+            }
             return;
         }
         let id = new_id();
@@ -3438,7 +3451,7 @@ impl SessionActor {
         }
         let mut toasts = self.projected.sections.runtime.as_ref().map(|runtime| runtime.toasts.clone()).unwrap_or_default();
         toasts.push(toast);
-        self.accept_view(Change::Section(Section::Toasts(toasts)), Vec::new());
+        self.accept_view_with(Change::Section(Section::Toasts(toasts)), Vec::new(), effects);
         let jobs = self.jobs_tx.clone();
         let expiring = id.clone();
         let timer = tokio::spawn(async move {
@@ -3702,8 +3715,8 @@ impl SessionActor {
             }
             Inbox::CommitCompaction { snapshot, compaction, header, tx } => self.commit_compaction(snapshot, compaction, header, tx),
             Inbox::PushToast { text, tone, tx } => {
-                self.push_toast(&super::live_rows::polish_notice_text(&text), &tone, None);
-                let _ = tx.send(());
+                // The caller is told when the toast is published, not when it is queued: an earlier unacknowledged record holds it back.
+                self.push_toast(&super::live_rows::polish_notice_text(&text), &tone, None, vec![Effect::AfterPublish(tx)]);
             }
             Inbox::QuotaFacts { tx } => {
                 let _ = tx.send(self.resume_check());
