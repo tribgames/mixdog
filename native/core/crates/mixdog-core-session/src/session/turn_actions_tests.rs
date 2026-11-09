@@ -376,12 +376,6 @@ impl super::Clock for StepClock {
     }
 }
 
-async fn settle() {
-    for _ in 0..40 {
-        tokio::task::yield_now().await;
-    }
-}
-
 #[tokio::test(start_paused = true)]
 async fn staged_originals_expire_on_their_own_deadline() {
     let doc = golden("staged-originals.json");
@@ -391,6 +385,8 @@ async fn staged_originals_expire_on_their_own_deadline() {
     let clock = std::sync::Arc::new(StepClock(0.into()));
     let tokens = mixdog_rt::testing::tokens();
     let root = dir.path().join("prompt-attachments");
+    let mut passes = originals.passes();
+    let mut expected_passes = 0_u64;
     for recorded in doc["deadline"].as_array().unwrap() {
         let step = &recorded["step"];
         let name = format!("{step}");
@@ -401,7 +397,9 @@ async fn staged_originals_expire_on_their_own_deadline() {
             }
             "start" => {
                 originals.start_prune(tokens.durability_io, clock.clone(), mixdog_rt::CancellationToken::new());
-                settle().await;
+                // The task has read the index and armed its first deadline.
+                expected_passes += 1;
+                passes.wait_for(|n| *n >= expected_passes).await.unwrap();
             }
             "claim" => {
                 let refs: Vec<String> = step["refs"].as_array().unwrap().iter().map(|t| sha(t.as_str().unwrap().as_bytes())).collect();
@@ -412,11 +410,14 @@ async fn staged_originals_expire_on_their_own_deadline() {
                 let ms = step["ms"].as_u64().unwrap();
                 clock.0.fetch_add(i64::try_from(ms).unwrap(), std::sync::atomic::Ordering::SeqCst);
                 tokio::time::advance(Duration::from_millis(ms)).await;
-                settle().await;
+                // The deadline passing runs one prune pass; a deadline not yet due runs none.
+                if originals.earliest_at().is_some_and(|at| at + STAGED_ORIGINALS_TTL_MS as f64 + 1.0 <= clock.0.load(std::sync::atomic::Ordering::SeqCst) as f64) {
+                    expected_passes += 1;
+                    passes.wait_for(|n| *n >= expected_passes).await.unwrap();
+                }
                 if let Some(at) = recorded.get("stagedAt") {
                     let limits = StageLimits { now_ms: at.as_i64().unwrap(), ..FRESH };
                     stage_bytes(&originals, b"later".to_vec(), limits).await.unwrap();
-                    settle().await;
                 }
             }
             other => panic!("{other}"),

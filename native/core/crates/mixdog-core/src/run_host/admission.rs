@@ -149,6 +149,9 @@ struct Controller {
     limits: Limits,
     clock: Arc<dyn Clock>,
     state: Mutex<State>,
+    /// Told as a waiter joins the queue, for the tests to wait on.
+    #[cfg(test)]
+    queued: tokio::sync::Notify,
 }
 
 /// A restore in the queue: resolves when the slot is taken again.
@@ -237,6 +240,8 @@ impl Controller {
             queued_at: self.clock.now_ms(),
             entry: Entry::Restore { lease: id, txs: vec![tx] },
         });
+        #[cfg(test)]
+        self.queued.notify_waiters();
         Some((rx, wid, own))
     }
 
@@ -482,7 +487,13 @@ pub struct WaitStats {
 
 impl ResourceAdmission {
     pub fn new(limits: Limits, clock: Arc<dyn Clock>) -> Self {
-        Self { controller: Arc::new(Controller { limits, clock, state: Mutex::new(State::default()) }) }
+        Self { controller: Arc::new(Controller {
+                limits,
+                clock,
+                state: Mutex::new(State::default()),
+                #[cfg(test)]
+                queued: tokio::sync::Notify::new(),
+            }) }
     }
 
     /// `acquire(kind, { signal, ownerKey, priority })`. The owner key is trimmed and cut to 240
@@ -525,6 +536,8 @@ impl ResourceAdmission {
             state.next_id += 1;
             let id = state.next_id;
             state.queue.push(Waiter { id, pool, owner, priority, queued_at: c.clock.now_ms(), entry: Entry::New { tx, parent: parent_id } });
+            #[cfg(test)]
+            c.queued.notify_waiters();
             let deliveries = c.drain(&mut state);
             (rx, id, deliveries)
         };
@@ -583,8 +596,6 @@ impl Admission for ResourceAdmission {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use super::*;
 
     struct Fixed(i64);
@@ -599,8 +610,9 @@ mod tests {
         Arc::new(ResourceAdmission::new(limits, Arc::new(Fixed(0))))
     }
 
-    async fn settle() {
-        tokio::time::sleep(Duration::from_millis(20)).await;
+    /// Returns once `n` waiters are in the queue.
+    async fn queued_is(a: &ResourceAdmission, n: usize) {
+        mixdog_core_session::session::testing::eventually_on(&[&a.controller.queued], || (a.queued() == n).then_some(())).await;
     }
 
     fn spawn_acquire(a: &Arc<ResourceAdmission>, pool: Pool, owner: &'static str, priority: Priority, order: &Arc<Mutex<Vec<String>>>, tag: &'static str) -> tokio::task::JoinHandle<()> {
@@ -637,9 +649,9 @@ mod tests {
         assert_eq!((a.active(Pool::Agent), a.queued()), (1, 0));
         let order = Arc::new(Mutex::new(Vec::new()));
         let w1 = spawn_acquire(&a, Pool::Agent, "s1", Priority::UserVisible, &order, "one");
-        settle().await;
+        queued_is(&a, 1).await;
         let w2 = spawn_acquire(&a, Pool::Agent, "s1", Priority::UserVisible, &order, "two");
-        settle().await;
+        queued_is(&a, 2).await;
         assert_eq!(a.queued(), 2);
         let refused = a.acquire_in(Pool::Agent, Some("s1"), Priority::UserVisible, &cancel).await.err().unwrap();
         assert_eq!(refused, "resource pressure: high-load admission queue full (maximum 2); retry after running work completes");
@@ -656,15 +668,18 @@ mod tests {
         let first = a.acquire_in(Pool::Agent, Some("x"), Priority::UserVisible, &Cancel::new()).await.unwrap();
         let order = Arc::new(Mutex::new(Vec::new()));
         let mut tasks = Vec::new();
-        for (owner, priority, tag) in [
+        for (queued, (owner, priority, tag)) in [
             ("a", Priority::BestEffort, "a-best"),
             ("a", Priority::UserVisible, "a1"),
             ("a", Priority::UserVisible, "a2"),
             ("b", Priority::UserVisible, "b1"),
             ("c", Priority::UserBlocking, "c-blocking"),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             tasks.push(spawn_acquire(&a, Pool::Agent, owner, priority, &order, tag));
-            settle().await;
+            queued_is(&a, queued + 1).await;
         }
         drop(first);
         for t in tasks {
@@ -681,7 +696,7 @@ mod tests {
         let _agent = a.acquire_in(Pool::Agent, None, Priority::UserVisible, &cancel).await.unwrap();
         let order = Arc::new(Mutex::new(Vec::new()));
         let queued_agent = spawn_acquire(&a, Pool::Agent, "o", Priority::UserVisible, &order, "agent");
-        settle().await;
+        queued_is(&a, 1).await;
         // The agent pool has a waiter; a shell still starts at once.
         let shell = a.acquire_in(Pool::Shell, None, Priority::UserVisible, &cancel).await.unwrap();
         assert_eq!((a.active(Pool::Shell), a.queued()), (1, 1));
@@ -698,8 +713,7 @@ mod tests {
             let (a, cancel) = (a.clone(), cancel.clone());
             tokio::spawn(async move { a.acquire_in(Pool::Agent, Some("o"), Priority::UserVisible, &cancel).await.err() })
         };
-        settle().await;
-        assert_eq!(a.queued(), 1);
+        queued_is(&a, 1).await;
         cancel.abort(JOB_CANCELLED);
         assert_eq!(waiting.await.unwrap().as_deref(), Some(JOB_CANCELLED));
         assert_eq!(a.queued(), 0);
@@ -726,9 +740,9 @@ mod tests {
             let first = a.acquire_in(Pool::Agent, Some("x"), Priority::UserVisible, &Cancel::new()).await.unwrap();
             let order = Arc::new(Mutex::new(Vec::new()));
             let mut tasks = Vec::new();
-            for (owner, priority, tag) in requests {
+            for (queued, (owner, priority, tag)) in requests.into_iter().enumerate() {
                 tasks.push(spawn_acquire(&a, Pool::Agent, owner, priority, &order, tag));
-                settle().await;
+                queued_is(&a, queued + 1).await;
             }
             if name == "full" {
                 let refused = a.acquire_in(Pool::Agent, Some("z"), Priority::UserVisible, &Cancel::new()).await.err().unwrap();
@@ -757,23 +771,25 @@ mod tests {
         push(&ev, "A-acquired".into());
         let (b_tx, b_rx) = oneshot::channel();
         let (c_tx, c_rx) = oneshot::channel();
-        for (owner, tag, tx) in [("b", "B-granted", b_tx), ("c", "C-granted", c_tx)] {
-            let (a, ev) = (a.clone(), ev.clone());
+        for (queued, (owner, tag, tx)) in [("b", "B-granted", b_tx), ("c", "C-granted", c_tx)].into_iter().enumerate() {
+            let (host, ev) = (a.clone(), ev.clone());
             tokio::spawn(async move {
-                let held = a.acquire_in(Pool::Agent, Some(owner), Priority::UserVisible, &Cancel::new()).await.unwrap();
+                let held = host.acquire_in(Pool::Agent, Some(owner), Priority::UserVisible, &Cancel::new()).await.unwrap();
                 ev.lock().unwrap().push(tag.into());
                 drop(tx.send(held));
             });
-            settle().await;
+            queued_is(&a, queued + 1).await;
         }
         let gate = Arc::new(tokio::sync::Notify::new());
+        let started = Arc::new(tokio::sync::Notify::new());
         let run = {
-            let (held, ev, gate) = (held_a.clone(), ev.clone(), gate.clone());
+            let (held, ev, gate, started) = (held_a.clone(), ev.clone(), gate.clone(), started.clone());
             tokio::spawn(async move {
                 let value = held
                     .run_yielded(
                         async {
                             ev.lock().unwrap().push("A-request-start".into());
+                            started.notify_one();
                             gate.notified().await;
                             ev.lock().unwrap().push("A-request-done".into());
                             Ok::<_, ()>("ok")
@@ -786,14 +802,14 @@ mod tests {
                 ev.lock().unwrap().push(format!("A-restored:{}", value.unwrap()));
             })
         };
-        settle().await;
+        started.notified().await;
         let b = b_rx.await.unwrap();
         push(&ev, format!("active-while-B:{}", a.active(Pool::Agent)));
         gate.notify_one();
-        settle().await;
+        // The request ends and A joins the queue behind C.
+        queued_is(&a, 2).await;
         push(&ev, format!("A-waiting-for-slot:{}", a.queued() > 0));
         b.release().await;
-        settle().await;
         let c = c_rx.await.unwrap();
         push(&ev, "C-held".into());
         c.release().await;
@@ -844,7 +860,7 @@ mod tests {
                 let (a, cancel) = (a.clone(), cancel.clone());
                 tokio::spawn(async move { a.acquire_in(Pool::Agent, None, Priority::UserVisible, &cancel).await.err() })
             };
-            settle().await;
+            queued_is(&a, 1).await;
             abort(&cancel);
             let text = waiting.await.unwrap().unwrap();
             held.release().await;
@@ -858,9 +874,8 @@ mod tests {
         let (parent, call) = (Cancel::new(), Cancel::new());
         let linked = Cancel::linked(&[parent.clone(), call.clone()]);
         call.abort("call stopped");
-        settle().await;
+        linked.cancelled().await;
         parent.abort("too late");
-        settle().await;
         assert_eq!(linked.reason(), "call stopped");
     }
 
