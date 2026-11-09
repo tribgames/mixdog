@@ -4,7 +4,7 @@ import React, { act } from 'react';
 import { TurnReviewBar } from './TurnReview';
 import { rememberAgentReviews } from './turn-review-cache';
 import { installReviewDom } from './turn-review-test-support.mjs';
-import { formatAggregateDetail, summarizeToolResult } from '../shared/core-src/runtime/shared/tool-surface.mjs';
+import { formatAggregateDetail, summarizeToolResult } from '../../../../packages/protocol-client/src/rows/tool-surface.mjs';
 
 test('island segment accumulates across turns and survives a new turn with an empty session diff', async (t) => {
   // A non-Git folder's runtime session diff only tracks the running turn: it

@@ -6,7 +6,7 @@ import { record } from './record-utils';
 import MarkdownBody from './MarkdownBody';
 import { CopyControl } from './transcript-primitives';
 // @ts-expect-error Shared context map has no separate declaration file.
-import { buildContextMap } from '../shared/core-src/ui/context-inspection.mjs';
+import { buildContextMap } from '../../../../packages/protocol-client/src/rows/context-inspection.mjs';
 
 type Category = { key: string; label: string; tokens: number; estimatedTokens?: number; count: number };
 type Entry = {

@@ -4,7 +4,7 @@
 // carries (live, persisted in meta.transcript, restored) so a chat paints it
 // as a routine marker instead of a user bubble.
 
-import { localTimestampParts } from './time-format.mjs';
+import { localTimestampParts } from '../../../../../../../packages/protocol-client/src/rows/time-format.mjs';
 
 const HEADER_PREFIX = '[Routine trigger]';
 const KINDS = new Set(['schedule', 'webhook']);
