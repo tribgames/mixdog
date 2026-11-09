@@ -104,19 +104,6 @@
           },
           "roster": [
             {
-              "id": "s_base",
-              "preview": "",
-              "title": "Base",
-              "updatedAt": 1000,
-              "activityAt": 1000,
-              "messageCount": 0,
-              "cwd": "C:/w",
-              "classification": "project",
-              "projectPath": "C:/w",
-              "createdAt": 500,
-              "compactCount": 0
-            },
-            {
               "id": "s_fork",
               "preview": "",
               "title": "Base (fork)",
@@ -128,6 +115,19 @@
               "projectPath": "C:/w",
               "createdAt": 500,
               "inheritedFromSessionId": "s_base",
+              "compactCount": 0
+            },
+            {
+              "id": "s_base",
+              "preview": "",
+              "title": "Base",
+              "updatedAt": 1000,
+              "activityAt": 1000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
               "compactCount": 0
             }
           ],
@@ -186,19 +186,6 @@
           },
           "roster": [
             {
-              "id": "s_old",
-              "preview": "",
-              "title": "Old",
-              "updatedAt": 1000,
-              "activityAt": 1000,
-              "messageCount": 0,
-              "cwd": "C:/w",
-              "classification": "project",
-              "projectPath": "C:/w",
-              "createdAt": 500,
-              "compactCount": 0
-            },
-            {
               "id": "s_heir",
               "preview": "",
               "title": "Heir",
@@ -210,6 +197,19 @@
               "projectPath": "C:/w",
               "createdAt": 500,
               "inheritedFromSessionId": "s_old",
+              "compactCount": 0
+            },
+            {
+              "id": "s_old",
+              "preview": "",
+              "title": "Old",
+              "updatedAt": 1000,
+              "activityAt": 1000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
               "compactCount": 0
             }
           ],
@@ -232,19 +232,6 @@
           },
           "roster": [
             {
-              "id": "s_old",
-              "preview": "",
-              "title": "Old",
-              "updatedAt": 1000,
-              "activityAt": 1000,
-              "messageCount": 0,
-              "cwd": "C:/w",
-              "classification": "project",
-              "projectPath": "C:/w",
-              "createdAt": 500,
-              "compactCount": 0
-            },
-            {
               "id": "s_heir",
               "preview": "",
               "title": "Heir",
@@ -256,6 +243,19 @@
               "projectPath": "C:/w",
               "createdAt": 500,
               "inheritedFromSessionId": "s_old",
+              "compactCount": 0
+            },
+            {
+              "id": "s_old",
+              "preview": "",
+              "title": "Old",
+              "updatedAt": 1000,
+              "activityAt": 1000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
               "compactCount": 0
             }
           ],
@@ -666,11 +666,11 @@
           },
           "roster": [
             {
-              "id": "s_x",
+              "id": "s_y",
               "preview": "",
-              "title": "X",
-              "updatedAt": 2200,
-              "activityAt": 2200,
+              "title": "Y",
+              "updatedAt": 2300,
+              "activityAt": 2300,
               "messageCount": 0,
               "cwd": "C:/w",
               "classification": "project",
@@ -679,11 +679,11 @@
               "compactCount": 0
             },
             {
-              "id": "s_y",
+              "id": "s_x",
               "preview": "",
-              "title": "Y",
-              "updatedAt": 2300,
-              "activityAt": 2300,
+              "title": "X",
+              "updatedAt": 2200,
+              "activityAt": 2200,
               "messageCount": 0,
               "cwd": "C:/w",
               "classification": "project",
@@ -973,19 +973,6 @@
           },
           "roster": [
             {
-              "id": "s_in",
-              "preview": "",
-              "title": "In the task workspace",
-              "updatedAt": 3100,
-              "activityAt": 3100,
-              "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
-              "classification": "task",
-              "projectPath": null,
-              "createdAt": 500,
-              "compactCount": 0
-            },
-            {
               "id": "s_in_spelled",
               "preview": "",
               "title": "Spelled otherwise",
@@ -993,6 +980,19 @@
               "activityAt": 3200,
               "messageCount": 0,
               "cwd": "d:/mixdog-build/tmp/rec/thread-edges/workspace/unclassified/",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -1017,15 +1017,15 @@
           },
           "roster": [
             {
-              "id": "s_in",
+              "id": "s_out",
               "preview": "",
-              "title": "In the task workspace",
-              "updatedAt": 3100,
-              "activityAt": 3100,
+              "title": "Outside",
+              "updatedAt": 3300,
+              "activityAt": 3300,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
-              "classification": "task",
-              "projectPath": null,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
               "createdAt": 500,
               "compactCount": 0
             },
@@ -1043,15 +1043,15 @@
               "compactCount": 0
             },
             {
-              "id": "s_out",
+              "id": "s_in",
               "preview": "",
-              "title": "Outside",
-              "updatedAt": 3300,
-              "activityAt": 3300,
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
               "messageCount": 0,
-              "cwd": "C:/elsewhere",
-              "classification": "project",
-              "projectPath": "C:/elsewhere",
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
               "createdAt": 500,
               "compactCount": 0
             }
@@ -1074,15 +1074,15 @@
           },
           "roster": [
             {
-              "id": "s_in",
+              "id": "s_out",
               "preview": "",
-              "title": "In the task workspace",
-              "updatedAt": 3100,
-              "activityAt": 3100,
+              "title": "Outside",
+              "updatedAt": 3300,
+              "activityAt": 3300,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
-              "classification": "task",
-              "projectPath": null,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
               "createdAt": 500,
               "compactCount": 0
             },
@@ -1100,15 +1100,15 @@
               "compactCount": 0
             },
             {
-              "id": "s_out",
+              "id": "s_in",
               "preview": "",
-              "title": "Outside",
-              "updatedAt": 3300,
-              "activityAt": 3300,
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
               "messageCount": 0,
-              "cwd": "C:/elsewhere",
-              "classification": "project",
-              "projectPath": "C:/elsewhere",
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
               "createdAt": 500,
               "compactCount": 0
             }
@@ -1131,15 +1131,15 @@
           },
           "roster": [
             {
-              "id": "s_in",
+              "id": "s_out",
               "preview": "",
-              "title": "In the task workspace",
-              "updatedAt": 3100,
-              "activityAt": 3100,
+              "title": "Outside",
+              "updatedAt": 3300,
+              "activityAt": 3300,
               "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
-              "classification": "task",
-              "projectPath": null,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
               "createdAt": 500,
               "compactCount": 0
             },
@@ -1157,15 +1157,15 @@
               "compactCount": 0
             },
             {
-              "id": "s_out",
+              "id": "s_in",
               "preview": "",
-              "title": "Outside",
-              "updatedAt": 3300,
-              "activityAt": 3300,
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
               "messageCount": 0,
-              "cwd": "C:/elsewhere",
-              "classification": "project",
-              "projectPath": "C:/elsewhere",
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
               "createdAt": 500,
               "compactCount": 0
             }
@@ -1190,26 +1190,13 @@
           },
           "roster": [
             {
-              "id": "s_in",
+              "id": "s_in_untitled",
               "preview": "",
-              "title": "In the task workspace",
-              "updatedAt": 3100,
-              "activityAt": 3100,
+              "title": "---",
+              "updatedAt": 3600,
+              "activityAt": 3600,
               "messageCount": 0,
               "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
-              "classification": "task",
-              "projectPath": null,
-              "createdAt": 500,
-              "compactCount": 0
-            },
-            {
-              "id": "s_in_spelled",
-              "preview": "",
-              "title": "Spelled otherwise",
-              "updatedAt": 3200,
-              "activityAt": 3200,
-              "messageCount": 0,
-              "cwd": "d:/mixdog-build/tmp/rec/thread-edges/workspace/unclassified/",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -1229,11 +1216,24 @@
               "compactCount": 0
             },
             {
-              "id": "s_in_untitled",
+              "id": "s_in_spelled",
               "preview": "",
-              "title": "---",
-              "updatedAt": 3600,
-              "activityAt": 3600,
+              "title": "Spelled otherwise",
+              "updatedAt": 3200,
+              "activityAt": 3200,
+              "messageCount": 0,
+              "cwd": "d:/mixdog-build/tmp/rec/thread-edges/workspace/unclassified/",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
               "messageCount": 0,
               "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
               "classification": "task",
@@ -1262,37 +1262,11 @@
           },
           "roster": [
             {
-              "id": "s_in",
+              "id": "s_out_untitled",
               "preview": "",
-              "title": "In the task workspace",
-              "updatedAt": 3100,
-              "activityAt": 3100,
-              "messageCount": 0,
-              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
-              "classification": "task",
-              "projectPath": null,
-              "createdAt": 500,
-              "compactCount": 0
-            },
-            {
-              "id": "s_in_spelled",
-              "preview": "",
-              "title": "Spelled otherwise",
-              "updatedAt": 3200,
-              "activityAt": 3200,
-              "messageCount": 0,
-              "cwd": "d:/mixdog-build/tmp/rec/thread-edges/workspace/unclassified/",
-              "classification": "task",
-              "projectPath": null,
-              "createdAt": 500,
-              "compactCount": 0
-            },
-            {
-              "id": "s_out",
-              "preview": "",
-              "title": "Outside",
-              "updatedAt": 3300,
-              "activityAt": 3300,
+              "title": "---",
+              "updatedAt": 3700,
+              "activityAt": 3700,
               "messageCount": 0,
               "cwd": "C:/elsewhere",
               "classification": "project",
@@ -1314,15 +1288,41 @@
               "compactCount": 0
             },
             {
-              "id": "s_out_untitled",
+              "id": "s_out",
               "preview": "",
-              "title": "---",
-              "updatedAt": 3700,
-              "activityAt": 3700,
+              "title": "Outside",
+              "updatedAt": 3300,
+              "activityAt": 3300,
               "messageCount": 0,
               "cwd": "C:/elsewhere",
               "classification": "project",
               "projectPath": "C:/elsewhere",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in_spelled",
+              "preview": "",
+              "title": "Spelled otherwise",
+              "updatedAt": 3200,
+              "activityAt": 3200,
+              "messageCount": 0,
+              "cwd": "d:/mixdog-build/tmp/rec/thread-edges/workspace/unclassified/",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
               "createdAt": 500,
               "compactCount": 0
             }
@@ -1349,37 +1349,24 @@
           },
           "roster": [
             {
-              "id": "s_in",
+              "id": "s_in_project",
               "preview": "",
-              "title": "In the task workspace",
-              "updatedAt": 3100,
-              "activityAt": 3100,
+              "title": "Stored project",
+              "updatedAt": 3800,
+              "activityAt": 3800,
               "messageCount": 0,
               "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
-              "classification": "task",
-              "projectPath": null,
+              "classification": "project",
+              "projectPath": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
               "createdAt": 500,
               "compactCount": 0
             },
             {
-              "id": "s_in_spelled",
+              "id": "s_out_untitled",
               "preview": "",
-              "title": "Spelled otherwise",
-              "updatedAt": 3200,
-              "activityAt": 3200,
-              "messageCount": 0,
-              "cwd": "d:/mixdog-build/tmp/rec/thread-edges/workspace/unclassified/",
-              "classification": "task",
-              "projectPath": null,
-              "createdAt": 500,
-              "compactCount": 0
-            },
-            {
-              "id": "s_out",
-              "preview": "",
-              "title": "Outside",
-              "updatedAt": 3300,
-              "activityAt": 3300,
+              "title": "---",
+              "updatedAt": 3700,
+              "activityAt": 3700,
               "messageCount": 0,
               "cwd": "C:/elsewhere",
               "classification": "project",
@@ -1401,11 +1388,11 @@
               "compactCount": 0
             },
             {
-              "id": "s_out_untitled",
+              "id": "s_out",
               "preview": "",
-              "title": "---",
-              "updatedAt": 3700,
-              "activityAt": 3700,
+              "title": "Outside",
+              "updatedAt": 3300,
+              "activityAt": 3300,
               "messageCount": 0,
               "cwd": "C:/elsewhere",
               "classification": "project",
@@ -1414,15 +1401,28 @@
               "compactCount": 0
             },
             {
-              "id": "s_in_project",
+              "id": "s_in_spelled",
               "preview": "",
-              "title": "Stored project",
-              "updatedAt": 3800,
-              "activityAt": 3800,
+              "title": "Spelled otherwise",
+              "updatedAt": 3200,
+              "activityAt": 3200,
+              "messageCount": 0,
+              "cwd": "d:/mixdog-build/tmp/rec/thread-edges/workspace/unclassified/",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_in",
+              "preview": "",
+              "title": "In the task workspace",
+              "updatedAt": 3100,
+              "activityAt": 3100,
               "messageCount": 0,
               "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
-              "classification": "project",
-              "projectPath": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
               "createdAt": 500,
               "compactCount": 0
             }
@@ -1545,11 +1545,11 @@
           },
           "roster": [
             {
-              "id": "s_l",
+              "id": "s_l2",
               "preview": "",
-              "title": "After the lookup failed",
-              "updatedAt": 4100,
-              "activityAt": 4100,
+              "title": "Written after it recovered",
+              "updatedAt": 4300,
+              "activityAt": 4300,
               "messageCount": 0,
               "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
               "classification": "task",
@@ -1558,11 +1558,11 @@
               "compactCount": 0
             },
             {
-              "id": "s_l2",
+              "id": "s_l",
               "preview": "",
-              "title": "Written after it recovered",
-              "updatedAt": 4300,
-              "activityAt": 4300,
+              "title": "After the lookup failed",
+              "updatedAt": 4100,
+              "activityAt": 4100,
               "messageCount": 0,
               "cwd": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified",
               "classification": "task",
@@ -1631,6 +1631,324 @@
           },
           "roster": [],
           "published": false
+        }
+      ]
+    },
+    {
+      "name": "held-rows-come-out-in-the-catalogs-order",
+      "steps": [
+        {
+          "id": "s_oa",
+          "record": {
+            "id": "s_oa",
+            "updatedAt": 5000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Held first"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [],
+          "published": false
+        },
+        {
+          "id": "s_ob",
+          "record": {
+            "id": "s_ob",
+            "updatedAt": 6000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Held second, newer"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [],
+          "published": false
+        },
+        {
+          "id": "s_oc",
+          "record": {
+            "id": "s_oc",
+            "updatedAt": 5000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Held third, ties the first"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [],
+          "published": false
+        },
+        {
+          "id": "s_od",
+          "record": {
+            "id": "s_od",
+            "updatedAt": 5500,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Written after it recovered"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_ob",
+              "preview": "",
+              "title": "Held second, newer",
+              "updatedAt": 6000,
+              "activityAt": 6000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_od",
+              "preview": "",
+              "title": "Written after it recovered",
+              "updatedAt": 5500,
+              "activityAt": 5500,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_oa",
+              "preview": "",
+              "title": "Held first",
+              "updatedAt": 5000,
+              "activityAt": 5000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_oc",
+              "preview": "",
+              "title": "Held third, ties the first",
+              "updatedAt": 5000,
+              "activityAt": 5000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "held-rows-keep-the-last-write-in-the-catalogs-order",
+      "steps": [
+        {
+          "id": "s_pa",
+          "record": {
+            "id": "s_pa",
+            "updatedAt": 7000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Listed before"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_pa",
+              "preview": "",
+              "title": "Listed before",
+              "updatedAt": 7000,
+              "activityAt": 7000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_pa",
+          "record": {
+            "id": "s_pa",
+            "updatedAt": 7100,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Changed while it fails"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [
+            {
+              "id": "s_pa",
+              "preview": "",
+              "title": "Listed before",
+              "updatedAt": 7000,
+              "activityAt": 7000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": false
+        },
+        {
+          "id": "s_pb",
+          "record": {
+            "id": "s_pb",
+            "updatedAt": 7500,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "New and newer"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [
+            {
+              "id": "s_pa",
+              "preview": "",
+              "title": "Listed before",
+              "updatedAt": 7000,
+              "activityAt": 7000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": false
+        },
+        {
+          "id": "s_pa",
+          "record": {
+            "id": "s_pa",
+            "updatedAt": 7200,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Changed again"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [
+            {
+              "id": "s_pa",
+              "preview": "",
+              "title": "Listed before",
+              "updatedAt": 7000,
+              "activityAt": 7000,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": false
+        },
+        {
+          "id": "s_pc",
+          "record": {
+            "id": "s_pc",
+            "updatedAt": 7300,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "Written after it recovered"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "D:\\mixdog-build\\tmp\\rec\\thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_pb",
+              "preview": "",
+              "title": "New and newer",
+              "updatedAt": 7500,
+              "activityAt": 7500,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_pc",
+              "preview": "",
+              "title": "Written after it recovered",
+              "updatedAt": 7300,
+              "activityAt": 7300,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_pa",
+              "preview": "",
+              "title": "Changed again",
+              "updatedAt": 7200,
+              "activityAt": 7200,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project",
+              "projectPath": "C:/w",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
         }
       ]
     }
