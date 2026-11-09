@@ -546,14 +546,22 @@ async fn size_owner_follows_focus_and_connection_close_without_timers() {
         ]
     );
 
-    // No lease lapses, no timer fires, no thread appears: nothing happens on its own.
-    let before = rig.events.all().len();
-    std::thread::sleep(Duration::from_millis(500));
-    assert_eq!(rig.events.all().len(), before);
+    // No lease lapses, no timer fires: ownership changes only through the calls above. Each call
+    // announced its change before returning, so the owner log is already complete; the shell's own
+    // asynchronous activity lands in the same log as `Ev::Activity` and is not size ownership.
+    // Disposing kills the shell, and draining its feed to the exit event is the barrier: the
+    // process has ended, so nothing that belongs to the tab can still be pending. Only the
+    // disposal's own release may follow, and the clock was never read again.
+    rig.tabs.dispose(id);
+    let (_, exit) = collect(&rig.manager, &mixdog_protocol::ProcessHandle::from(id)).await;
+    assert!(exit.killed.is_some(), "the shell ended because the tab was disposed");
+    let mut released = owners;
+    released.push((String::new(), 0, 0));
+    let after: Vec<(String, u16, u16)> = rig.events.owners(id).into_iter().map(|c| (c.owner, c.cols, c.rows)).collect();
+    assert_eq!(after, released);
     assert_eq!(rig.clock_reads.load(Ordering::SeqCst), 1);
     // The thread count is process-wide and sibling tests of this binary start threads in
     // parallel, so it cannot witness "no thread appears"; the clock and event checks above do.
-    rig.tabs.dispose(id);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
