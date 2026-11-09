@@ -10,7 +10,7 @@ import { mkdirSync, readFileSync, unlinkSync, utimesSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { ServerResponse } from 'node:http';
-import { parseJsonText, writeFileAtomicSync } from '../../shared/core-src/runtime/shared/atomic-file.mjs';
+import { parseJsonText, writeFileAtomicSync } from '../../../../../src/runtime/shared/atomic-file.mjs';
 import {
   parseBridgeDiscovery,
   probeBridgeDiscovery,

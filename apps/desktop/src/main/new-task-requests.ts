@@ -2,9 +2,9 @@ import { createHash, randomBytes } from 'node:crypto';
 import { chmod, mkdir, open, stat } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { parseJsonText, writeFileAtomicAsync } from '../shared/core-src/runtime/shared/atomic-file.mjs';
-import { enforceOwnerOnlyDirectoryWin32Async } from '../shared/core-src/runtime/shared/file-permissions.mjs';
-import { createKeyedSerialQueue } from '../shared/core-src/runtime/shared/keyed-serial-queue.mjs';
+import { parseJsonText, writeFileAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
+import { enforceOwnerOnlyDirectoryWin32Async } from '../../../../src/runtime/shared/file-permissions.mjs';
+import { createKeyedSerialQueue } from '../../../../src/runtime/shared/keyed-serial-queue.mjs';
 import { isSessionId } from './desktop-state';
 
 // `configured` records that the draft was applied, so a replay goes straight

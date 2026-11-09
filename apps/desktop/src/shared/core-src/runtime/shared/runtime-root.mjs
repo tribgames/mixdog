@@ -1,7 +1,7 @@
 import { chmodSync, lstatSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { isPidAlive } from './pid-liveness.mjs';
+import { isPidAlive } from '../../../../../../../src/runtime/shared/pid-liveness.mjs';
 
 let cachedDefaultRoot = '';
 

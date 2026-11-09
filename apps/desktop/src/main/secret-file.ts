@@ -1,9 +1,9 @@
 // Remote credentials grant control of the desktop. Restrict new files before
 // publication and tighten existing files before returning their contents.
 import { promises as fsp } from 'node:fs';
-import { writeFileAtomicAsync } from '../shared/core-src/runtime/shared/atomic-file.mjs';
-import { enforceOwnerOnlyAclWin32Async } from '../shared/core-src/runtime/shared/file-permissions.mjs';
-import { createKeyedSerialQueue } from '../shared/core-src/runtime/shared/keyed-serial-queue.mjs';
+import { writeFileAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
+import { enforceOwnerOnlyAclWin32Async } from '../../../../src/runtime/shared/file-permissions.mjs';
+import { createKeyedSerialQueue } from '../../../../src/runtime/shared/keyed-serial-queue.mjs';
 
 const SECRET_FILE_MODE = 0o600;
 const secretWrites = createKeyedSerialQueue();

@@ -5,7 +5,7 @@
 // a temp file. Never backed up or moved aside: they belong to the user.
 import { open, realpath } from 'node:fs/promises';
 
-import { writeFileAtomicAsync } from '../shared/core-src/runtime/shared/atomic-file.mjs';
+import { writeFileAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 
 /** Writes `data` to `path`. A symlink stays a link (its target is written). */
 export async function writeUserFile(path: string, data: string | Buffer): Promise<void> {

@@ -5,7 +5,7 @@
 // Sub-agent sessions keep their own runtime retention (sub-agent-retention.mjs).
 import { join } from 'node:path';
 
-import { readJsonState, updateJsonAtomic } from '../shared/core-src/runtime/shared/atomic-file.mjs';
+import { readJsonState, updateJsonAtomic } from '../../../../src/runtime/shared/atomic-file.mjs';
 import {
   agentDescendantIds,
   isAgentOnlySession,

@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 
-import { holdsNoData } from '../shared/core-src/runtime/shared/atomic-file.mjs';
+import { holdsNoData } from '../../../../src/runtime/shared/atomic-file.mjs';
 
 function stripJsonComments(source: string): string {
   let result = '';

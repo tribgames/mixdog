@@ -6,7 +6,7 @@ import type { DesktopEditorSettings } from '../shared/contract';
 import { editorLanguageIdForPath } from '../shared/editor-languages';
 import { DEFAULT_DESKTOP_EDITOR_SETTINGS, markdownDefaultViewSetting } from '../shared/editor-settings';
 import { applyEdits, modify } from 'jsonc-parser';
-import { holdsNoData } from '../shared/core-src/runtime/shared/atomic-file.mjs';
+import { holdsNoData } from '../../../../src/runtime/shared/atomic-file.mjs';
 import { writeUserFile } from './user-file-write';
 import { objectRecord, parseJsonc, readJsoncFile } from './workflow-config';
 

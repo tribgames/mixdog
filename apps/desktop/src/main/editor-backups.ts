@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
-import { writeFileAtomicAsync } from '../shared/core-src/runtime/shared/atomic-file.mjs';
-import { createKeyedSerialQueue } from '../shared/core-src/runtime/shared/keyed-serial-queue.mjs';
+import { writeFileAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
+import { createKeyedSerialQueue } from '../../../../src/runtime/shared/keyed-serial-queue.mjs';
 
 interface EditorBackup {
   content: string;

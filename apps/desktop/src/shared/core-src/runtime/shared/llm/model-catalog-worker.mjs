@@ -2,7 +2,7 @@
 // and narrows it to its read surface, so the host receives only the projection.
 // The disk caches keep the full payload.
 import { readFile } from 'node:fs/promises';
-import { serveWorkerRequests } from '../worker-requests.mjs';
+import { serveWorkerRequests } from '../../../../../../../../src/runtime/shared/worker-requests.mjs';
 import { projectLitellmCatalog, projectModelsDevCatalog } from './model-catalog-projection.mjs';
 
 const PROJECTIONS = { litellm: projectLitellmCatalog, modelsdev: projectModelsDevCatalog };

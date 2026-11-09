@@ -16,9 +16,9 @@
 
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { resolvePluginData } from '../plugin-paths.mjs';
-import { writeFileAtomicAsync } from '../atomic-file.mjs';
-import { createWorkerRequestClient } from '../worker-requests.mjs';
+import { resolvePluginData } from '../../../../../../../../src/runtime/shared/plugin-paths.mjs';
+import { writeFileAtomicAsync } from '../../../../../../../../src/runtime/shared/atomic-file.mjs';
+import { createWorkerRequestClient } from '../../../../../../../../src/runtime/shared/worker-requests.mjs';
 import {
   capabilityFlag,
   rosterRowMetadata,

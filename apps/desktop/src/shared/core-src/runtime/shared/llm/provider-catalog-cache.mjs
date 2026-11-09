@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { resolvePluginData } from '../plugin-paths.mjs';
+import { resolvePluginData } from '../../../../../../../../src/runtime/shared/plugin-paths.mjs';
 import { ANTIGRAVITY_MODELS, ANTIGRAVITY_PRICING_ALIASES, normalizeGrokModelId } from './provider-model-identities.mjs';
 import { providerRosterFiles, rosterProviders } from './provider-catalog-registry.mjs';
 

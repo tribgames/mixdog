@@ -4,7 +4,7 @@
 // saved list since is skipped.
 import { join } from 'node:path';
 
-import { readJsonState, writeJsonAtomicAsync } from '../../shared/core-src/runtime/shared/atomic-file.mjs';
+import { readJsonState, writeJsonAtomicAsync } from '../../../../../src/runtime/shared/atomic-file.mjs';
 import type { DesktopServerRestoreProgress } from '../../shared/contract-connection-link';
 import type { DesktopSshHostSettings } from '../../shared/contract-ssh';
 import type { ConnectionProgress, SshConnectionSpec } from './contract';
