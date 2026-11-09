@@ -1,14 +1,35 @@
 /*
- * components/statusline-render.mjs — the footer text of the async render.
- *
- * Node rendered this from provider quota and gateway state it read on the Node core's
- * side (src/ui/statusline.mjs: the 5H/7D usage, balance and route-spend segments of L1, the
- * memory-cycle segment of L2). mixdogd has no protocol call that answers them, so the footer is
- * the line built from the session state the core publishes: model, effort, context, agents,
- * shells and web search.
+ * components/statusline-render.mjs — the footer text of the async render: the model, context, quota
+ * (5H/7D, balance, route spend) and activity segments Node's src/ui/statusline.mjs rendered, over the
+ * data files the core keeps (status-line/footer-inputs.mjs) and the session state.
  */
-import { localBootStatusLine } from './status-line/local-line.mjs';
+import { isPidAlive } from '../../runtime/shared/pid-liveness.mjs';
+import { terminalColumns } from '../lib/statusline-format.mjs';
+import { createFooterInputs } from './status-line/footer-inputs.mjs';
+import { createFooterRenderer } from './status-line/footer-render.mjs';
+import { localBootStatusLine, shellStripStatus } from './status-line/local-line.mjs';
+
+// Readings older than this process stay hidden until it has seen a fresh one.
+const PROCESS_STARTED_AT = Date.now() - Math.floor((Number(process.uptime?.()) || 0) * 1000);
+const inputs = createFooterInputs();
+const renderer = createFooterRenderer();
+
+/** Hands the footer the session's usage-requests read (route spend and local budgets come from the ledger). */
+export function setFooterUsageSource(source) {
+  inputs.setUsageSource(source);
+}
 
 export async function renderStatusline(args) {
-  return localBootStatusLine(args);
+  try {
+    const data = await inputs.read(args.provider, args.model);
+    const now = Date.now();
+    const shell = shellStripStatus(args.shellJobs, now);
+    return renderer(
+      { ...args, shellStatus: shell },
+      data,
+      { now, cols: terminalColumns(), processStartedAt: PROCESS_STARTED_AT, isPidAlive }
+    );
+  } catch {
+    return localBootStatusLine(args);
+  }
 }

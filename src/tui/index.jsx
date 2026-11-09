@@ -11,6 +11,7 @@ import { dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { format } from 'node:util';
 import { App } from './App.jsx';
+import { setFooterUsageSource } from './components/statusline-render.mjs';
 import { cancelPendingMouseTrackingRestores } from './app/use-mouse-input.mjs';
 import { createSessionRuntime } from './session.mjs';
 import { registerRenderFrameSource, scheduleRenderFrameAck, TUI_RENDER_FPS } from './session/render-timing.mjs';
@@ -21,6 +22,7 @@ import {
   getThemeSetting,
   listThemes,
   applyStoredThemeSetting,
+  readStoredThemeSetting,
   setThemeSetting,
   theme,
 } from './theme.mjs';
@@ -648,6 +650,11 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     (error) => ({ store: null, error })
   );
 
+  // Apply the persisted UI theme (ui.theme in mixdog-config.json) before the
+  // splash and the first React frame so the whole boot paints in the chosen
+  // palette. Unknown or missing values leave the default Mixdog dark palette
+  // in place; a failed config read never blocks boot.
+  applyStoredThemeSetting(readStoredThemeSetting());
   emitTerminalBackground(theme.background);
 
   // Static splash + loading spinner while createSessionRuntime() warms up
@@ -669,22 +676,14 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     } catch {
       /* best-effort recency */
     }
-    // Apply the persisted UI theme (the core's `ui.theme`) before the first React
-    // frame so the whole tree paints in the chosen palette. Unknown or missing
-    // values leave the default Mixdog dark palette in place; a failed read never
-    // blocks boot.
-    try {
-      applyStoredThemeSetting(await store.getTheme?.());
-    } catch {
-      /* default theme stays */
-    }
-    emitTerminalBackground(theme.background);
     // The palette lives in THIS process: on a daemon-backed store the session runtime's
     // theme methods would run inside the daemon, so the picker saw a promise
     // instead of the list and a switch repainted nothing here. Bind the three
     // theme methods locally (same pattern as the ink selection helpers below)
     // and mirror the switch to the core, which stores it unless persist is false.
     if (store.isRemoteSession === true) bindLocalThemeMethods(store);
+    // The footer's route spend and local budgets read the core's usage ledger (usage/getUsageRequests).
+    setFooterUsageSource((options) => store.getUsageRequests?.(options));
     bootProfile('store:ready', { ms: (performance.now() - startedAt).toFixed(1) });
   } catch (error) {
     splash.stop();

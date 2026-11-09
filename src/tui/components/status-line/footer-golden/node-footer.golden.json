@@ -1,0 +1,66 @@
+{
+ "recordedFrom": "b6f10295a",
+ "T0": 1800000000000,
+ "scenarios": [
+  {
+   "name": "openai-oauth wide: 5H and 7D with resets",
+   "expected": "\u001b[1mGPT-5.5\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m \u001b[1mHigh\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136m5H\u001b[0m  \u001b[38;2;0;170;75m42%\u001b[0m \u001b[38;2;136;136;136m↻ 10:00\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136m7D\u001b[0m  \u001b[38;2;255;193;7m71%\u001b[0m \u001b[38;2;136;136;136m↻ 01-18 08:00\u001b[0m"
+  },
+  {
+   "name": "openai-oauth at 100 columns shows two windows",
+   "expected": "\u001b[1mGPT-5.5\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m \u001b[1mHigh\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136m5H\u001b[0m  \u001b[38;2;0;170;75m42%\u001b[0m \u001b[38;2;136;136;136m↻ 10:00\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136m7D\u001b[0m  \u001b[38;2;255;193;7m71%\u001b[0m \u001b[38;2;136;136;136m↻ 01-18 08:00\u001b[0m"
+  },
+  {
+   "name": "openai-oauth at 60 columns shows one window, no alignment",
+   "expected": "\u001b[1mGPT-5.5\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m \u001b[1mHigh\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m26%\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136m5H\u001b[0m \u001b[38;2;0;170;75m42%\u001b[0m \u001b[38;2;136;136;136m↻ 10:00\u001b[0m"
+  },
+  {
+   "name": "anthropic-oauth with credits balance and a non-default account",
+   "expected": "\u001b[1mOpus 4.7\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m \u001b[1mXHigh\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m \u001b[1mFast\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136m5H\u001b[0m  \u001b[38;2;255;193;7m83%\u001b[0m \u001b[38;2;136;136;136m↻ 08:40\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136m7D\u001b[0m  \u001b[38;2;0;170;75m12%\u001b[0m \u001b[38;2;136;136;136m↻ 01-20 08:00\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136mCredit\u001b[0m $13"
+  },
+  {
+   "name": "grok-oauth with dollar and credit windows",
+   "expected": "\u001b[1mGrok 4\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136mCREDIT\u001b[0m \u001b[38;2;255;193;7m$3.20\u001b[0m \u001b[38;2;136;136;136m↻ 14:00\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136mM\u001b[0m $4.50/$20 \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136mPRO\u001b[0m \u001b[38;2;255;193;7m1.3K/5.0K\u001b[0m"
+  },
+  {
+   "name": "a snapshot older than the process is not shown for an OAuth route",
+   "expected": "\u001b[1mGPT-5.5\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m \u001b[1mHigh\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
+   "name": "plain API route: session spend and a configured budget balance",
+   "expected": "\u001b[1mDeepSeek Chat\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136mSESS\u001b[0m $0.412 \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136mCredit\u001b[0m $50"
+  },
+  {
+   "name": "plain API route with no events and no balance shows no usage segment",
+   "expected": "\u001b[1mDeepSeek Chat\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
+   "name": "configured local budget window with spend",
+   "expected": "\u001b[1mQwen3 Coder\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136m24H\u001b[0m \u001b[38;2;255;193;7mest $7.50\u001b[0m"
+  },
+  {
+   "name": "gateway module disabled hides the primary status",
+   "expected": "\u001b[1mGPT-5.5\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m \u001b[1mHigh\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136m5H\u001b[0m  \u001b[38;2;0;170;75m42%\u001b[0m \u001b[38;2;136;136;136m↻ 10:00\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136m7D\u001b[0m  \u001b[38;2;255;193;7m71%\u001b[0m \u001b[38;2;136;136;136m↻ 01-18 08:00\u001b[0m"
+  },
+  {
+   "name": "second line: agents, web search and a running memory cycle",
+   "expected": "\u001b[1mGPT-5.5\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m \u001b[1mHigh\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136m5H\u001b[0m  \u001b[38;2;0;170;75m42%\u001b[0m \u001b[38;2;136;136;136m↻ 10:00\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136m7D\u001b[0m  \u001b[38;2;255;193;7m71%\u001b[0m \u001b[38;2;136;136;136m↻ 01-18 08:00\u001b[0m\n\u001b[38;2;0;170;75m⠋\u001b[0m \u001b[1mRunning 2 Agents\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m 1m 5s \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m⠋\u001b[0m \u001b[1mWeb Searching\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m 30s \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m⠋\u001b[0m \u001b[1mMemory\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m 42s"
+  },
+  {
+   "name": "a stale memory cycle marker is ignored",
+   "expected": "\u001b[1mGPT-5.5\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m \u001b[1mHigh\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136m5H\u001b[0m  \u001b[38;2;0;170;75m42%\u001b[0m \u001b[38;2;136;136;136m↻ 10:00\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136m7D\u001b[0m  \u001b[38;2;255;193;7m71%\u001b[0m \u001b[38;2;136;136;136m↻ 01-18 08:00\u001b[0m"
+  },
+  {
+   "name": "model names: catalog display names across providers",
+   "expected": "\u001b[1mGemini 2.5 Pro\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m \u001b[1mMedium\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
+   "name": "model names: dated Claude id on an API route",
+   "expected": "\u001b[1mSonnet 4.5\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
+   "name": "model names: GLM and a long custom id at 60 columns",
+   "expected": "\u001b[1mGLM-4.6-Very-Long…\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m \u001b[1mLow\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m \u001b[1mUltrafast\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m26%\u001b[0m"
+  }
+ ]
+}
