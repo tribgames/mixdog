@@ -173,6 +173,7 @@ fn user_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
         }
     }
     let device = take_str(&mut row, "device");
+    let client_submission_id = take_str(&mut row, "clientSubmissionId");
     let checkpoint_id = take_str(&mut row, "checkpointId");
     let applied_skills = row.shift_remove("appliedSkills").and_then(|skills| serde_json::from_value::<Vec<String>>(skills).ok());
     row.shift_remove("expanded");
@@ -181,7 +182,7 @@ fn user_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
         id: item_id(&id),
         content: vec![UserInput::Text { text: text.clone() }],
         device,
-        client_submission_id: None,
+        client_submission_id,
         checkpoint_id,
         applied_skills,
         display_text: text,
