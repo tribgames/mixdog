@@ -65,17 +65,6 @@ struct Inner {
     work: RunningWork,
     local_tz: Tz,
     state: Mutex<State>,
-    /// Open unless a start holds it: the writes of the armed next fires wait for it (StampHold).
-    stamps_open: tokio::sync::watch::Sender<bool>,
-}
-
-/// While alive, the next-fire writes of newly armed schedules wait; dropping it lets them go.
-pub struct StampHold(tokio::sync::watch::Sender<bool>);
-
-impl Drop for StampHold {
-    fn drop(&mut self) {
-        self.0.send_replace(true);
-    }
 }
 
 #[derive(Clone)]
@@ -115,16 +104,7 @@ impl Scheduler {
         schedules: Vec<Schedule>,
     ) -> Self {
         let state = State { schedules: schedules.into_iter().filter(|s| s.enabled).collect(), ..State::default() };
-        Self { inner: Arc::new(Inner { store, runner, clock, work, local_tz, state: Mutex::new(state), stamps_open: tokio::sync::watch::channel(true).0 }) }
-    }
-
-    /// Holds back the next-fire writes of schedules armed from now on until the guard drops. Node's
-    /// setNextFire is a fire-and-forget database write that lands after the synchronous steps that
-    /// follow the arming (scheduler.mjs:313); a start holds them across its webhook sync so the
-    /// stamps are visible after it, not before.
-    pub fn hold_stamps(&self) -> StampHold {
-        self.inner.stamps_open.send_replace(false);
-        StampHold(self.inner.stamps_open.clone())
+        Self { inner: Arc::new(Inner { store, runner, clock, work, local_tz, state: Mutex::new(state) }) }
     }
 
     /// Arms every loaded schedule. A no-op when already started or when none is loaded.
@@ -396,9 +376,7 @@ impl Inner {
             if let Some(next) = expected {
                 let store = Arc::clone(&inner.store);
                 let n = name.clone();
-                let mut open = inner.stamps_open.subscribe();
                 tokio::spawn(async move {
-                    let _ = open.wait_for(|open| *open).await;
                     // `scheduler.mjs:311`: a failed write is logged, the schedule still runs.
                     if let Err(err) = store.set_next_fire(&n, Some(next)).await {
                         mixdog_rt::node_stderr!("mixdog scheduler: {n} setNextFire failed: {err}");
@@ -440,9 +418,7 @@ impl Inner {
         self.update(name, |s| s.next_fire_at = Some(shown));
         let store = Arc::clone(&self.store);
         let persist_name = name.to_string();
-        let mut open = self.stamps_open.subscribe();
         self.spawn_task(name, async move {
-            let _ = open.wait_for(|open| *open).await;
             let _ = store.set_next_fire(&persist_name, Some(shown)).await;
             loop {
                 let wait = (fire_at - inner.clock.now()).num_milliseconds();

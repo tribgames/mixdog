@@ -780,43 +780,6 @@ async fn a_schedule_read_back_before_the_deferred_start_has_no_scheduler_stamped
     e.runtime.scheduled_start_settled().await;
     e.runtime.stop_owned_runtime("test").await.unwrap();
 }
-/// Recorded from the Node daemon at b6f10295a (harness case `saveSchedule`: `saveSchedule` →
-/// `getChannelSetup`, then `saveScheduleSettled`'s second `getChannelSetup` after the start has
-/// completed). Only the machine-specific values are masked, the same way on both sides: the relay
-/// device id (`<id>`) and the next-fire instant (`<ts>`, a clock value). The recording ran in
-/// Asia/Seoul, which the replayed call states instead of defaulting to it.
-const NODE_SAVE: &str = r#"{"name":"harness-schedule","description":"A schedule","time":"0 9 * * *","whenCron":"0 9 * * *","timezone":"Asia/Seoul","enabled":true,"instructions":"Say hello.","owner":"lead","executorAgentId":null,"consecutiveFailures":0}"#;
-const NODE_READBACK_AT_ONCE: &str = r#"{"webhook":{"enabled":true,"port":3333,"publicUrl":"https://relay.example/hook/<id>"},"schedules":[{"name":"harness-schedule","description":"A schedule","time":"0 9 * * *","whenCron":"0 9 * * *","timezone":"Asia/Seoul","enabled":true,"instructions":"Say hello.","owner":"lead","executorAgentId":null,"consecutiveFailures":0}],"webhooks":[]}"#;
-const NODE_READBACK_SETTLED: &str = r#"{"webhook":{"enabled":true,"port":3333,"publicUrl":"https://relay.example/hook/<id>"},"schedules":[{"name":"harness-schedule","description":"A schedule","time":"0 9 * * *","whenCron":"0 9 * * *","timezone":"Asia/Seoul","enabled":true,"instructions":"Say hello.","owner":"lead","executorAgentId":null,"nextFireAt":"<ts>","consecutiveFailures":0}],"webhooks":[]}"#;
-
-/// A readback right after the save sees the start's relay identity but not yet the scheduler's
-/// stamped next fire; the next one, after the start completed, sees both (Node's order).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_readbacks_after_a_schedule_save_match_the_node_recording() {
-    let e = env().await;
-    *e.base.0.lock().unwrap() = Some("https://relay.example/hook/<id>".into());
-    let saved = e
-        .admin
-        .save_schedule(&json!({"name": "harness-schedule", "description": "A schedule", "time": "0 9 * * *", "timezone": "Asia/Seoul", "instructions": "Say hello."}))
-        .await
-        .unwrap();
-    assert_eq!(saved, serde_json::from_str::<Value>(NODE_SAVE).unwrap());
-    let at_once = e.admin.get_channel_setup().await.unwrap();
-    assert_eq!(at_once, serde_json::from_str::<Value>(NODE_READBACK_AT_ONCE).unwrap());
-    e.runtime.scheduled_start_settled().await;
-    let mut settled = Value::Null;
-    for _ in 0..100 {
-        settled = e.admin.get_channel_setup().await.unwrap();
-        if settled["schedules"][0].get("nextFireAt").is_some() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    assert!(settled["schedules"][0]["nextFireAt"].is_string());
-    settled["schedules"][0]["nextFireAt"] = json!("<ts>");
-    assert_eq!(settled, serde_json::from_str::<Value>(NODE_READBACK_SETTLED).unwrap());
-    e.runtime.stop_owned_runtime("test").await.unwrap();
-}
 /// The same for a start stuck in the provider init, which `stop_owned_runtime` alone would leave
 /// (nothing is running yet, so it returns early): the shutdown cancels and joins it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -926,5 +889,170 @@ async fn saving_a_webhook_leaves_the_hook_identity_and_the_setup_shows_the_publi
     let stored: Value = serde_json::from_slice(&tokio::fs::read(data.path().join("relay-hook-device.json")).await.unwrap()).unwrap();
     let id = stored["deviceId"].as_str().unwrap();
     assert_eq!(admin.get_channel_setup().await.unwrap()["webhook"]["publicUrl"], format!("http://127.0.0.1:9/hook/{id}"));
+    runtime.stop_owned_runtime("test").await.unwrap();
+}
+
+/// The schedule store of the scheduler with its next-fire write held until a permit is given: the
+/// boundary "stamp write pending" of Node's unawaited `setNextFire` (`scheduler.mjs:311`).
+struct GatedStamps {
+    inner: Arc<StateScheduleStore>,
+    gate: Arc<tokio::sync::Semaphore>,
+}
+
+#[async_trait]
+impl ScheduleStore for GatedStamps {
+    async fn get(&self, name: &str) -> Result<Option<Schedule>, ScheduleError> {
+        self.inner.get(name).await
+    }
+    async fn list(&self) -> Result<Vec<Schedule>, ScheduleError> {
+        self.inner.list().await
+    }
+    async fn mark_fired(&self, name: &str, at: chrono::DateTime<chrono::Utc>) -> Result<(), ScheduleError> {
+        self.inner.mark_fired(name, at).await
+    }
+    async fn set_next_fire(&self, name: &str, at: Option<chrono::DateTime<chrono::Utc>>) -> Result<(), ScheduleError> {
+        self.gate.acquire().await.expect("the gate stays open").forget();
+        self.inner.set_next_fire(name, at).await
+    }
+    async fn advance_cursor(&self, name: &str, s: chrono::DateTime<chrono::Utc>, next: Option<chrono::DateTime<chrono::Utc>>) -> Result<bool, ScheduleError> {
+        self.inner.advance_cursor(name, s, next).await
+    }
+    async fn claim_run(&self, name: &str, s: chrono::DateTime<chrono::Utc>, started: chrono::DateTime<chrono::Utc>, next: Option<chrono::DateTime<chrono::Utc>>) -> Result<bool, ScheduleError> {
+        self.inner.claim_run(name, s, started, next).await
+    }
+    async fn mark_success(&self, name: &str, at: chrono::DateTime<chrono::Utc>) -> Result<(), ScheduleError> {
+        self.inner.mark_success(name, at).await
+    }
+    async fn mark_failure(&self, name: &str, at: chrono::DateTime<chrono::Utc>) -> Result<(), ScheduleError> {
+        self.inner.mark_failure(name, at).await
+    }
+    async fn mark_skipped(&self, name: &str, at: chrono::DateTime<chrono::Utc>) -> Result<(), ScheduleError> {
+        self.inner.mark_skipped(name, at).await
+    }
+    async fn mark_done(&self, name: &str) -> Result<(), ScheduleError> {
+        self.inner.mark_done(name).await
+    }
+    async fn set_deferred(&self, name: &str, until: Option<chrono::DateTime<chrono::Utc>>) -> Result<(), ScheduleError> {
+        self.inner.set_deferred(name, until).await
+    }
+    async fn set_skipped_until(&self, name: &str, until: Option<chrono::DateTime<chrono::Utc>>) -> Result<(), ScheduleError> {
+        self.inner.set_skipped_until(name, until).await
+    }
+}
+
+/// The next `0 9 * * *` after `now` in Asia/Seoul, as the millisecond ISO string a readback shows.
+fn next_nine_seoul(now: chrono::DateTime<chrono::Utc>) -> String {
+    use chrono::TimeZone;
+    let seoul: Tz = "Asia/Seoul".parse().unwrap();
+    let local = now.with_timezone(&seoul);
+    let mut day = local.date_naive();
+    loop {
+        let at = seoul.from_local_datetime(&day.and_hms_opt(9, 0, 0).unwrap()).unwrap().with_timezone(&chrono::Utc);
+        if at > now {
+            return at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        }
+        day = day.succ_opt().unwrap();
+    }
+}
+
+/// A readback with the generated parts normalised the same way on both sides: the relay base and
+/// the device id of the public URL (their structure is checked, not copied).
+fn normalise_setup(mut setup: Value, relay_base: &str) -> Value {
+    if let Some(url) = setup["webhook"]["publicUrl"].as_str() {
+        let id = url.strip_prefix(&format!("{relay_base}/hook/")).unwrap_or_else(|| panic!("public url {url} is not {relay_base}/hook/<id>"));
+        assert!(id.len() == 36 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'), "device id {id}");
+        setup["webhook"]["publicUrl"] = json!("<relay>/hook/<id>");
+    }
+    setup
+}
+
+/// The readbacks after a schedule save, at the boundaries of Node's save path, replayed against the
+/// recording of Node b6f10295a (`fixtures/node_schedule_boundaries.json`, written by the harness's
+/// `capability/node-boundaries.mjs` with Node's own modules over an isolated data directory): the
+/// start is pending (provider init); the listener is bound and the identity persisted while the
+/// next-fire write is still pending; the write has completed. Real webhook server, relay tunnel
+/// starter and identity file; the stamp write is the gated store.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_readbacks_at_each_boundary_of_a_schedule_save_equal_the_node_recording() {
+    let recorded: Value = serde_json::from_str(include_str!("fixtures/node_schedule_boundaries.json")).unwrap();
+    let node = |name: &str| recorded["steps"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap()["value"].clone();
+    let node_base = recorded["relayUrl"].as_str().unwrap().replacen("wss://", "https://", 1);
+
+    // The recording's own next fire is the next 09:00 Seoul after the instant the scheduler armed.
+    let armed_at = chrono::DateTime::parse_from_rfc3339(recorded["armedAt"].as_str().unwrap()).unwrap().with_timezone(&chrono::Utc);
+    assert_eq!(node("readback:stamp-completed")["schedules"][0]["nextFireAt"], next_nine_seoul(armed_at));
+
+    let e = env().await;
+    let data = tempfile::tempdir().unwrap();
+    let relay = "ws://127.0.0.1:9";
+    let service = Arc::new(WebhookService::new(
+        e.webhooks.clone(),
+        Arc::new(HomeWebhookDispatch::new(e.routines.clone(), e.webhooks.clone(), None, e.work.clone())),
+        WebhookConfig::default(),
+        e.work.clone(),
+        Arc::new(|| 0),
+    ));
+    let tunnels = Arc::new(RelayTunnelStarter::new(tokens().durability_io, data.path().to_path_buf(), Some(relay.into())));
+    let listener = Arc::new(LoopbackServer { service: service.clone(), tunnels, server: tokio::sync::Mutex::new(None) });
+    let automation = Arc::new(WebhookAutomation::new(e.settings.clone(), service, listener));
+    let stamps = Arc::new(tokio::sync::Semaphore::new(0));
+    let store = Arc::new(GatedStamps { inner: e.schedules.clone(), gate: stamps.clone() });
+    let scheduler = Scheduler::new(store, Arc::new(HomeScheduleRunner::new(e.routines.clone())), Arc::new(SystemClock), e.work.clone(), Tz::UTC, Vec::new());
+    let runtime = ChannelRuntime::new(scheduler, e.schedules.clone(), automation, e.agent.clone());
+    let admin = ChannelAdmin::new(AdminDeps {
+        schedules: e.schedules.clone(),
+        webhooks: e.webhooks.clone(),
+        routines: e.routines.clone(),
+        runtime: runtime.clone(),
+        settings: e.settings.clone(),
+        base: Arc::new(IdentityFileBase { data_dir: data.path().to_path_buf(), relay: relay.into() }),
+        probe: e.probe.clone(),
+        clock: Arc::new(SystemClock),
+        local_tz: Tz::UTC,
+        channel_start_disabled: false,
+        close_requested: CancellationToken::new(),
+    });
+    let init = Arc::new(tokio::sync::Semaphore::new(0));
+    *e.agent.init_gate.lock().unwrap() = Some(init.clone());
+    let before = chrono::Utc::now();
+    admin
+        .save_schedule(&json!({"name": "harness-schedule", "description": "A schedule", "time": "0 9 * * *", "timezone": "Asia/Seoul", "instructions": "Say hello."}))
+        .await
+        .unwrap();
+
+    // Boundary 1: the start is pending.
+    let setup = normalise_setup(admin.get_channel_setup().await.unwrap(), "http://127.0.0.1:9");
+    assert_eq!(setup, normalise_setup(node("readback:start-pending"), &node_base));
+
+    // Boundary 2: the listener is bound and the identity persisted; the next-fire write is pending.
+    init.add_permits(1);
+    let mut setup = Value::Null;
+    for _ in 0..200 {
+        setup = admin.get_channel_setup().await.unwrap();
+        if !setup["webhook"]["publicUrl"].is_null() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(setup["schedules"][0].get("nextFireAt").is_none(), "the write is gated: {setup}");
+    assert_eq!(normalise_setup(setup, "http://127.0.0.1:9"), normalise_setup(node("readback:identity-persisted-stamp-pending"), &node_base));
+
+    // Boundary 3: the write has completed.
+    stamps.add_permits(1);
+    let mut setup = Value::Null;
+    for _ in 0..200 {
+        setup = admin.get_channel_setup().await.unwrap();
+        if setup["schedules"][0].get("nextFireAt").is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let after = chrono::Utc::now();
+    let next = setup["schedules"][0]["nextFireAt"].as_str().unwrap().to_string();
+    assert!(next == next_nine_seoul(before) || next == next_nine_seoul(after), "{next} is not the next 09:00 Asia/Seoul");
+    let mut expected = normalise_setup(node("readback:stamp-completed"), &node_base);
+    expected["schedules"][0]["nextFireAt"] = json!(next);
+    assert_eq!(normalise_setup(setup, "http://127.0.0.1:9"), expected);
+    runtime.scheduled_start_settled().await;
     runtime.stop_owned_runtime("test").await.unwrap();
 }
