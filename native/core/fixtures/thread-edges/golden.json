@@ -562,6 +562,149 @@
           "published": true
         }
       ]
+    },
+    {
+      "name": "rename-makes-a-meaningless-title-count",
+      "steps": [
+        {
+          "id": "s_r",
+          "record": {
+            "id": "s_r",
+            "updatedAt": 2500,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "---"
+          },
+          "roster": [],
+          "published": false
+        },
+        {
+          "id": "s_r",
+          "record": {
+            "id": "s_r",
+            "updatedAt": 2600,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "---",
+            "titleSource": "user",
+            "titleLocked": true
+          },
+          "roster": [
+            {
+              "id": "s_r",
+              "title": "---",
+              "preview": "",
+              "updatedAt": 2600,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_r",
+          "record": {
+            "id": "s_r",
+            "updatedAt": 2700,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "---",
+            "titleSource": "user",
+            "titleLocked": true
+          },
+          "roster": [
+            {
+              "id": "s_r",
+              "title": "---",
+              "preview": "",
+              "updatedAt": 2700,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "already-renamed-session",
+      "steps": [
+        {
+          "id": "s_n",
+          "record": {
+            "id": "s_n",
+            "updatedAt": 2800,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "---",
+            "titleSource": "user",
+            "titleLocked": true
+          },
+          "roster": [
+            {
+              "id": "s_n",
+              "title": "---",
+              "preview": "",
+              "updatedAt": 2800,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_n",
+          "record": {
+            "id": "s_n",
+            "updatedAt": 2900,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "---",
+            "titleSource": "user",
+            "titleLocked": true
+          },
+          "roster": [
+            {
+              "id": "s_n",
+              "title": "---",
+              "preview": "",
+              "updatedAt": 2900,
+              "messageCount": 0,
+              "cwd": "C:/w",
+              "classification": "project"
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "blank-name-keeps-nothing",
+      "steps": [
+        {
+          "id": "s_b",
+          "record": {
+            "id": "s_b",
+            "updatedAt": 3000,
+            "createdAt": 500,
+            "cwd": "C:/w",
+            "messages": [],
+            "title": "   ",
+            "titleSource": "user",
+            "titleLocked": true
+          },
+          "roster": [],
+          "published": false
+        }
+      ]
     }
   ],
   "gate": [

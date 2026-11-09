@@ -1175,7 +1175,7 @@
           ],
           "ok": true,
           "value": {
-            "id": "custom-987071fb-900c-4bc4-8fb2-81f89008bb14",
+            "id": "custom-00000000-0000-4000-8000-000000000001",
             "name": "Echo",
             "protocol": "openai-chat",
             "baseURL": "__BASE_URL__/e/v1",
@@ -1223,7 +1223,7 @@
                   "newModelsHidden": false
                 }
               },
-              "custom-987071fb-900c-4bc4-8fb2-81f89008bb14": {
+              "custom-00000000-0000-4000-8000-000000000001": {
                 "enabled": true,
                 "baseURL": "__BASE_URL__/e/v1",
                 "type": "custom",
@@ -1375,7 +1375,7 @@
             },
             {
               "id": "echo-1",
-              "provider": "custom-987071fb-900c-4bc4-8fb2-81f89008bb14",
+              "provider": "custom-00000000-0000-4000-8000-000000000001",
               "display": "echo-1",
               "created": null,
               "releaseDate": null,
@@ -1434,7 +1434,7 @@
           },
           "agentAfter": {
             "providers": {
-              "custom-987071fb-900c-4bc4-8fb2-81f89008bb14": {
+              "custom-00000000-0000-4000-8000-000000000001": {
                 "enabled": true,
                 "baseURL": "__BASE_URL__/e/v1",
                 "type": "custom",
@@ -1481,7 +1481,7 @@
           "value": [
             {
               "id": "echo-1",
-              "provider": "custom-987071fb-900c-4bc4-8fb2-81f89008bb14",
+              "provider": "custom-00000000-0000-4000-8000-000000000001",
               "display": "echo-1",
               "created": null,
               "releaseDate": null,

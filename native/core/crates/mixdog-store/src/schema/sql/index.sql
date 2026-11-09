@@ -1,4 +1,4 @@
--- index/store.sqlite, user_version 8: catalog + history projection + blob refs.
+-- index/store.sqlite, user_version 9: catalog + history projection + blob refs.
 -- Bump user_version with every change to this file: an index of another version is
 -- rebuilt from the logs, never opened or altered in place.
 -- Derived and rebuildable from sessions/*/log.* (FORMAT.md §8). Holds no user data.
@@ -7,7 +7,7 @@
 
 PRAGMA application_id = 1297631576; -- 0x4D584958 'MXIX'
 PRAGMA auto_vacuum = INCREMENTAL;
-PRAGMA user_version = 8;
+PRAGMA user_version = 9;
 
 -- Key/value: GC state (`gc:*`), maintenance job cursors (`job:<id>`).
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -75,7 +75,10 @@ CREATE TABLE sessions (
     -- The session's own `agentTag` and parent link (worker.rs `TagKeys`): the newest
     -- session per tag. NULL unless an agent registry session with a tag, not Lead pool.
     agent_tag TEXT,
-    agent_owner TEXT
+    agent_owner TEXT,
+    -- The name the user gave the session: the header's `title` when its `titleSource` is `user`
+    -- (`updateSessionManualTitle`); NULL otherwise. Node kept it as `names[id]` of the desktop's session metadata.
+    user_name TEXT
 );
 CREATE INDEX sessions_recent ON sessions(deleted, activity DESC, id);
 CREATE INDEX sessions_created ON sessions(deleted, created_at DESC, id);

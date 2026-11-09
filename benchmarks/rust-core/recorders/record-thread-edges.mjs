@@ -33,12 +33,29 @@ const triggers = [
   { name: 'update-and-quiet', writes: [rec('s_u', { title: 'Before', updatedAt: 1800 }), rec('s_u', { title: 'After', updatedAt: 1900 }), rec('s_u', { title: 'After', updatedAt: 1900 })] },
   { name: 'stops-being-listed', writes: [rec('s_gone', { title: 'Here', updatedAt: 2000 }), rec('s_gone', { updatedAt: 2100 })] },
   { name: 'two-sessions', writes: [rec('s_x', { title: 'X', updatedAt: 2200 }), rec('s_y', { title: 'Y', updatedAt: 2300 }), rec('s_x', { title: 'X2', updatedAt: 2400 })] },
+  // A rename (`renameSession`: the header's title with `titleSource: user`, and the name in the desktop's `names`) of a session whose
+  // generated title is meaningless: the name alone makes the row count. A later write keeps the name (the session may not be loaded).
+  {
+    name: 'rename-makes-a-meaningless-title-count',
+    writes: [
+      rec('s_r', { title: '---', updatedAt: 2500 }),
+      rec('s_r', { title: '---', titleSource: 'user', titleLocked: true, updatedAt: 2600 }),
+      rec('s_r', { title: '---', titleSource: 'user', titleLocked: true, updatedAt: 2700 }),
+    ],
+  },
+  // A session already named when the daemon starts: its first write lists it.
+  { name: 'already-renamed-session', writes: [rec('s_n', { title: '---', titleSource: 'user', titleLocked: true, updatedAt: 2800 }), rec('s_n', { title: '---', titleSource: 'user', titleLocked: true, updatedAt: 2900 })] },
+  // A name without a meaningful text keeps nothing.
+  { name: 'blank-name-keeps-nothing', writes: [rec('s_b', { title: '   ', titleSource: 'user', titleLocked: true, updatedAt: 3000 })] },
 ];
 
 // The roster Node holds after the writes so far (the last write of an id replaces it).
 const rosterOf = (records) => {
   const rows = [...records.values()].map(_sessionSummary).filter(isLeadVisibleRow);
-  return desktopSessionSummaries(rows)
+  // `names[id]`: what `renameSession` stored beside the header's user title (the session metadata, whatever the session's state).
+  const names = {};
+  for (const record of records.values()) if (record.titleSource === 'user') names[record.id] = record.title;
+  return desktopSessionSummaries(rows, {}, names)
     .map((row) => ({ id: row.id, title: row.title, preview: row.preview, updatedAt: row.updatedAt, messageCount: row.messageCount, cwd: row.cwd, classification: row.classification, ...(row.inheritedFromSessionId ? { inheritedFromSessionId: row.inheritedFromSessionId } : {}) }))
     .sort((a, b) => (a.id < b.id ? -1 : 1));
 };
