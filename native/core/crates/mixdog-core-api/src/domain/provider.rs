@@ -677,6 +677,10 @@ pub enum StreamEvent {
     /// `opts.onStageChange('notice', { tone, message })`: Gemini's dated model redirect). `warn` is tone `warn`;
     /// otherwise `info`. Folds into nothing.
     Notice { message: String, warn: bool },
+    /// The model that answered when the adapter served the request as another one than the request named (Node
+    /// `send` result `model`: Gemini's dated redirect). The usage ledger books the send under it and the turn's
+    /// response reports it.
+    ServedModel(String),
     /// The wire's terminal event. Exactly one per completed attempt, last.
     /// `stop` is `None` when the wire named no stop reason (Node
     /// `stopReason: null`: a plain Responses or Gemini completion); a decoder
@@ -889,6 +893,10 @@ pub struct ProviderError {
     /// rotation cools the whole account and rotates even when
     /// `unsafe_to_retry` is set.
     pub account_blocked: bool,
+    /// Display-only notices (message, `warn`) the adapter raised before the request failed, in the shape of
+    /// [`StreamEvent::Notice`]: Node's `onStageChange('notice', …)` fires before the request is built, so a
+    /// request that fails still shows them. Never matched or retried on.
+    pub notices: Vec<(String, bool)>,
     /// Re-sending this request is unsafe (Node `unsafeToRetry`) for a reason
     /// [`Exposure`] does not record, e.g. reasoning already streamed; set by
     /// the sender that knows it, never inferred downstream.
@@ -927,6 +935,7 @@ impl ProviderError {
             unsafe_to_retry: false,
             timed_out: false,
             quota_limit: None,
+            notices: Vec::new(),
         }
     }
 

@@ -587,8 +587,27 @@ fn max_tokens(cfg: &BodyConfig<'_>, request: &ModelRequest) -> u32 {
         (Some(configured), Some(declared)) => configured.min(declared),
         (Some(configured), None) => configured,
         (None, Some(declared)) => declared.min(MAX_TOKENS_SAFETY_CAP),
-        (None, None) => MAX_TOKENS_FLOOR,
+        (None, None) => family_max_tokens(&request.model).min(MAX_TOKENS_SAFETY_CAP),
     }
+}
+
+/// `fallbackAnthropicMaxTokens`: the limits known before the catalogs existed, for a model no catalog declares
+/// one for (an exact-id table of Node's coincides with these rules and the floor).
+fn family_max_tokens(model: &str) -> u32 {
+    let id = model.to_lowercase();
+    if id.contains("opus") || id.contains("fable") || id.contains("mythos") {
+        return 65536;
+    }
+    if let Some(rest) = id.strip_prefix("claude-sonnet-") {
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        if let Ok(version) = digits.parse::<u64>() {
+            return if version >= 5 { 65536 } else { 16384 };
+        }
+    }
+    if id.contains("sonnet") {
+        return 16384;
+    }
+    MAX_TOKENS_FLOOR
 }
 
 fn clamp_thinking_budget(desired: u64, max_tokens: u32) -> Option<u64> {

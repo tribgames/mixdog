@@ -332,7 +332,7 @@ impl MemoryStore {
         }
     }
 
-    pub(super) fn session(&self, http: Arc<ScriptedHttp>) -> Arc<OAuthSession> {
+    pub(super) fn session(&self, http: Arc<dyn HttpSend>) -> Arc<OAuthSession> {
         Arc::new(OAuthSession::new(self.file.clone(), http))
     }
 

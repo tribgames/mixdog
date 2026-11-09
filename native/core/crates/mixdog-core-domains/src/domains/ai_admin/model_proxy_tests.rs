@@ -182,11 +182,12 @@ fn variant_name(event: &p::StreamEvent) -> &'static str {
         E::ThinkingBlocks(_) => "ThinkingBlocks",
         E::ProviderState(_) => "ProviderState",
         E::Notice { .. } => "Notice",
+        E::ServedModel(_) => "ServedModel",
         E::Completed { .. } => "Completed",
     }
 }
 
-const STREAM_EVENT_VARIANTS: [&str; 20] = [
+const STREAM_EVENT_VARIANTS: [&str; 21] = [
     "ItemStart",
     "TextDelta",
     "ReasoningDelta",
@@ -206,6 +207,7 @@ const STREAM_EVENT_VARIANTS: [&str; 20] = [
     "ThinkingBlocks",
     "ProviderState",
     "Notice",
+    "ServedModel",
     "Completed",
 ];
 
@@ -241,6 +243,7 @@ fn every_stream_event_survives_the_wire() {
         p::StreamEvent::ThinkingBlocks(json!([{ "type": "thinking", "signature": "s" }])),
         p::StreamEvent::ProviderState(state),
         p::StreamEvent::Notice { message: "m".into(), warn: true },
+        p::StreamEvent::ServedModel("gemini-3.8-flash".into()),
         p::StreamEvent::Completed { stop: Some(p::StopReason::ToolUse), pricing_model: None, request_ms: None },
     ];
     let mut seen: Vec<&str> = events.iter().map(variant_name).collect();
@@ -322,6 +325,7 @@ fn events_and_failures_survive_the_wire() {
     error.transport = Some(p::TransportFault::KeepaliveExpired { transport: TransportKind::WebSocket });
     error.partial_usage = Some(Box::new(usage));
     error.message = "failed with Bearer abcdefghijkl".into();
+    error.notices = vec![("served as another model".into(), true), ("info only".into(), false)];
     let wire = failure_out(&error, w::ProxyOutcome::Fallback { model: "m2".into() });
     assert_eq!(wire.message, "failed with [redacted]");
     let (back, outcome) = failure_in(serde_json::from_str(&serde_json::to_string(&wire).unwrap()).unwrap()).unwrap();

@@ -8,11 +8,21 @@
 //! the model's capabilities are an input (the catalog's), taken from the recorded body's own fields.
 
 use std::collections::BTreeMap;
+use std::collections::VecDeque;
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::Duration;
 
+use async_trait::async_trait;
+use bytes::Bytes;
 use flate2::read::GzDecoder;
+use mixdog_core_api::domain::provider::DeliveryState;
+use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::TransportFault;
+use tokio::sync::oneshot;
 use mixdog_core_api::domain::provider::CacheTier;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::Message;
@@ -30,9 +40,11 @@ use super::AnthropicConfig;
 use super::ModelCaps;
 use super::effort_tests::tool_of;
 use super::tests::MemoryStore;
-use super::tests::Scripted;
-use super::tests::ScriptedHttp;
 use super::tests::cpu_bulk;
+use crate::transport::BodyStream;
+use crate::transport::Exchange;
+use crate::transport::HttpResponse;
+use crate::transport::HttpSend;
 
 #[allow(clippy::disallowed_methods, reason = "test-only read of a checked-in fixture file")]
 pub(crate) fn recording(file: &str) -> Value {
@@ -68,6 +80,7 @@ fn message_of(recorded: &Value) -> Message {
         message.source = Some(MessageSource::TailReminder);
     }
     message.turn_reminder = recorded["turnReminder"].as_str().map(str::to_owned);
+    message.assistant_blocks = recorded.get("assistantBlocks").filter(|blocks| !blocks.is_null()).cloned();
     message
 }
 
@@ -80,19 +93,34 @@ fn options_of(recorded: &Value) -> RequestOptions {
     }
 }
 
-/// The catalog's capabilities of the model, as the first recorded body shows them.
-fn caps_of_body(body: &Value) -> ModelCaps {
-    let adaptive = body["thinking"]["type"] == "adaptive";
-    ModelCaps {
-        adaptive_thinking: adaptive,
-        manual_thinking: false,
+/// The catalog's capabilities of a model, as the recording holds Node's answers for the same catalog (a catalog that
+/// lists the models by id only: the release-generation floor decides). They are inputs, taken from the functions the
+/// request builder asks, never from a recorded body; the product's catalog gives the same answers
+/// (`mixdog-core` `the_anthropic_wire_models_get_nodes_catalog_answers`).
+fn caps_of_catalog(capabilities: &Value, model: &str) -> Option<ModelCaps> {
+    let node = capabilities.get(model)?;
+    let flag = |key: &str| node[key].as_bool().expect("a recorded flag");
+    let mut effort_levels = Vec::new();
+    if flag("supportsEffort") {
+        effort_levels.extend(["low", "medium", "high"].map(str::to_owned));
+        if flag("supportsXhighEffort") {
+            effort_levels.push("xhigh".to_owned());
+        }
+        if flag("supportsMaxEffort") {
+            effort_levels.push("max".to_owned());
+        }
+    }
+    Some(ModelCaps {
+        // `shouldIncludeEffortBeta`: effort support and adaptive thinking together.
+        adaptive_thinking: flag("effortBeta"),
+        manual_thinking: !flag("adaptiveOnly"),
         ladder_stated: false,
-        effort_levels: if adaptive { ["low", "medium", "high", "max"].map(str::to_owned).to_vec() } else { Vec::new() },
-        max_output_tokens: body["max_tokens"].as_u64().map(|v| v as u32),
+        effort_levels,
+        max_output_tokens: node["declaredOutputTokens"].as_u64().map(|v| v as u32),
         fast_mode: false,
         context_window: None,
-        thinking_display_updates: body["thinking"]["display"] == "updates",
-    }
+        thinking_display_updates: flag("progressUpdates"),
+    })
 }
 
 /// Everything of a request the recording holds: method, url, headers by lowercase name, the body's text.
@@ -173,48 +201,183 @@ pub(crate) fn mismatch(want: &Seen, got: &Seen) -> Option<String> {
     Some(what.join("; "))
 }
 
+/// A reply body that arrives in pieces: the first at once, the rest when its gate opens (at once when it has none).
+/// Dropping it signals `done`, which is how the test knows the background read of `message_stop` has ended.
+struct Pieces {
+    first: Option<Bytes>,
+    gate: Option<oneshot::Receiver<()>>,
+    rest: VecDeque<Bytes>,
+    done: Option<oneshot::Sender<()>>,
+}
+
+#[async_trait]
+impl BodyStream for Pieces {
+    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
+        if let Some(chunk) = self.first.take() {
+            return Some(Ok(chunk));
+        }
+        if let Some(gate) = self.gate.take() {
+            // A gate dropped unopened ends the wait too: the test is over with the reply.
+            let _ = gate.await;
+        }
+        self.rest.pop_front().map(Ok)
+    }
+}
+
+impl Drop for Pieces {
+    fn drop(&mut self) {
+        if let Some(done) = self.done.take() {
+            let _ = done.send(());
+        }
+    }
+}
+
+/// The background read of one split reply: its gate (when the reply is held) and its end.
+pub(crate) struct Background {
+    release: Option<oneshot::Sender<()>>,
+    done: oneshot::Receiver<()>,
+}
+
+impl Background {
+    /// Opens the gate of a held reply and waits for its read to end.
+    async fn finish(mut self, what: &str) {
+        if let Some(gate) = self.release.take() {
+            let _ = gate.send(());
+        }
+        tokio::time::timeout(Duration::from_secs(10), self.done)
+            .await
+            .unwrap_or_else(|_| panic!("{what}: the background read of message_stop did not end within 10 s"))
+            .unwrap_or_else(|_| panic!("{what}: the reply body was lost before its read ended"));
+    }
+}
+
+/// Answers each request with the next recorded reply (a body, or the pieces of a split one) and keeps what was sent.
+struct Wire {
+    replies: Mutex<VecDeque<Value>>,
+    sent: Mutex<Vec<WireRequest>>,
+    background: Mutex<Vec<Background>>,
+}
+
+impl Wire {
+    fn new() -> Arc<Self> {
+        Arc::new(Self { replies: Mutex::default(), sent: Mutex::default(), background: Mutex::default() })
+    }
+}
+
+#[async_trait]
+impl HttpSend for Wire {
+    async fn send(&self, request: WireRequest, _exchange: Exchange) -> Result<HttpResponse, ProviderError> {
+        self.sent.lock().unwrap().push(request);
+        let Some(reply) = self.replies.lock().unwrap().pop_front() else {
+            let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
+            error.message = "no recorded reply for this request".into();
+            return Err(error);
+        };
+        let status = reply["status"].as_u64().expect("status") as u16;
+        let body = match reply["chunks"].as_array() {
+            None => Pieces { first: Some(Bytes::from(reply["body"].as_str().expect("reply body").to_owned())), gate: None, rest: VecDeque::new(), done: None },
+            Some(chunks) => {
+                let mut pieces: VecDeque<Bytes> = chunks.iter().map(|c| Bytes::from(c.as_str().expect("chunk").to_owned())).collect();
+                let first = pieces.pop_front();
+                let (done_tx, done_rx) = oneshot::channel();
+                let (release, gate) = if reply["hold"] == true {
+                    let (tx, rx) = oneshot::channel();
+                    (Some(tx), Some(rx))
+                } else {
+                    (None, None)
+                };
+                self.background.lock().unwrap().push(Background { release, done: done_rx });
+                Pieces { first, gate, rest: pieces, done: Some(done_tx) }
+            }
+        };
+        Ok(HttpResponse { status, headers: vec![], body: Box::new(body) })
+    }
+}
+
 #[tokio::test]
 async fn every_recorded_send_puts_the_requests_node_sent_on_the_wire() {
     let document = recording("anthropic.json");
     let scenarios = document["scenarios"].as_array().expect("scenarios");
-    assert_eq!(scenarios.len(), 26);
+    assert_eq!(scenarios.len(), 41);
     let mut differences = Vec::new();
     for scenario in scenarios {
         let id = scenario["id"].as_str().expect("id");
         let model = scenario["model"].as_str().expect("model");
         let sends = scenario["sends"].as_array().expect("sends");
-        let caps = caps_of_body(&serde_json::from_str::<Value>(sends[0]["requests"][0]["body"].as_str().expect("body")).expect("json"));
+        let catalog = document["capabilities"].clone();
         let tools: Vec<_> = scenario["tools"].as_array().expect("tools").iter().map(tool_of).collect();
-        let replies = sends.iter().flat_map(|s| s["replies"].as_array().expect("replies")).map(|r| Scripted::body(r["status"].as_u64().expect("status") as u16, r["body"].as_str().expect("reply body")));
-        let http = ScriptedHttp::new(replies);
+        let http = Wire::new();
         let store = MemoryStore::signed_in();
-        let mut config = AnthropicConfig::new(Arc::new(move |_: &str| Some(caps.clone())));
+        let mut config = AnthropicConfig::new(Arc::new(move |model: &str| caps_of_catalog(&catalog, model)));
         config.threads = Arc::new(super::threads::Threads::default());
         let adapter = AnthropicAdapter::oauth(config, http.clone(), store.session(http.clone()), false, cpu_bulk());
+        // Confirmations held back until the send after them is over.
+        let mut late: Vec<Background> = Vec::new();
         for (n, send) in sends.iter().enumerate() {
-            let before = http.sent().len();
-            let request = ModelRequest {
-                model: model.to_owned(),
-                messages: send["messages"].as_array().expect("messages").iter().map(message_of).collect(),
-                tools: tools.clone(),
-                options: options_of(&send["opts"]),
-            };
-            let mut stream = adapter.attempt(Arc::new(request)).await.unwrap_or_else(|e| panic!("{id} #{n}: {}", e.message));
-            while let Some(item) = stream.next().await {
-                item.unwrap_or_else(|e| panic!("{id} #{n}: {}", e.message));
-            }
-            drop(stream);
-            let sent = http.sent();
+            let what = format!("{id} #{n}");
             let wanted = send["requests"].as_array().expect("requests");
-            if sent.len() - before != wanted.len() {
-                differences.push(format!("{id} #{n}: Node sent {} request(s), Rust {}", wanted.len(), sent.len() - before));
-                continue;
-            }
-            for (i, (got, want)) in sent[before..].iter().zip(wanted).enumerate() {
-                if let Some(why) = mismatch(&seen_of_recorded(want), &seen_of_sent(got)) {
-                    differences.push(format!("{id} #{n} request {i}: {why}"));
+            let before = http.sent.lock().unwrap().len();
+            *http.replies.lock().unwrap() = send["replies"].as_array().expect("replies").iter().cloned().collect();
+            let mut options = options_of(&send["opts"]);
+            options.send_group = Some(what.clone());
+            let request = Arc::new(ModelRequest {
+                model: model.to_owned(),
+                // The messages as the agent hands them over: already paired (see the recorder).
+                messages: send.get("pairedMessages").unwrap_or(&send["messages"]).as_array().expect("messages").iter().map(message_of).collect(),
+                tools: tools.clone(),
+                options,
+            });
+            // The loop's retry: a failed attempt is made again while the recorded replies last.
+            loop {
+                let failed = match adapter.attempt(request.clone()).await {
+                    Err(error) => Some(error.message),
+                    Ok(mut stream) => {
+                        let mut failed = None;
+                        while let Some(item) = stream.next().await {
+                            if let Err(error) = item {
+                                failed = Some(error.message);
+                                break;
+                            }
+                        }
+                        failed
+                    }
+                };
+                match failed {
+                    None => break,
+                    Some(_) if !http.replies.lock().unwrap().is_empty() => {}
+                    Some(message) => {
+                        differences.push(format!("{what}: Rust's last attempt failed: {message}"));
+                        break;
+                    }
                 }
             }
+            let sent = http.sent.lock().unwrap().clone();
+            if sent.len() - before != wanted.len() {
+                differences.push(format!("{what}: Node sent {} request(s), Rust {}", wanted.len(), sent.len() - before));
+            } else {
+                for (i, (got, want)) in sent[before..].iter().zip(wanted).enumerate() {
+                    if let Some(why) = mismatch(&seen_of_recorded(want), &seen_of_sent(got)) {
+                        differences.push(format!("{what} request {i}: {why}"));
+                    }
+                }
+            }
+            // Node awaits the confirmation of a send before the next one unless the recording holds it back.
+            let fresh: Vec<Background> = http.background.lock().unwrap().drain(..).collect();
+            let held = send["receipt"] == "after";
+            let earlier = std::mem::take(&mut late);
+            if held {
+                late = fresh;
+            } else {
+                for background in fresh {
+                    background.finish(&what).await;
+                }
+            }
+            for background in earlier {
+                background.finish(&what).await;
+            }
+        }
+        for background in late {
+            background.finish(id).await;
         }
     }
     assert!(differences.is_empty(), "{} difference(s):\n{}", differences.len(), differences.join("\n"));
