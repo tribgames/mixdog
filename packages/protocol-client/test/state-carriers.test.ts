@@ -30,6 +30,7 @@ test('every field of the Node daemon state has a carrier in the fold', () => {
     for (const f of fields) if (node[f] === null) (state[section] as Obj)[f] = null;
     fields.forEach((f) => carried.add(f));
   }
+  assert.ok(node.queued !== undefined, 'the recorded state carries the queue');
   state.queued = node.queued;
   const fold = sessionReducer.initial({ thread: { id: String(node.sessionId) }, items: [], state } as unknown as Json);
   const got = desktopSessionState(fold, []) as Obj;
