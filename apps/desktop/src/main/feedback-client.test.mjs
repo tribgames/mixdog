@@ -14,8 +14,6 @@ import {
 } from '../shared/contract-feedback.ts';
 import { submitFeedback } from './feedback-client.ts';
 import { registerDesktopIpc } from './ipc.ts';
-import { createRemoteMethods } from './remote-methods.ts';
-
 const feedback = {
   id: '457e173a-0ec2-4405-afb7-98b15ea9bf74',
   kind: 'bug',
@@ -116,63 +114,6 @@ test('feedback client reports safe failures and never mistakes a failure for acc
       },
     }),
     { message: 'Unable to submit feedback. Please try again.' }
-  );
-});
-
-test('desktop sender-guarded IPC and paired remote method reach the same feedback endpoint', async (t) => {
-  const received = [];
-  const server = createServer(async (request, response) => {
-    let body = '';
-    for await (const chunk of request) body += chunk;
-    received.push({ path: request.url, method: request.method, body: JSON.parse(body) });
-    response.writeHead(202, { 'Content-Type': 'application/json' });
-    response.end(JSON.stringify({ id: feedback.id, status: 'accepted' }));
-  });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise((resolve) => server.close(resolve)));
-  const previous = process.env.MIXDOG_RELAY_URL;
-  process.env.MIXDOG_RELAY_URL = `ws://127.0.0.1:${server.address().port}`;
-  t.after(() => {
-    if (previous === undefined) delete process.env.MIXDOG_RELAY_URL;
-    else process.env.MIXDOG_RELAY_URL = previous;
-  });
-  const handlers = new Map();
-  const mainFrame = {};
-  const webContents = { mainFrame, isDestroyed: () => false, send() {}, on() {}, removeListener() {} };
-  const host = {
-    subscribe: () => () => {},
-    subscribeSessionStates: () => () => {},
-    listProjects: async () => [],
-    invokeDesktopOperation: async () => {
-      throw new Error('feedback must not enter the agent runtime');
-    },
-  };
-  const dispose = registerDesktopIpc({ webContents, isDestroyed: () => false }, host, {
-    app: { quit() {} },
-    ipcMain: {
-      handle: (channel, listener) => handlers.set(channel, listener),
-      removeHandler: (channel) => handlers.delete(channel),
-      on() {},
-      removeListener() {},
-    },
-    dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
-    shell: { openPath: async () => '', openExternal: async () => {} },
-  });
-  t.after(dispose);
-  const invoke = handlers.get(DESKTOP_IPC.submitFeedback);
-  assert.equal(typeof invoke, 'function');
-  await assert.rejects(async () => invoke({ sender: {}, senderFrame: {} }, feedback));
-  assert.equal(received.length, 0);
-  const receipt = { id: feedback.id, status: 'accepted' };
-  assert.deepEqual(await invoke({ sender: webContents, senderFrame: mainFrame }, feedback), receipt);
-  assert.deepEqual(await createRemoteMethods({ host }).submitFeedback([feedback]), receipt);
-  assert.deepEqual(
-    received,
-    Array.from({ length: 2 }, () => ({
-      path: '/feedback',
-      method: 'POST',
-      body: normalized,
-    }))
   );
 });
 

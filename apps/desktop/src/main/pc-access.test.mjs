@@ -5,8 +5,6 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { createPcAccess, pendingRevokesFile, unpairWithPcAccess } from './pc-access.ts';
-import { loadRemoteClientCache } from './remote-client-cache.ts';
-import { createRemoteControllerKeys } from './remote-controller-keys.ts';
 import { MAX_REMOTE_SCREEN_HELPER_KEYS } from '../shared/remote-webrtc.ts';
 import { generateSecureDesktopControllerKey } from '../shared/secure-desktop-grant.ts';
 
@@ -730,35 +728,6 @@ test('an unpair in flight holds every delivery: its pending revoke is not consum
   ]);
   assert.ok(!installer.enrolled.has(KEY_A));
   assert.deepEqual(pending.keys, []);
-});
-
-test('a phone’s replaced key is revoked before its new one enrolls (the real paired-device record)', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'mixdog-pc-access-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const controller = createRemoteControllerKeys(await loadRemoteClientCache(dir));
-  const installer = fakeInstaller({ state: 'installed' });
-  const access = createPcAccess({
-    installer,
-    pending: memoryPending(),
-    keys: async () => controller.list(),
-    owed: async () => controller.owed(),
-    settleOwed: (keys, unknown) => controller.settleOwed([keys, unknown]),
-  });
-  await controller.deliver('phone-a', KEY_A);
-  assert.equal(await access.delivered(KEY_A), 'enrolled');
-  // The phone cleared its app data and delivers a new key under the same pairing.
-  await controller.deliver('phone-a', KEY_B);
-  assert.equal(await access.delivered(KEY_B), 'enrolled');
-  assert.deepEqual(installer.calls, [
-    ['enroll', [KEY_A], { delegated: true }],
-    ['revoke', KEY_A, { delegated: true }],
-    ['enroll', [KEY_B], { delegated: true }],
-  ]);
-  assert.deepEqual([...installer.enrolled], [KEY_B]);
-  assert.deepEqual(controller.owed(), { keys: [], unknown: 0 }, 'taken over, then settled');
-  // A late delivery of the old key never enrolls it again.
-  assert.equal(await access.delivered(KEY_A), 'nothing');
-  assert.equal(installer.calls.length, 3);
 });
 
 test('only a phone paired now is enrolled', async () => {

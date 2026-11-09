@@ -19,7 +19,6 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { filePreviewServable, registerFilePreview, resolveFilePreview } from '../file-preview.ts';
-import { createRemoteVisualizeMethods, createRemoteVisualizeMirror } from '../remote-visualize.ts';
 import { panePreviewUrl } from './host-pane-preview.ts';
 import { VisualizeBridgeServer } from './bridge-server.ts';
 import { createDesktopVisualize, REMOTE_ONLY_ANNOTATE } from './host.ts';
@@ -670,105 +669,6 @@ test('a parent folder swapped for a link outside its recorded root stops serving
       [false]
     );
     assert.equal(watched.size, 0);
-  } finally {
-    service.dispose();
-    cleanup();
-  }
-});
-
-test('a page outside cwd opens with its own folder as root: assets, versions, restore and remote reads', async () => {
-  const { root, cwd, cleanup } = workspace();
-  const elsewhere = join(root, 'workspace', 'unclassified', 'design');
-  mkdirSync(elsewhere, { recursive: true });
-  const page = join(elsewhere, 'mockup.html');
-  const css = join(elsewhere, 'style.css');
-  const write = (word, color) => {
-    writeFileSync(page, `<link rel="stylesheet" href="style.css"><img src="pic.png"><h1>${word}</h1>`);
-    writeFileSync(css, `h1{color:${color}}`);
-  };
-  write('one', 'red');
-  writeFileSync(join(elsewhere, 'pic.png'), 'png');
-  writeFileSync(join(root, 'workspace', 'unclassified', 'above.css'), 'above');
-  const { deps, events, watched } = fakeDeps({
-    versions: { directory: join(root, 'app-data', 'visualize-versions') },
-    preparePane: (target) =>
-      panePreviewUrl(target, {
-        contents: () => undefined,
-        observe: () => {},
-        convertDocument: async () => {
-          throw new Error('no documents here');
-        },
-      }),
-  });
-  const service = createVisualizeService(deps);
-  const get = (url, path) =>
-    new Promise((resolve, reject) => {
-      const { hostname, port } = new URL(url);
-      const req = httpRequest({ hostname, port, path }, (response) => {
-        const chunks = [];
-        response.on('data', (chunk) => chunks.push(chunk));
-        response.on('end', () => resolve({ status: response.statusCode, body: Buffer.concat(chunks).toString() }));
-      });
-      req.on('error', reject);
-      req.end();
-    });
-  const latest = () => events.filter((event) => event.state).at(-1).state.tabs[0];
-  const command = (rest) => service.command({ sessionId: 's1', tabId: 'v1', ...rest });
-  try {
-    const opened = await service.execute({ sessionId: 's1', cwd, action: 'open', input: { targets: [page] } });
-    assert.match(opened.text, /as tab v1/);
-    assert.ok(opened.text.includes(realpathSync(page)), 'the result names the outside file by its path');
-
-    // Served from its own folder: the page and its sibling style and image,
-    // but nothing above that folder.
-    const url = latest().panes[0].url;
-    const { pathname } = new URL(url);
-    const prefix = pathname.slice(0, pathname.lastIndexOf('/'));
-    assert.match((await get(url, pathname)).body, /<h1>one<\/h1>/);
-    assert.deepEqual(await get(url, `${prefix}/style.css`), { status: 200, body: 'h1{color:red}' });
-    assert.equal((await get(url, `${prefix}/pic.png`)).status, 200);
-    assert.equal((await get(url, `${prefix}/../above.css`)).status, 404);
-    assert.equal((await get(url, `${prefix}/%2e%2e/above.css`)).status, 404);
-    assert.equal(latest().panes[0].file, 'mockup.html');
-
-    // A change keeps a version; the old one restores page and stylesheet in place.
-    write('two', 'blue');
-    [...watched.entries()].find(([path]) => path.endsWith('mockup.html'))[1]();
-    await service.settled();
-    assert.deepEqual(
-      latest().versions.map((version) => version.n),
-      [1, 2]
-    );
-    await command({ action: 'version', version: 1 });
-    assert.deepEqual(latest().restoreAssets, ['style.css']);
-    await command({ action: 'restore', version: 1, assets: ['style.css'] });
-    assert.match(readFileSync(page, 'utf8'), /<h1>one<\/h1>/);
-    assert.equal(readFileSync(css, 'utf8'), 'h1{color:red}');
-    assert.deepEqual(
-      latest().versions.map((version) => [version.n, version.label ?? '']),
-      [
-        [1, ''],
-        [2, ''],
-        [3, 'Restored from v1'],
-      ]
-    );
-
-    // A paired device reads the tab from the same root.
-    const host = service.hostSnapshot()[0];
-    assert.equal(host.tabs[0].panes[0].root, realpathSync(elsewhere));
-    const methods = createRemoteVisualizeMethods({
-      mirror: createRemoteVisualizeMirror(),
-      hostRequest: async (method) => (method === 'visualizeState' ? service.hostSnapshot() : null),
-      invokeDesktopOperation: async () => null,
-    });
-    const text = (range) => Buffer.from(range.data, 'base64').toString();
-    const remote = await methods.visualizePaneFile(['s1', 'v1', 0]);
-    assert.deepEqual([remote.kind, remote.rel], ['html', 'mockup.html']);
-    assert.match(text(await methods.visualizePaneRange(['s1', 'v1', 'mockup.html', 0, 200, 0])), /one/);
-    assert.equal(text(await methods.visualizePaneRange(['s1', 'v1', 'style.css', 0, 100, 0])), 'h1{color:red}');
-    await assert.rejects(methods.visualizePaneRange(['s1', 'v1', '../above.css', 0, 100, 0]), /outside the project/);
-    const json = JSON.stringify(remoteVisualizeState(host));
-    assert.equal(json.includes(JSON.stringify(realpathSync(root)).slice(1, -1)), false, 'no host path');
   } finally {
     service.dispose();
     cleanup();

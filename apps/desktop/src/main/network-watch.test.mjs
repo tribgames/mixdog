@@ -3,8 +3,6 @@ import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
 import { createNetworkWatcher, networkSignature } from './network-watch.ts';
-import { startRelayHeartbeat } from './remote-relay.ts';
-
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test('the watcher fires on coming back online and on an address change, not on steady state', async () => {
@@ -46,23 +44,4 @@ test('the signature ignores loopback and is order independent', () => {
     eth: [{ address: '10.0.0.2', internal: false }],
   });
   assert.equal(a, b);
-});
-
-test('a leg that stops answering pings is terminated within two heartbeat intervals', async () => {
-  class FakeSocket extends EventEmitter {
-    readyState = 1;
-    terminated = false;
-    ping() {}
-    terminate() {
-      this.terminated = true;
-    }
-  }
-  const ws = new FakeSocket();
-  const heartbeat = startRelayHeartbeat(ws, 15);
-  try {
-    await wait(70);
-    assert.equal(ws.terminated, true);
-  } finally {
-    heartbeat.stop();
-  }
 });
