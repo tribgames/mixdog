@@ -35,7 +35,7 @@ import { SteerStatus } from './transcript-steer-status';
 import { AppliedSkills, SkillMentionText, appliedSkillsOf } from './composer-skill-mentions';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { isInternalTranscriptDisplayText, isTranscriptCancelledStatusText, isTranscriptHiddenToolItem } from '../shared/core-src/runtime/shared/tool-execution-contract.mjs';
+import { isInternalTranscriptDisplayText, isTranscriptCancelledStatusText, isTranscriptHiddenToolItem } from '../../../../src/runtime/shared/tool-execution-contract.mjs';
 import { stripInjectedDisplayText, stripSessionEnvelope } from '../shared/session-title.mjs';
 import { routineNoticeText } from './routine-notice';
 import { RoomAddressChip, RoomTranscriptRow } from './agent-room-transcript';

@@ -3,7 +3,7 @@
 // the pet window draws it (skin-companion-pet.tsx).
 import { isRoutineQuietReply } from '../shared/core-src/runtime/shared/routine-trigger.mjs';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { isTranscriptCancelledStatusText } from '../shared/core-src/runtime/shared/tool-execution-contract.mjs';
+import { isTranscriptCancelledStatusText } from '../../../../src/runtime/shared/tool-execution-contract.mjs';
 import { DESKTOP_PET_REPLY_MAX, type DesktopPetBubble } from '../shared/desktop-pet';
 import type { TranscriptItem } from './desktop-types';
 import { completionTone } from './transcript-primitives';

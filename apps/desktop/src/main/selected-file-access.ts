@@ -7,7 +7,7 @@ import { absoluteLocalPath } from './local-files';
 import { requiredString } from './ipc-validation';
 import { LocalAccessDeniedError } from './local-access-denied';
 import { readSecretFile, writeSecretFile } from './secret-file';
-import { createKeyedSerialQueue } from '../shared/core-src/runtime/shared/keyed-serial-queue.mjs';
+import { createKeyedSerialQueue } from '../../../../src/runtime/shared/keyed-serial-queue.mjs';
 import {
   comparablePath,
   MAX_SELECTED_FILE_GRANTS,

@@ -1,7 +1,7 @@
 // Session message/preview text helpers. Pure, no runtime-closure deps.
-import { clean } from '../../../shared/clean.mjs';
+import { clean } from '../../../../../../../../../src/runtime/shared/clean.mjs';
 import { stripInjectedBlocks } from '../../../shared/injected-display-text.mjs';
-import { CONTROL_MARKER_RE } from '../../../shared/tool-execution-contract.mjs';
+import { CONTROL_MARKER_RE } from '../../../../../../../../../src/runtime/shared/tool-execution-contract.mjs';
 import { isRoutineQuietReply } from '../../../shared/routine-trigger.mjs';
 
 export function sessionMessageText(content) {
@@ -109,7 +109,7 @@ export function isLateToolAnnouncement(text) {
   return value.includes(LATE_TOOL_ANNOUNCEMENT_SENTINEL) && /<available-deferred-tools>/i.test(value);
 }
 
-export { hasOwn } from '../../../shared/object.mjs';
+export { hasOwn } from '../../../../../../../../../src/runtime/shared/object.mjs';
 
 export { clean };
 

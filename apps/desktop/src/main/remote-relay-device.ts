@@ -11,7 +11,7 @@ import {
   quarantinePath,
   withFileLock,
   writeJsonAtomicAsync,
-} from '../shared/core-src/runtime/shared/atomic-file.mjs';
+} from '../../../../src/runtime/shared/atomic-file.mjs';
 import { readSecretFile, writeSecretFile } from './secret-file';
 
 export const REVOKE_TIMEOUT_MS = 5_000;

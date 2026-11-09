@@ -4,7 +4,7 @@ import { completionTone } from './transcript-primitives';
 import { isVisibleTranscriptItem } from './transcript-row';
 import { streamingTextPaints } from './use-transcript-text-reveal';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { isTranscriptCancelledStatusText } from '../shared/core-src/runtime/shared/tool-execution-contract.mjs';
+import { isTranscriptCancelledStatusText } from '../../../../src/runtime/shared/tool-execution-contract.mjs';
 
 /**
  * Transcript projection: turn semantics are preserved as explicit row tags,

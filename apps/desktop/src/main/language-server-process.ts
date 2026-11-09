@@ -4,7 +4,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 
 import type { DesktopLspCapabilities } from '../shared/contract';
 // @ts-expect-error The shared runtime helper is plain ESM and has no declaration file.
-import { shutdownStdioChild } from '../shared/core-src/runtime/agent/orchestrator/mcp/child-tree.mjs';
+import { shutdownStdioChild } from '../../../../src/runtime/agent/orchestrator/mcp/child-tree.mjs';
 import { isPathUnderRoot } from './terminal-manager';
 import { type LanguageServerState, sessionKey } from './language-server-state';
 import type { LanguageServerSpec, ServerSession, WithTimeout } from './language-server-types';

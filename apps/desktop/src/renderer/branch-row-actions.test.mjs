@@ -96,7 +96,7 @@ test('branch actions inspect without switching, and merge sends confirmed commit
   assert.equal(f.refreshed(), 1);
 });
 test('refusals read exactly like the runtime (TUI, remote) in English and are translated elsewhere', async (t) => {
-  const { WORKTREE_REFUSAL_REASONS } = await import('../shared/core-src/runtime/shared/worktrees/contract.mjs');
+  const { WORKTREE_REFUSAL_REASONS } = await import('../../../../src/runtime/shared/worktrees/contract.mjs');
   const { DESKTOP_WORKTREE_REFUSAL_REASONS } = await import('../shared/contract.ts');
   assert.deepEqual([...DESKTOP_WORKTREE_REFUSAL_REASONS].sort(), Object.keys(WORKTREE_REFUSAL_REASONS).sort());
   const f = await fixture(t);

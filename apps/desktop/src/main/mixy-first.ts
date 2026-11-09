@@ -14,7 +14,7 @@
 // the seen ids; the first read records the existing ones without greeting).
 import { readFile } from 'node:fs/promises';
 import { agentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
-import { writeJsonAtomicAsync } from '../shared/core-src/runtime/shared/atomic-file.mjs';
+import { writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 import { MIXY_AGENT_ID, contactAgentRows } from '../shared/agent-contacts';
 
 export interface MixyStatusDeps {

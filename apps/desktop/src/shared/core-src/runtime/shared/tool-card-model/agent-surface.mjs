@@ -5,7 +5,7 @@
 import { displayModelName } from '../tool-surface.mjs';
 import { titleWord } from '../tool-primitives.mjs';
 import { backgroundTaskFailureStatusLabel } from '../err-text.mjs';
-import { parseTaskNotification } from '../task-notification-envelope.mjs';
+import { parseTaskNotification } from '../../../../../../../../src/runtime/shared/task-notification-envelope.mjs';
 import { leadingResultBlock } from '../tool-status.mjs';
 
 export function isAgentTool(normalizedName) {

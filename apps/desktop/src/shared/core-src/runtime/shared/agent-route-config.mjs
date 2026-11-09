@@ -1,4 +1,4 @@
-import { hasOwn, isPlainObject } from './object.mjs';
+import { hasOwn, isPlainObject } from '../../../../../../../src/runtime/shared/object.mjs';
 
 const REDUNDANT_WORKFLOW_PRESET_IDS = new Set(['workflow-agent', 'workflow-memory']);
 

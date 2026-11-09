@@ -6,7 +6,7 @@
 // was on screen, the update still waiting to be announced.
 import { readFile } from 'node:fs/promises';
 
-import { holdsNoData, writeFileAtomicAsync } from '../shared/core-src/runtime/shared/atomic-file.mjs';
+import { holdsNoData, writeFileAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 import { compareSemver } from '../shared/core-src/runtime/shared/semver.mjs';
 
 export const LAUNCH_VERSION_FILE = 'last-launch-version';

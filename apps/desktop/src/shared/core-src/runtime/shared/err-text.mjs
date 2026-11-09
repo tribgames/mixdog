@@ -1,6 +1,6 @@
 import { transportErrorText } from './transport-error-text.mjs';
 import { describeError, safeErrorDetails } from './error-presentation.mjs';
-import { oneLine } from './clean.mjs';
+import { oneLine } from '../../../../../../../src/runtime/shared/clean.mjs';
 import { TIMEOUT_PHASE, isFirstByteTimeout } from './provider-timeout-phase.mjs';
 
 // HTTP status carried by a provider/transport error, or 0 when absent.

@@ -9,7 +9,7 @@ import {
   quarantinePath,
   writeFileAtomicAsync,
   writeJsonAtomicAsync,
-} from '../shared/core-src/runtime/shared/atomic-file.mjs';
+} from '../../../../src/runtime/shared/atomic-file.mjs';
 import type { DesktopRemoteClientInfo } from '../shared/contract';
 import type { RemoteControllerKeyRecord, RemoteControllerKeysOwed } from '../shared/remote-controller-key';
 import { MAX_REMOTE_SCREEN_HELPER_KEYS } from '../shared/remote-webrtc';

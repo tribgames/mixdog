@@ -6,7 +6,7 @@ import {
   readJsonState,
   readJsonStateSync,
   writeJsonAtomicAsync,
-} from '../../shared/core-src/runtime/shared/atomic-file.mjs';
+} from '../../../../../src/runtime/shared/atomic-file.mjs';
 import type { SshHostSettings } from './ssh-context';
 import { parseSshTarget, sshTargetKey } from './ssh-command';
 

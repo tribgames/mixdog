@@ -3,7 +3,7 @@ import { t } from './i18n';
 import { asRecord } from './text-format';
 import { boundedTextOf } from './transcript-tool-core';
 // @ts-expect-error Shared runtime module is JavaScript.
-import { parseTaskNotification } from '../shared/core-src/runtime/shared/task-notification-envelope.mjs';
+import { parseTaskNotification } from '../../../../src/runtime/shared/task-notification-envelope.mjs';
 import {
   TOOL_ACTIVITY_ROUTINE_RESULT,
   TOOL_DETAIL_LABELS,

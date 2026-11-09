@@ -1,5 +1,5 @@
-import { clean } from './clean.mjs';
-import { positiveInt } from './numbers.mjs';
+import { clean } from '../../../../../../../src/runtime/shared/clean.mjs';
+import { positiveInt } from '../../../../../../../src/runtime/shared/numbers.mjs';
 
 export const TAG_TOMBSTONE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 

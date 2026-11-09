@@ -19,7 +19,7 @@ import { join, resolve } from 'node:path';
 import { describe, test as nodeTest } from 'node:test';
 
 import { requiredReviewSource } from './git-contract.mjs';
-import { killProcessTrees, killProcessTreesSync } from '../shared/core-src/runtime/agent/orchestrator/mcp/child-tree.mjs';
+import { killProcessTrees, killProcessTreesSync } from '../../../../src/runtime/agent/orchestrator/mcp/child-tree.mjs';
 import { buildGhPrCreateArgs } from './gh-cli.ts';
 import {
   GIT_RESET_DIRTY_CODE,

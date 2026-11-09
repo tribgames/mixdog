@@ -13,7 +13,7 @@ import {
   truncateSingleLine,
   truncateToolText,
 } from './tool-primitives.mjs';
-import { parseTaskNotification } from './task-notification-envelope.mjs';
+import { parseTaskNotification } from '../../../../../../../src/runtime/shared/task-notification-envelope.mjs';
 import { gitResultError, gitResultExitCode } from './tool-card-model/git-result.mjs';
 import { mediaResultSummary } from './tool-card-model/media-result.mjs';
 

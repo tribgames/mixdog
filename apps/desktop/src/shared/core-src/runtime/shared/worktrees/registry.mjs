@@ -14,10 +14,10 @@
  * touched by that).
  */
 import { join } from 'node:path';
-import { readJsonState, readJsonStateSync, updateJsonAtomic } from '../atomic-file.mjs';
-import { isPlainObject } from '../object.mjs';
-import { resolvePluginData } from '../plugin-paths.mjs';
-import { normalizeWorktreeEntry, WORKTREE_SNAPSHOT_KIND, WORKTREE_STORE_DIR } from './contract.mjs';
+import { readJsonState, readJsonStateSync, updateJsonAtomic } from '../../../../../../../../src/runtime/shared/atomic-file.mjs';
+import { isPlainObject } from '../../../../../../../../src/runtime/shared/object.mjs';
+import { resolvePluginData } from '../../../../../../../../src/runtime/shared/plugin-paths.mjs';
+import { normalizeWorktreeEntry, WORKTREE_SNAPSHOT_KIND, WORKTREE_STORE_DIR } from '../../../../../../../../src/runtime/shared/worktrees/contract.mjs';
 
 const REGISTRY_VERSION = 1;
 

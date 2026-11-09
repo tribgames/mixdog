@@ -2,7 +2,7 @@ import { app } from 'electron';
 import { readFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { writeJsonAtomicAsync } from '../shared/core-src/runtime/shared/atomic-file.mjs';
+import { writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 import type { DesktopUpdaterState } from '../shared/contract';
 import { createUpdaterController, startUnattendedInstall, type UpdaterReadyRecord } from './updater-controller';
 import { createCoreUpdateGate, ctlWaitExit } from './updater-core';

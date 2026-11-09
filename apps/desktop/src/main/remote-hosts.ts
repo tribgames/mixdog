@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 
-import { readJsonState, writeJsonAtomicAsync } from '../shared/core-src/runtime/shared/atomic-file.mjs';
+import { readJsonState, writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 import type { DesktopRemoteHost } from '../shared/contract';
 
 const HOSTS_FILE = 'remote-hosts.json';

@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseJsonText, updateJsonAtomic } from '../../../shared/atomic-file.mjs';
-import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
+import { parseJsonText, updateJsonAtomic } from '../../../../../../../../../src/runtime/shared/atomic-file.mjs';
+import { resolvePluginData } from '../../../../../../../../../src/runtime/shared/plugin-paths.mjs';
 
 // An OpenAI-compatible endpoint that rejects the requested reasoning effort
 // (HTTP 400 naming the value) is replayed once at the nearest accepted level,

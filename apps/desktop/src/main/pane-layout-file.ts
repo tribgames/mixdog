@@ -6,7 +6,7 @@
 // layout, and validates it the same way.
 import { readFileSync } from 'node:fs';
 
-import { writeFileAtomicAsync } from '../shared/core-src/runtime/shared/atomic-file.mjs';
+import { writeFileAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 
 export const PANE_LAYOUT_FILE = 'pane-layout.json';
 
