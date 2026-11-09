@@ -3,7 +3,7 @@
 // (remote-protocol-chat-live.recorded.json).
 //
 // Nothing is filtered: every field of every row, and the order of the rows, is compared. The mapping is representation only:
-//   ids        Node's `sess_N` is the live session `made.sess_N`
+//   ids        Node's `sess_N` is the live session `made.sess_N` (a room's own id likewise: made.room)
 //   folders    Node's `C:\proj\a|b` is the live project folder `projects.a|b`
 //   timestamps wall-clock times differ by run, so a Node time is mapped to the live time it first appears with, walking the recorded
 //              actions in order, each roster in Node's order, `updatedAt` then `activityAt` of each row (the same Node time must be the
@@ -40,6 +40,7 @@ export function createParity({ live, node, project }) {
 
   const mapped = (key, value) => {
     if (key === 'id' || key === 'inheritedFromSessionId') return idOf.get(value);
+    if (key === 'agentRoom') return { ...value, id: idOf.get(value.id) };
     if (key === 'cwd' || key === 'projectPath') return folders[value] ?? value;
     if (TIME_FIELDS.includes(key)) return times.get(value);
     return value;

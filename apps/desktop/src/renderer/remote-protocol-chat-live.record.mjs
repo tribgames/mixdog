@@ -7,6 +7,7 @@
 // The harness files this imports are pinned by sha256 in the recording's manifest. Nothing here waits for time: each step ends when the app
 // feed has delivered edges that fold to the core's own list (an event wait), and a hang ends the run through the harness deadline.
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { mkdirSync, readFileSync, rmSync, statSync, watch, existsSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -93,17 +94,17 @@ const until = (ready, what) => {
   return deadline.race(done.promise, what);
 };
 
-// What the app feed has said, folded the way a listener folds it (an edge's thread is the list row plus provider and model).
+// What the app feed has said, folded the way a listener folds it (an edge's thread is a list row).
 const folded = () => {
   const rows = new Map();
   for (const { method, params } of edges) {
     if (method === 'thread/deleted') rows.delete(params.threadId);
-    else if (method === 'thread/archived' || method === 'thread/unarchived') { const row = rows.get(params.threadId); if (row) rows.set(params.threadId, { ...row, archived: method === 'thread/archived' }); }
-    else { const { provider, model, ...row } = params.thread; rows.set(row.id, row); }
+    else if (method === 'thread/archived' || method === 'thread/unarchived') { const row = rows.get(params.threadId); if (row) rows.set(params.threadId, (method === 'thread/archived' ? { ...row, archived: true } : (({ archived, ...rest }) => rest)(row))); }
+    else { rows.set(params.thread.id, params.thread); }
   }
   return rows;
 };
-const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const same = isDeepStrictEqual;
 const steps = [];
 /** Ends a step: the core's list, then the wait until the feed's edges fold to exactly it (and `settled` holds of the folded rows). */
 async function step(name, action, settled = () => true) {
@@ -195,7 +196,9 @@ try {
     made.room = created.roomId;
     made.roomLog = created.sessionId;
   });
-  await step('agent-delete', () => op('agent/deleteAgentDefinition', { agentId: made.botOne }));
+  // The core retires the home after the delete's reply, as Node's host does (`void retireAgentHomes`, session-host-lifecycle.ts:1171): the
+  // step ends when the home row says it was retired and the room has dropped the bot.
+  await step('agent-delete', () => op('agent/deleteAgentDefinition', { agentId: made.botOne }), (rows) => rows.get(made.botOneHome)?.agentDeleted === true && !rows.get(made.roomLog)?.agentRoom?.members.includes(made.botOne));
   out = {
     manifest: {
       binary: bin, binarySha256: sha256(bin), binaryBuilt: statSync(bin).mtime.toISOString(),

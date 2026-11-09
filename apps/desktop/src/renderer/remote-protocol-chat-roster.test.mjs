@@ -110,7 +110,8 @@ for (const name of actions) {
     assert.equal(nodeStep(`attach:${name}`).published.length, 1);
     assertParity(t, parity.classify(nodeStep(`attach:${name}`).roster, finalRoster(r)));
     assert.ok(r.requests.length > 1 && r.requests.every((q) => q.params.limit === 1000), 'every page follows the cursor');
-    assert.deepEqual(r.requests.slice(1).map((q) => q.params.cursor), ['2', '4'].slice(0, r.requests.length - 1));
+    // The pages are two rows each, so the cursors are the row offsets 2, 4, ... up to the last row.
+    assert.deepEqual(r.requests.slice(1).map((q) => q.params.cursor), Array.from({ length: Math.ceil(listOf(name).length / 2) - 1 }, (_, at) => String(2 * (at + 1))));
   });
 }
 

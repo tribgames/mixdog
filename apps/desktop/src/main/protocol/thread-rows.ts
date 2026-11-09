@@ -35,7 +35,10 @@ export function summariesOfThreadRows(
     const readMessageCount = finite(core.readMessageCount);
     const readRevision = finite(core.readRevision);
     // The core's row says compactCount: 0 for a thread never compacted; Node's summary has no such field until the first compaction (>= 1).
-    const { working: _w, leadWorking: _l, agentWorking: _a, compactCount, ...rest } = summary as DesktopSessionSummary & Record<string, unknown>;
+    // Node's roster row of a bot home or room carries no `incomingTail` either: its daemon lists the live session, and only the summary
+    // index row has the tail (remote-protocol-chat-roster.recorded.json: the home row after "hello Bot One" has none, while the same run's
+    // session-summaries.log holds [2]).
+    const { working: _w, leadWorking: _l, agentWorking: _a, compactCount, incomingTail: _t, ...rest } = summary as DesktopSessionSummary & Record<string, unknown>;
     return {
       ...rest,
       ...(typeof compactCount === 'number' && compactCount > 0 ? { compactCount } : {}),
