@@ -511,6 +511,32 @@ async fn interrupted_batch_is_listed_inspected_and_restored_to_the_pre_image() {
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "one\n");
 }
 
+/// Node's `folderWatch` took any absolute path (`absoluteLocalPath`, then `fs.watch`): a folder outside every project is watched, and a
+/// missing one fails with the text `fs.watch` gives.
+#[tokio::test(flavor = "multi_thread")]
+async fn watch_takes_any_absolute_folder_and_a_missing_one_fails_like_fs_watch() {
+    let env = env();
+    let outside = std::env::temp_dir().join(format!("mixdog-watch-outside-{}", std::process::id()));
+    std::fs::create_dir_all(&outside).unwrap();
+    let reply = env
+        .service
+        .call(request("fs/watch", json!({ "watchId": "out", "path": outside.to_string_lossy(), "recursive": false })))
+        .await
+        .unwrap();
+    assert!(matches!(reply, Reply::Subscribe(_)), "a folder outside the project is watched");
+    std::fs::remove_dir_all(&outside).unwrap();
+
+    let missing = std::env::temp_dir().join(format!("mixdog-watch-missing-{}", std::process::id()));
+    let error = env
+        .service
+        .call(request("fs/watch", json!({ "watchId": "gone", "path": missing.to_string_lossy(), "recursive": false })))
+        .await
+        .err()
+        .expect("a missing folder cannot be watched");
+    let CoreError::DomainError { message: Some(message), .. } = &error else { panic!("a domain error, got {error:?}") };
+    assert_eq!(&**message, format!("ENOENT: no such file or directory, watch '{}'", missing.display()));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn watch_pushes_batched_changes_and_connection_close_drops_the_os_watch() {
     let env = env();

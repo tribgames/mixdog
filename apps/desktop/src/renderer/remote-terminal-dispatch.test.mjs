@@ -20,8 +20,11 @@ test("a terminal reveal reaches the phone's listeners, well-formed only, once pe
   await open({ ...reveal, tabs: [{ id: 'session-terminal:s1:2', tab: 2, cwd: '/secret' }] });
   // The core delivers an app-feed event again after a reconnect: a request id is handed over once.
   await open({ sessionId: 's2', requestId: 'ack', tabs: [{ id: 3, tab: 'x' }] });
+  // Two reveals of the same terminal are two pushes in Node (a UUID each): different ids both arrive.
+  await open({ ...reveal, requestId: 'one' });
+  await open({ ...reveal, requestId: 'two' });
   await settle();
-  assert.deepEqual(runs, [reveal, { sessionId: 's2' }, reveal]);
+  assert.deepEqual(runs, [reveal, { sessionId: 's2' }, reveal, reveal, reveal]);
 
   off();
   await open(reveal);

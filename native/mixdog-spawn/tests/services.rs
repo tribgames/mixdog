@@ -18,6 +18,7 @@ use mixdog_core_api::mock::MockLimits;
 use mixdog_core_api::mock::MockScopedFeeds;
 use mixdog_core_api::mock::MockStatePublisher;
 use mixdog_core_api::service::DomainService;
+use mixdog_core_api::state::SectionChange;
 use mixdog_protocol::Origin;
 use mixdog_protocol::SectionName;
 use mixdog_spawn::ports::ListeningPort;
@@ -47,10 +48,14 @@ fn scoped() -> Arc<MockScopedFeeds> {
     Arc::new(MockScopedFeeds::new(MockLimits::default()))
 }
 
-async fn until(_what: &str, mut ok: impl FnMut() -> bool) {
-    while !ok() {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+async fn until(what: &str, mut ok: impl FnMut() -> bool) {
+    let waited = tokio::time::timeout(Duration::from_secs(10), async {
+        while !ok() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    assert!(waited.is_ok(), "never happened: {what}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -129,7 +134,8 @@ async fn process_stdin_input_and_pty_resize_reach_the_process() {
 async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause() {
     let manager = manager();
     let feeds = ProcessFeeds::new(manager.clone(), scoped());
-    let service = TerminalService::new(manager, feeds, Arc::new(MockStatePublisher::default()), TerminalServiceConfig::default());
+    let publisher = Arc::new(MockStatePublisher::default());
+    let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
     let cwd = temp_dir().as_path().to_string_lossy().into_owned();
     let Reply::Value(ensured) = service
         .call(request("terminal/ensure", json!({ "tabId": "term_own", "options": { "cwd": cwd } }), 1))
@@ -161,6 +167,29 @@ async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause(
     let mine = attach(1).await;
     assert_eq!((mine["own"].clone(), mine["cols"].clone(), mine["rows"].clone()), (json!(true), json!(100), json!(30)));
     assert_eq!(attach(2).await["own"], json!(false));
+    let client_of = |connection: u64| {
+        let service = Arc::clone(&service);
+        let id = id.clone();
+        async move {
+            let Reply::Subscribe(sub) = service.call(request("terminal/attach", json!({ "tabId": id }), connection)).await.unwrap() else {
+                panic!("terminal/attach answers with a subscription");
+            };
+            sub.result["client"].as_str().map(str::to_owned)
+        }
+    };
+    let (first, second) = (client_of(1).await, client_of(2).await);
+    assert!(first.as_deref().is_some_and(|c| !c.is_empty()) && first != second, "each connection is named: {first:?} / {second:?}");
+    assert_eq!(ensured["client"].as_str().map(str::to_owned), first, "ensure names the asking connection as attach does");
+    // The tab list section carries the owner by that name: the phone's `termSizeOwner` events are its changes.
+    let owner_in_section = || -> Option<(String, u64, u64)> {
+        let (_, _, change) = publisher.published().into_iter().rev().find(|(s, _, _)| *s == SectionName::TerminalTabs)?;
+        let SectionChange::Set(bytes) = change else { return None };
+        let tabs: Value = serde_json::from_slice(&bytes).ok()?;
+        let owner = tabs.as_array()?.iter().find(|tab| tab["id"] == json!(id))?["sizeOwner"].clone();
+        Some((owner["owner"].as_str()?.to_owned(), owner["cols"].as_u64()?, owner["rows"].as_u64()?))
+    };
+    until("the owner in the tab list section", || owner_in_section().is_some()).await;
+    assert_eq!(owner_in_section(), first.clone().map(|c| (c, 100, 30)));
 
     // A resize that is not a claim is ignored while one stands.
     service.notify(Method("terminal/resize"), json!({ "tabId": id, "cols": 70, "rows": 20 }), ConnectionId(2));
@@ -179,6 +208,45 @@ async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause(
     service.call(request("terminal/dispose", json!({ "tabId": id }), 2)).await.unwrap();
 }
 
+/// Node's `termActivity` walked its tab map, so the tabs came in creation order, not sorted by id.
+#[tokio::test(flavor = "multi_thread")]
+async fn terminal_activity_lists_tabs_in_creation_order() {
+    let manager = manager();
+    let feeds = ProcessFeeds::new(manager.clone(), scoped());
+    let publisher = Arc::new(MockStatePublisher::default());
+    let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
+    let cwd = temp_dir().as_path().to_string_lossy().into_owned();
+    let Reply::Value(profiles) = service.call(request("terminal/profiles", json!({}), 1)).await.unwrap() else {
+        panic!("terminal/profiles answers with a value");
+    };
+    let default = profiles.as_array().unwrap().iter().find(|p| p["default"] == json!(true)).unwrap()["path"].as_str().unwrap().to_lowercase();
+    if !default.contains("pwsh") && !default.contains("powershell") {
+        eprintln!("skipping: the default shell has no integration here");
+        return;
+    }
+    // Created in reverse id order: a section sorted by id would list `term_a` first.
+    for id in ["term_b", "term_a"] {
+        service.call(request("terminal/ensure", json!({ "tabId": id, "options": { "cwd": cwd } }), 1)).await.unwrap();
+    }
+    let keys = || -> Vec<String> {
+        publisher
+            .published()
+            .iter()
+            .rev()
+            .find_map(|(s, _, change)| match (s, change) {
+                (SectionName::TerminalActivity, SectionChange::Set(bytes)) => {
+                    let value: Value = serde_json::from_slice(bytes).unwrap();
+                    Some(value.as_object().unwrap().keys().cloned().collect())
+                }
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    until("both tabs have a known activity", || keys().len() == 2).await;
+    assert_eq!(keys(), vec!["term_b".to_owned(), "term_a".to_owned()]);
+    service.tabs().dispose_all();
+}
+
 /// Node pushed the output of every running terminal to a phone reading the lane, whether or not it had attached: a tab's `process:<id>`
 /// feed is live from its ensure, so a `feed/subscribe` finds it.
 #[tokio::test(flavor = "multi_thread")]
@@ -186,7 +254,8 @@ async fn terminal_ensure_opens_the_output_feed_without_an_attach() {
     let manager = manager();
     let made = scoped();
     let feeds = ProcessFeeds::new(manager.clone(), made.clone());
-    let service = TerminalService::new(manager, feeds, Arc::new(MockStatePublisher::default()), TerminalServiceConfig::default());
+    let publisher = Arc::new(MockStatePublisher::default());
+    let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
     let cwd = temp_dir().as_path().to_string_lossy().into_owned();
     let Reply::Value(ensured) = service
         .call(request("terminal/ensure", json!({ "tabId": "term_feed", "options": { "cwd": cwd } }), 1))
@@ -205,7 +274,8 @@ async fn terminal_ensure_opens_the_output_feed_without_an_attach() {
 async fn terminal_ensure_names_a_fresh_tab_and_attach_answers_replay_or_not_running() {
     let manager = manager();
     let feeds = ProcessFeeds::new(manager.clone(), scoped());
-    let service = TerminalService::new(manager, feeds, Arc::new(MockStatePublisher::default()), TerminalServiceConfig::default());
+    let publisher = Arc::new(MockStatePublisher::default());
+    let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
     let cwd = temp_dir().as_path().to_string_lossy().into_owned();
     // No tab id: the core spawns a new terminal and answers the id it generated.
     let ensure = |connection: u64| request("terminal/ensure", json!({ "options": { "cwd": cwd } }), connection);

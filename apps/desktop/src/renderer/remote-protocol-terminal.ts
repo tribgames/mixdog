@@ -125,7 +125,8 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
         if (dir !== undefined && ctx.activeLanes.has(FILES_LANE)) ctx.fanOut(ctx.folderChangeListeners, dir);
       } else if (method === 'ui/openRequested' && params?.kind === 'terminal') {
         // The core re-delivers app-feed events after a reconnect: a request is handed over once.
-        const requestId = params.requestId;        if (typeof requestId === 'string' && requestId) {
+        const requestId = params.requestId;
+        if (typeof requestId === 'string' && requestId) {
           if (ranRequests.has(requestId)) return;
           ranRequests.add(requestId);
           if (ranRequests.size > REMEMBERED_RUNS) ranRequests.delete(ranRequests.values().next().value as string);
