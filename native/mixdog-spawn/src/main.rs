@@ -1810,7 +1810,7 @@ mod tests {
                 "the watcher decided"
             );
             assert_eq!(tree(&a), Tree::Released);
-            let _kept = preserved(&manager_b, &b, FOREVER);
+            let kept = preserved(&manager_b, &b, FOREVER);
             let reaping = {
                 let manager_b = Arc::clone(&manager_b);
                 thread::spawn(move || reap_on_shutdown(&manager_b))
@@ -1820,6 +1820,10 @@ mod tests {
                 "the reap decided"
             );
             assert_eq!(tree(&b), Tree::Released);
+            // b's watcher polls under b's state lock until it sees the tree is no longer
+            // Preserved; joining it is the event after which no other holder is left, so
+            // `try_lock` can only fail if a lock were held on the stuck writer's account.
+            kept.join().unwrap();
             assert!(a.state.try_lock().is_ok() && b.state.try_lock().is_ok());
             assert!(alive(&mut member_a) && alive(&mut member_b));
             assert!(
