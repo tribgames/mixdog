@@ -1,0 +1,36 @@
+{
+  "command": "node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-phone-chat-core.mjs --tree <tree>; same for record-remote-session.mjs",
+  "fileCount": 2,
+  "files": [
+    {
+      "bytes": 28710,
+      "path": "phone-chat-core.json",
+      "sha256": "30c1b792414f8387fe34355ffad6a67e7ac2523358b81351f9df856e953f903f"
+    },
+    {
+      "bytes": 2905,
+      "path": "remote-session.json",
+      "sha256": "2ded18e4d2a65be9fa7abdd18e8142158cf43a1cb7849fc7b2e44ccf2f1eb328"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-phone-chat-core.mjs + record-remote-session.mjs",
+  "set": "phone-chat-core",
+  "totalBytes": 31615
+}

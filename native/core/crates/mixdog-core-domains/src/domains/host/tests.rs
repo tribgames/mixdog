@@ -213,7 +213,7 @@ fn notifications_reach_their_consumers() {
 /// `applyRemoteSessionState` (recorded from Node's `SessionHostPublication`): the id the bridge's state leaves on a snapshot.
 #[test]
 fn remote_session_keeps_the_id_only_as_node_applies_it() {
-    let recorded: serde_json::Value = serde_json::from_str(include_str!("../../../../../fixtures/desktop/phone-chat/remote-session.json")).unwrap();
+    let recorded: serde_json::Value = serde_json::from_str(include_str!("../../../../../fixtures/phone-chat-core/remote-session.json")).unwrap();
     for case in recorded["cases"].as_array().unwrap() {
         let state = &case["state"];
         let value = remote_session_value(state["enabled"] == true, state["sessionId"].as_str());

@@ -12,7 +12,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setImmediate as realImmediate } from 'node:timers';
-import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree } from './lib/common.mjs';
+import { FIXTURES_ROOT, exactProductIdentity, importFrom, parseArgs, resolveTree, writeSetManifest } from './lib/common.mjs';
 
 const dataDir = mkdtempSync(join(tmpdir(), 'phone-chat-core-'));
 process.env.MIXDOG_DATA_DIR = join(dataDir, 'data');
@@ -263,9 +263,11 @@ await submitting('a closing session still takes a user prompt', { prompt: 'hello
 await submitting('a closed session takes nothing', { prompt: 'hello', admission: 'terminal', busy: true });
 await submitting('a repeated submission id is one prompt', { prompt: 'hello', repeat: 2, busy: true });
 
-const out = join(FIXTURES_ROOT, 'desktop', 'phone-chat', 'phone-chat-core.json');
-mkdirSync(join(FIXTURES_ROOT, 'desktop', 'phone-chat'), { recursive: true });
+const out = join(FIXTURES_ROOT, 'phone-chat-core', 'phone-chat-core.json');
+mkdirSync(join(FIXTURES_ROOT, 'phone-chat-core'), { recursive: true });
 writeFileSync(out, `${JSON.stringify({ recorder: 'benchmarks/rust-core/recorders/record-phone-chat-core.mjs', epoch: START, cases }, null, 2)}\n`);
 console.log(`${cases.length} cases -> ${out}`);
 Date.now = realDateNow;
 process.exit(0);
+// Both recorders write this set; whichever runs last lists every file in the manifest.
+writeSetManifest(join(FIXTURES_ROOT, 'phone-chat-core'), { set: 'phone-chat-core', recorder: 'benchmarks/rust-core/recorders/record-phone-chat-core.mjs + record-remote-session.mjs', command: 'node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-phone-chat-core.mjs --tree <tree>; same for record-remote-session.mjs', identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146') });

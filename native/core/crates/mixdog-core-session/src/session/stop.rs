@@ -6,7 +6,7 @@
 //! ([`Reclaim`]) for the actor, which applies it as the turn closes (the prompt leaves the history, the end row is not
 //! shown, another device's composer is told through `thread/promptRestore`).
 //!
-//! `fixtures/desktop/phone-chat/phone-chat-core.json` (`record-phone-chat-core.mjs`) is Node's own run of
+//! `fixtures/phone-chat-core/phone-chat-core.json` (`record-phone-chat-core.mjs`) is Node's own run of
 //! `createAbortAction` over every case [`decide`] is tested with.
 
 use std::sync::Mutex;
@@ -167,7 +167,7 @@ mod tests {
     /// Node's own `createAbortAction` run (`record-phone-chat-core.mjs`) is the oracle: every busy case it recorded.
     #[test]
     fn decide_matches_the_recorded_node_aborts() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/desktop/phone-chat/phone-chat-core.json");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/phone-chat-core/phone-chat-core.json");
         let recorded: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         let mut replayed = 0;
         for case in recorded["cases"].as_array().unwrap().iter().filter(|case| case["kind"] == "abort") {
