@@ -1175,7 +1175,7 @@
           ],
           "ok": true,
           "value": {
-            "id": "custom-ddd23a2f-daa2-48b8-8756-43a5f542a096",
+            "id": "custom-1f5980e0-f044-4faf-950e-6373afd4ba98",
             "name": "Echo",
             "protocol": "openai-chat",
             "baseURL": "__BASE_URL__/e/v1",
@@ -1223,7 +1223,7 @@
                   "newModelsHidden": false
                 }
               },
-              "custom-ddd23a2f-daa2-48b8-8756-43a5f542a096": {
+              "custom-1f5980e0-f044-4faf-950e-6373afd4ba98": {
                 "enabled": true,
                 "baseURL": "__BASE_URL__/e/v1",
                 "type": "custom",
@@ -1375,7 +1375,7 @@
             },
             {
               "id": "echo-1",
-              "provider": "custom-ddd23a2f-daa2-48b8-8756-43a5f542a096",
+              "provider": "custom-1f5980e0-f044-4faf-950e-6373afd4ba98",
               "display": "echo-1",
               "created": null,
               "releaseDate": null,
@@ -1434,7 +1434,7 @@
           },
           "agentAfter": {
             "providers": {
-              "custom-ddd23a2f-daa2-48b8-8756-43a5f542a096": {
+              "custom-1f5980e0-f044-4faf-950e-6373afd4ba98": {
                 "enabled": true,
                 "baseURL": "__BASE_URL__/e/v1",
                 "type": "custom",
@@ -1481,7 +1481,7 @@
           "value": [
             {
               "id": "echo-1",
-              "provider": "custom-ddd23a2f-daa2-48b8-8756-43a5f542a096",
+              "provider": "custom-1f5980e0-f044-4faf-950e-6373afd4ba98",
               "display": "echo-1",
               "created": null,
               "releaseDate": null,

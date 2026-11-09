@@ -34,13 +34,54 @@ const STARTED: &str = "thread/started";
 const SUMMARY_UPDATED: &str = "thread/summary/updated";
 const DELETED: &str = "thread/deleted";
 
-/// The list row of a stored row when it is listed.
+/// The list row of a stored row when it is listed: the catalog's lead gate, then the roster's own (Node's second gate).
 fn listed(row: &StoredRow) -> Option<LeadRow> {
     if row.deleted {
         return None;
     }
     let Ok(Value::Object(map)) = serde_json::from_str::<Value>(&row.summary) else { return None };
-    is_lead_visible_row(&map).then_some(LeadRow { row: map, archived: row.archived })
+    (is_lead_visible_row(&map) && roster_row(&map)).then_some(LeadRow { row: map, archived: row.archived })
+}
+
+/// Whether `desktopSessionSummaries` (`desktop-state.ts:144-246`) keeps the row. The names a user gave a session and the host's
+/// task workspace are host facts it takes beside the rows: here the row's own `title` is the name, and a legacy row is a task
+/// or a project by its folder, which only matters when a project has no path (a row with a folder always has one).
+pub(super) fn roster_row(row: &serde_json::Map<String, Value>) -> bool {
+    let text = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default().trim().to_owned();
+    // Valid workspace paths (`workspaceText`): trimmed, non-empty, no NUL.
+    let path = |value: Option<&Value>| value.and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty() && !s.contains('\0')).map(str::to_owned);
+    let meta = match row.get("desktopSession") {
+        None | Some(Value::Null) => None,
+        Some(Value::Object(meta)) => Some(meta),
+        Some(_) => return false, // :156
+    };
+    if meta.is_some_and(|meta| !matches!(meta.get("classification").and_then(Value::as_str), Some("project" | "task"))) {
+        return false; // :158
+    }
+    let cwd = text("cwd");
+    if cwd.contains('\0') {
+        return false; // :160
+    }
+    let project = match meta.and_then(|meta| meta.get("classification")).and_then(Value::as_str) {
+        Some(stored) => stored == "project",
+        None => !cwd.is_empty(), // :167: a legacy row with a folder is a project (the task workspace is a host fact)
+    };
+    if project {
+        // :168-174: the workspace record, then the folder, then the stored project path.
+        let workspace = row.get("workspace").and_then(Value::as_object).filter(|w| path(w.get("projectPath")).is_some() && path(w.get("cwd")).is_some());
+        let stored = meta.and_then(|meta| meta.get("projectPath")).and_then(Value::as_str).unwrap_or_default().trim();
+        let project_path = workspace.and_then(|w| path(w.get("projectPath"))).unwrap_or_else(|| if cwd.is_empty() { stored.to_owned() } else { cwd.clone() });
+        if project_path.is_empty() || project_path.contains('\0') {
+            return false;
+        }
+    }
+    // :175-241: a row needs a title or a real conversation.
+    let title = |value: &str, max| mixdog_store::title::generated_session_title(value, "", max);
+    let message_count = row.get("messageCount").and_then(Value::as_f64).filter(|n| n.is_finite()).map_or(0, |n| n.max(0.0).floor() as u64);
+    let real_turns = row.get("realTurnCount").and_then(Value::as_f64);
+    let had_conversation = message_count >= 2 && row.get("detachedReason").and_then(Value::as_str) != Some("cli-resume") && real_turns.is_none_or(|n| n >= 1.0);
+    let agent_home = !mixdog_store::agent_mode::agent_id_of_home_session(&text("id")).is_empty();
+    !title(&text("preview"), 32).is_empty() || !title(&text("title"), 32).is_empty() || had_conversation || (agent_home && message_count > 0)
 }
 
 /// Decides and publishes what one row write means to the app feed.

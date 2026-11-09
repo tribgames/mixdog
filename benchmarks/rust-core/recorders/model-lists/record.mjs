@@ -112,8 +112,8 @@ const kept = only ? JSON.parse(readFileSync(OUT, 'utf8')).scenarios.filter((s) =
 writeFileSync(OUT, JSON.stringify({ baseURL: '__BASE_URL__', seeds, scenarios: [...kept, ...recorded] }, null, 2).replaceAll(baseURL, '__BASE_URL__'));
 // A named set is a recording of its own: its manifest names the Node commit and says whether the loaded tree is exactly it.
 if (setName) {
-  const { writeSetManifest } = await import('../lib/common.mjs');
+  const { writeSetManifest, exactProductIdentity } = await import('../lib/common.mjs');
   const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
   const recorder = 'benchmarks/rust-core/recorders/model-lists/record.mjs';
-  writeSetManifest(dirname(OUT), { set: `model-lists-${setName}`, recorder, command: `node ${recorder} --tree <tree> --set ${setName}`, identityTree: NODE_TREE, identityRef: NODE_COMMIT });
+  writeSetManifest(dirname(OUT), { set: `model-lists-${setName}`, recorder, command: `node ${recorder} --tree <tree> --set ${setName}`, identity: exactProductIdentity(NODE_TREE, NODE_COMMIT) });
 }

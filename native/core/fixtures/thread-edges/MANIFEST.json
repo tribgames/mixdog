@@ -3,15 +3,17 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 13717,
+      "bytes": 20379,
       "path": "golden.json",
-      "sha256": "cf3825bd47f54925815d1cb13a3f7c466a9676a1a746f9d690d42cac039f36d8"
+      "sha256": "b8c9c33f6eb8dec2744d4986d4b8ade5348020a97ef76cbcfd43b8c38cdf8d53"
     }
   ],
+  "gateRows": 23,
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
     "files": 9139,
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -26,6 +28,6 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-thread-edges.mjs",
   "set": "thread-edges",
-  "totalBytes": 13717,
+  "totalBytes": 20379,
   "triggers": 11
 }

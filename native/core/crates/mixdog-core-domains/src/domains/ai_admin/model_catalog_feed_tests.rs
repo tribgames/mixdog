@@ -110,3 +110,62 @@ async fn a_mutation_publishes_nodes_rows_once_when_they_changed_and_nothing_when
     stop.cancel();
     sync.task.await.unwrap();
 }
+
+/// Publications as they happen, so a test waits on the real signal.
+struct Channel(tokio::sync::mpsc::UnboundedSender<Value>);
+
+impl mixdog_core_api::state::StatePublisher for Channel {
+    fn publish(&self, section: SectionName, key: Option<String>, change: SectionChange) {
+        assert_eq!((section, key), (SectionName::ModelCatalog, None));
+        let SectionChange::Set(bytes) = change else { panic!("rows that fit are set inline") };
+        self.0.send(serde_json::from_slice(&bytes).unwrap()).unwrap();
+    }
+}
+
+/// The wiring `compose_flip.rs` makes: `ModelCatalogFeed::start` on the config's changes, and `invalidated()` in the readiness'
+/// one invalidation closure. A config change alone (a favorite) and an invalidation (a hidden model, a provider saved or removed)
+/// each publish Node's rows once; a mutation that left the rows alone publishes nothing, which the order of what arrives shows (a
+/// stray publication would arrive before the next expected one). No sleeps: each wait is the publication itself.
+#[tokio::test]
+async fn the_composed_task_publishes_each_config_change_and_invalidation_once() {
+    let recording = recording();
+    let scenario = &recording["scenarios"][0];
+    let calls = scenario["calls"].as_array().unwrap();
+    let rig = rig(scenario, &recording["seeds"], false).await;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let stop = mixdog_rt::CancellationToken::new();
+    let mut sync = spawn_provider_sync(rig.config.clone(), rig.effective.clone(), rig.readiness.clone(), rig.loaded.clone(), stop.clone());
+    let feed = ModelCatalogFeed::start(rig.service.clone(), Arc::new(Channel(tx)), sync.applied.clone());
+    let (service, woken) = (rig.service.clone(), feed.clone());
+    rig.readiness
+        .bind_invalidation(Arc::new(move || {
+            service.invalidate();
+            woken.invalidated();
+        }))
+        .is_ok()
+        .then_some(())
+        .unwrap();
+    let mut applied = 0;
+
+    // The load of the first read fills the cache: the first value.
+    assert_rows("first read", &rig.service.rows(false, false).await.unwrap(), &calls[0]["value"]);
+    assert_eq!(rx.recv().await.unwrap(), calls[0]["value"]);
+    let mut last = calls[0]["value"].clone();
+    let (mut changed, mut unchanged) = (0, 0);
+    for pair in calls[1..].chunks(2) {
+        let [mutation, read] = pair else { panic!("a mutation and the read after it") };
+        let what = format!("{} {}", mutation["action"], mutation["args"]);
+        apply(&rig, &mut sync, &mut applied, mutation).await;
+        if read["value"] == last {
+            unchanged += 1;
+            continue;
+        }
+        assert_eq!(rx.recv().await.unwrap(), read["value"], "{what}: Node's rows, once");
+        last = read["value"].clone();
+        changed += 1;
+    }
+    assert_eq!((changed, unchanged), (4, 2));
+    assert!(rx.try_recv().is_err(), "nothing beyond the changes");
+    stop.cancel();
+    sync.task.await.unwrap();
+}

@@ -145,3 +145,16 @@ fn thread_of(frame: &Value) -> String {
     let params = &frame["params"];
     params["thread"]["id"].as_str().or_else(|| params["threadId"].as_str()).unwrap_or_default().to_owned()
 }
+
+/// The roster's own gate (`desktopSessionSummaries`, `desktop-state.ts:144-246`) on list rows: a cwd with a NUL, a project with no
+/// path, a conversation that is only a cli-resume, and the rest of the rule, each against what Node kept.
+#[test]
+fn the_roster_gate_keeps_the_rows_node_kept() {
+    let golden = golden();
+    let cases = golden["gate"].as_array().expect("gate cases");
+    assert!(cases.len() >= 20);
+    for case in cases {
+        let row = case["row"].as_object().expect("row");
+        assert_eq!(super::thread_edges::roster_row(row), case["kept"], "{}", row["id"]);
+    }
+}

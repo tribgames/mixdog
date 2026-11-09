@@ -235,8 +235,10 @@ impl ListHost {
         let mut cache = self.cache();
         cache.sync(self.readiness.catalog_revision());
         if cache.seq == seq {
-            cache.loaded = true;
-            self.filled.notify_one();
+            // Told when the cache becomes loaded, not at every adoption: a listener that reads the rows would wake itself.
+            if !std::mem::replace(&mut cache.loaded, true) {
+                self.filled.notify_one();
+            }
         }
     }
 

@@ -12,6 +12,12 @@
 //!   the saved settings at read time): the rows are read again when they were loaded;
 //! - a load adopting its rows, which is the first value of the section.
 //!
+//! Node has no timer here and does not coalesce: `invalidateProviderCaches` drops the caches synchronously
+//! (`provider-readiness.mjs:68-80`), and the next read starts one shared load that every concurrent reader joins
+//! (`provider-models.mjs:145-157`, readers `:189-190`). The feed reads the same way: a wake is a `Notify` permit, so wakes that
+//! arrive while a read runs are one more read, and the rows themselves are the shared load. Rows equal to the published ones
+//! publish nothing, so the reads one change wakes (the config, the invalidation, the load it starts) give one publication.
+//!
 //! A re-read that gives the rows already published publishes nothing, where Node's clients re-fetched after every resolved call: the
 //! re-fetch showed nothing new there, and the revision makes that equivalent. A catalog refresh that moves the rows without a
 //! mutation reaches the clients here at once, where Node's reached them at their next read (U-SV1).
@@ -29,8 +35,6 @@ use tokio::sync::watch;
 use super::model_list::ModelListService;
 use crate::domains::ai_account::account::SectionPush;
 
-const SETTLE: std::time::Duration = std::time::Duration::from_millis(50);
-
 pub struct ModelCatalogFeed {
     models: Arc<ModelListService>,
     pushed: SectionPush,
@@ -44,7 +48,8 @@ impl ModelCatalogFeed {
         Arc::new(Self { models, pushed: SectionPush::new(publisher), wake: Notify::new(), reload: AtomicBool::new(false) })
     }
 
-    /// The feed and its task: it follows `config` and the loads of `models`, and the invalidations it is told of.
+    /// The feed and its task: it follows the loaded config (`applied` of the provider sync: a stored change is read once the
+    /// loaded config has it) and the first load of `models`, and the invalidations it is told of.
     pub fn start(models: Arc<ModelListService>, publisher: Arc<dyn StatePublisher>, mut config: watch::Receiver<u64>) -> Arc<Self> {
         let feed = Self::new(models, publisher);
         let filled = feed.models.filled();
@@ -52,14 +57,23 @@ impl ModelCatalogFeed {
         drop(mixdog_rt::spawn("model-catalog-feed", mixdog_rt::TaskClass::Work, async move {
             // A catalog loaded before the feed started is the first value.
             task.refresh(false).await;
+            let mut providers = task.models.config.agent().get("providers").cloned();
             loop {
+                let mut stored = false;
                 tokio::select! {
                     () = task.wake.notified() => {}
-                    changed = config.changed() => if changed.is_err() { return },
+                    changed = config.changed() => if changed.is_err() { return } else { stored = true },
                     () = filled.notified() => {}
                 }
-                // One change wakes several of these in a row (the stored config, the invalidation, the load it starts): read once.
-                tokio::time::sleep(SETTLE).await;
+                // A change of the stored providers (a key, a provider saved or removed, a model hidden) is a mutation that ends in
+                // an invalidation: the registry follows the config after this tick, and a read before it would publish the rows of
+                // the old registry. Only a change that leaves the providers alone (the model preferences) has none to wait for.
+                if stored {
+                    let now = task.models.config.agent().get("providers").cloned();
+                    if std::mem::replace(&mut providers, now.clone()) != now {
+                        continue;
+                    }
+                }
                 let reload = task.reload.swap(false, Ordering::SeqCst);
                 task.refresh(reload).await;
             }
