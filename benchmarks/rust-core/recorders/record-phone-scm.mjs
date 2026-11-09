@@ -511,7 +511,12 @@ if (REPLAY) {
           entry.result = value === undefined ? null : clone(value);
           return value;
         } catch (error) {
-          entry.error = { message: error?.detail?.data?.message ?? error?.message ?? String(error) };
+          const data = error?.detail?.data;
+          entry.error = {
+            message: data?.message ?? error?.message ?? String(error),
+            // A program the core could not start is `capabilityUnavailable{capability}` on the wire (the adapter reads the same).
+            ...(data?.reason === 'capabilityUnavailable' && typeof data.capability === 'string' ? { capability: data.capability } : {}),
+          };
           throw error;
         } finally {
           holder.ended?.(entry);

@@ -127,6 +127,18 @@ impl Git {
         Self { exec, lane }
     }
 
+    /// Resolves the git of this process's PATH before reads are started side by side, so each of them takes its launch at once and
+    /// they start in the order they were asked for (the first resolution is a file-system read that would let a later one pass).
+    pub async fn prepare(&self, cancel: &CancellationToken) -> Result<(), ScmFailure> {
+        if cfg!(windows) {
+            let base = child_base(&ExecSpec::new("git", Path::new(".")), git_launch::process_env());
+            if git_launch::launch_if_resolved(&base).is_none() {
+                on_lane(self.lane, cancel, move || git_launch::launch_for(&base)).await?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn exec(&self) -> &Arc<Exec> {
         &self.exec
     }

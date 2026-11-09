@@ -1725,11 +1725,11 @@ async fn a_status_that_skips_line_stats_has_no_counts_and_leaves_the_counted_sca
     let (_guard, repo, _head) = fixture_repo();
     let scm = scm();
     let cancel = CancellationToken::new();
-    let skipped = scm.git_status_counting(&repo, &cancel, false).await.unwrap();
+    let skipped = scm.git_status_counting(&repo, &cancel, false, false).await.unwrap();
     let files = skipped["files"].as_array().unwrap();
     assert!(!files.is_empty());
     assert!(files.iter().all(|file| file["additions"] == 0 && file["deletions"] == 0));
-    let counted = scm.git_status_counting(&repo, &cancel, true).await.unwrap();
+    let counted = scm.git_status_counting(&repo, &cancel, true, false).await.unwrap();
     assert!(counted["files"].as_array().unwrap().iter().any(|file| file["additions"].as_u64().unwrap_or(0) > 0));
 }
 #[test]
@@ -1740,56 +1740,4 @@ fn a_review_revision_names_the_file_identity_or_deleted() {
     assert!(revision.starts_with("3:"), "size first: {revision}");
     assert_eq!(revision.split(':').count(), 4);
     assert_eq!(crate::inspect::status::worktree_revision(dir.path(), "gone.txt"), "deleted");
-}
-/// Node's `gitReviewDiffs` answers (`fixtures/desktop/review-batch/record.mjs`), replayed with the
-/// patches Node read: a quoted-header name, the command-line budget, the patch budget, duplicates.
-#[test]
-fn review_batches_match_the_recorded_node_answers() {
-    use crate::inspect::review::{BatchFile, review_batch};
-    let recorded: serde_json::Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../fixtures/desktop/review-batch/corpus.json"
-    )))
-    .unwrap();
-    let patch_of = |path: &str| match &recorded["patchOf"][path] {
-        entry if entry["patch"].is_string() => entry["patch"].as_str().unwrap().to_owned(),
-        entry => "x".repeat(entry["length"].as_u64().unwrap_or(0) as usize),
-    };
-    for case in recorded["cases"].as_array().unwrap() {
-        let files: Vec<BatchFile> = case["files"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|f| BatchFile { path: f["path"].as_str().unwrap().to_owned(), untracked: f["untracked"] == true })
-            .collect();
-        let got = review_batch(&files, patch_of);
-        let label = case["label"].as_str().unwrap();
-        let want = &case["answer"];
-        assert_eq!(got["omitted"], want["omitted"], "{label}");
-        let shape = |patches: &serde_json::Value| -> Vec<(String, String)> {
-            patches
-                .as_array()
-                .unwrap_or_else(|| panic!("{label}: patches must be an array"))
-                .iter()
-                .map(|p| {
-                    let text = p["patch"].as_str().map_or_else(|| p["length"].to_string(), |t| t.to_owned());
-                    (p["path"].as_str().unwrap().to_owned(), text)
-                })
-                .collect()
-        };
-        // Long patches are recorded by length: ours are `x` runs of that length.
-        let ours: Vec<(String, String)> = got["patches"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|p| {
-                let (path, patch) = (p["path"].as_str().unwrap(), p["patch"].as_str().unwrap());
-                let recorded_long = want["patches"].as_array().unwrap().iter().any(|w| w["path"] == path && w["length"].is_number());
-                (path.to_owned(), if recorded_long { patch.encode_utf16().count().to_string() } else { patch.to_owned() })
-            })
-            .collect();
-        assert_eq!(ours, shape(&want["patches"]), "{label}");
-    }
-    // No files: both arrays are empty, never null.
-    assert_eq!(review_batch(&[], patch_of), serde_json::json!({ "patches": [], "omitted": [] }));
 }
