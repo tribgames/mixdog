@@ -72,7 +72,7 @@ const plain = (value) =>
   JSON.parse(
     JSON.stringify(value ?? null, (_key, held) => {
       if (typeof held === 'function') return '[function]';
-      return typeof held === 'string' ? held.replace(/^(ts_[0-9a-z]+_)[0-9a-f]{8}$/, '$1<random>').replace(/^msg_[0-9a-f]{32}$/, 'msg_<random>').replace(/^\d+:\d+:[0-9a-f]{40}$/, '<history-marker>').replace(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, '<uuid>') : held;
+      return typeof held === 'string' ? held.replace(/^(ts_[0-9a-z]+_)[0-9a-f]{8}$/, '$1<random>').replace(/^\d+:\d+:[0-9a-f]{40}$/, '<history-marker>').replace(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, '<uuid>') : held;
     }),
   );
 
@@ -357,27 +357,32 @@ await submitting('a repeated submission id is one prompt', { prompt: 'hello', re
  * by the id it shows (a user row's id is its submission id) and Node resolves that id on the rows, then hands the runtime the row's
  * stable message id with its text. What the session answered and what it asked of the runtime are recorded.
  */
-async function rewinding(name, { itemId, busy = false }) {
+async function rewinding(name, { itemId, busy = false, turns = 1 }) {
   const f = boot(`rewind-${cases.length}`);
-  await f.submitAsync('hello', { id: 'sub1', awaitPersistence: true, transcriptMeta: { device: 'desktop-1' } });
-  const drained = f.start();
-  const request = await f.nextRequest();
-  // The turn ends with an answer; the session is then idle with the row of its prompt in the transcript.
-  request.resolve({ result: { content: 'hi', usage: {} }, session: { id: request.options.id, messages: [] } });
-  await drained;
-  await advance(50);
-  // What the runtime holds of the turn: the prompt as it was asked (`runtime.ask`'s content and its transcript metadata, which carries
-  // the row's message id) and the answer, in the stored message shape; the runtime's own rewind then runs on them.
-  const asked = plain({ content: request.content, options: request.options });
+  const asked = [];
+  const messages = [];
+  for (let turn = 1; turn <= turns; turn++) {
+    await f.submitAsync('hello', { id: `sub${turn}`, awaitPersistence: true, transcriptMeta: { device: 'desktop-1' } });
+    const drained = f.start();
+    const request = await f.nextRequest(turn - 1);
+    // The turn ends with an answer; the session is then idle with the row of its prompt in the transcript.
+    request.resolve({ result: { content: 'hi', usage: {} }, session: { id: request.options.id, messages: [] } });
+    await drained;
+    await advance(50);
+    // What the runtime holds of the turn: the prompt as it was asked (`runtime.ask`'s content and its transcript metadata, which carries
+    // the row's message id) and the answer, in the stored message shape; the runtime's own rewind then runs on them.
+    asked.push(plain({ content: request.content, options: request.options }));
+    messages.push({ role: 'user', content: request.content, meta: { transcript: request.options.transcriptMeta } }, { role: 'assistant', content: 'hi' });
+  }
   await saveSessionAsync(
-    { id: f.id, provider: 'openai', model: 'gpt-test', cwd: dataDir, generation: 0, closed: false, messages: [{ role: 'user', content: request.content, meta: { transcript: request.options.transcriptMeta } }, { role: 'assistant', content: 'hi' }] },
+    { id: f.id, provider: 'openai', model: 'gpt-test', cwd: dataDir, generation: 0, closed: false, messages },
     { expectedGeneration: 0 },
   );
   f.state.commandBusy = busy;
   const before = left(f);
   const reply = await f.rewind(itemId);
   await advance(50);
-  cases.push({ name, kind: 'rewind', prompt: 'hello', itemId, busy, asked, before, reply: plain(reply), runtimeCalls: f.rewinds, after: left(f) });
+  cases.push({ name, kind: 'rewind', prompt: 'hello', turns, itemId, busy, asked, before, reply: plain(reply), runtimeCalls: f.rewinds, after: left(f) });
   f.flags.disposed = true;
   await flushTuiSteeringPersist();
 }
@@ -385,10 +390,17 @@ async function rewinding(name, { itemId, busy = false }) {
 await rewinding('a submitted row is rewound by the id it shows', { itemId: 'sub1' });
 await rewinding('an id that names no row answers nothing', { itemId: 'zz' });
 await rewinding('a busy session answers nothing', { itemId: 'sub1', busy: true });
+await rewinding('the second of two prompts with the same text is rewound', { itemId: 'sub2', turns: 2 });
 
 const out = join(FIXTURES_ROOT, 'phone-chat-core', 'phone-chat-core.json');
 mkdirSync(join(FIXTURES_ROOT, 'phone-chat-core'), { recursive: true });
-writeFileSync(out, `${JSON.stringify({ recorder: 'benchmarks/rust-core/recorders/record-phone-chat-core.mjs', epoch: START, cases }, null, 2)}\n`);
+// Every message id (`msg_` and 32 hex digits) is random: each is numbered by its first appearance in its case, so which rows share an id
+// and which differ stays in the recording while the file is the same on every run.
+const numbered = cases.map((held) => {
+  const seen = new Map();
+  return JSON.parse(JSON.stringify(held, (_key, value) => (typeof value === 'string' && /^msg_[0-9a-f]{32}$/.test(value) ? `msg_<${seen.get(value) ?? seen.set(value, seen.size + 1).get(value)}>` : value)));
+});
+writeFileSync(out, `${JSON.stringify({ recorder: 'benchmarks/rust-core/recorders/record-phone-chat-core.mjs', epoch: START, cases: numbered }, null, 2)}\n`);
 console.log(`${cases.length} cases -> ${out}`);
 Date.now = realDateNow;
 // Both recorders write this set; whichever runs last lists every file in the manifest.
