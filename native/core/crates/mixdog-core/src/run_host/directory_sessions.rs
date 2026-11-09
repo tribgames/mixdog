@@ -115,7 +115,7 @@ impl SessionOps for DirectorySessions {
         // Node stamps a new session twice: the record at `createdAt`, then the setup save (tools, title) that sets `updatedAt` from its
         // own clock read (`session-record.mjs:192-193`, then the `patch` of `updatedAt` with the setup fields: a room log recorded
         // createdAt 1794261561810, updatedAt 1794261561825).
-        let saved = chrono::Utc::now().timestamp_millis();
+        let saved = chrono::Utc::now().timestamp_millis().max(now + 1);
         self.patch(session_id, Map::from_iter([("updatedAt".to_owned(), json!(saved))])).await
     }
 
@@ -200,6 +200,9 @@ mod tests {
         sessions.delete("nope").await.unwrap();
 
         sessions.create("home_bench", &json!({ "provider": "openai", "model": "gpt-x" })).await.unwrap();
+        // A new log is stamped twice, as Node stamps it: the record, then the setup save.
+        let stamps = sessions.header("home_bench").await.unwrap().unwrap();
+        assert!(stamps["updatedAt"].as_i64() > stamps["createdAt"].as_i64(), "{stamps:?}");
         assert_eq!(
             sessions.route("home_bench").await.unwrap(),
             Some(json!({ "provider": "openai", "model": "gpt-x", "effort": null }))
