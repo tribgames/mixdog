@@ -234,10 +234,16 @@ pub struct TerminalInputParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TerminalResizeParams {
     pub tab_id: TerminalTabId,
     pub cols: u16,
     pub rows: u16,
+    /// A phone showing the terminal claims the PTY size (Node's `termResize` `phoneOwner`): the
+    /// claim holds for 30 s unless renewed, the newest claim owns, and zero columns or rows with
+    /// `claim` release it. Without `claim` the resize is ignored while any claim stands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -260,7 +266,7 @@ pub enum ClientNotification {
     #[serde(rename = "terminal/input")]
     #[cfg_attr(feature = "codegen", ts(rename = "terminal/input"))]
     TerminalInput(TerminalInputParams),
-    /// Ignored unless the sender owns the PTY size.
+    /// Ignored while a phone's claim stands, unless the sender claims (`claim`).
     #[serde(rename = "terminal/resize")]
     #[cfg_attr(feature = "codegen", ts(rename = "terminal/resize"))]
     TerminalResize(TerminalResizeParams),

@@ -126,7 +126,7 @@ async fn process_stdin_input_and_pty_resize_reach_the_process() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn terminal_size_is_owned_by_the_focusing_connection_and_output_can_pause() {
+async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause() {
     let manager = manager();
     let feeds = ProcessFeeds::new(manager.clone(), scoped());
     let service = TerminalService::new(manager, feeds, Arc::new(MockStatePublisher::default()), TerminalServiceConfig::default());
@@ -149,22 +149,27 @@ async fn terminal_size_is_owned_by_the_focusing_connection_and_output_can_pause(
             sub.result["sizeOwner"].clone()
         }
     };
-    assert_eq!(attach(1).await, Value::Null, "nobody has focused yet");
+    assert_eq!(attach(1).await, Value::Null, "nobody has claimed yet");
 
+    // Focus is not a claim.
     service.call(request("terminal/focus", json!({ "tabId": id, "focused": true }), 1)).await.unwrap();
-    assert_eq!(attach(1).await["own"], json!(true));
+    assert_eq!(attach(1).await, Value::Null);
+
+    // A claim (Node's `phoneOwner`) owns; it is told `own`, every other connection is not. The reply
+    // names the connection (`client`) so a phone can tell its own claim in the tabs section.
+    service.notify(Method("terminal/resize"), json!({ "tabId": id, "cols": 100, "rows": 30, "claim": true }), ConnectionId(1));
+    let mine = attach(1).await;
+    assert_eq!((mine["own"].clone(), mine["cols"].clone(), mine["rows"].clone()), (json!(true), json!(100), json!(30)));
     assert_eq!(attach(2).await["own"], json!(false));
 
-    // Only the owner's resize applies.
-    service.notify(Method("terminal/resize"), json!({ "tabId": id, "cols": 100, "rows": 30 }), ConnectionId(2));
-    let before = attach(1).await;
-    service.notify(Method("terminal/resize"), json!({ "tabId": id, "cols": 100, "rows": 30 }), ConnectionId(1));
-    let after = attach(1).await;
-    assert_ne!(before["cols"], json!(100), "a non-owner's resize is ignored");
-    assert_eq!((after["cols"].clone(), after["rows"].clone()), (json!(100), json!(30)));
+    // A resize that is not a claim is ignored while one stands.
+    service.notify(Method("terminal/resize"), json!({ "tabId": id, "cols": 70, "rows": 20 }), ConnectionId(2));
+    assert_eq!(attach(1).await["cols"], json!(100));
 
-    // The owner's connection closes: ownership ends.
+    // The owner's connection closing releases nothing: its lease does.
     service.connection_closed(ConnectionId(1));
+    assert_eq!(attach(2).await["cols"], json!(100));
+    service.notify(Method("terminal/resize"), json!({ "tabId": id, "cols": 0, "rows": 0, "claim": true }), ConnectionId(1));
     assert_eq!(attach(2).await, Value::Null);
 
     for method in ["terminal/pause", "terminal/resume"] {
@@ -198,8 +203,8 @@ async fn terminal_ensure_names_a_fresh_tab_and_attach_answers_replay_or_not_runn
     assert_eq!(sub.result["id"], json!(first));
     assert!(sub.result["replay"].is_string());
 
-    // Leaving a tab (`focused: false`) does not give the size up.
-    service.call(request("terminal/focus", json!({ "tabId": first, "focused": true }), 1)).await.unwrap();
+    // The claim stays after the view leaves the tab (`focused: false`).
+    service.notify(Method("terminal/resize"), json!({ "tabId": first, "cols": 90, "rows": 25, "claim": true }), ConnectionId(1));
     service.call(request("terminal/focus", json!({ "tabId": first, "focused": false }), 1)).await.unwrap();
     assert_eq!(service.tabs().size_owner(&first).map(|o| o.owner), Some("1".to_owned()));
 

@@ -53,7 +53,7 @@ use crate::lsp::LspManager;
 use crate::lsp::LspSink;
 use crate::pathguard::canonical;
 use crate::pathguard::canonical_through_existing;
-use crate::pathguard::is_within;
+use crate::pathguard::lexical;
 use crate::pathguard::project_entry_path;
 use crate::recovery::Action;
 use crate::recovery::RecoveryStore;
@@ -830,11 +830,16 @@ impl WorkspaceService {
             }
             "fs/watch" => {
                 let id = s(params, "watchId")?.to_owned();
-                let path = canonical(Path::new(s(params, "path")?)).map_err(|_| WsError::denied("Path is outside the project."))?;
-                let inside = self.catalog.list().await?.iter().any(|p| is_within(Path::new(&p.path), &path));
-                if !inside {
-                    return Err(WsError::denied("Path is outside the project."));
-                }
+                // Any absolute path, as Node's `folderWatch` (`absoluteLocalPath`, then `fs.watch`): a path
+                // that does not exist fails with the text `fs.watch` gives.
+                let wanted = lexical(Path::new(s(params, "path")?));
+                let path = match canonical(&wanted) {
+                    Ok(path) => path,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        return Err(WsError::new(Reason::Io, format!("ENOENT: no such file or directory, watch '{}'", wanted.display())));
+                    }
+                    Err(error) => return Err(WsError::new(Reason::Io, format!("Cannot watch {}: {error}", wanted.display()))),
+                };
                 let recursive = opt_bool(params, "recursive");
                 let publisher = Arc::new(Publisher::create(self.search_feeds(), &format!("fs:{id}"), json!({})));
                 self.router.fs.lock().expect("fs watches").insert(id.clone(), publisher.clone());

@@ -2,7 +2,7 @@
 //! is the scoped feed `process:<tabId>`; the sections `terminalActivity` and `terminalTabs` follow
 //! the tabs' own change callbacks, in order, through one worker.
 
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -62,6 +62,8 @@ pub struct TerminalServiceConfig {
 /// A change of tab state, queued by the tabs (under their lock) for the section worker.
 enum Change {
     Activity(String, Option<ActivityState>),
+    /// A tab's size owner changed (cleared when its claims ended or it was disposed).
+    Owner(SizeOwnerChange),
     Tabs,
 }
 
@@ -74,8 +76,8 @@ impl TerminalEvents for Events {
         let _ = self.changes.send(Change::Activity(id.to_owned(), state));
     }
 
-    fn size_owner(&self, _change: &SizeOwnerChange) {
-        let _ = self.changes.send(Change::Tabs);
+    fn size_owner(&self, change: &SizeOwnerChange) {
+        let _ = self.changes.send(Change::Owner(change.clone()));
     }
 }
 
@@ -101,28 +103,58 @@ fn client_owner(owner: Option<&SizeOwner>, client: &str) -> Value {
     }
 }
 
-/// Applies queued changes to the sections, in order, and publishes what changed.
+/// Applies queued changes to the sections, one at a time and in order, and publishes what changed:
+/// the section follows every change the way Node's per-change events did, so the phone's events
+/// (activity, size owner) are the changes themselves, never a coalesced state.
 async fn publish_sections(
     mut changes: mpsc::UnboundedReceiver<Change>,
     tabs: Arc<TerminalTabs>,
     publisher: Arc<dyn StatePublisher>,
 ) {
-    let mut activity: BTreeMap<String, &'static str> = BTreeMap::new();
-    while let Some(first) = changes.recv().await {
+    // Tabs with a known activity, in creation order (Node's `activitySnapshot` walks its tab map).
+    let mut activity: Vec<(u64, String, &'static str)> = Vec::new();
+    // The owner of each tab's size as the changes announced it; claims belong to the id, not the process.
+    let mut owners: HashMap<String, SizeOwner> = HashMap::new();
+    while let Some(change) = changes.recv().await {
         let (mut activity_changed, mut tabs_changed) = (false, false);
-        let mut apply = |change: Change| match change {
+        match change {
             Change::Activity(id, Some(state)) => {
-                activity_changed |= activity.insert(id, state.as_str()) != Some(state.as_str());
+                let state = state.as_str();
+                match activity.iter_mut().find(|(_, known, _)| *known == id) {
+                    Some(entry) => {
+                        activity_changed = entry.2 != state;
+                        entry.2 = state;
+                    }
+                    None => {
+                        let seq = tabs.creation_order(&id).unwrap_or(u64::MAX);
+                        let at = activity.partition_point(|(other, ..)| *other <= seq);
+                        activity.insert(at, (seq, id, state));
+                        activity_changed = true;
+                    }
+                }
             }
-            Change::Activity(id, None) => activity_changed |= activity.remove(&id).is_some(),
+            Change::Activity(id, None) => {
+                let before = activity.len();
+                activity.retain(|(_, known, _)| *known != id);
+                activity_changed = activity.len() != before;
+            }
+            Change::Owner(change) => {
+                if change.owner.is_empty() {
+                    owners.remove(&change.id);
+                } else {
+                    owners.insert(
+                        change.id,
+                        SizeOwner { cols: change.cols, rows: change.rows, owner: change.owner },
+                    );
+                }
+                tabs_changed = true;
+            }
             Change::Tabs => tabs_changed = true,
-        };
-        apply(first);
-        while let Ok(more) = changes.try_recv() {
-            apply(more);
         }
         if activity_changed {
-            publisher.publish(SectionName::TerminalActivity, None, section_bytes(&json!(activity)));
+            let object: serde_json::Map<String, Value> =
+                activity.iter().map(|(_, id, state)| (id.clone(), json!(state))).collect();
+            publisher.publish(SectionName::TerminalActivity, None, section_bytes(&Value::Object(object)));
         }
         if tabs_changed {
             let list: Vec<Value> = tabs
@@ -134,7 +166,7 @@ async fn publish_sections(
                         "shell": tab.shell,
                         "running": tab.running,
                         "cwd": tab.cwd,
-                        "sizeOwner": tab.size_owner.as_ref().map(owner_json),
+                        "sizeOwner": owners.get(&tab.id).map(owner_json),
                     })
                 })
                 .collect();
@@ -142,7 +174,6 @@ async fn publish_sections(
         }
     }
 }
-
 impl TerminalService {
     pub fn new(
         manager: LocalProcessManager,
@@ -169,7 +200,7 @@ impl TerminalService {
         &self.tabs
     }
 
-    /// A connection closed: its focus and size ownership on every tab end.
+    /// A connection closed: its focus on every tab ends (its size claims lapse with their lease).
     pub fn connection_closed(&self, connection: ConnectionId) {
         self.tabs.connection_closed(&connection_key(connection));
     }
@@ -226,6 +257,7 @@ impl DomainService for TerminalService {
                     "id": attached.id,
                     "replay": attached.replay,
                     "sizeOwner": client_owner(attached.size_owner.as_ref(), &client),
+                    "client": client,
                 })))
             }
             "terminal/attach" => {
@@ -240,6 +272,7 @@ impl DomainService for TerminalService {
                         "id": attached.id,
                         "replay": attached.replay,
                         "sizeOwner": client_owner(attached.size_owner.as_ref(), &client),
+                        "client": client,
                     }),
                     feed: self.feeds.feed(&attached.id, true),
                     window: Window::Fixed,
@@ -312,12 +345,9 @@ impl DomainService for TerminalService {
             }
             "terminal/resize" => {
                 if let Ok(size) = serde_json::from_value::<TerminalResizeParams>(params) {
-                    self.tabs.resize(
-                        size.tab_id.as_str(),
-                        u32::from(size.cols),
-                        u32::from(size.rows),
-                        &connection_key(from),
-                    );
+                    // Only a claiming view is a size owner; any other view's resize has no client.
+                    let client = if size.claim == Some(true) { connection_key(from) } else { String::new() };
+                    self.tabs.resize(size.tab_id.as_str(), u32::from(size.cols), u32::from(size.rows), &client);
                 }
             }
             _ => {}

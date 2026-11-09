@@ -46,6 +46,7 @@ core-test = [
     "tokio/rt-multi-thread",
     "tokio/macros",
     "tokio/time",
+    "tokio/test-util",
     "windows-sys/Win32_System_Diagnostics_ToolHelp",
 ]
 

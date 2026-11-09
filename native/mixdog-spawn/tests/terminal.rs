@@ -535,9 +535,11 @@ impl Rig {
     }
 }
 
-/// DS-PROC-3: size ownership follows focus and connection close, with no timer anywhere.
+/// Node's size-owner claim model (`terminal-manager.ts` `resize`): a phone's claim sets the size and the
+/// newest claim owns, a claim of zero size releases it, a resize without a claim is ignored while any
+/// claim stands, and a connection closing releases nothing (the lease does).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn size_owner_follows_focus_and_connection_close_without_timers() {
+async fn size_owner_follows_claims_not_focus() {
     let rig = rig("size-owner").await;
     let attached = rig.tabs.ensure(Some("term_sizeowner"), rig.request()).await.unwrap();
     let id = attached.id.as_str();
@@ -547,33 +549,45 @@ async fn size_owner_follows_focus_and_connection_close_without_timers() {
     // The only reading of the clock is the cursor epoch of the spawn.
     assert_eq!(rig.clock_reads.load(Ordering::SeqCst), 1);
 
-    // Nobody owns the size: any view's resize applies.
-    rig.tabs.resize(id, 110, 31, "A");
+    // No claim stands: a view without a claim fits the PTY.
+    rig.tabs.resize(id, 110, 31, "");
     assert_eq!(rig.pty(id), Some(PtySize { cols: 110, rows: 31 }));
     assert_eq!(rig.tabs.size_owner(id), None);
 
+    // Focus is activity only; it claims nothing.
     rig.tabs.focus(id, "A", true);
-    assert_eq!(rig.tabs.size_owner(id), Some(SizeOwner { cols: 110, rows: 31, owner: "A".into() }));
-    rig.tabs.resize(id, 50, 20, "B");
-    assert_eq!(rig.pty(id), Some(PtySize { cols: 110, rows: 31 }), "a non-owner's resize is ignored");
-
-    // Another focus takes over, at the size B last reported.
-    rig.tabs.focus(id, "B", true);
-    assert_eq!(rig.tabs.size_owner(id), Some(SizeOwner { cols: 50, rows: 20, owner: "B".into() }));
-    assert_eq!(rig.pty(id), Some(PtySize { cols: 50, rows: 20 }));
-    rig.tabs.resize(id, 70, 25, "B");
-    assert_eq!(rig.pty(id), Some(PtySize { cols: 70, rows: 25 }));
-    rig.tabs.resize(id, 1, 1, "A");
-    assert_eq!(rig.pty(id), Some(PtySize { cols: 70, rows: 25 }));
-
-    // The owner's connection closes: ownership is released at once.
-    rig.tabs.connection_closed("B");
     assert_eq!(rig.tabs.size_owner(id), None);
-    rig.tabs.resize(id, 90, 40, "A");
-    assert_eq!(rig.pty(id), Some(PtySize { cols: 90, rows: 40 }));
+
+    rig.tabs.resize(id, 50, 20, "A");
+    assert_eq!(rig.tabs.size_owner(id), Some(SizeOwner { cols: 50, rows: 20, owner: "A".into() }));
+    assert_eq!(rig.pty(id), Some(PtySize { cols: 50, rows: 20 }));
+    rig.tabs.resize(id, 90, 40, "");
+    assert_eq!(rig.pty(id), Some(PtySize { cols: 50, rows: 20 }), "a resize without a claim is ignored while one stands");
+
+    // The newest claim owns; a renewal by the older claimant keeps its place.
+    rig.tabs.resize(id, 60, 25, "B");
+    assert_eq!(rig.pty(id), Some(PtySize { cols: 60, rows: 25 }));
+    rig.tabs.resize(id, 70, 26, "A");
+    assert_eq!(rig.tabs.size_owner(id), Some(SizeOwner { cols: 60, rows: 25, owner: "B".into() }));
+    assert_eq!(rig.pty(id), Some(PtySize { cols: 60, rows: 25 }));
+
+    // The owner releases: the next claimant still holding one owns, at the size it last claimed.
+    rig.tabs.resize(id, 0, 0, "B");
+    assert_eq!(rig.tabs.size_owner(id), Some(SizeOwner { cols: 70, rows: 26, owner: "A".into() }));
+    assert_eq!(rig.pty(id), Some(PtySize { cols: 70, rows: 26 }));
+
+    // A closing connection releases nothing.
+    rig.tabs.connection_closed("A");
+    assert_eq!(rig.tabs.size_owner(id), Some(SizeOwner { cols: 70, rows: 26, owner: "A".into() }));
+
+    // Sizes clamp to 2..500 x 2..200.
+    rig.tabs.resize(id, 1, 900, "A");
+    assert_eq!(rig.tabs.size_owner(id), Some(SizeOwner { cols: 2, rows: 200, owner: "A".into() }));
+    rig.tabs.resize(id, 0, 0, "A");
+    assert_eq!(rig.tabs.size_owner(id), None);
 
     // A reattaching view learns the owner's size.
-    rig.tabs.focus(id, "A", true);
+    rig.tabs.resize(id, 90, 40, "A");
     let again = rig.tabs.attach(id).await.unwrap();
     assert_eq!(again.size_owner, Some(SizeOwner { cols: 90, rows: 40, owner: "A".into() }));
 
@@ -581,32 +595,54 @@ async fn size_owner_follows_focus_and_connection_close_without_timers() {
     assert_eq!(
         owners,
         vec![
-            ("A".to_owned(), 110, 31),
-            ("B".to_owned(), 50, 20),
-            ("B".to_owned(), 70, 25),
+            ("A".to_owned(), 50, 20),
+            ("B".to_owned(), 60, 25),
+            ("A".to_owned(), 70, 26),
+            ("A".to_owned(), 2, 200),
             (String::new(), 0, 0),
             ("A".to_owned(), 90, 40),
         ]
     );
 
-    // No lease lapses, no timer fires: ownership changes only through the calls above. Each call
-    // announced its change before returning, so the owner log is already complete; the shell's own
-    // asynchronous activity lands in the same log as `Ev::Activity` and is not size ownership.
     // Disposing kills the shell, and draining its feed to the exit event is the barrier: the
-    // process has ended, so nothing that belongs to the tab can still be pending. Only the
-    // disposal's own release may follow, and the clock was never read again.
+    // process has ended, so nothing that belongs to the tab can still be pending. The claims go
+    // with the tab, and the clock was never read again.
     rig.tabs.dispose(id);
     let (_, exit) = collect(&rig.manager, &mixdog_protocol::ProcessHandle::from(id)).await;
     assert!(exit.killed.is_some(), "the shell ended because the tab was disposed");
+    assert_eq!(rig.tabs.size_owner(id), None);
     let mut released = owners;
     released.push((String::new(), 0, 0));
     let after: Vec<(String, u16, u16)> = rig.events.owners(id).into_iter().map(|c| (c.owner, c.cols, c.rows)).collect();
     assert_eq!(after, released);
     assert_eq!(rig.clock_reads.load(Ordering::SeqCst), 1);
-    // The thread count is process-wide and sibling tests of this binary start threads in
-    // parallel, so it cannot witness "no thread appears"; the clock and event checks above do.
 }
 
+/// A claim that is not renewed lapses after `SIZE_OWNER_LEASE` (30 s) and the PTY is fitted to the
+/// next claimant; a renewal restarts the lease. Time is the paused tokio clock the core ticker follows.
+#[tokio::test(start_paused = true)]
+async fn a_size_claim_lapses_after_its_lease_unless_renewed() {
+    let rig = rig("size-lease").await;
+    let attached = rig.tabs.ensure(Some("term_sizelease"), rig.request()).await.unwrap();
+    let id = attached.id.as_str();
+    rig.tabs.resize(id, 50, 20, "A");
+    rig.tabs.resize(id, 60, 25, "B");
+    let held = |tabs: &TerminalTabs| tabs.size_owner(id).map(|o| (o.owner, o.cols, o.rows));
+    tokio::time::advance(std::time::Duration::from_secs(20)).await;
+    rig.tabs.resize(id, 61, 26, "B");
+    tokio::time::advance(std::time::Duration::from_secs(20)).await;
+    tokio::task::yield_now().await;
+    // A's lease ended at 30 s, B renewed at 20 s: B still owns and A is gone.
+    assert_eq!(held(&rig.tabs), Some(("B".to_owned(), 61, 26)));
+    tokio::time::advance(std::time::Duration::from_secs(11)).await;
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(held(&rig.tabs), None, "B's lease ended 30 s after its renewal");
+    let owners: Vec<(String, u16, u16)> = rig.events.owners(id).into_iter().map(|c| (c.owner, c.cols, c.rows)).collect();
+    assert_eq!(owners, vec![("A".into(), 50, 20), ("B".into(), 60, 25), ("B".into(), 61, 26), (String::new(), 0, 0)]);
+    rig.tabs.dispose(id);
+}
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn activity_follows_the_shell_markers_and_focus() {
     let rig = rig("activity").await;
