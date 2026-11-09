@@ -64,7 +64,7 @@ const doc = await deadline.race(served.promise, 'the core to serve');
 watcher.close();
 
 const socket = new WebSocket(`ws://127.0.0.1:${doc.core.rpc.port}/rpc`, { headers: { Authorization: `Bearer ${doc.endpoints.session.token}` }, perMessageDeflate: false });
-await new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
+await deadline.race(new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); }), 'the app-server socket to open');
 const pending = new Map();
 const edges = [];
 const waiters = new Set();
@@ -78,11 +78,11 @@ socket.on('message', (data) => {
     for (const check of [...waiters]) check();
   }
 });
-const call = (method, params) => new Promise((resolve, reject) => {
+const call = (method, params) => deadline.race(new Promise((resolve, reject) => {
   const id = nextId++;
   pending.set(id, { resolve, reject, method });
   socket.send(JSON.stringify({ id, method, params }));
-});
+}), `the reply to ${method}`);
 // The core requires a lowercase UUIDv7 `opId`: the client library's own generator.
 const op = (method, params) => call(method, { ...params, opId: uuidv7(Date.now()) });
 /** Resolves when `ready()` holds, checked again at every notification the socket delivers. */

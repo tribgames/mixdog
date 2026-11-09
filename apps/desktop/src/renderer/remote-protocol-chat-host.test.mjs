@@ -162,6 +162,8 @@ const requestedPage = (request) => ({
   ...(request.byteBudget ? { byteBudget: request.byteBudget } : {}),
 });
 const UNMATCHED = {
+  // Node shows an empty page with `reset: true` here because its daemon had no historical-position reader (setup.source 'stored' with the
+  // reader missing, a daemon older than the phone). mixdogd always has `thread/items/list`, so no state of it answers that way.
   'stored-unsupported-reader': 'a Node daemon without historical positions; mixdogd always answers by cursor',
 };
 for (const c of recorded.cases.filter((x) => x.group === 'history')) {
