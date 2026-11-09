@@ -123,21 +123,23 @@ pub fn project_entry_path(root: &Path, rel: &str) -> WsResult<PathBuf> {
     let rel = rel.replace('\\', "/");
     let target = lexical(&root.join(rel));
     if !is_within(&root, &target) {
-        return Err(WsError::plain("Path is outside the project."));
+        return Err(WsError::denied(OUTSIDE_PROJECT));
     }
     let canonical_root = canonical(&root)?;
     let canonical_target = canonical_through_existing(&target)?;
     if !is_within(&canonical_root, &canonical_target) {
-        return Err(WsError::plain("Path resolves outside the project."));
+        return Err(WsError::denied(RESOLVES_OUTSIDE_PROJECT));
     }
     Ok(target)
 }
 
-/// [`project_entry_path`] for the two transfer calls Node has no counterpart of (`transfer/beginZip` names a project folder by `rel`, where
-/// Node's `authorizeFolderZip` takes a session path; `transfer/beginWrite` writes into a project, where Node's `serverUpload*` stage in
-/// a per-session folder): a path beyond the project stays the permission refusal this core always gave.
-pub fn guarded_entry_path(root: &Path, rel: &str) -> WsResult<PathBuf> {
-    project_entry_path(root, rel).map_err(|error| if matches!(error.reason, crate::error::Reason::Plain) { WsError::denied(error.message) } else { error })
+pub const OUTSIDE_PROJECT: &str = "Path is outside the project.";
+pub const RESOLVES_OUTSIDE_PROJECT: &str = "Path resolves outside the project.";
+
+/// The refusal of [`project_entry_path`] for a path beyond the project. Every caller gets the permission refusal; the phone's calls (which
+/// ask for `nodeErrors`) are answered with Node's plain `Error` of the same text (service.rs `map_error`).
+pub fn is_beyond_project(error: &WsError) -> bool {
+    matches!(error.reason, crate::error::Reason::PermissionDenied) && (error.message == OUTSIDE_PROJECT || error.message == RESOLVES_OUTSIDE_PROJECT)
 }
 
 /// Absolute path of a client-supplied absolute string (trusted local lanes).
@@ -164,7 +166,7 @@ mod tests {
         std::fs::create_dir(root.join("in")).unwrap();
         assert_eq!(project_entry_path(&root, "in/new.txt").unwrap(), root.join("in").join("new.txt"));
         let err = project_entry_path(&root, "../escape.txt").unwrap_err();
-        assert_eq!(err.message, "Path is outside the project.");
+        assert_eq!((err.reason.clone(), err.message.as_str()), (crate::error::Reason::PermissionDenied, "Path is outside the project."));
         let outside = tempfile::tempdir().unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink(outside.path(), root.join("link")).unwrap();

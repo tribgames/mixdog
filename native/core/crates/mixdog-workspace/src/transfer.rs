@@ -30,7 +30,6 @@ use crate::ident::file_version;
 use crate::inplace::open_authorized_ro;
 use crate::pathguard::absolute_local_path;
 use crate::pathguard::canonical;
-use crate::pathguard::guarded_entry_path;
 use crate::pathguard::project_entry_path;
 
 pub const RANGE_MAX_BYTES: u64 = 4 * 1024 * 1024;
@@ -356,7 +355,7 @@ impl Transfers {
         root: &Path,
         rel: &str,
     ) -> WsResult<Opened> {
-        let probe = guarded_entry_path(root, rel)?;
+        let probe = project_entry_path(root, rel)?;
         let folder = crate::lanes::run_fallible(lanes.maintenance, cancel, move || {
             let folder = canonical(&probe)?;
             if folder.is_dir() { Ok(folder) } else { Err(WsError::new(Reason::NotAFile, "Not a folder.")) }
@@ -425,7 +424,7 @@ impl Transfers {
 
     pub fn begin_write(&self, owner: &str, root: &Path, rel: &str, size: u64) -> WsResult<String> {
         self.sweep_idle();
-        let target = guarded_entry_path(root, rel)?;
+        let target = project_entry_path(root, rel)?;
         if target.exists() {
             return Err(WsError::new(Reason::AlreadyExists, "An entry with that name already exists in the target folder."));
         }

@@ -1,40 +1,40 @@
 // A refusal's `code` is what the grant refresh acts on, not the message text: the adapter's error carries the core's code and the page
 // links the file again only for the grant code.
+//
+// Inputs and every observation are Node's: apps/mobile/fixtures/phone-shim/golden.json, recorded from b6f10295a by
+// benchmarks/rust-core/recorders/record-phone-shim.mjs. Each test feeds a recorded refusal and compares what the page observed, whole.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { withPhoneApi } from './test-support/phone-api-rig.mjs';
 
-const FILE = 'C:/outside/report.txt';
+const { input, observed } = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-shim/golden.json', import.meta.url), 'utf8')).grant;
 
 async function openAfterRefusal(refusal) {
   let reads = 0;
   const handlers = {
-    readProjectFile: (params) => {
+    readProjectFile: () => {
       reads += 1;
       if (reads === 1) throw Object.assign(new Error(refusal.error), { code: refusal.errorCode });
-      assert.deepEqual(params.slice(0, 3), ['C:/outside', 'report.txt', 'fresh']);
-      return { content: 'linked report' };
+      return input.retryValue;
     },
-    resolveLocalPaths: (params) => {
-      assert.deepEqual(params, [[FILE], null, { anyConversation: true }]);
-      return [{ absolutePath: FILE, projectPath: 'C:/outside', relPath: 'report.txt', accessToken: 'fresh' }];
-    },
+    resolveLocalPaths: () => input.regrant,
   };
   return withPhoneApi(handlers, async ({ api, calls }) => {
-    const result = await api.readProjectFile('C:/outside', 'report.txt', 'held').catch((error) => error);
-    return { result, regranted: calls.some((call) => call.method === 'resolveLocalPaths') };
+    const result = await api.readProjectFile(...input.read).catch((error) => error);
+    const asked = calls.find((call) => call.method === 'resolveLocalPaths');
+    const retried = calls.filter((call) => call.method === 'readProjectFile')[1];
+    return {
+      resolveParams: asked?.params ?? null,
+      retryParams: retried?.params.slice(0, 3) ?? null,
+      result: { content: result.content ?? null, code: result.code ?? null },
+    };
   });
 }
 
-test('a refusal with the grant code is granted again, whatever its message says', async () => {
-  const { result, regranted } = await openAfterRefusal({ error: 'That link has lapsed.', errorCode: 'SELECTED_FILE_GRANT_UNAVAILABLE' });
-  assert.equal(regranted, true);
-  assert.equal(result.content, 'linked report');
-});
-
-test('a refusal with another code passes through even when its message names the grant', async () => {
-  const { result, regranted } = await openAfterRefusal({ error: 'The selected-file permission is unavailable.', errorCode: 'EACCES' });
-  assert.equal(regranted, false);
-  assert.equal(result.code, 'EACCES');
-});
+for (const { refusal, observed: recorded } of observed) {
+  test(`a refusal with code ${refusal.errorCode} (${JSON.stringify(refusal.error)}) is handled as Node's page handled it`, async () => {
+    assert.deepEqual(await openAfterRefusal(refusal), recorded);
+  });
+}

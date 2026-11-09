@@ -54,7 +54,9 @@ function failure(error: unknown): unknown {
 
 const rpc = async (host: PhoneProtocolHost, method: string, params: Params): Promise<any> => {
   try {
-    return await (host.client().call as (m: string, p: unknown) => Promise<unknown>)(method, params);
+    // `nodeErrors` (projectFs calls only; the other methods' params are closed): this is the phone's call, so an entry beyond its project is
+    // answered as Node's plain `Error`, not the core's permission refusal.
+    return await (host.client().call as (m: string, p: unknown) => Promise<unknown>)(method, method.startsWith('projectFs/') ? { ...params, nodeErrors: true } : params);
   } catch (error) {
     throw failure(error);
   }
