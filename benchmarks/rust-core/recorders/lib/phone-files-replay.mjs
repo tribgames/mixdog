@@ -7,6 +7,7 @@
 // behind a scripted relay and a paired phone (lib/phone-relay-core.mjs).
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, watch, writeFileSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -192,23 +193,26 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
   });
   // The whole final state, field by field. The world's project folders are compared file by file. What Node keeps under `userdata` is
   // compared as the state it holds, through the core's own reads:
-  //  - desktop-projects.json -> the aliases and hidden tombstones of the registered rows (`project/list`: `alias`, `hidden`); the `.bak`
+  //  - desktop-projects.json -> aliases and hidden tombstones (below); the `.bak`
   //    beside it is a write-safety copy only a damaged primary is restored from (atomic-file.mjs:359-378, :615-645), not state;
   //  - editor-backups/ -> the core's `<data>/userdata/editor-backups/` (the same files under a different root);
   //  - editor-recovery/<digest>/ -> the core's `<data>/recovery/<digest>/` (the same digest of the project root, a different root).
-  //  - the `hidden` list of desktop-projects.json (the tombstone `remove` writes, desktop-project-registry.ts:116) is NOT compared: it is
-  //    write-only legacy state (its only readers are `unhide` and `savePreferences`, which prune it; `list` ignores it), so no answer or
-  //    screen depends on it. The core deletes the row. The replay prints it as a known gap.
+  //  - desktop-projects.json is read from the core's own rows (`state/core.sqlite` `projects`, the table DS §4.1 converts it into): `aliases`
+  //    is every row's alias, `hidden` the hidden rows in `hidden_rank` order (Node's array order, newest removal first);
   //  - new-task-receipts/ -> the core keeps none (a phone-chat concern: `startTask` ids); Node's must be empty here.
   const byPath = (a, b) => (a.path < b.path ? -1 : 1);
   const filesUnder = (dir) => (existsSync(dir) ? treeOf(dir).filter((row) => !row.dir) : []);
   const tree = treeOf(world.root, (rel) => rel.startsWith('userdata'));
   if (!isDeepStrictEqual(tree, expected.finalTree)) unexpected.push({ step: 'finalTree', paths: differences(expected.finalTree, tree), node: expected.finalTree, core: tree });
   const rows = (await client.call('project/list', {})).projects;
+  const db = new DatabaseSync(join(core.dataDir, 'state', 'core.sqlite'), { readOnly: true });
+  const stored = db.prepare('SELECT path, alias, hidden FROM projects ORDER BY hidden_rank, path').all();
+  db.close();
   const preferences = {
-    aliases: Object.fromEntries(rows.filter((row) => row.alias).map((row) => [row.path, row.alias]).sort(([a], [b]) => (a < b ? -1 : 1))),
+    aliases: Object.fromEntries(stored.filter((row) => row.alias).map((row) => [row.path, row.alias]).sort(([a], [b]) => (a < b ? -1 : 1))),
+    hidden: stored.filter((row) => row.hidden).map((row) => row.path),
   };
-  const nodePreferences = { aliases: Object.fromEntries(Object.entries(expected.userdata.preferences.aliases).sort(([a], [b]) => (a < b ? -1 : 1))) };
+  const nodePreferences = { aliases: Object.fromEntries(Object.entries(expected.userdata.preferences.aliases).sort(([a], [b]) => (a < b ? -1 : 1))), hidden: expected.userdata.preferences.hidden };
   const state = {
     preferences,
     editorBackups: filesUnder(join(core.dataDir, 'userdata', 'editor-backups')),
@@ -228,7 +232,6 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
   const { execFileSync } = await import('node:child_process');
   execFileSync('taskkill', ['/T', '/F', '/PID', String(core.child.pid)], { stdio: 'ignore' });
   relay?.close();
-  console.log(`phone-files ${name} known gap, not compared: Node's legacy hidden tombstones ${JSON.stringify(expected.userdata.preferences.hidden)} (write-only; the core keeps no row for a removed project)`);
   console.log(`phone-files ${name} replay over ${exe}: ${compared} compared, ${unexpected.length} unexpected`);
   const show = (value) => JSON.stringify(value?.frame ?? value).slice(0, 360);
   for (const entry of unexpected) {
