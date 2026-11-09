@@ -119,6 +119,7 @@ import { coreBinaryPath, coreEnvironment, resolveLocalCore } from './protocol/lo
 import { createOpenRequestedHandler } from './protocol/open-requested';
 import { createVisualizePublisher } from './protocol/visualize-publish';
 import type { VisualizeHostEvent } from '../shared/visualize';
+import { reportDefaultsSeparation } from './protocol/defaults-separation';
 import { resolveRuntimeRoot } from '../shared/core-src/runtime/shared/runtime-root.mjs';
 import { registerSshHostIpc } from './ipc-ssh-hosts';
 import { createBrowserHost, type BrowserHost } from './browser/host';
@@ -522,6 +523,8 @@ const connectionDependencies: DesktopConnectionDependencies = {
             resolve,
             version: app.getVersion(),
             capabilities: { approvalsInbox: true, host: HOST_CAPABILITIES },
+            // Only this PC's core separates this PC's defaults; Node recorded it for the local profile alone.
+            ...(connection.kind === 'local' && !connector ? { onInitialized: (reply) => reportDefaultsSeparation(reply, writeBootDiagnostic) } : {}),
           }),
         })
       : null;
@@ -2688,7 +2691,6 @@ function startDesktopDiagnostics(appReadyAt: number): void {
   // The daemon handshake is already running (started before whenReady);
   // stamp its start into the timeline now that the sink exists.
   reportDaemonServiceStart();
-  // The one-time defaults separation of the `desktop` config section (Node: DesktopSettingsStore.separateDefaults) is run by the core (branch desktop-separation).
   for (const { event, entry, at } of earlyDiagnostics.splice(0)) {
     log.write(event, { ...entry, occurredAt: at });
   }

@@ -1,0 +1,18 @@
+{
+  "source": {
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+    "module": "apps/desktop/src/main/desktop-diagnostics.ts"
+  },
+  "context": {
+    "appVersion": "1.2.3",
+    "packaged": true,
+    "bootId": "boot-1",
+    "pid": 4242,
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "at": "2026-01-02T03:04:05.000Z",
+  "message": "EACCES: permission denied, open 'mixdog-config.json'",
+  "line": "{\"schemaVersion\":1,\"at\":\"2026-01-02T03:04:05.000Z\",\"event\":\"defaults-separation-failed\",\"pid\":4242,\"platform\":\"win32\",\"arch\":\"x64\",\"appVersion\":\"1.2.3\",\"packaged\":true,\"bootId\":\"boot-1\",\"message\":\"EACCES: permission denied, open 'mixdog-config.json'\"}\n"
+}
