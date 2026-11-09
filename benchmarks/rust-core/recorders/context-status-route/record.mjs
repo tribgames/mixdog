@@ -126,6 +126,7 @@ writeJson(join(out, 'golden.json'), {
   seedPrompt: SEED_PROMPT,
   config: CONFIG,
   stored,
+  afterRoute: result.afterRoute,
   steps,
 });
 writeSetManifest(out, {

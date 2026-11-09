@@ -959,6 +959,75 @@ mod tests {
             }
         }
         assert_eq!((control_reads, task_reads), (5, 2), "every recorded status was compared");
+        // What the store holds of the task session's `compaction` after the installation's sync, the seed turn and the route
+        // change, in full: the sync's fields survive the route change.
+        use mixdog_core_ports::ports::threads::ThreadState;
+        let held = replay.threads.header(&replay.id("second")).await.expect("the task session");
+        assert_eq!(held.get("compaction"), Some(&golden["afterRoute"]["compaction"]));
+    }
+
+    /// The route change whose outside reads are interrupted by the installation's compaction sync: the sync lands on the actor
+    /// after the header was last acked and before the change runs.
+    struct SyncsDuringLookup {
+        inner: Arc<crate::run_host::route_change::RunHostRouteChange>,
+        threads: Arc<mixdog_core_session::session::thread_state::SessionThreads>,
+        thread: ThreadId,
+        saved: Value,
+    }
+    #[async_trait]
+    impl mixdog_core_session::session::route_session::RouteChange for SyncsDuringLookup {
+        async fn lookups(&self, header: &Header, route: &Route) -> mixdog_core_session::session::route_session::RouteLookups {
+            use mixdog_core_ports::ports::threads::HeaderUpdates;
+            let saved = self.saved.clone();
+            self.threads
+                .update_header(&self.thread, Box::new(move |header| crate::run_host::compaction_follow::sync_change(header, &saved)))
+                .await
+                .expect("the sync");
+            self.inner.lookups(header, route).await
+        }
+        fn route_change(&self, header: &Header, route: &Route, previous: &Route, cross: bool, lookups: &mixdog_core_session::session::route_session::RouteLookups) -> mixdog_store::schema::record::HeaderChange {
+            self.inner.route_change(header, route, previous, cross, lookups)
+        }
+        fn environment_reset(&self, header: &Header) -> mixdog_store::schema::record::HeaderChange {
+            self.inner.environment_reset(header)
+        }
+    }
+
+    /// The task session of the recording, as the seed turn left it but without the installation's sync, takes the route change
+    /// while that sync lands in flight: the result is the `compaction` Node's store held after the sync and the route change
+    /// (`afterRoute`), in full - the route change reads the live session, so it neither loses the sync nor is lost by it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_sync_that_lands_while_the_route_change_is_in_flight_is_kept() {
+        use mixdog_core_ports::ports::route::RouteSession;
+        use mixdog_core_ports::ports::threads::ThreadState;
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/context-status-route/golden.json")).expect("golden");
+        let steps = golden["steps"].as_array().expect("steps");
+        let first = steps.iter().find(|step| step["session"] == "control" && step["action"] == "contextStatus").expect("a first control status");
+        let replay = Replay::new(first["value"]["toolMode"].as_str().expect("toolMode"), &first["value"]["provider"], &golden["config"]).await;
+        let recorded = golden["afterRoute"]["compaction"].as_object().expect("the recorded compaction").clone();
+        let mut turn = recorded.clone();
+        for key in mixdog_agent::compact::pressure::COMPACTION_CONFIG_KEYS {
+            turn.shift_remove(key);
+        }
+        assert!(turn.len() < recorded.len(), "the sync owns some of the recorded fields");
+        let thread = ThreadId::from("sess_inflight");
+        let header = json!({ "cwd": golden["stored"]["cwd"], "provider": golden["route"]["provider"], "model": golden["route"]["model"], "compaction": turn });
+        replay.directory.create_with_id(thread.clone(), header.as_object().cloned().expect("header"), json!({})).await.expect("create");
+        let inner = Arc::new(crate::run_host::route_change::RunHostRouteChange::new(Arc::new(WindowFacts), Arc::new(Fixed)));
+        let change = Arc::new(SyncsDuringLookup { inner, threads: replay.threads.clone(), thread: thread.clone(), saved: golden["afterRoute"]["compaction"].clone() });
+        let adapter = mixdog_core_session::session::route_session::SessionRouteAdapter::new(
+            replay.directory.clone(),
+            replay.threads.clone(),
+            change,
+            Arc::new(Quiet),
+            Arc::new(Quiet),
+            Arc::new(Quiet),
+            replay._rig.clock.clone(),
+        );
+        let route: Route = golden["route"].as_object().cloned().expect("route");
+        assert!(adapter.update_route(&thread, route, false).await.expect("update"));
+        let held = replay.threads.header(&thread).await.expect("the session");
+        assert_eq!(held.get("compaction"), Some(&Value::Object(recorded)));
     }
 
     /// `snapshotProviderRequestTools` as Node recorded it (`fixtures/request-tools`): the session's tools as its
