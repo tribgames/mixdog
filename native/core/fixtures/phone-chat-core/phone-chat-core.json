@@ -2069,7 +2069,8 @@
                 "outputTokens": 0,
                 "mode": "requesting"
               }
-            }
+            },
+            "projectedQueued": []
           }
         ],
         "durable": null,
@@ -2255,7 +2256,18 @@
               "transcriptViewRevision": 0,
               "transcriptViewItems": null,
               "cwd": "<cwd>"
-            }
+            },
+            "projectedQueued": [
+              {
+                "id": "sub1",
+                "submittedAt": 1700000003150,
+                "text": "hello",
+                "displayText": "hello",
+                "mode": "prompt",
+                "priority": "next",
+                "device": "desktop-1"
+              }
+            ]
           }
         ],
         "durable": {
@@ -2421,7 +2433,18 @@
               "transcriptViewRevision": 0,
               "transcriptViewItems": null,
               "cwd": "<cwd>"
-            }
+            },
+            "projectedQueued": [
+              {
+                "id": "sub1",
+                "submittedAt": 1700000003200,
+                "text": "hello",
+                "displayText": "hello",
+                "mode": "prompt",
+                "priority": "next",
+                "device": "desktop-1"
+              }
+            ]
           }
         ],
         "durable": {
@@ -2612,7 +2635,18 @@
               "transcriptViewRevision": 0,
               "transcriptViewItems": null,
               "cwd": "<cwd>"
-            }
+            },
+            "projectedQueued": [
+              {
+                "id": "sub1",
+                "submittedAt": 1700000003300,
+                "text": "hello",
+                "displayText": "hello",
+                "mode": "prompt",
+                "priority": "next",
+                "device": "desktop-1"
+              }
+            ]
           }
         ],
         "durable": {
@@ -2643,12 +2677,754 @@
       }
     },
     {
+      "name": "a prompt with a pasted image is queued with its image",
+      "kind": "submit",
+      "prompt": [
+        {
+          "type": "text",
+          "text": "see [Image #1]"
+        },
+        {
+          "type": "image",
+          "data": "AAAA",
+          "mimeType": "image/png"
+        }
+      ],
+      "options": {
+        "pastedImages": {
+          "1": {
+            "id": 1,
+            "type": "image",
+            "content": "AAAA",
+            "mediaType": "image/png",
+            "filename": "a.png"
+          }
+        }
+      },
+      "admission": "open",
+      "repeat": 1,
+      "busy": true,
+      "answers": [
+        true
+      ],
+      "at": 1700000003350,
+      "after": {
+        "items": [],
+        "queued": [
+          {
+            "id": "sub1",
+            "submittedAt": 1700000003350,
+            "text": "see [Image #1]\n[Image]",
+            "content": [
+              {
+                "type": "text",
+                "text": "see [Image #1]"
+              },
+              {
+                "type": "image",
+                "data": "AAAA",
+                "mimeType": "image/png"
+              }
+            ],
+            "pastedImages": {
+              "1": {
+                "id": 1,
+                "type": "image",
+                "content": "AAAA",
+                "mediaType": "image/png",
+                "filename": "a.png"
+              }
+            },
+            "pastedTexts": null,
+            "images": [
+              {
+                "id": 1,
+                "name": "a.png",
+                "mimeType": "image/png",
+                "bytes": 4
+              }
+            ],
+            "onCommitted": null,
+            "onSettled": null,
+            "onToolResult": null,
+            "transcriptMeta": {
+              "device": "desktop-1"
+            },
+            "context": null,
+            "mode": "prompt",
+            "priority": "next",
+            "key": null,
+            "origin": null,
+            "skipSlashCommands": false,
+            "displayText": "see [Image #1]\n[Image]",
+            "suppressDisplay": false,
+            "abortDiscardOnAbort": false,
+            "resumeCompletionKeys": [],
+            "steeringPersistId": "ts_loyw3xna_<random>",
+            "isMeta": false,
+            "skillSelection": null,
+            "goalId": null,
+            "retryFailedTurn": false,
+            "retryTurnId": null,
+            "retryAttemptId": null
+          }
+        ],
+        "pending": [
+          {
+            "id": "sub1",
+            "submittedAt": 1700000003350,
+            "text": "see [Image #1]\n[Image]",
+            "content": [
+              {
+                "type": "text",
+                "text": "see [Image #1]"
+              },
+              {
+                "type": "image",
+                "data": "AAAA",
+                "mimeType": "image/png"
+              }
+            ],
+            "pastedImages": {
+              "1": {
+                "id": 1,
+                "type": "image",
+                "content": "AAAA",
+                "mediaType": "image/png",
+                "filename": "a.png"
+              }
+            },
+            "pastedTexts": null,
+            "images": [
+              {
+                "id": 1,
+                "name": "a.png",
+                "mimeType": "image/png",
+                "bytes": 4
+              }
+            ],
+            "onCommitted": null,
+            "onSettled": null,
+            "onToolResult": null,
+            "transcriptMeta": {
+              "device": "desktop-1"
+            },
+            "context": null,
+            "mode": "prompt",
+            "priority": "next",
+            "key": null,
+            "origin": null,
+            "skipSlashCommands": false,
+            "displayText": "see [Image #1]\n[Image]",
+            "suppressDisplay": false,
+            "abortDiscardOnAbort": false,
+            "resumeCompletionKeys": [],
+            "steeringPersistId": "ts_loyw3xna_<random>",
+            "isMeta": false,
+            "skillSelection": null,
+            "goalId": null,
+            "retryFailedTurn": false,
+            "retryTurnId": null,
+            "retryAttemptId": null
+          }
+        ],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false,
+        "publications": [
+          {
+            "at": 1700000003350,
+            "state": {
+              "busy": false,
+              "commandBusy": true,
+              "queued": [
+                {
+                  "id": "sub1",
+                  "submittedAt": 1700000003350,
+                  "text": "see [Image #1]\n[Image]",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "see [Image #1]"
+                    },
+                    {
+                      "type": "image",
+                      "data": "AAAA",
+                      "mimeType": "image/png"
+                    }
+                  ],
+                  "pastedImages": {
+                    "1": {
+                      "id": 1,
+                      "type": "image",
+                      "content": "AAAA",
+                      "mediaType": "image/png",
+                      "filename": "a.png"
+                    }
+                  },
+                  "pastedTexts": null,
+                  "images": [
+                    {
+                      "id": 1,
+                      "name": "a.png",
+                      "mimeType": "image/png",
+                      "bytes": 4
+                    }
+                  ],
+                  "onCommitted": null,
+                  "onSettled": null,
+                  "onToolResult": null,
+                  "transcriptMeta": {
+                    "device": "desktop-1"
+                  },
+                  "context": null,
+                  "mode": "prompt",
+                  "priority": "next",
+                  "key": null,
+                  "origin": null,
+                  "skipSlashCommands": false,
+                  "displayText": "see [Image #1]\n[Image]",
+                  "suppressDisplay": false,
+                  "abortDiscardOnAbort": false,
+                  "resumeCompletionKeys": [],
+                  "steeringPersistId": "ts_loyw3xna_<random>",
+                  "isMeta": false,
+                  "skillSelection": null,
+                  "goalId": null,
+                  "retryFailedTurn": false,
+                  "retryTurnId": null,
+                  "retryAttemptId": null
+                }
+              ],
+              "items": [],
+              "promptHistoryList": [],
+              "stats": {
+                "turns": 0,
+                "inputTokens": 0,
+                "outputTokens": 0
+              },
+              "structureRevision": 0,
+              "transcriptViewRevision": 0,
+              "transcriptViewItems": null,
+              "cwd": "<cwd>"
+            },
+            "projectedQueued": [
+              {
+                "id": "sub1",
+                "submittedAt": 1700000003350,
+                "text": "see [Image #1]\n[Image]",
+                "displayText": "see [Image #1]\n[Image]",
+                "mode": "prompt",
+                "priority": "next",
+                "device": "desktop-1",
+                "images": [
+                  {
+                    "id": 1,
+                    "name": "a.png",
+                    "mimeType": "image/png",
+                    "bytes": 4
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "durable": {
+          "version": 1,
+          "updatedAt": 1700000003350,
+          "sessions": {
+            "tui_submit-27": [
+              {
+                "id": "ts_loyw3xna_<random>",
+                "text": "see [Image #1]\n[Image]",
+                "at": 1700000003350,
+                "submissionId": "sub1",
+                "submittedAt": 1700000003350,
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "see [Image #1]"
+                  },
+                  {
+                    "type": "image",
+                    "data": "AAAA",
+                    "mimeType": "image/png"
+                  }
+                ],
+                "pastedImages": {
+                  "1": {
+                    "id": 1,
+                    "type": "image",
+                    "content": "AAAA",
+                    "mediaType": "image/png",
+                    "filename": "a.png"
+                  }
+                },
+                "transcriptMeta": {
+                  "device": "desktop-1"
+                },
+                "mode": "prompt",
+                "priority": "next"
+              }
+            ]
+          },
+          "sessionTouchedAt": {
+            "tui_submit-27": 1700000003350
+          }
+        },
+        "asked": []
+      }
+    },
+    {
+      "name": "a prompt with a pasted text is queued with its text",
+      "kind": "submit",
+      "prompt": "see [Pasted text #1 +2 lines]",
+      "options": {
+        "pastedTexts": {
+          "1": {
+            "id": 1,
+            "text": "a\nb\nc"
+          }
+        }
+      },
+      "admission": "open",
+      "repeat": 1,
+      "busy": true,
+      "answers": [
+        true
+      ],
+      "at": 1700000003400,
+      "after": {
+        "items": [],
+        "queued": [
+          {
+            "id": "sub1",
+            "submittedAt": 1700000003400,
+            "text": "see [Pasted text #1 +2 lines]",
+            "content": "see [Pasted text #1 +2 lines]",
+            "pastedImages": null,
+            "pastedTexts": {
+              "1": {
+                "id": 1,
+                "text": "a\nb\nc"
+              }
+            },
+            "images": null,
+            "onCommitted": null,
+            "onSettled": null,
+            "onToolResult": null,
+            "transcriptMeta": {
+              "device": "desktop-1"
+            },
+            "context": null,
+            "mode": "prompt",
+            "priority": "next",
+            "key": null,
+            "origin": null,
+            "skipSlashCommands": false,
+            "displayText": "see [Pasted text #1 +2 lines]",
+            "suppressDisplay": false,
+            "abortDiscardOnAbort": false,
+            "resumeCompletionKeys": [],
+            "steeringPersistId": "ts_loyw3xoo_<random>",
+            "isMeta": false,
+            "skillSelection": null,
+            "goalId": null,
+            "retryFailedTurn": false,
+            "retryTurnId": null,
+            "retryAttemptId": null
+          }
+        ],
+        "pending": [
+          {
+            "id": "sub1",
+            "submittedAt": 1700000003400,
+            "text": "see [Pasted text #1 +2 lines]",
+            "content": "see [Pasted text #1 +2 lines]",
+            "pastedImages": null,
+            "pastedTexts": {
+              "1": {
+                "id": 1,
+                "text": "a\nb\nc"
+              }
+            },
+            "images": null,
+            "onCommitted": null,
+            "onSettled": null,
+            "onToolResult": null,
+            "transcriptMeta": {
+              "device": "desktop-1"
+            },
+            "context": null,
+            "mode": "prompt",
+            "priority": "next",
+            "key": null,
+            "origin": null,
+            "skipSlashCommands": false,
+            "displayText": "see [Pasted text #1 +2 lines]",
+            "suppressDisplay": false,
+            "abortDiscardOnAbort": false,
+            "resumeCompletionKeys": [],
+            "steeringPersistId": "ts_loyw3xoo_<random>",
+            "isMeta": false,
+            "skillSelection": null,
+            "goalId": null,
+            "retryFailedTurn": false,
+            "retryTurnId": null,
+            "retryAttemptId": null
+          }
+        ],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false,
+        "publications": [
+          {
+            "at": 1700000003400,
+            "state": {
+              "busy": false,
+              "commandBusy": true,
+              "queued": [
+                {
+                  "id": "sub1",
+                  "submittedAt": 1700000003400,
+                  "text": "see [Pasted text #1 +2 lines]",
+                  "content": "see [Pasted text #1 +2 lines]",
+                  "pastedImages": null,
+                  "pastedTexts": {
+                    "1": {
+                      "id": 1,
+                      "text": "a\nb\nc"
+                    }
+                  },
+                  "images": null,
+                  "onCommitted": null,
+                  "onSettled": null,
+                  "onToolResult": null,
+                  "transcriptMeta": {
+                    "device": "desktop-1"
+                  },
+                  "context": null,
+                  "mode": "prompt",
+                  "priority": "next",
+                  "key": null,
+                  "origin": null,
+                  "skipSlashCommands": false,
+                  "displayText": "see [Pasted text #1 +2 lines]",
+                  "suppressDisplay": false,
+                  "abortDiscardOnAbort": false,
+                  "resumeCompletionKeys": [],
+                  "steeringPersistId": "ts_loyw3xoo_<random>",
+                  "isMeta": false,
+                  "skillSelection": null,
+                  "goalId": null,
+                  "retryFailedTurn": false,
+                  "retryTurnId": null,
+                  "retryAttemptId": null
+                }
+              ],
+              "items": [],
+              "promptHistoryList": [],
+              "stats": {
+                "turns": 0,
+                "inputTokens": 0,
+                "outputTokens": 0
+              },
+              "structureRevision": 0,
+              "transcriptViewRevision": 0,
+              "transcriptViewItems": null,
+              "cwd": "<cwd>"
+            },
+            "projectedQueued": [
+              {
+                "id": "sub1",
+                "submittedAt": 1700000003400,
+                "text": "see [Pasted text #1 +2 lines]",
+                "displayText": "see [Pasted text #1 +2 lines]",
+                "mode": "prompt",
+                "priority": "next",
+                "device": "desktop-1"
+              }
+            ]
+          }
+        ],
+        "durable": {
+          "version": 1,
+          "updatedAt": 1700000003400,
+          "sessions": {
+            "tui_submit-28": [
+              {
+                "id": "ts_loyw3xoo_<random>",
+                "text": "see [Pasted text #1 +2 lines]",
+                "at": 1700000003400,
+                "submissionId": "sub1",
+                "submittedAt": 1700000003400,
+                "content": "see [Pasted text #1 +2 lines]",
+                "pastedTexts": {
+                  "1": {
+                    "id": 1,
+                    "text": "a\nb\nc"
+                  }
+                },
+                "transcriptMeta": {
+                  "device": "desktop-1"
+                },
+                "mode": "prompt",
+                "priority": "next"
+              }
+            ]
+          },
+          "sessionTouchedAt": {
+            "tui_submit-28": 1700000003400
+          }
+        },
+        "asked": []
+      }
+    },
+    {
+      "name": "a prompt with a later priority is queued at it",
+      "kind": "submit",
+      "prompt": "hello",
+      "options": {
+        "priority": "later"
+      },
+      "admission": "open",
+      "repeat": 1,
+      "busy": true,
+      "answers": [
+        true
+      ],
+      "at": 1700000003450,
+      "after": {
+        "items": [],
+        "queued": [
+          {
+            "id": "sub1",
+            "submittedAt": 1700000003450,
+            "text": "hello",
+            "content": "hello",
+            "pastedImages": null,
+            "pastedTexts": null,
+            "images": null,
+            "onCommitted": null,
+            "onSettled": null,
+            "onToolResult": null,
+            "transcriptMeta": {
+              "device": "desktop-1"
+            },
+            "context": null,
+            "mode": "prompt",
+            "priority": "later",
+            "key": null,
+            "origin": null,
+            "skipSlashCommands": false,
+            "displayText": "hello",
+            "suppressDisplay": false,
+            "abortDiscardOnAbort": false,
+            "resumeCompletionKeys": [],
+            "steeringPersistId": "ts_loyw3xq2_<random>",
+            "isMeta": false,
+            "skillSelection": null,
+            "goalId": null,
+            "retryFailedTurn": false,
+            "retryTurnId": null,
+            "retryAttemptId": null
+          }
+        ],
+        "pending": [
+          {
+            "id": "sub1",
+            "submittedAt": 1700000003450,
+            "text": "hello",
+            "content": "hello",
+            "pastedImages": null,
+            "pastedTexts": null,
+            "images": null,
+            "onCommitted": null,
+            "onSettled": null,
+            "onToolResult": null,
+            "transcriptMeta": {
+              "device": "desktop-1"
+            },
+            "context": null,
+            "mode": "prompt",
+            "priority": "later",
+            "key": null,
+            "origin": null,
+            "skipSlashCommands": false,
+            "displayText": "hello",
+            "suppressDisplay": false,
+            "abortDiscardOnAbort": false,
+            "resumeCompletionKeys": [],
+            "steeringPersistId": "ts_loyw3xq2_<random>",
+            "isMeta": false,
+            "skillSelection": null,
+            "goalId": null,
+            "retryFailedTurn": false,
+            "retryTurnId": null,
+            "retryAttemptId": null
+          }
+        ],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false,
+        "publications": [
+          {
+            "at": 1700000003450,
+            "state": {
+              "busy": false,
+              "commandBusy": true,
+              "queued": [
+                {
+                  "id": "sub1",
+                  "submittedAt": 1700000003450,
+                  "text": "hello",
+                  "content": "hello",
+                  "pastedImages": null,
+                  "pastedTexts": null,
+                  "images": null,
+                  "onCommitted": null,
+                  "onSettled": null,
+                  "onToolResult": null,
+                  "transcriptMeta": {
+                    "device": "desktop-1"
+                  },
+                  "context": null,
+                  "mode": "prompt",
+                  "priority": "later",
+                  "key": null,
+                  "origin": null,
+                  "skipSlashCommands": false,
+                  "displayText": "hello",
+                  "suppressDisplay": false,
+                  "abortDiscardOnAbort": false,
+                  "resumeCompletionKeys": [],
+                  "steeringPersistId": "ts_loyw3xq2_<random>",
+                  "isMeta": false,
+                  "skillSelection": null,
+                  "goalId": null,
+                  "retryFailedTurn": false,
+                  "retryTurnId": null,
+                  "retryAttemptId": null
+                }
+              ],
+              "items": [],
+              "promptHistoryList": [],
+              "stats": {
+                "turns": 0,
+                "inputTokens": 0,
+                "outputTokens": 0
+              },
+              "structureRevision": 0,
+              "transcriptViewRevision": 0,
+              "transcriptViewItems": null,
+              "cwd": "<cwd>"
+            },
+            "projectedQueued": [
+              {
+                "id": "sub1",
+                "submittedAt": 1700000003450,
+                "text": "hello",
+                "displayText": "hello",
+                "mode": "prompt",
+                "priority": "later",
+                "device": "desktop-1"
+              }
+            ]
+          }
+        ],
+        "durable": {
+          "version": 1,
+          "updatedAt": 1700000003450,
+          "sessions": {
+            "tui_submit-29": [
+              {
+                "id": "ts_loyw3xq2_<random>",
+                "text": "hello",
+                "at": 1700000003450,
+                "submissionId": "sub1",
+                "submittedAt": 1700000003450,
+                "content": "hello",
+                "transcriptMeta": {
+                  "device": "desktop-1"
+                },
+                "mode": "prompt",
+                "priority": "later"
+              }
+            ]
+          },
+          "sessionTouchedAt": {
+            "tui_submit-29": 1700000003450
+          }
+        },
+        "asked": []
+      }
+    },
+    {
+      "name": "a channel message is queued as a task notification",
+      "kind": "submit",
+      "prompt": "Build finished",
+      "options": {
+        "transcriptMeta": null,
+        "mode": "task-notification",
+        "origin": "channel"
+      },
+      "admission": "open",
+      "repeat": 1,
+      "busy": true,
+      "answers": [
+        true
+      ],
+      "at": 1700000003500,
+      "after": {
+        "items": [],
+        "queued": [],
+        "pending": [
+          {
+            "id": "submit-30-item-1",
+            "submittedAt": 1700000003500,
+            "text": "Build finished",
+            "content": "Build finished",
+            "pastedImages": null,
+            "pastedTexts": null,
+            "images": null,
+            "onCommitted": null,
+            "onSettled": null,
+            "onToolResult": null,
+            "transcriptMeta": null,
+            "context": null,
+            "mode": "task-notification",
+            "priority": "later",
+            "key": null,
+            "origin": "channel",
+            "skipSlashCommands": false,
+            "displayText": "Build finished",
+            "suppressDisplay": false,
+            "abortDiscardOnAbort": false,
+            "resumeCompletionKeys": [],
+            "steeringPersistId": null,
+            "isMeta": false,
+            "skillSelection": null,
+            "goalId": null,
+            "retryFailedTurn": false,
+            "retryTurnId": null,
+            "retryAttemptId": null
+          }
+        ],
+        "promptRestore": null,
+        "promptHistory": [],
+        "busy": false,
+        "publications": [],
+        "durable": null,
+        "asked": []
+      }
+    },
+    {
       "name": "two immediate flushes in one chain publish once",
       "kind": "flush",
       "flushes": 2,
       "publications": [
         {
-          "at": 1700000003350,
+          "at": 1700000003550,
           "state": {
             "busy": true,
             "commandBusy": false,
@@ -2664,7 +3440,8 @@
             "transcriptViewRevision": 0,
             "transcriptViewItems": null,
             "cwd": "<cwd>"
-          }
+          },
+          "projectedQueued": []
         }
       ]
     },
@@ -2675,322 +3452,6 @@
       "turns": 1,
       "itemId": "sub1",
       "busy": false,
-      "asked": [
-        {
-          "content": "hello",
-          "options": {
-            "id": "sub1",
-            "submissionIds": [
-              "sub1"
-            ],
-            "submittedAt": 1700000003400,
-            "retryFailedTurn": false,
-            "retryTurnId": null,
-            "retryAttemptId": null,
-            "transcriptMeta": {
-              "at": 1700000003400,
-              "messageId": "msg_<1>",
-              "device": "desktop-1",
-              "completionVerb": "Mapped",
-              "attemptId": "<uuid>",
-              "assistantAt": 1700000003400,
-              "assistantMessageId": "msg_<2>"
-            },
-            "context": null,
-            "onSkillsApplied": "[function]",
-            "drainSteering": "[function]",
-            "onSteerMessage": "[function]",
-            "onContextPressure": "[function]",
-            "onCompactEvent": "[function]",
-            "onUsageDelta": "[function]",
-            "onAssistantToolCallObserved": "[function]",
-            "onToolCall": "[function]",
-            "onToolResult": "[function]",
-            "onToolPhaseCompleted": "[function]",
-            "onToolApproval": "[function]",
-            "onProviderSendStarted": "[function]",
-            "onStageChange": "[function]",
-            "onTextDelta": "[function]",
-            "onTextReset": "[function]",
-            "onAssistantText": "[function]",
-            "onReasoningDelta": "[function]",
-            "onStreamItemStart": "[function]",
-            "onRouteApplied": "[function]",
-            "onModelSwitch": "[function]",
-            "onSessionSwitches": "[function]"
-          }
-        }
-      ],
-      "before": {
-        "items": [
-          {
-            "kind": "user",
-            "id": "sub1",
-            "text": "hello",
-            "at": 1700000003400,
-            "messageId": "msg_<1>",
-            "device": "desktop-1"
-          },
-          {
-            "text": "hi",
-            "at": 1700000003400,
-            "messageId": "msg_<2>",
-            "device": "desktop-1",
-            "completionVerb": "Mapped",
-            "attemptId": "<uuid>",
-            "kind": "assistant",
-            "id": "rewind-28-item-1",
-            "streaming": false
-          },
-          {
-            "kind": "turndone",
-            "id": "rewind-28-item-2",
-            "checkpointId": "sub1",
-            "elapsedMs": 0,
-            "status": "done",
-            "finalAssistantId": "rewind-28-item-1",
-            "outputTokens": 1,
-            "thinkingElapsedMs": 0,
-            "toolCount": 0,
-            "verb": "Mapped",
-            "at": 1700000003400,
-            "device": "desktop-1",
-            "completionVerb": "Mapped",
-            "attemptId": "<uuid>"
-          }
-        ],
-        "queued": [],
-        "pending": [],
-        "promptRestore": null,
-        "promptHistory": [
-          "hello"
-        ],
-        "busy": false
-      },
-      "reply": {
-        "text": "hello",
-        "removed": 3,
-        "messages": 2
-      },
-      "runtimeCalls": [
-        {
-          "options": {
-            "text": "hello",
-            "messageId": "msg_<1>",
-            "dryRun": true
-          },
-          "result": {
-            "removed": 2,
-            "remaining": 0,
-            "message": {
-              "role": "user",
-              "content": "hello",
-              "meta": {
-                "transcript": {
-                  "at": 1700000003400,
-                  "messageId": "msg_<1>",
-                  "device": "desktop-1",
-                  "completionVerb": "Mapped",
-                  "attemptId": "<uuid>",
-                  "assistantAt": 1700000003400,
-                  "assistantMessageId": "msg_<2>"
-                }
-              }
-            },
-            "historyMarker": "<history-marker>"
-          }
-        },
-        {
-          "options": {
-            "text": "hello",
-            "messageId": "msg_<1>",
-            "expectedHistoryMarker": "<history-marker>"
-          },
-          "result": {
-            "removed": 2,
-            "remaining": 0,
-            "message": {
-              "role": "user",
-              "content": "hello",
-              "meta": {
-                "transcript": {
-                  "at": 1700000003400,
-                  "messageId": "msg_<1>",
-                  "device": "desktop-1",
-                  "completionVerb": "Mapped",
-                  "attemptId": "<uuid>",
-                  "assistantAt": 1700000003400,
-                  "assistantMessageId": "msg_<2>"
-                }
-              }
-            }
-          }
-        }
-      ],
-      "after": {
-        "items": [],
-        "queued": [],
-        "pending": [],
-        "promptRestore": null,
-        "promptHistory": [],
-        "busy": false
-      }
-    },
-    {
-      "name": "an id that names no row answers nothing",
-      "kind": "rewind",
-      "prompt": "hello",
-      "turns": 1,
-      "itemId": "zz",
-      "busy": false,
-      "asked": [
-        {
-          "content": "hello",
-          "options": {
-            "id": "sub1",
-            "submissionIds": [
-              "sub1"
-            ],
-            "submittedAt": 1700000003500,
-            "retryFailedTurn": false,
-            "retryTurnId": null,
-            "retryAttemptId": null,
-            "transcriptMeta": {
-              "at": 1700000003500,
-              "messageId": "msg_<1>",
-              "device": "desktop-1",
-              "completionVerb": "Mapped",
-              "attemptId": "<uuid>",
-              "assistantAt": 1700000003500,
-              "assistantMessageId": "msg_<2>"
-            },
-            "context": null,
-            "onSkillsApplied": "[function]",
-            "drainSteering": "[function]",
-            "onSteerMessage": "[function]",
-            "onContextPressure": "[function]",
-            "onCompactEvent": "[function]",
-            "onUsageDelta": "[function]",
-            "onAssistantToolCallObserved": "[function]",
-            "onToolCall": "[function]",
-            "onToolResult": "[function]",
-            "onToolPhaseCompleted": "[function]",
-            "onToolApproval": "[function]",
-            "onProviderSendStarted": "[function]",
-            "onStageChange": "[function]",
-            "onTextDelta": "[function]",
-            "onTextReset": "[function]",
-            "onAssistantText": "[function]",
-            "onReasoningDelta": "[function]",
-            "onStreamItemStart": "[function]",
-            "onRouteApplied": "[function]",
-            "onModelSwitch": "[function]",
-            "onSessionSwitches": "[function]"
-          }
-        }
-      ],
-      "before": {
-        "items": [
-          {
-            "kind": "user",
-            "id": "sub1",
-            "text": "hello",
-            "at": 1700000003500,
-            "messageId": "msg_<1>",
-            "device": "desktop-1"
-          },
-          {
-            "text": "hi",
-            "at": 1700000003500,
-            "messageId": "msg_<2>",
-            "device": "desktop-1",
-            "completionVerb": "Mapped",
-            "attemptId": "<uuid>",
-            "kind": "assistant",
-            "id": "rewind-29-item-1",
-            "streaming": false
-          },
-          {
-            "kind": "turndone",
-            "id": "rewind-29-item-2",
-            "checkpointId": "sub1",
-            "elapsedMs": 0,
-            "status": "done",
-            "finalAssistantId": "rewind-29-item-1",
-            "outputTokens": 1,
-            "thinkingElapsedMs": 0,
-            "toolCount": 0,
-            "verb": "Mapped",
-            "at": 1700000003500,
-            "device": "desktop-1",
-            "completionVerb": "Mapped",
-            "attemptId": "<uuid>"
-          }
-        ],
-        "queued": [],
-        "pending": [],
-        "promptRestore": null,
-        "promptHistory": [
-          "hello"
-        ],
-        "busy": false
-      },
-      "reply": null,
-      "runtimeCalls": [],
-      "after": {
-        "items": [
-          {
-            "kind": "user",
-            "id": "sub1",
-            "text": "hello",
-            "at": 1700000003500,
-            "messageId": "msg_<1>",
-            "device": "desktop-1"
-          },
-          {
-            "text": "hi",
-            "at": 1700000003500,
-            "messageId": "msg_<2>",
-            "device": "desktop-1",
-            "completionVerb": "Mapped",
-            "attemptId": "<uuid>",
-            "kind": "assistant",
-            "id": "rewind-29-item-1",
-            "streaming": false
-          },
-          {
-            "kind": "turndone",
-            "id": "rewind-29-item-2",
-            "checkpointId": "sub1",
-            "elapsedMs": 0,
-            "status": "done",
-            "finalAssistantId": "rewind-29-item-1",
-            "outputTokens": 1,
-            "thinkingElapsedMs": 0,
-            "toolCount": 0,
-            "verb": "Mapped",
-            "at": 1700000003500,
-            "device": "desktop-1",
-            "completionVerb": "Mapped",
-            "attemptId": "<uuid>"
-          }
-        ],
-        "queued": [],
-        "pending": [],
-        "promptRestore": null,
-        "promptHistory": [
-          "hello"
-        ],
-        "busy": false
-      }
-    },
-    {
-      "name": "a busy session answers nothing",
-      "kind": "rewind",
-      "prompt": "hello",
-      "turns": 1,
-      "itemId": "sub1",
-      "busy": true,
       "asked": [
         {
           "content": "hello",
@@ -3055,16 +3516,16 @@
             "completionVerb": "Mapped",
             "attemptId": "<uuid>",
             "kind": "assistant",
-            "id": "rewind-30-item-1",
+            "id": "rewind-32-item-1",
             "streaming": false
           },
           {
             "kind": "turndone",
-            "id": "rewind-30-item-2",
+            "id": "rewind-32-item-2",
             "checkpointId": "sub1",
             "elapsedMs": 0,
             "status": "done",
-            "finalAssistantId": "rewind-30-item-1",
+            "finalAssistantId": "rewind-32-item-1",
             "outputTokens": 1,
             "thinkingElapsedMs": 0,
             "toolCount": 0,
@@ -3083,61 +3544,81 @@
         ],
         "busy": false
       },
-      "reply": null,
-      "runtimeCalls": [],
-      "after": {
-        "items": [
-          {
-            "kind": "user",
-            "id": "sub1",
+      "reply": {
+        "text": "hello",
+        "removed": 3,
+        "messages": 2
+      },
+      "runtimeCalls": [
+        {
+          "options": {
             "text": "hello",
-            "at": 1700000003600,
             "messageId": "msg_<1>",
-            "device": "desktop-1"
+            "dryRun": true
           },
-          {
-            "text": "hi",
-            "at": 1700000003600,
-            "messageId": "msg_<2>",
-            "device": "desktop-1",
-            "completionVerb": "Mapped",
-            "attemptId": "<uuid>",
-            "kind": "assistant",
-            "id": "rewind-30-item-1",
-            "streaming": false
-          },
-          {
-            "kind": "turndone",
-            "id": "rewind-30-item-2",
-            "checkpointId": "sub1",
-            "elapsedMs": 0,
-            "status": "done",
-            "finalAssistantId": "rewind-30-item-1",
-            "outputTokens": 1,
-            "thinkingElapsedMs": 0,
-            "toolCount": 0,
-            "verb": "Mapped",
-            "at": 1700000003600,
-            "device": "desktop-1",
-            "completionVerb": "Mapped",
-            "attemptId": "<uuid>"
+          "result": {
+            "removed": 2,
+            "remaining": 0,
+            "message": {
+              "role": "user",
+              "content": "hello",
+              "meta": {
+                "transcript": {
+                  "at": 1700000003600,
+                  "messageId": "msg_<1>",
+                  "device": "desktop-1",
+                  "completionVerb": "Mapped",
+                  "attemptId": "<uuid>",
+                  "assistantAt": 1700000003600,
+                  "assistantMessageId": "msg_<2>"
+                }
+              }
+            },
+            "historyMarker": "<history-marker>"
           }
-        ],
+        },
+        {
+          "options": {
+            "text": "hello",
+            "messageId": "msg_<1>",
+            "expectedHistoryMarker": "<history-marker>"
+          },
+          "result": {
+            "removed": 2,
+            "remaining": 0,
+            "message": {
+              "role": "user",
+              "content": "hello",
+              "meta": {
+                "transcript": {
+                  "at": 1700000003600,
+                  "messageId": "msg_<1>",
+                  "device": "desktop-1",
+                  "completionVerb": "Mapped",
+                  "attemptId": "<uuid>",
+                  "assistantAt": 1700000003600,
+                  "assistantMessageId": "msg_<2>"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "after": {
+        "items": [],
         "queued": [],
         "pending": [],
         "promptRestore": null,
-        "promptHistory": [
-          "hello"
-        ],
+        "promptHistory": [],
         "busy": false
       }
     },
     {
-      "name": "the second of two prompts with the same text is rewound",
+      "name": "an id that names no row answers nothing",
       "kind": "rewind",
       "prompt": "hello",
-      "turns": 2,
-      "itemId": "sub2",
+      "turns": 1,
+      "itemId": "zz",
       "busy": false,
       "asked": [
         {
@@ -3183,6 +3664,302 @@
             "onModelSwitch": "[function]",
             "onSessionSwitches": "[function]"
           }
+        }
+      ],
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "hello",
+            "at": 1700000003700,
+            "messageId": "msg_<1>",
+            "device": "desktop-1"
+          },
+          {
+            "text": "hi",
+            "at": 1700000003700,
+            "messageId": "msg_<2>",
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "<uuid>",
+            "kind": "assistant",
+            "id": "rewind-33-item-1",
+            "streaming": false
+          },
+          {
+            "kind": "turndone",
+            "id": "rewind-33-item-2",
+            "checkpointId": "sub1",
+            "elapsedMs": 0,
+            "status": "done",
+            "finalAssistantId": "rewind-33-item-1",
+            "outputTokens": 1,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1700000003700,
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "<uuid>"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [
+          "hello"
+        ],
+        "busy": false
+      },
+      "reply": null,
+      "runtimeCalls": [],
+      "after": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "hello",
+            "at": 1700000003700,
+            "messageId": "msg_<1>",
+            "device": "desktop-1"
+          },
+          {
+            "text": "hi",
+            "at": 1700000003700,
+            "messageId": "msg_<2>",
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "<uuid>",
+            "kind": "assistant",
+            "id": "rewind-33-item-1",
+            "streaming": false
+          },
+          {
+            "kind": "turndone",
+            "id": "rewind-33-item-2",
+            "checkpointId": "sub1",
+            "elapsedMs": 0,
+            "status": "done",
+            "finalAssistantId": "rewind-33-item-1",
+            "outputTokens": 1,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1700000003700,
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "<uuid>"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [
+          "hello"
+        ],
+        "busy": false
+      }
+    },
+    {
+      "name": "a busy session answers nothing",
+      "kind": "rewind",
+      "prompt": "hello",
+      "turns": 1,
+      "itemId": "sub1",
+      "busy": true,
+      "asked": [
+        {
+          "content": "hello",
+          "options": {
+            "id": "sub1",
+            "submissionIds": [
+              "sub1"
+            ],
+            "submittedAt": 1700000003800,
+            "retryFailedTurn": false,
+            "retryTurnId": null,
+            "retryAttemptId": null,
+            "transcriptMeta": {
+              "at": 1700000003800,
+              "messageId": "msg_<1>",
+              "device": "desktop-1",
+              "completionVerb": "Mapped",
+              "attemptId": "<uuid>",
+              "assistantAt": 1700000003800,
+              "assistantMessageId": "msg_<2>"
+            },
+            "context": null,
+            "onSkillsApplied": "[function]",
+            "drainSteering": "[function]",
+            "onSteerMessage": "[function]",
+            "onContextPressure": "[function]",
+            "onCompactEvent": "[function]",
+            "onUsageDelta": "[function]",
+            "onAssistantToolCallObserved": "[function]",
+            "onToolCall": "[function]",
+            "onToolResult": "[function]",
+            "onToolPhaseCompleted": "[function]",
+            "onToolApproval": "[function]",
+            "onProviderSendStarted": "[function]",
+            "onStageChange": "[function]",
+            "onTextDelta": "[function]",
+            "onTextReset": "[function]",
+            "onAssistantText": "[function]",
+            "onReasoningDelta": "[function]",
+            "onStreamItemStart": "[function]",
+            "onRouteApplied": "[function]",
+            "onModelSwitch": "[function]",
+            "onSessionSwitches": "[function]"
+          }
+        }
+      ],
+      "before": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "hello",
+            "at": 1700000003800,
+            "messageId": "msg_<1>",
+            "device": "desktop-1"
+          },
+          {
+            "text": "hi",
+            "at": 1700000003800,
+            "messageId": "msg_<2>",
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "<uuid>",
+            "kind": "assistant",
+            "id": "rewind-34-item-1",
+            "streaming": false
+          },
+          {
+            "kind": "turndone",
+            "id": "rewind-34-item-2",
+            "checkpointId": "sub1",
+            "elapsedMs": 0,
+            "status": "done",
+            "finalAssistantId": "rewind-34-item-1",
+            "outputTokens": 1,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1700000003800,
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "<uuid>"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [
+          "hello"
+        ],
+        "busy": false
+      },
+      "reply": null,
+      "runtimeCalls": [],
+      "after": {
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub1",
+            "text": "hello",
+            "at": 1700000003800,
+            "messageId": "msg_<1>",
+            "device": "desktop-1"
+          },
+          {
+            "text": "hi",
+            "at": 1700000003800,
+            "messageId": "msg_<2>",
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "<uuid>",
+            "kind": "assistant",
+            "id": "rewind-34-item-1",
+            "streaming": false
+          },
+          {
+            "kind": "turndone",
+            "id": "rewind-34-item-2",
+            "checkpointId": "sub1",
+            "elapsedMs": 0,
+            "status": "done",
+            "finalAssistantId": "rewind-34-item-1",
+            "outputTokens": 1,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1700000003800,
+            "device": "desktop-1",
+            "completionVerb": "Mapped",
+            "attemptId": "<uuid>"
+          }
+        ],
+        "queued": [],
+        "pending": [],
+        "promptRestore": null,
+        "promptHistory": [
+          "hello"
+        ],
+        "busy": false
+      }
+    },
+    {
+      "name": "the second of two prompts with the same text is rewound",
+      "kind": "rewind",
+      "prompt": "hello",
+      "turns": 2,
+      "itemId": "sub2",
+      "busy": false,
+      "asked": [
+        {
+          "content": "hello",
+          "options": {
+            "id": "sub1",
+            "submissionIds": [
+              "sub1"
+            ],
+            "submittedAt": 1700000003900,
+            "retryFailedTurn": false,
+            "retryTurnId": null,
+            "retryAttemptId": null,
+            "transcriptMeta": {
+              "at": 1700000003900,
+              "messageId": "msg_<1>",
+              "device": "desktop-1",
+              "completionVerb": "Mapped",
+              "attemptId": "<uuid>",
+              "assistantAt": 1700000003900,
+              "assistantMessageId": "msg_<2>"
+            },
+            "context": null,
+            "onSkillsApplied": "[function]",
+            "drainSteering": "[function]",
+            "onSteerMessage": "[function]",
+            "onContextPressure": "[function]",
+            "onCompactEvent": "[function]",
+            "onUsageDelta": "[function]",
+            "onAssistantToolCallObserved": "[function]",
+            "onToolCall": "[function]",
+            "onToolResult": "[function]",
+            "onToolPhaseCompleted": "[function]",
+            "onToolApproval": "[function]",
+            "onProviderSendStarted": "[function]",
+            "onStageChange": "[function]",
+            "onTextDelta": "[function]",
+            "onTextReset": "[function]",
+            "onAssistantText": "[function]",
+            "onReasoningDelta": "[function]",
+            "onStreamItemStart": "[function]",
+            "onRouteApplied": "[function]",
+            "onModelSwitch": "[function]",
+            "onSessionSwitches": "[function]"
+          }
         },
         {
           "content": "hello",
@@ -3191,17 +3968,17 @@
             "submissionIds": [
               "sub2"
             ],
-            "submittedAt": 1700000003750,
+            "submittedAt": 1700000003950,
             "retryFailedTurn": false,
             "retryTurnId": null,
             "retryAttemptId": null,
             "transcriptMeta": {
-              "at": 1700000003750,
+              "at": 1700000003950,
               "messageId": "msg_<3>",
               "device": "desktop-1",
               "completionVerb": "Wrapped",
               "attemptId": "<uuid>",
-              "assistantAt": 1700000003750,
+              "assistantAt": 1700000003950,
               "assistantMessageId": "msg_<4>"
             },
             "context": null,
@@ -3235,33 +4012,33 @@
             "kind": "user",
             "id": "sub1",
             "text": "hello",
-            "at": 1700000003700,
+            "at": 1700000003900,
             "messageId": "msg_<1>",
             "device": "desktop-1"
           },
           {
             "text": "hi",
-            "at": 1700000003700,
+            "at": 1700000003900,
             "messageId": "msg_<2>",
             "device": "desktop-1",
             "completionVerb": "Mapped",
             "attemptId": "<uuid>",
             "kind": "assistant",
-            "id": "rewind-31-item-1",
+            "id": "rewind-35-item-1",
             "streaming": false
           },
           {
             "kind": "turndone",
-            "id": "rewind-31-item-2",
+            "id": "rewind-35-item-2",
             "checkpointId": "sub1",
             "elapsedMs": 0,
             "status": "done",
-            "finalAssistantId": "rewind-31-item-1",
+            "finalAssistantId": "rewind-35-item-1",
             "outputTokens": 1,
             "thinkingElapsedMs": 0,
             "toolCount": 0,
             "verb": "Mapped",
-            "at": 1700000003700,
+            "at": 1700000003900,
             "device": "desktop-1",
             "completionVerb": "Mapped",
             "attemptId": "<uuid>"
@@ -3270,33 +4047,33 @@
             "kind": "user",
             "id": "sub2",
             "text": "hello",
-            "at": 1700000003750,
+            "at": 1700000003950,
             "messageId": "msg_<3>",
             "device": "desktop-1"
           },
           {
             "text": "hi",
-            "at": 1700000003750,
+            "at": 1700000003950,
             "messageId": "msg_<4>",
             "device": "desktop-1",
             "completionVerb": "Wrapped",
             "attemptId": "<uuid>",
             "kind": "assistant",
-            "id": "rewind-31-item-3",
+            "id": "rewind-35-item-3",
             "streaming": false
           },
           {
             "kind": "turndone",
-            "id": "rewind-31-item-4",
+            "id": "rewind-35-item-4",
             "checkpointId": "sub2",
             "elapsedMs": 0,
             "status": "done",
-            "finalAssistantId": "rewind-31-item-3",
+            "finalAssistantId": "rewind-35-item-3",
             "outputTokens": 1,
             "thinkingElapsedMs": 0,
             "toolCount": 0,
             "verb": "Wrapped",
-            "at": 1700000003750,
+            "at": 1700000003950,
             "device": "desktop-1",
             "completionVerb": "Wrapped",
             "attemptId": "<uuid>"
@@ -3330,12 +4107,12 @@
               "content": "hello",
               "meta": {
                 "transcript": {
-                  "at": 1700000003750,
+                  "at": 1700000003950,
                   "messageId": "msg_<3>",
                   "device": "desktop-1",
                   "completionVerb": "Wrapped",
                   "attemptId": "<uuid>",
-                  "assistantAt": 1700000003750,
+                  "assistantAt": 1700000003950,
                   "assistantMessageId": "msg_<4>"
                 }
               }
@@ -3357,12 +4134,12 @@
               "content": "hello",
               "meta": {
                 "transcript": {
-                  "at": 1700000003750,
+                  "at": 1700000003950,
                   "messageId": "msg_<3>",
                   "device": "desktop-1",
                   "completionVerb": "Wrapped",
                   "attemptId": "<uuid>",
-                  "assistantAt": 1700000003750,
+                  "assistantAt": 1700000003950,
                   "assistantMessageId": "msg_<4>"
                 }
               }
@@ -3376,33 +4153,33 @@
             "kind": "user",
             "id": "sub1",
             "text": "hello",
-            "at": 1700000003700,
+            "at": 1700000003900,
             "messageId": "msg_<1>",
             "device": "desktop-1"
           },
           {
             "text": "hi",
-            "at": 1700000003700,
+            "at": 1700000003900,
             "messageId": "msg_<2>",
             "device": "desktop-1",
             "completionVerb": "Mapped",
             "attemptId": "<uuid>",
             "kind": "assistant",
-            "id": "rewind-31-item-1",
+            "id": "rewind-35-item-1",
             "streaming": false
           },
           {
             "kind": "turndone",
-            "id": "rewind-31-item-2",
+            "id": "rewind-35-item-2",
             "checkpointId": "sub1",
             "elapsedMs": 0,
             "status": "done",
-            "finalAssistantId": "rewind-31-item-1",
+            "finalAssistantId": "rewind-35-item-1",
             "outputTokens": 1,
             "thinkingElapsedMs": 0,
             "toolCount": 0,
             "verb": "Mapped",
-            "at": 1700000003700,
+            "at": 1700000003900,
             "device": "desktop-1",
             "completionVerb": "Mapped",
             "attemptId": "<uuid>"

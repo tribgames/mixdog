@@ -88,7 +88,7 @@ pub fn channel_entry(text: &str, now: i64) -> Option<Value> {
     if message.is_empty() {
         return None;
     }
-    Some(json!({ "message": message, "mode": MODE, "origin": ORIGIN_CHANNEL, "enqueuedAt": now }))
+    Some(json!({ "message": message, "mode": MODE, "origin": ORIGIN_CHANNEL, "priority": "later", "enqueuedAt": now }))
 }
 
 /// The text a queued completion delivers.
@@ -165,7 +165,7 @@ mod tests {
     #[test]
     fn a_known_origin_rides_the_input_row_and_a_channel_entry_is_not_held_back() {
         let channel = channel_entry(" PR opened ", 5).unwrap();
-        assert_eq!(channel, json!({ "message": "PR opened", "mode": "task-notification", "origin": "channel", "enqueuedAt": 5 }));
+        assert_eq!(channel, json!({ "message": "PR opened", "mode": "task-notification", "origin": "channel", "priority": "later", "enqueuedAt": 5 }));
         assert!(is_channel(&channel));
         assert_eq!(input_row(&channel)["meta"], json!({ "source": "task-notification", "origin": "channel" }));
         let report = json!({ "message": "x", "mode": "task-notification", "origin": "agent-report" });

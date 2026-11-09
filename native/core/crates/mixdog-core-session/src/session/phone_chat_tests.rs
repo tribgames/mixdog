@@ -391,20 +391,19 @@ fn stored_item(row: &Value, asked: &Value, clock: u64, place: &Place) -> Value {
 /// a prompt is editable unless it is meta); `text` and `displayText` are Node's copies of `content`, equal here as the prompt is plain text;
 /// `steeringPersistId` is the mirror's own key for the entry (`shard.id`). Everything else is Node-only: the table below.
 fn stored_queue(shard: &Value, entry: &Value, durable: &Value, at: i64, clock: u64) -> Value {
-    const UNSET: &str = "an option the prompt did not set; Rust stores an option only when the prompt sets it";
+    // Evidence for every Node-only queue field: `projectSessionState` (`session-state-projection.mjs:34-50`) builds the queue a client is sent
+    // from id, submittedAt, text, displayText, transcriptMeta's source fields, mode, priority and images only; `pastedImages` and `pastedTexts`
+    // reach the composer through the interrupt reply (`queue-helpers.mjs:138,166`, `abort.mjs:50-51`) and are mapped above.
+    const UNSET: &str = "an option the prompt did not set; Rust stores an option only when the prompt sets it (not in the client projection, session-state-projection.mjs:37-48)";
     closed(
         "Node queue entry",
         entry,
-        &["id", "submittedAt", "text", "content", "transcriptMeta", "displayText", "steeringPersistId", "isMeta", "priority"],
+        &["id", "submittedAt", "text", "content", "transcriptMeta", "displayText", "steeringPersistId", "isMeta", "priority", "mode", "images", "pastedImages", "pastedTexts"],
         &[
-            ("pastedImages", Value::Null, UNSET),
-            ("pastedTexts", Value::Null, UNSET),
-            ("images", Value::Null, "the legacy image list; none was pasted"),
             ("onCommitted", Value::Null, "an in-process callback a caller may pass; none was"),
             ("onSettled", Value::Null, "an in-process callback a caller may pass; none was"),
             ("onToolResult", Value::Null, "an in-process callback a caller may pass; none was"),
             ("context", Value::Null, "a follow-up's caller context; none was given"),
-            ("mode", json!("prompt"), "Rust stores a mode only for a non-prompt entry (a task notification, a goal): no mode is a prompt"),
             ("key", Value::Null, "the dedupe key of a runtime-made entry; a user prompt has none"),
             ("origin", Value::Null, "the channel a prompt came from; none"),
             ("skipSlashCommands", json!(false), UNSET),
@@ -418,11 +417,20 @@ fn stored_queue(shard: &Value, entry: &Value, durable: &Value, at: i64, clock: u
             ("retryAttemptId", Value::Null, "a retry's attempt; none for a first run"),
         ],
     );
+    // The mirror holds the pasted images only when the entry has them.
+    let mut held = vec!["id", "text", "at", "submissionId", "submittedAt", "content", "transcriptMeta", "priority", "mode"];
+    for key in ["pastedImages", "pastedTexts"] {
+        assert_eq!(shard.get(key).is_some(), !entry[key].is_null(), "the mirror holds the entry's {key} when it has any");
+        if shard.get(key).is_some() {
+            assert_eq!(shard[key], entry[key], "the mirror holds the entry's {key}");
+            held.push(key);
+        }
+    }
     closed(
         "Node steering mirror entry",
         shard,
-        &["id", "text", "at", "submissionId", "submittedAt", "content", "transcriptMeta", "priority"],
-        &[("mode", json!("prompt"), "Node's mode of the entry, as above")],
+        &held,
+        &[],
     );
     closed(
         "Node steering mirror file",
@@ -441,8 +449,22 @@ fn stored_queue(shard: &Value, entry: &Value, durable: &Value, at: i64, clock: u
     for key in ["content", "transcriptMeta", "text", "priority"] {
         assert_eq!(shard[key], entry[key], "the mirror holds the entry's {key}");
     }
-    assert_eq!(entry["text"], entry["content"], "text is the content");
-    assert_eq!(entry["displayText"], entry["content"], "the shown text is the content");
+    // The shown text is the content's text: the content itself for a plain prompt, its `promptContentText` for parts (compared with the
+    // core's published text in `queue_row`).
+    assert_eq!(entry["text"], entry["displayText"], "text and the shown text are one");
+    if entry["content"].is_string() {
+        assert_eq!(entry["text"], entry["content"], "text is the content");
+    }
+    // Mapped: `pastedImages` is the option of that name; `mode` and `images` are what the client sees, compared in `node_frames`
+    // (`queue_row`); a prompt's mode is `prompt`, which Rust leaves out of the stored entry.
+    assert_eq!(entry["mode"], json!("prompt"));
+    assert_eq!(shard["mode"], entry["mode"], "the mirror holds the entry's mode");
+    let mut options = json!({ "clientSubmissionId": entry["id"] });
+    for key in ["pastedImages", "pastedTexts"] {
+        if !entry[key].is_null() {
+            options[key] = entry[key].clone();
+        }
+    }
     json!({
         "k": "queue", "qid": "<qid>", "action": "enqueue",
         "op": { "id": "op-0", "method": "turn/start", "digest": "<digest>", "result": { "kind": "queued", "queuedId": "<qid>" } },
@@ -450,11 +472,30 @@ fn stored_queue(shard: &Value, entry: &Value, durable: &Value, at: i64, clock: u
             "message": entry["content"],
             "enqueuedAt": clock,
             "priority": entry["priority"],
-            "options": { "clientSubmissionId": entry["id"] },
+            "options": options,
             "transcriptMeta": entry["transcriptMeta"],
             "restorable": entry["isMeta"] != json!(true),
         } },
     })
+}
+
+/// One row of what Node's daemon sends a client of its queue (`projectSessionState`, `session-state-projection.mjs:33-49`), as the row the
+/// core publishes for it. Every field the projection can hold is mapped: `id` is the submission id (the core's `id` is its own queue id,
+/// `<qid>`); `submittedAt` is `enqueuedAt`; `text` and `displayText` are one text; `mode`, `priority`, the sender's source fields and
+/// `images` keep their names. A field outside this table fails.
+fn queue_row(projected: &Value, at: i64, clock: u64) -> Value {
+    for key in projected.as_object().unwrap().keys() {
+        assert!(["id", "submittedAt", "text", "displayText", "mode", "priority", "sender", "device", "fromAgent", "images"].contains(&key.as_str()), "Node projects a queue field {key} no table maps");
+    }
+    assert_eq!(projected["submittedAt"], json!(at), "Node stamps the submit time");
+    assert_eq!(projected["displayText"], projected["text"], "the projection shows one text");
+    let mut row = json!({ "id": "<qid>", "text": projected["text"], "mode": projected["mode"], "priority": projected["priority"], "enqueuedAt": clock, "clientSubmissionId": projected["id"] });
+    for key in ["sender", "device", "fromAgent", "images"] {
+        if let Some(held) = projected.get(key) {
+            row[key] = held.clone();
+        }
+    }
+    row
 }
 
 /// What Node's viewer was shown (`publications`: the store's published snapshot at each publication, whole), as the frames Rust
@@ -482,8 +523,9 @@ fn node_frames(publications: &[Value], at: i64, clock: u64) -> Vec<(String, Valu
         }
         let queue = state["queued"].as_array().unwrap();
         if *queue != queued {
-            let row = |entry: &Value| json!({ "id": "<qid>", "text": entry["displayText"], "enqueuedAt": clock, "clientSubmissionId": entry["id"] });
-            out.push(("thread/queue/changed".to_owned(), json!({ "queued": queue.iter().map(row).collect::<Vec<_>>() })));
+            let projected = publication["projectedQueued"].as_array().unwrap();
+            assert_eq!(projected.len(), queue.len(), "Node's projection keeps every entry");
+            out.push(("thread/queue/changed".to_owned(), json!({ "queued": projected.iter().map(|row| queue_row(row, at, clock)).collect::<Vec<_>>() })));
             queued = queue.clone();
         }
         if state["busy"] == true && !busy {
@@ -505,7 +547,7 @@ fn node_frames(publications: &[Value], at: i64, clock: u64) -> Vec<(String, Valu
 async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
     let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
     let cases = all["cases"].as_array().unwrap().iter().filter(|case| case["kind"] == "submit").collect::<Vec<_>>();
-    assert_eq!(cases.len(), 7);
+    assert_eq!(cases.len(), 11);
     for case in cases {
         let name = case["name"].as_str().unwrap();
         let rig = Rig::new();
@@ -523,13 +565,23 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         let mut options = case["options"].clone();
         options["clientSubmissionId"] = json!("sub1");
         let answers = case["answers"].as_array().unwrap();
+        // A channel message queued as a task notification takes the router's path (`channel-session-router.mjs`), not a client's submit.
+        let notification = case["options"]["mode"] == "task-notification";
         for (turn, want) in answers.iter().enumerate() {
+            if notification {
+                assert!(directory.queue_channel_notification(&handle.id, case["prompt"].as_str().unwrap().to_owned()).await, "{name}: Node accepted");
+                continue;
+            }
             let got = submit_with(&handle, 1, &format!("op-{turn}"), case["prompt"].clone(), options.clone()).await;
             match (want.as_bool().unwrap(), got) {
                 (true, Ok(_)) => {}
                 (false, got) => refused_any(got, name),
                 (true, Err(error)) => panic!("{name}: Node accepted, Rust refused: {error:?}"),
             }
+        }
+        if notification {
+            // The notice reaches the thread through its inbox: wait for the entry on the queue.
+            eventually_on(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1).then_some(())).await;
         }
         let since = || frames().into_iter().skip(base_frames).collect::<Vec<_>>();
         let node = &case["after"];
@@ -563,6 +615,17 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
             })
             .collect();
         assert_eq!(rust_frames, want_frames, "{name}: notifications");
+        if notification {
+            // Node keeps the entry out of the queue clients see (`isQueuedEntryVisible`): no queue frame on either side, and the entry is
+            // the one queued task notification; its mode and origin are Node's.
+            assert!(node["queued"].as_array().unwrap().is_empty() && !rust_frames.iter().any(|(method, _)| method == "thread/queue/changed"), "{name}");
+            let pending = node["pending"].as_array().unwrap();
+            assert_eq!(pending.len(), 1, "{name}");
+            let held: Vec<Value> = handle.cell.queue.load().iter().map(|queued| queued.entry.clone()).collect();
+            assert_eq!(held.len(), 1, "{name}");
+            assert_eq!((held[0]["mode"].clone(), held[0]["origin"].clone(), held[0]["message"].clone(), held[0]["priority"].clone()), (pending[0]["mode"].clone(), pending[0]["origin"].clone(), pending[0]["content"].clone(), pending[0]["priority"].clone()), "{name}: the queued entry");
+            continue;
+        }
 
         // The stored rows, whole. Node's row maps to the record as `stored_item` says; the ids (`iid`, `turn`) are Rust's own,
         // and `checkpointId` is the item's own id.
