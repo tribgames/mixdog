@@ -2,16 +2,16 @@
 // and `readCapabilities` become `<namespace>/<action>` with the positional arguments as the method's named params, and
 // the session the call is addressed to as `threadId`. A call without a session is the control session's (Node's
 // `invokeCapability`/`readCapabilities`): the control thread is named as `threadId` for every op that takes one.
-// The routing table is the TUI's (`src/standalone/protocol-session`); only actions the TUI does not route are added.
+// The routing table is the TUI's (`packages/protocol-client/src/actions`); only actions the TUI does not route are added.
 // The control session is a real thread of the core, started on first need.
 import {
   approvalSurface,
   desktopSessionState,
   sessionReducer,
 } from '../../../../../packages/protocol-client/src/index.ts';
-import { ACTION_OVERRIDES, OVERRIDE_THREAD_SOURCE } from '../../../../../src/standalone/protocol-session/action-overrides.mjs';
-import { resolveAction } from '../../../../../src/standalone/protocol-session/action-route.mjs';
-import { METHOD_ARGS } from '../../../../../src/standalone/protocol-session/method-args.generated.mjs';
+import { ACTION_OVERRIDES, OVERRIDE_THREAD_SOURCE } from '../../../../../packages/protocol-client/src/actions/action-overrides.mjs';
+import { resolveAction } from '../../../../../packages/protocol-client/src/actions/action-route.mjs';
+import { METHOD_ARGS } from '../../../../../packages/protocol-client/src/actions/method-args.generated.mjs';
 import type {
   DesktopCapability,
   DesktopCapabilityReadRequest,
