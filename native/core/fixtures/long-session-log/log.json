@@ -1,0 +1,107 @@
+{
+  "id": "sess_longlog",
+  "log": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"6bc9e87d3cc6393ff4bab532\",\"id\":\"sess_longlog\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_longlog\",\"owner\":\"user\",\"agent\":\"lead\",\"closed\":false,\"generation\":0,\"updatedAt\":1700000000001,\"title\":\"first\",\"tags\":[\"a\"],\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":3,\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\\nRules — follow them 😀\"},{\"role\":\"user\",\"content\":\"question 1   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 1\",\"usage\":{\"input\":1,\"output\":0.5}}]}\n{\"t\":\"append\",\"s\":2,\"len\":5,\"messages\":[{\"role\":\"user\",\"content\":\"question 2   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 2\",\"usage\":{\"input\":2,\"output\":1}}]}\n{\"t\":\"patch\",\"s\":3,\"set\":{\"updatedAt\":1700000000002},\"unset\":[]}\n{\"t\":\"compacted\",\"s\":4,\"len\":7,\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\\nRules — follow them 😀\"},{\"role\":\"user\",\"content\":\"question 1   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 1\",\"usage\":{\"input\":1,\"output\":0.5}},{\"role\":\"user\",\"content\":\"question 2   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 2\",\"usage\":{\"input\":2,\"output\":1}},{\"role\":\"user\",\"content\":\"question 3   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 3\",\"usage\":{\"input\":3,\"output\":1.5}}]}\n{\"t\":\"patch\",\"s\":5,\"set\":{\"updatedAt\":1700000000003},\"unset\":[]}\n{\"t\":\"edit\",\"s\":6,\"len\":7,\"at\":2,\"del\":1,\"messages\":[{\"role\":\"tool\",\"tool_call_id\":\"call_9\",\"content\":\"output 9\\nline two\"}]}\n{\"t\":\"patch\",\"s\":7,\"set\":{\"updatedAt\":1700000000004},\"unset\":[]}\n{\"t\":\"rollback\",\"s\":8,\"len\":4}\n{\"t\":\"patch\",\"s\":9,\"set\":{\"updatedAt\":1700000000005},\"unset\":[]}\n{\"t\":\"patch\",\"s\":10,\"set\":{\"updatedAt\":1700000000006,\"title\":\"second\"},\"unset\":[\"tags\"]}\n{\"t\":\"compacted\",\"s\":11,\"len\":6,\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\\nRules — follow them 😀\"},{\"role\":\"user\",\"content\":\"question 1   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"tool\",\"tool_call_id\":\"call_9\",\"content\":\"output 9\\nline two\"},{\"role\":\"user\",\"content\":\"question 2   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"user\",\"content\":\"question 4   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 4\",\"usage\":{\"input\":4,\"output\":2}}]}\n{\"t\":\"patch\",\"s\":12,\"set\":{\"updatedAt\":1700000000007},\"unset\":[]}\n{\"t\":\"compacted\",\"s\":13,\"len\":8,\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\\nRules — follow them 😀\"},{\"role\":\"user\",\"content\":\"question 1   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"tool\",\"tool_call_id\":\"call_9\",\"content\":\"output 9\\nline two\"},{\"role\":\"user\",\"content\":\"question 2   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"user\",\"content\":\"question 4   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 4\",\"usage\":{\"input\":4,\"output\":2}},{\"role\":\"user\",\"content\":\"question 5   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 5\",\"usage\":{\"input\":5,\"output\":2.5}}]}\n{\"t\":\"patch\",\"s\":14,\"set\":{\"updatedAt\":1700000000008},\"unset\":[]}\n{\"t\":\"compacted\",\"s\":15,\"len\":10,\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\\nRules — follow them 😀\"},{\"role\":\"user\",\"content\":\"question 1   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"tool\",\"tool_call_id\":\"call_9\",\"content\":\"output 9\\nline two\"},{\"role\":\"user\",\"content\":\"question 2   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"user\",\"content\":\"question 4   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 4\",\"usage\":{\"input\":4,\"output\":2}},{\"role\":\"user\",\"content\":\"question 5   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 5\",\"usage\":{\"input\":5,\"output\":2.5}},{\"role\":\"user\",\"content\":\"question 6   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 6\",\"usage\":{\"input\":6,\"output\":3}}]}\n{\"t\":\"patch\",\"s\":16,\"set\":{\"updatedAt\":1700000000009},\"unset\":[]}\n{\"t\":\"compacted\",\"s\":17,\"len\":12,\"messages\":[{\"role\":\"system\",\"content\":\"You are a coding agent.\\nRules — follow them 😀\"},{\"role\":\"user\",\"content\":\"question 1   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"tool\",\"tool_call_id\":\"call_9\",\"content\":\"output 9\\nline two\"},{\"role\":\"user\",\"content\":\"question 2   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"user\",\"content\":\"question 4   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 4\",\"usage\":{\"input\":4,\"output\":2}},{\"role\":\"user\",\"content\":\"question 5   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 5\",\"usage\":{\"input\":5,\"output\":2.5}},{\"role\":\"user\",\"content\":\"question 6   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 6\",\"usage\":{\"input\":6,\"output\":3}},{\"role\":\"user\",\"content\":\"question 7   with \\\"quotes\\\"\\n\\ttab\"},{\"role\":\"assistant\",\"content\":\"answer 7\",\"usage\":{\"input\":7,\"output\":3.5}}]}\n{\"t\":\"patch\",\"s\":18,\"set\":{\"updatedAt\":1700000000010},\"unset\":[]}\n",
+  "kinds": [
+    "session",
+    "compacted",
+    "append",
+    "patch",
+    "compacted",
+    "patch",
+    "edit",
+    "patch",
+    "rollback",
+    "patch",
+    "patch",
+    "compacted",
+    "patch",
+    "compacted",
+    "patch",
+    "compacted",
+    "patch",
+    "compacted",
+    "patch"
+  ],
+  "replay": {
+    "valid": true,
+    "logId": "6bc9e87d3cc6393ff4bab532",
+    "header": {
+      "id": "sess_longlog",
+      "owner": "user",
+      "agent": "lead",
+      "closed": false,
+      "generation": 0,
+      "updatedAt": 1700000000010,
+      "title": "second",
+      "tools": []
+    },
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a coding agent.\nRules — follow them 😀"
+      },
+      {
+        "role": "user",
+        "content": "question 1   with \"quotes\"\n\ttab"
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_9",
+        "content": "output 9\nline two"
+      },
+      {
+        "role": "user",
+        "content": "question 2   with \"quotes\"\n\ttab"
+      },
+      {
+        "role": "user",
+        "content": "question 4   with \"quotes\"\n\ttab"
+      },
+      {
+        "role": "assistant",
+        "content": "answer 4",
+        "usage": {
+          "input": 4,
+          "output": 2
+        }
+      },
+      {
+        "role": "user",
+        "content": "question 5   with \"quotes\"\n\ttab"
+      },
+      {
+        "role": "assistant",
+        "content": "answer 5",
+        "usage": {
+          "input": 5,
+          "output": 2.5
+        }
+      },
+      {
+        "role": "user",
+        "content": "question 6   with \"quotes\"\n\ttab"
+      },
+      {
+        "role": "assistant",
+        "content": "answer 6",
+        "usage": {
+          "input": 6,
+          "output": 3
+        }
+      },
+      {
+        "role": "user",
+        "content": "question 7   with \"quotes\"\n\ttab"
+      },
+      {
+        "role": "assistant",
+        "content": "answer 7",
+        "usage": {
+          "input": 7,
+          "output": 3.5
+        }
+      }
+    ],
+    "replayFrom": 17
+  }
+}

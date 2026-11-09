@@ -229,6 +229,20 @@ pub fn read(path: &Path) -> Result<Vec<u8>> {
     fs::read(path).map_err(|e| Blocked::io("read", path, e))
 }
 
+/// A file opened to be read line by line without holding it whole; `path` names it in errors.
+pub struct OpenFile {
+    pub path: std::path::PathBuf,
+    pub reader: std::io::BufReader<File>,
+}
+
+pub fn open_buffered(path: &Path) -> Result<OpenFile> {
+    let file = File::open(path).map_err(|e| Blocked::io("open", path, e))?;
+    Ok(OpenFile {
+        path: path.to_path_buf(),
+        reader: std::io::BufReader::with_capacity(1 << 16, file),
+    })
+}
+
 /// The bytes of the regular, non-empty file `path` when it holds at most `max_bytes` (judged
 /// by the opened file and by at most `max_bytes + 1` bytes read), else `None`. An empty or
 /// non-regular file is an `InvalidData` error.

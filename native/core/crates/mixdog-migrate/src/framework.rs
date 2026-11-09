@@ -249,6 +249,17 @@ impl ItemContext<'_> {
         Ok(bytes)
     }
 
+    /// A source opened for a streaming read, after its manifest size and hash were checked in
+    /// 64 KiB chunks: a session log is read this way, never whole.
+    pub fn open_source(&self, file: &SourceFile) -> Result<durable::OpenFile> {
+        let path = self.source_path(file)?;
+        let (size, sha256) = durable::hash_file(&path)?;
+        if size != file.size || sha256 != file.sha256 {
+            return Err(Blocked::SourceChanged { path });
+        }
+        durable::open_buffered(&path)
+    }
+
     /// Shared sources `key` consumes, in manifest order.
     pub fn shared_for(&self, key: &str) -> Vec<&SourceFile> {
         self.manifest
