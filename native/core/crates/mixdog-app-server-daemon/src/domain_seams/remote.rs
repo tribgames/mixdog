@@ -63,11 +63,6 @@ impl LatePublisher {
 }
 
 impl StatePublisher for LatePublisher {
-    fn open_keys(&self, section: SectionName) -> Vec<String> {
-        let bound = self.state.lock().unwrap_or_else(PoisonError::into_inner).0.clone();
-        bound.map_or_else(Vec::new, |publisher| publisher.open_keys(section))
-    }
-
     fn publish(&self, section: SectionName, key: Option<String>, change: SectionChange) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         match state.0.clone() {

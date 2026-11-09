@@ -128,7 +128,15 @@ async function runScenario(scenario) {
   };
   const windows = new ReviewWindows(windowKit, respond);
   current = { windows };
-  const openWindow = async ({ session, ws, checkpoint }) => {
+  // A window shows one pane per session; its panes share its preload and bridge, so one IPC event calls every pane of it.
+  const appWindows = new Map();
+  const openWindow = async ({ session, ws, checkpoint, window }) => {
+    const shown = appWindows.get(window);
+    if (shown) {
+      clients.set(session, { session, ws, window });
+      await windows.open({ session, checkpoint, api: shown.api });
+      return;
+    }
     const ipc = new EventEmitter();
     ipc.send = () => {};
     ipc.invoke = (channel, request) => {
@@ -150,7 +158,8 @@ async function runScenario(scenario) {
       ipcMain: new EventEmitter(),
       handle: () => {},
     });
-    clients.set(session, { session, ws, bridge });
+    appWindows.set(window, { api, bridge });
+    clients.set(session, { session, ws, window });
     await windows.open({ session, checkpoint, api });
   };
   const run = async (op) => {
@@ -222,7 +231,7 @@ async function runScenario(scenario) {
     await windows.settle();
     results.push({ op: index, ...result, notifications: sent, ...windows.trace() });
   }
-  for (const { bridge } of clients.values()) bridge.dispose();
+  for (const { bridge } of appWindows.values()) bridge.dispose();
   await windows.close();
   current = null;
   worktrees._resetTurnWorktreeSnapshotsForTest();
@@ -239,10 +248,10 @@ const gitTwo = [
 ];
 // A window's transcript is its session's first turn (`checkpoint`): the bar shows a review only of the turn the transcript is at.
 const sessions = [
-  { op: 'client', session: 's1', ws: 'w1', checkpoint: 'cp1' },
-  { op: 'client', session: 's2', ws: 'w1', checkpoint: 'cp2' },
-  { op: 'client', session: 's3', ws: 'w2', checkpoint: 'cp3' },
-  { op: 'client', session: 's4', ws: 'ng', checkpoint: 'cp4' },
+  { op: 'client', session: 's1', ws: 'w1', checkpoint: 'cp1', window: 'A' },
+  { op: 'client', session: 's2', ws: 'w1', checkpoint: 'cp2', window: 'A' },
+  { op: 'client', session: 's3', ws: 'w2', checkpoint: 'cp3', window: 'B' },
+  { op: 'client', session: 's4', ws: 'ng', checkpoint: 'cp4', window: 'B' },
   { op: 'begin', ws: 'w1', session: 's1', checkpoint: 'cp1' },
   { op: 'begin', ws: 'w1', session: 's2', checkpoint: 'cp2' },
   { op: 'begin', ws: 'w2', session: 's3', checkpoint: 'cp3' },
@@ -254,7 +263,7 @@ const scenarios = [
     name: 'command tool, edit and apply_patch calls with two sessions on one worktree, one on another and one in a folder without Git',
     ops: [
       // A client with no turn is told too.
-      { op: 'client', session: 's0', ws: 'w1', checkpoint: 'none' },
+      { op: 'client', session: 's0', ws: 'w1', checkpoint: 'none', window: 'A' },
       { op: 'gitTool', ws: 'w1', session: 's0', command: 'status' },
       ...gitTwo,
       ...sessions,
@@ -286,8 +295,8 @@ const scenarios = [
     ops: [
       { op: 'git', ws: 'w1' },
       { op: 'file', ws: 'w1', path: 'a.txt', content: T(lines('x', 'y')) },
-      { op: 'client', session: 'u1', ws: 'w1', checkpoint: 'cp1' },
-      { op: 'client', session: 'u2', ws: 'w1', checkpoint: 'cp2' },
+      { op: 'client', session: 'u1', ws: 'w1', checkpoint: 'cp1', window: 'C' },
+      { op: 'client', session: 'u2', ws: 'w1', checkpoint: 'cp2', window: 'D' },
       { op: 'begin', ws: 'w1', session: 'u1', checkpoint: 'cp1' },
       { op: 'begin', ws: 'w1', session: 'u2', checkpoint: 'cp2' },
       { op: 'edit', ws: 'w1', session: 'u1', path: 'a.txt', old: 'y', new: 'Y' },
@@ -300,6 +309,9 @@ const scenarios = [
       { op: 'undo', session: 'u1', checkpoint: 'cp1' },
       { op: 'changes', session: 'u1', checkpoint: 'cp1' },
       { op: 'redo', session: 'u1', checkpoint: 'cp1' },
+      // A window opened after tells were made is not told about them.
+      { op: 'client', session: 'u3', ws: 'w1', checkpoint: 'none', window: 'E' },
+      { op: 'edit', ws: 'w1', session: 'u1', path: 'a.txt', old: 'Z', new: 'Q' },
     ],
   },
 ];

@@ -327,11 +327,6 @@ pub fn empty_view(id: &FeedId, epoch: &FeedEpoch) -> Arc<dyn FeedView> {
 /// inspector, …) answers for its own keys; no route means no subscriber exists.
 pub trait ScopedRoutes: Send + Sync {
     fn route(&self, section: SectionName, key: Option<&str>) -> Option<Arc<dyn StatePublisher>>;
-
-    /// The keys that have a route of their own for `section`.
-    fn keys(&self, _section: SectionName) -> Vec<String> {
-        Vec::new()
-    }
 }
 
 /// The `StatePublisher` of the core.
@@ -351,13 +346,6 @@ impl StateHub {
 }
 
 impl StatePublisher for StateHub {
-    fn open_keys(&self, section: SectionName) -> Vec<String> {
-        match section.feed() {
-            SectionFeed::App => Vec::new(),
-            _ => self.scoped.keys(section),
-        }
-    }
-
     fn publish(&self, section: SectionName, key: Option<String>, change: SectionChange) {
         match section.feed() {
             SectionFeed::App => self.app.publish(section, key, change),

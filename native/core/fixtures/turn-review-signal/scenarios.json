@@ -7,7 +7,8 @@
     "op": "client",
     "session": "s0",
     "ws": "w1",
-    "checkpoint": "none"
+    "checkpoint": "none",
+    "window": "A"
    },
    {
     "op": "gitTool",
@@ -59,25 +60,29 @@
     "op": "client",
     "session": "s1",
     "ws": "w1",
-    "checkpoint": "cp1"
+    "checkpoint": "cp1",
+    "window": "A"
    },
    {
     "op": "client",
     "session": "s2",
     "ws": "w1",
-    "checkpoint": "cp2"
+    "checkpoint": "cp2",
+    "window": "A"
    },
    {
     "op": "client",
     "session": "s3",
     "ws": "w2",
-    "checkpoint": "cp3"
+    "checkpoint": "cp3",
+    "window": "B"
    },
    {
     "op": "client",
     "session": "s4",
     "ws": "ng",
-    "checkpoint": "cp4"
+    "checkpoint": "cp4",
+    "window": "B"
    },
    {
     "op": "begin",
@@ -2529,13 +2534,15 @@
     "op": "client",
     "session": "u1",
     "ws": "w1",
-    "checkpoint": "cp1"
+    "checkpoint": "cp1",
+    "window": "C"
    },
    {
     "op": "client",
     "session": "u2",
     "ws": "w1",
-    "checkpoint": "cp2"
+    "checkpoint": "cp2",
+    "window": "D"
    },
    {
     "op": "begin",
@@ -2607,6 +2614,21 @@
     "op": "redo",
     "session": "u1",
     "checkpoint": "cp1"
+   },
+   {
+    "op": "client",
+    "session": "u3",
+    "ws": "w1",
+    "checkpoint": "none",
+    "window": "E"
+   },
+   {
+    "op": "edit",
+    "ws": "w1",
+    "session": "u1",
+    "path": "a.txt",
+    "old": "Z",
+    "new": "Q"
    }
   ],
   "results": [
@@ -3541,6 +3563,159 @@
     "shows": {
      "u1": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
      "u2": null
+    }
+   },
+   {
+    "op": 16,
+    "notifications": [],
+    "deliveries": 0,
+    "requests": [
+     {
+      "client": "u3",
+      "after": 0,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": false,
+         "summary": true
+        }
+       ],
+       "sessionId": "u3"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     },
+     {
+      "client": "u3",
+      "after": 0,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "summary": true
+        }
+       ],
+       "sessionId": "u3"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     }
+    ],
+    "shows": {
+     "u1": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "u2": null,
+     "u3": null
+    }
+   },
+   {
+    "op": 17,
+    "text": "Updated a.txt (1 replacement)",
+    "notifications": [
+     {
+      "kind": "desktop-event",
+      "name": "turn-review-changed",
+      "value": null
+     }
+    ],
+    "deliveries": 1,
+    "requests": [
+     {
+      "client": "u1",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "6f8b8b03ffabb7f37964df1b8a0068ef",
+         "summary": true
+        }
+       ],
+       "sessionId": "u1"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "6f8b8b03ffabb7f37964df1b8a0068ef"
+      }
+     },
+     {
+      "client": "u2",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "known": "be09d8cee586abd1682040df96b6a629",
+         "summary": true
+        }
+       ],
+       "sessionId": "u2"
+      },
+      "answer": {
+       "unchanged": true,
+       "etag": "be09d8cee586abd1682040df96b6a629"
+      }
+     },
+     {
+      "client": "u3",
+      "after": 1,
+      "request": {
+       "capability": "getTurnReviewDiff",
+       "args": [
+        {
+         "refresh": true,
+         "summary": true
+        }
+       ],
+       "sessionId": "u3"
+      },
+      "answer": {
+       "supported": true,
+       "files": [],
+       "patch": "",
+       "snapshotKind": "tool",
+       "revertMode": "",
+       "checkpointId": "",
+       "patchTruncated": false,
+       "authoritative": false,
+       "agents": [],
+       "reason": "no-turn",
+       "historyTurns": 0,
+       "etag": "64d9c8416bba6a4dca6bac9d18a53af7"
+      }
+     }
+    ],
+    "shows": {
+     "u1": "1 file changed+1-1Lead+1-1Ma.txt+1-1",
+     "u2": null,
+     "u3": null
     }
    }
   ]

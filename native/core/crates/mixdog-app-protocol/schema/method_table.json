@@ -10716,11 +10716,6 @@
       "params": "ThreadSectionParams<Option<ThreadRoomView>>"
     },
     {
-      "delivery": "thread",
-      "method": "review/diff/updated",
-      "params": "SectionUpdate"
-    },
-    {
       "delivery": "connection",
       "method": "error",
       "params": "ErrorNotificationParams"
@@ -10928,6 +10923,11 @@
     {
       "delivery": "app",
       "method": "migration/progress",
+      "params": "SectionUpdate"
+    },
+    {
+      "delivery": "app",
+      "method": "review/diff/updated",
       "params": "SectionUpdate"
     },
     {
