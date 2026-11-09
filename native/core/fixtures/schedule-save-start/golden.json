@@ -46,7 +46,7 @@
             "webhook": {
               "enabled": true,
               "port": 47311,
-              "publicUrl": "http://127.0.0.1:9/hook/6798636f-ef96-43ad-8a56-a1c82a73c89f"
+              "publicUrl": "http://127.0.0.1:9/hook/d5aa0189-f47c-459f-ba59-519da88ce381"
             },
             "schedules": [
               {
@@ -75,7 +75,7 @@
             "webhook": {
               "enabled": true,
               "port": 47311,
-              "publicUrl": "http://127.0.0.1:9/hook/6798636f-ef96-43ad-8a56-a1c82a73c89f"
+              "publicUrl": "http://127.0.0.1:9/hook/d5aa0189-f47c-459f-ba59-519da88ce381"
             },
             "schedules": [
               {
@@ -112,8 +112,8 @@
         "executorAgentId": null,
         "consecutiveFailures": 0
       },
-      "releasedAt": 1794219241963,
-      "persistedAt": 1794219242308,
+      "releasedAt": 1794220342293,
+      "persistedAt": 1794220342797,
       "log": [
         "mixdog: initProviders failed (non-fatal): [provider] all providers disabled in config — refusing to clear registry",
         "mixdog scheduler: 1 schedules",
@@ -252,7 +252,7 @@
             "webhook": {
               "enabled": true,
               "port": 47311,
-              "publicUrl": "http://127.0.0.1:9/hook/e90f9d79-e678-457b-aaf3-62e187aadcfc"
+              "publicUrl": "http://127.0.0.1:9/hook/22b70ea2-d5cf-43a2-82d5-6c20fad52e9a"
             },
             "schedules": [
               {
@@ -281,7 +281,7 @@
             "webhook": {
               "enabled": true,
               "port": 47311,
-              "publicUrl": "http://127.0.0.1:9/hook/e90f9d79-e678-457b-aaf3-62e187aadcfc"
+              "publicUrl": "http://127.0.0.1:9/hook/22b70ea2-d5cf-43a2-82d5-6c20fad52e9a"
             },
             "schedules": [
               {
@@ -318,8 +318,8 @@
         "executorAgentId": null,
         "consecutiveFailures": 0
       },
-      "releasedAt": 1794219270090,
-      "persistedAt": 1794219270613,
+      "releasedAt": 1794220408425,
+      "persistedAt": 1794220408911,
       "log": [
         "mixdog: initProviders failed (non-fatal): [provider] all providers disabled in config — refusing to clear registry",
         "mixdog scheduler: 1 schedules",
