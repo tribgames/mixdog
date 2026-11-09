@@ -3,56 +3,72 @@
   "recorder": "benchmarks/rust-core/recorders/record-unpair-access.mjs",
   "credential": "aaaaaaa1",
   "token": "fcm-token-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-  "order": [
-    "setup.setNotificationPreferences",
-    "setup.registerNativePush",
-    "setup.registerPushSubscription",
-    "before.chat",
-    "before.terminal",
-    "before.settings",
-    "before.notifications",
-    "before.webPush",
-    "before.files.grant",
-    "before.files.transfer",
-    "before.files.unbegun",
-    "before.link.resolve",
-    "before.link.read",
-    "after.chat",
-    "after.terminal",
-    "after.settings",
-    "after.notifications",
-    "after.webPush",
-    "after.files.range",
-    "after.files.begin",
-    "after.link.read",
-    "after.screen",
-    "after.secondConnection.screen",
-    "after.notificationsAfterForget",
-    "after.removeNativePush",
-    "after.removePushSubscription"
+  "remapped": [
+    {
+      "kind": "webPushKey",
+      "path": "before.webPush.value"
+    },
+    {
+      "kind": "webPushKey",
+      "path": "after.webPush.value"
+    },
+    {
+      "kind": "grantId",
+      "path": "before.files.grant.value.grantId"
+    },
+    {
+      "kind": "version",
+      "path": "before.files.grant.value.version"
+    },
+    {
+      "kind": "transferId",
+      "path": "before.files.transfer.value.transferId"
+    },
+    {
+      "kind": "version",
+      "path": "before.files.transfer.value.version"
+    },
+    {
+      "kind": "assetId",
+      "path": "before.files.transfer.value.media.assetId"
+    },
+    {
+      "kind": "grantId",
+      "path": "before.files.unbegun.value.grantId"
+    },
+    {
+      "kind": "version",
+      "path": "before.files.unbegun.value.version"
+    },
+    {
+      "kind": "accessToken",
+      "path": "before.link.resolve.value.0.accessToken"
+    },
+    {
+      "kind": "dir",
+      "path": "before.link.resolve.value.0.absolutePath"
+    },
+    {
+      "kind": "dir",
+      "path": "before.link.resolve.value.0.projectPath"
+    },
+    {
+      "kind": "dir",
+      "path": "before.chat.value.0.cwd"
+    },
+    {
+      "kind": "dir",
+      "path": "before.chat.value.0.projectPath"
+    },
+    {
+      "kind": "dir",
+      "path": "after.chat.value.0.cwd"
+    },
+    {
+      "kind": "dir",
+      "path": "after.chat.value.0.projectPath"
+    }
   ],
-  "remapped": {
-    "time": [
-      "updatedAt",
-      "activityAt",
-      "expiresAt",
-      "mtimeMs"
-    ],
-    "generated": [
-      "grantId",
-      "transferId",
-      "assetId",
-      "version",
-      "accessToken"
-    ],
-    "directory": [
-      "cwd",
-      "projectPath"
-    ],
-    "directoryPrefix": [
-      "absolutePath"
-    ]
-  },
   "scenarios": [
     {
       "name": "the relay did not remove the pairing",
@@ -146,8 +162,8 @@
               "id": "s1",
               "preview": "s1",
               "title": "s1",
-              "updatedAt": "<updatedAt#0>",
-              "activityAt": "<activityAt#0>",
+              "updatedAt": 1924992005000,
+              "activityAt": 1924992005000,
               "messageCount": 1,
               "cwd": "<dir>",
               "classification": "project",
@@ -303,7 +319,7 @@
               "size": 15,
               "mime": "text/plain",
               "version": "<version#0>",
-              "expiresAt": "<expiresAt#0>"
+              "expiresAt": 1924992070000
             }
           },
           "transfer": {
@@ -315,12 +331,12 @@
               "size": 15,
               "mime": "text/plain",
               "version": "<version#0>",
-              "expiresAt": "<expiresAt#1>",
+              "expiresAt": 1924993811000,
               "rangeMaxBytes": 4194304,
               "media": {
                 "assetId": "<assetId#0>",
                 "variant": "download",
-                "expiresAt": "<expiresAt#1>"
+                "expiresAt": 1924993811000
               }
             }
           },
@@ -333,7 +349,7 @@
               "size": 15,
               "mime": "text/plain",
               "version": "<version#0>",
-              "expiresAt": "<expiresAt#2>"
+              "expiresAt": 1924992072000
             }
           }
         },
@@ -358,7 +374,7 @@
             "ok": true,
             "value": {
               "content": "unpair download",
-              "mtimeMs": "<mtimeMs#0>",
+              "mtimeMs": 1924905600000,
               "binary": false,
               "tooLarge": false,
               "encoding": "utf8"
@@ -375,8 +391,8 @@
               "id": "s1",
               "preview": "s1",
               "title": "s1",
-              "updatedAt": "<updatedAt#1>",
-              "activityAt": "<activityAt#1>",
+              "updatedAt": 1924992015000,
+              "activityAt": 1924992015000,
               "messageCount": 1,
               "cwd": "<dir>",
               "classification": "project",
@@ -517,7 +533,7 @@
             "ok": true,
             "value": {
               "content": "unpair download",
-              "mtimeMs": "<mtimeMs#0>",
+              "mtimeMs": 1924905600000,
               "binary": false,
               "tooLarge": false,
               "encoding": "utf8"
@@ -697,8 +713,8 @@
               "id": "s1",
               "preview": "s1",
               "title": "s1",
-              "updatedAt": "<updatedAt#0>",
-              "activityAt": "<activityAt#0>",
+              "updatedAt": 1924992005000,
+              "activityAt": 1924992005000,
               "messageCount": 1,
               "cwd": "<dir>",
               "classification": "project",
@@ -842,36 +858,36 @@
         "webPush": {
           "id": 108,
           "ok": true,
-          "value": "<webPushKey#0>"
+          "value": "<webPushKey#1>"
         },
         "files": {
           "grant": {
             "id": 109,
             "ok": true,
             "value": {
-              "grantId": "<grantId#0>",
+              "grantId": "<grantId#2>",
               "name": "unpair-download.txt",
               "size": 15,
               "mime": "text/plain",
-              "version": "<version#0>",
-              "expiresAt": "<expiresAt#0>"
+              "version": "<version#1>",
+              "expiresAt": 1924992070000
             }
           },
           "transfer": {
             "id": 110,
             "ok": true,
             "value": {
-              "transferId": "<transferId#0>",
+              "transferId": "<transferId#1>",
               "name": "unpair-download.txt",
               "size": 15,
               "mime": "text/plain",
-              "version": "<version#0>",
-              "expiresAt": "<expiresAt#1>",
+              "version": "<version#1>",
+              "expiresAt": 1924993811000,
               "rangeMaxBytes": 4194304,
               "media": {
-                "assetId": "<assetId#0>",
+                "assetId": "<assetId#1>",
                 "variant": "download",
-                "expiresAt": "<expiresAt#1>"
+                "expiresAt": 1924993811000
               }
             }
           },
@@ -879,12 +895,12 @@
             "id": 111,
             "ok": true,
             "value": {
-              "grantId": "<grantId#1>",
+              "grantId": "<grantId#3>",
               "name": "unpair-download.txt",
               "size": 15,
               "mime": "text/plain",
-              "version": "<version#0>",
-              "expiresAt": "<expiresAt#2>"
+              "version": "<version#1>",
+              "expiresAt": 1924992072000
             }
           }
         },
@@ -900,7 +916,7 @@
                 "size": 15,
                 "projectPath": "<dir>",
                 "relPath": "unpair-download.txt",
-                "accessToken": "<accessToken#0>"
+                "accessToken": "<accessToken#1>"
               }
             ]
           },
@@ -909,7 +925,7 @@
             "ok": true,
             "value": {
               "content": "unpair download",
-              "mtimeMs": "<mtimeMs#0>",
+              "mtimeMs": 1924905600000,
               "binary": false,
               "tooLarge": false,
               "encoding": "utf8"
@@ -926,8 +942,8 @@
               "id": "s1",
               "preview": "s1",
               "title": "s1",
-              "updatedAt": "<updatedAt#1>",
-              "activityAt": "<activityAt#1>",
+              "updatedAt": 1924992015000,
+              "activityAt": 1924992015000,
               "messageCount": 1,
               "cwd": "<dir>",
               "classification": "project",
@@ -1071,7 +1087,7 @@
         "webPush": {
           "id": 118,
           "ok": true,
-          "value": "<webPushKey#0>"
+          "value": "<webPushKey#1>"
         },
         "files": {
           "range": {
@@ -1095,9 +1111,15 @@
             "errorCode": "SELECTED_FILE_GRANT_UNAVAILABLE"
           }
         },
-        "screen": null,
+        "screen": {
+          "id": 122,
+          "unanswered": true
+        },
         "secondConnection": {
-          "screen": null
+          "screen": {
+            "id": 124,
+            "unanswered": true
+          }
         },
         "notificationsAfterForget": {
           "id": 126,
