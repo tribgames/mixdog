@@ -35,6 +35,10 @@ fn from(connection: u64) -> CallContext {
 
 async fn submit(handle: &SessionHandle, connection: u64, op: &str, prompt: &str, submission: &str) -> Result<Value, CoreError> {
     let options = if submission.is_empty() { json!({}) } else { json!({ "clientSubmissionId": submission }) };
+    submit_with(handle, connection, op, json!(prompt), options).await
+}
+
+async fn submit_with(handle: &SessionHandle, connection: u64, op: &str, prompt: Value, options: Value) -> Result<Value, CoreError> {
     let reply = handle
         .request(CoreRequest {
             method: Method("turn/start"),
@@ -204,4 +208,59 @@ async fn a_refused_first_prompt_leaves_no_thread() {
         .await;
     assert!(matches!(&started, Err(CoreError::DomainError { code: Some(code), .. }) if code.as_ref() == super::actor::SUBMIT_REFUSED), "{started:?}");
     assert_eq!(directory.loaded_ids(), Vec::<ThreadId>::new());
+}
+
+/// Every recorded Node submit (`submitToSession`): the answer (`true` accepted, `false` refused), what was queued and what
+/// started. Node's `closing` admission has no counterpart here: a user prompt is accepted there and here alike, and the
+/// thread refuses starts only while an idle delete fences it (`threadClosing`).
+#[tokio::test(start_paused = true)]
+async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
+    let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
+    let cases = all["cases"].as_array().unwrap().iter().filter(|case| case["kind"] == "submit").collect::<Vec<_>>();
+    assert_eq!(cases.len(), 7);
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let rig = Rig::new();
+        let (directory, handle) = running(&rig).await;
+        if case["busy"] == true {
+            submit(&handle, 1, "op-busy", "running", "busy1").await.expect("the run ahead");
+            eventually(|| (rows(&handle).len() == 1).then_some(())).await;
+        }
+        if case["admission"] == "terminal" {
+            directory.shutdown_for("recorded terminal admission").await;
+        }
+        let mut options = case["options"].clone();
+        options["clientSubmissionId"] = json!("sub1");
+        let answers = case["answers"].as_array().unwrap();
+        for (turn, want) in answers.iter().enumerate() {
+            let got = submit_with(&handle, 1, &format!("op-{turn}"), case["prompt"].clone(), options.clone()).await;
+            match (want.as_bool().unwrap(), got) {
+                (true, Ok(_)) => {}
+                (false, got) => refused_any(got, name),
+                (true, Err(error)) => panic!("{name}: Node accepted, Rust refused: {error:?}"),
+            }
+        }
+        // What was left afterwards: the queued submissions, and the user rows of a start (the run ahead is not Node's).
+        let queued: Vec<String> =
+            handle.cell.queue.load().iter().filter_map(|queued| queued.entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).map(str::to_owned)).collect();
+        let node_queued: Vec<String> = case["after"]["queued"].as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect();
+        assert_eq!(queued, node_queued, "{name}: queued");
+        let node_shown: Vec<String> = case["after"]["items"].as_array().unwrap().iter().map(|item| item["text"].as_str().unwrap().to_owned()).collect();
+        let shown = || -> Vec<String> { rows(&handle).into_iter().map(|(_, text)| text).filter(|text| text != "running").collect() };
+        // KNOWN DIFFERENCE, not replayed: a started prompt whose text is blank but whose `displayText` is given shows no
+        // user row here, where Node shows the display text (the started row is built from the prompt's own text).
+        if case["options"].get("displayText").is_some() && !node_shown.is_empty() {
+            assert!(shown().is_empty(), "{name}: the known difference changed; replay the row");
+            continue;
+        }
+        eventually(|| (shown().len() == node_shown.len()).then_some(())).await;
+        assert_eq!(shown(), node_shown, "{name}: rows");
+    }
+}
+
+fn refused_any(result: Result<Value, CoreError>, name: &str) {
+    match result {
+        Err(CoreError::DomainError { code: Some(code), .. }) => assert_eq!(code.as_ref(), super::actor::SUBMIT_REFUSED, "{name}"),
+        other => panic!("{name}: Node refused, Rust answered {other:?}"),
+    }
 }

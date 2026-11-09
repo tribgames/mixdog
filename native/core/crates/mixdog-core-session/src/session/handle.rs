@@ -249,18 +249,7 @@ impl SessionHandle {
         let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
         // A turn is a session's first use (`createCurrentSession('turn')`, `turn-prepare.mjs`).
         self.create_session().await?;
-        // A closed session takes nothing (`drain-enqueue.mjs:27`): Node answers a refused submit `false`.
-        let _admitted = directory
-            .gate()
-            .enter(&self.id)
-            .ok_or_else(|| {
-                // Only a closed session is a refused submit; one fenced by an idle delete stays `threadClosing`.
-                if self.cell.closed.load(std::sync::atomic::Ordering::SeqCst) {
-                    mixdog_core_base::support::coded("session", super::actor::SUBMIT_REFUSED, "The session is closed.")
-                } else {
-                    self.closing()
-                }
-            })?;
+        let _admitted = directory.gate().enter(&self.id).ok_or_else(|| self.closing())?;
         let cancel = req.ctx.cancel.clone();
         let in_order = self.submits.enter(&cancel).await.map_err(caller_cancelled)?;
         let named = super::staged_originals::named_originals(&req.params);
@@ -271,9 +260,11 @@ impl SessionHandle {
             super::staged_originals::drop_lost_originals(&mut req.params, &claimed);
         }
         // A full inbox must not hold the gate past the caller's cancel.
-        let answer = Scope::new().cancel(&cancel).run(self.enqueue(req)).await.done().ok_or(mixdog_rt::GateCancelled).map_err(caller_cancelled)??;
+        // A session whose thread has ended takes nothing (drain-enqueue.mjs:27, admission 	erminal): Node answers a refused submit alse.
+        let closed = || mixdog_core_base::support::coded("session", super::actor::SUBMIT_REFUSED, "The session is closed.");
+        let answer = Scope::new().cancel(&cancel).run(self.enqueue(req)).await.done().ok_or(mixdog_rt::GateCancelled).map_err(caller_cancelled)?.map_err(|error| if matches!(error, CoreError::ThreadClosing { .. }) { closed() } else { error })?;
         drop(in_order);
-        answer.await.map_err(|_| self.closing())?
+        answer.await.map_err(|_| closed())?
     }
 
     fn resume(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
