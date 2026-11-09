@@ -26,6 +26,15 @@ fn is_v7(text: &str) -> bool {
         && b.iter().enumerate().all(|(i, c)| [8, 13, 18, 23].contains(&i) || c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
 
+/// The stamp a v7 id carries: Node mints a turn's id from the turn's start (`mintUuidV7(startedAt)`).
+pub fn v7_stamp(id: &str) -> Option<u64> {
+    let id = id.trim().to_lowercase();
+    if !is_v7(&id) {
+        return None;
+    }
+    u64::from_str_radix(&id.replace('-', "")[..12], 16).ok()
+}
+
 /// `_codexUuidV7`: a v7 id passes unchanged; anything else maps to the v7-shaped
 /// id of its SHA-256.
 pub fn codex_uuid_v7(value: &str) -> String {
@@ -103,11 +112,8 @@ impl Metadata {
         } else {
             codex_uuid_v7(&explicit_turn.map_or_else(|| format!("{raw_session}:turn"), str::to_owned))
         };
-        // `codexWireSendOpts` fixes the window at `<wire id>:0`; the compaction count (`RequestThread::window`) never reaches the wire.
-        let window_id = thread.map_or_else(|| format!("{thread_id}:0"), |t| format!("{}:0", t.id));
-        // Node's session mints the turn id from the turn's start (`mintUuidV7(startedAt)`) and sends that start as
-        // `turnStartedAtUnixMs`, so a v7 turn id carries it.
-        let started_at = session_started_at(explicit_turn.filter(|t| is_v7(&t.to_lowercase())).unwrap_or(raw_session), now_ms);
+        let window_id = thread.map_or_else(|| format!("{thread_id}:0"), |t| format!("{}:{}", t.id, t.window));
+        let started_at = thread.and_then(|t| t.turn_started_at_ms).unwrap_or_else(|| session_started_at(raw_session, now_ms));
         let mut turn = Map::new();
         turn.insert("installation_id".into(), json!(installation_id));
         turn.insert("session_id".into(), json!(session_id));

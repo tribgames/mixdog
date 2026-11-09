@@ -32,8 +32,11 @@ os.type = () => session.host.type;
 os.release = () => session.host.release;
 os.arch = () => session.host.arch;
 syncBuiltinESMExports();
+// The real timer, kept for the one deadline below (`within`); the providers see only the stubs.
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
 // A timer is registered and never fires: a scripted exchange finishes through events alone, so a send that waits on
-// one (a retry sleep, a watchdog) ends the process with an unsettled await instead of sleeping.
+// one (a retry sleep, a watchdog) never settles and trips its deadline instead of sleeping.
 const handle = () => ({ ref() { return this; }, unref() { return this; }, hasRef: () => false, refresh() { return this; }, [Symbol.toPrimitive]: () => 0 });
 globalThis.setTimeout = handle;
 globalThis.setInterval = handle;
@@ -59,9 +62,16 @@ globalThis[Symbol.for('undici.globalDispatcher.1')] = new (class NoNetwork { dis
 const hooks = pathToFileURL(fileURLToPath(new URL('./ws-hooks.mjs', import.meta.url)));
 const recorderUrl = new URL('./ws-recorder.mjs', import.meta.url).href;
 register(hooks, { data: { target: recorderUrl } });
-const { traffic } = await import(recorderUrl);
 
 class Stop extends Error {}
+const DEADLINE_MS = 30000;
+/** Every await of the recording runs under a deadline that names what was awaited; nothing is retried or polled. */
+const within = (what, promise) => {
+  let timer;
+  const deadline = new Promise((_, reject) => { timer = realSetTimeout(() => reject(new Error(`timed out after ${DEADLINE_MS} ms awaiting ${what}`)), DEADLINE_MS); });
+  return Promise.race([promise, deadline]).finally(() => realClearTimeout(timer));
+};
+const { traffic } = await within('loading the websocket recorder', import(recorderUrl));
 const headerPairs = (headers) => {
   if (!headers) return [];
   if (headers instanceof Headers) return [...headers.entries()];
@@ -83,7 +93,7 @@ globalThis.fetch = async (url, init = {}) => {
   return new Response(sse(reply), { status: 200, headers: { 'content-type': 'text/event-stream' } });
 };
 
-const load = (path) => import(pathToFileURL(join(root, path)).href);
+const load = (path) => within(`loading ${path}`, import(pathToFileURL(join(root, path)).href));
 const P = 'src/runtime/agent/orchestrator/providers/';
 const providerOf = {
   gemini: async () => new (await load(P + 'gemini.mjs')).GeminiProvider({ apiKey: FAKE }),
@@ -130,7 +140,7 @@ for (const scenario of doc.scenarios) {
       const record = { id: doc.nodeSessionId, provider: 'openai-oauth', model: route.model, promptCacheKey: 'mixdog-codex', codexWireSessionId: session.threadId };
       opts = buildRequestSendOptions({ sessionId: doc.nodeSessionId, session: record, turnEffort: undefined, effortConfiguration: undefined, stepAutoEffort: null, codexTurnId: turnId, startedAtMs: stampOf(turnId), signal });
     }
-    await provider.send(messages, route.model, tools, opts);
+    await within(`the reply of ${scenario.id}`, provider.send(messages, route.model, tools, opts));
   } catch (error) {
     if (!scenario.expectError) throw error;
     entry.error = String(error?.message || error).slice(0, 200);

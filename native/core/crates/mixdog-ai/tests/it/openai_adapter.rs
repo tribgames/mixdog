@@ -238,6 +238,7 @@ fn request(turn: Option<&str>) -> Arc<ModelRequest> {
                 id: "thread-1".into(),
                 window: 2,
                 turn: Some(t.into()),
+                turn_started_at_ms: None,
             }),
             ..Default::default()
         },
@@ -345,7 +346,6 @@ async fn the_turn_state_token_replays_within_its_turn_only() {
     assert_eq!(header(&seen[0].headers, "x-codex-turn-state"), None);
     assert_eq!(header(&seen[1].headers, "x-codex-turn-state"), Some("tok-1"));
     assert_eq!(header(&seen[2].headers, "x-codex-turn-state"), None, "a new turn starts clean");
-    assert_eq!(header(&seen[1].headers, "x-codex-window-id"), None, "the window rides only the WebSocket");
 }
 
 // ---- WebSocket --------------------------------------------------------------

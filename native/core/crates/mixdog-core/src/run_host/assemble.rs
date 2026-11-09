@@ -191,6 +191,13 @@ pub struct HostRunParts {
     services: HostServices,
 }
 
+/// The thread a Codex request names. Node's `codexWireSendOpts` fixes the wire window at `<wire id>:0` whatever the
+/// compaction count, and `buildRequestSendOptions` sends the turn's start as the stamp its id was minted from.
+pub(crate) fn wire_thread(id: ThreadId, turn: Option<mixdog_core_api::ids::TurnId>) -> RequestThread {
+    let turn_started_at_ms = turn.as_ref().and_then(|t| mixdog_ai::providers::openai::client_meta::v7_stamp(t.as_str()));
+    RequestThread { id, window: 0, turn, turn_started_at_ms }
+}
+
 impl HostRunParts {
     pub fn new(services: HostServices) -> Self {
         Self { services }
@@ -284,7 +291,7 @@ impl HostRunParts {
         options.prompt_cache_key = Some(text(header, "promptCacheKey").to_owned()).filter(|k| !k.is_empty());
         options.model_parameters = header.get("modelParameters").filter(|v| v.is_object()).cloned();
         options.model_max_output_tokens = settings.model_max_output_tokens;
-        options.thread = Some(RequestThread { id: thread.clone(), window: source.window, turn: source.turn });
+        options.thread = Some(wire_thread(thread.clone(), source.turn));
         options.provider_state = source.provider_state;
         Ok(RequestParts { provider, cwd, tool_set, settings, options })
     }
