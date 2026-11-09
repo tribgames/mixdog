@@ -23,7 +23,6 @@ use super::SessionDirectory;
 use super::handle::SessionHandle;
 use super::seams::RunOutcome;
 use super::testing::Rig;
-use super::tests::eventually;
 use super::tests::eventually_on;
 use super::tests::idle;
 use super::tests::prompt_list;
@@ -79,12 +78,12 @@ async fn the_sender_stopping_gets_the_prompt_back_and_the_row_leaves() {
     let rig = Rig::new();
     let (_directory, handle) = running(&rig).await;
     submit(&handle, 1, "op-1", "draft", "sub1").await.expect("started");
-    eventually(|| (rows(&handle).len() == 1).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == 1).then_some(())).await;
     let reply = stop(&handle, 1, None).await;
     assert_eq!(reply["aborted"], true);
     assert_eq!(reply["restoreText"], "draft");
     assert_eq!(reply["restoredSubmissionIds"], json!(["sub1"]));
-    eventually(|| idle(&handle).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || idle(&handle).then_some(())).await;
     assert_eq!(rows(&handle), vec![], "the handed-back prompt left the transcript");
     assert!(prompt_restores(&rig, &handle).is_empty(), "the sender is told in the reply, not through the state");
 }
@@ -95,11 +94,11 @@ async fn another_device_stopping_sends_the_prompt_to_the_sender_through_prompt_r
     let rig = Rig::new();
     let (_directory, handle) = running(&rig).await;
     submit(&handle, 1, "op-1", "draft", "sub1").await.expect("started");
-    eventually(|| (rows(&handle).len() == 1).then_some(())).await;
+    eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == 1).then_some(())).await;
     let reply = stop(&handle, 2, None).await;
     assert_eq!((reply["aborted"].clone(), reply["restoreText"].clone(), reply["restoredSubmissionIds"].clone()), (json!(true), json!(""), json!([])));
-    eventually(|| idle(&handle).then_some(())).await;
-    let restores = eventually(|| Some(prompt_restores(&rig, &handle)).filter(|frames| !frames.is_empty())).await;
+    eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || idle(&handle).then_some(())).await;
+    let restores = eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || Some(prompt_restores(&rig, &handle)).filter(|frames| !frames.is_empty())).await;
     let restore = &restores.last().unwrap()["value"];
     assert_eq!((restore["text"].clone(), restore["device"].clone(), restore["ids"].clone()), (json!("draft"), json!("desktop-1"), json!(["sub1"])));
     assert!(restore["id"].as_str().unwrap().starts_with("restore-"));
@@ -226,7 +225,7 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         let ahead = usize::from(case["busy"] == true);
         if case["busy"] == true {
             submit(&handle, 1, "op-busy", "running", "busy1").await.expect("the run ahead");
-            eventually(|| (rows(&handle).len() == 1).then_some(())).await;
+            eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == 1).then_some(())).await;
         }
         if case["admission"] == "terminal" {
             directory.shutdown_for("recorded terminal admission").await;
@@ -254,7 +253,7 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
             let list = prompt_list(&handle);
             list[..list.len().saturating_sub(ahead)].iter().rev().cloned().collect()
         };
-        eventually(|| (shown().len() == node_shown.len()).then_some(())).await;
+        eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (shown().len() == node_shown.len()).then_some(())).await;
         assert_eq!(shown(), node_shown, "{name}: rows");
     }
 }
