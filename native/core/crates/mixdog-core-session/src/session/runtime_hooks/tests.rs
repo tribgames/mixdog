@@ -81,8 +81,16 @@ async fn a_runtime_shows_the_questions_waiting_for_it_and_those_that_come_until_
     // Stopped: nothing more is shown, and the copies were dropped silently.
     hub.stopped(&thread);
     host.delegate_approval(question("q3", "home"));
-    assert_eq!(ids(&feed), ["q2"]);
     assert_eq!(hub.finish_question(&thread, "q2", &answered), None);
+    // A publisher that survived the stop would still hold q3. Its drain task ends only when every owner of the queue is
+    // gone, and publishes whatever was queued first, so what the feed holds once the tasks have ended is final.
+    let publishers = hub.take_publishers();
+    drop(hub);
+    drop(host);
+    for publisher in publishers {
+        publisher.await.unwrap();
+    }
+    assert_eq!(ids(&feed), ["q2"]);
 }
 
 #[tokio::test]

@@ -20,6 +20,7 @@ use super::SessionHandle;
 use super::control::Ctl;
 use super::seams::RunOutcome;
 use super::testing::Rig;
+use super::tests::caught_up;
 use super::tests::eventually_on;
 use super::tests::idle;
 use super::tests::start_thread;
@@ -75,7 +76,7 @@ async fn a_toast_stays_three_seconds_then_is_removed_and_published() {
     assert!(shown[0]["id"].as_str().is_some_and(|id| !id.is_empty()));
 
     tokio::time::advance(Duration::from_millis(2999)).await;
-    tokio::task::yield_now().await;
+    caught_up(&handle).await;
     assert_eq!(published_toasts(&rig, &handle.id), Some(shown.clone()), "2999 ms in, the toast is still published");
 
     tokio::time::advance(Duration::from_millis(1)).await;
@@ -206,7 +207,7 @@ async fn a_cleared_session_publishes_no_expiry() {
     let published = runtime_frames(&rig, &handle.id);
 
     tokio::time::advance(Duration::from_millis(3000)).await;
-    tokio::task::yield_now().await;
+    caught_up(&handle).await;
     assert_eq!(runtime_frames(&rig, &handle.id), published, "no timer of the cleared queue publishes");
 }
 
@@ -223,7 +224,7 @@ async fn a_closed_session_publishes_no_expiry() {
     // The actor's last step, announced by the snapshot sink.
     eventually_on(&[&rig.snapshots.1], || rig.snapshots.0.lock().unwrap().contains(&stopped).then_some(())).await;
 
+    // The actor has ended, so nothing it owned can publish again.
     tokio::time::advance(Duration::from_millis(3000)).await;
-    tokio::task::yield_now().await;
     assert_eq!(runtime_frames(&rig, &handle.id), published, "no timer of the closed thread publishes");
 }

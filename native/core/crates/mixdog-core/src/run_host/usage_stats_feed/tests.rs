@@ -105,16 +105,19 @@ async fn changes_are_published_at_a_bounded_rate_and_an_unchanged_ledger_is_neve
 /// Node never retried a failed re-read by itself: with no later trigger a failure produces no further read, however long it waits.
 #[tokio::test(start_paused = true)]
 async fn a_failed_read_with_no_later_change_is_never_retried() {
-    let (source, mut reads) = scripted(vec![Err("a statistics read".to_owned())]);
+    let (source, mut reads) = scripted(vec![Err("a statistics read".to_owned()), Ok(json!({}))]);
     let (publisher, mut published) = seen();
     let (changed, changes) = super::changes();
     let feed = tokio::spawn(run(Arc::downgrade(&source), STATS_KEY, changes, None, push_into(publisher), REFRESH_INTERVAL));
 
     reads.recv().await.unwrap();
     tokio::time::advance(REFRESH_INTERVAL * 100).await;
-    tokio::task::yield_now().await;
-    assert!(reads.try_recv().is_err(), "no timer retries a failure");
     assert!(published.try_recv().is_err());
+    // The one scripted answer left goes to the next read, which only the change triggers: a timer that had retried the
+    // failure would have taken it at the end of the interval, not now.
+    changed.usage_changed();
+    assert_eq!(inline(published.recv().await.unwrap())["at"], ms(REFRESH_INTERVAL * 100));
+    reads.recv().await.unwrap();
     assert!(!feed.is_finished());
     drop(changed);
 }
@@ -132,7 +135,6 @@ async fn a_burst_of_changes_after_a_failed_read_stays_inside_the_bound() {
     reads.recv().await.unwrap();
     for _ in 0..1000 {
         changed.usage_changed();
-        tokio::task::yield_now().await;
     }
     // The burst is one read, an interval after the first began; it fails too, and a second burst is again one read an
     // interval after that one began.
@@ -140,7 +142,6 @@ async fn a_burst_of_changes_after_a_failed_read_stays_inside_the_bound() {
     assert!(reads.try_recv().is_err(), "a thousand changes were one read");
     for _ in 0..1000 {
         changed.usage_changed();
-        tokio::task::yield_now().await;
     }
     let value = inline(published.recv().await.unwrap());
     assert_eq!((value["ok"].as_bool(), value["at"].as_u64()), (Some(true), Some(ms(REFRESH_INTERVAL * 2))));
@@ -207,11 +208,9 @@ async fn binding_the_dashboard_source_publishes_the_first_value_without_a_ledger
     let (_changed, changes) = super::changes();
     tokio::spawn(run(Arc::downgrade(&slot), DASHBOARD_KEY, changes, Some(slot.bindings()), push, DASHBOARD_INTERVAL));
 
-    // The feed started unbound; some time and a ledger change pass with nothing to publish.
+    // The feed started unbound; some time and a ledger change pass, and the first publication is the bound source's.
     tokio::time::advance(Duration::from_secs(10)).await;
     _changed.usage_changed();
-    tokio::task::yield_now().await;
-    assert!(published.try_recv().is_err());
     slot.bind(source).unwrap();
     assert_eq!(inline_of(DASHBOARD_KEY, published.recv().await.unwrap())["at"], 10_000);
     assert_eq!(slot.bind(scripted(vec![]).0), Err("the usage dashboard source is already bound"));

@@ -36,11 +36,20 @@ pub struct HandoffQuestionsHub {
     host: Arc<DelegatedApprovalHost>,
     threads: OnceLock<Arc<dyn ThreadState>>,
     held: Mutex<Vec<(ThreadId, Arc<HandoffQuestions>, QueueHandle)>>,
+    /// The publishers' drain tasks, for the tests to await.
+    #[cfg(test)]
+    publishers: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 impl HandoffQuestionsHub {
     pub fn new(host: Arc<DelegatedApprovalHost>) -> Arc<Self> {
-        Arc::new(Self { host, threads: OnceLock::new(), held: Mutex::default() })
+        Arc::new(Self { host, threads: OnceLock::new(), held: Mutex::default(), #[cfg(test)] publishers: Mutex::default() })
+    }
+
+    /// Takes the drain tasks of every publisher started so far.
+    #[cfg(test)]
+    fn take_publishers(&self) -> Vec<tokio::task::JoinHandle<()>> {
+        std::mem::take(&mut *self.publishers.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))
     }
 
     /// Binds the section feed; a second bind is refused.
@@ -64,7 +73,12 @@ impl RuntimeHooks for HandoffQuestionsHub {
         let Some(threads) = self.threads.get() else { return };
         self.stopped(thread);
         let id = thread.as_str().to_owned();
-        let queue = HandoffQuestions::new(Arc::new(move || id.clone()), Arc::new(SectionPublisher::spawn(threads.clone(), thread.clone())));
+        let (publisher, task) = SectionPublisher::start(threads.clone(), thread.clone());
+        #[cfg(test)]
+        self.publishers.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).push(task);
+        #[cfg(not(test))]
+        drop(task);
+        let queue = HandoffQuestions::new(Arc::new(move || id.clone()), Arc::new(publisher));
         let handle = self.host.register_queue(queue.clone());
         self.held().push((thread.clone(), queue.clone(), handle));
         for delegated in self.host.delegated_approvals_for(thread.as_str()) {

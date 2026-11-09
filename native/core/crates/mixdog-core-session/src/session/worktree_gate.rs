@@ -445,8 +445,6 @@ impl Drop for SpawnGuard {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicBool;
-
     use super::*;
 
     struct Plain;
@@ -480,22 +478,12 @@ mod tests {
     async fn a_turn_waits_for_its_sessions_transition_and_runs_after_it() {
         let gate = AdmissionGate::new();
         let transition = gate.begin_transition("lead", "t").unwrap();
-        let waiting = {
-            let gate = gate.clone();
-            let admitted = Arc::new(AtomicBool::new(false));
-            let flag = admitted.clone();
-            let task = tokio::spawn(async move {
-                let guard = gate.admit_turn("lead", cwd("/p"), &Plain, &CancellationToken::new()).await.unwrap();
-                flag.store(true, Ordering::SeqCst);
-                guard
-            });
-            (task, admitted)
-        };
-        tokio::task::yield_now().await;
-        assert!(!waiting.1.load(Ordering::SeqCst));
+        let cancel = CancellationToken::new();
+        let mut admit = std::pin::pin!(gate.admit_turn("lead", cwd("/p"), &Plain, &cancel));
+        // One poll runs the gate through everything that does not wait, to its decision: an admitted turn would be `Ready`.
+        assert!(futures::poll!(admit.as_mut()).is_pending(), "the turn waits for the transition");
         drop(transition);
-        let _guard = waiting.0.await.unwrap();
-        assert!(waiting.1.load(Ordering::SeqCst));
+        let _guard = admit.await.unwrap();
     }
 
     #[tokio::test]

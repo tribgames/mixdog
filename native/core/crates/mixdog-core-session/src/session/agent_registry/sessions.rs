@@ -260,22 +260,28 @@ mod tests {
 
     /// `__close_all` (`daemon-agent-control.mjs:75-82`): the workers close first, the descendants
     /// are cancelled after that has settled.
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn a_teardown_closes_the_workers_before_it_cancels_the_descendants() {
         let log = std::sync::Mutex::new(Vec::new());
-        let cancelled = teardown_in_order(
+        let (started, close_started) = tokio::sync::oneshot::channel();
+        let (finish, finish_close) = tokio::sync::oneshot::channel::<()>();
+        let mut teardown = std::pin::pin!(teardown_in_order(
             async {
-                // A close that takes time: a teardown running both at once would log the cancel first.
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                started.send(()).unwrap();
+                finish_close.await.unwrap();
                 log.lock().unwrap().push("close_all");
             },
             async {
                 log.lock().unwrap().push("cancel_descendants");
                 true
             },
-        )
-        .await;
-        assert!(cancelled);
+        ));
+        // The close has begun and is held: a teardown running both at once would have logged the cancel by now.
+        assert!(futures::poll!(teardown.as_mut()).is_pending());
+        close_started.await.unwrap();
+        assert!(log.lock().unwrap().is_empty(), "the descendants wait for the close");
+        finish.send(()).unwrap();
+        assert!(teardown.await);
         assert_eq!(*log.lock().unwrap(), ["close_all", "cancel_descendants"]);
     }
 }
