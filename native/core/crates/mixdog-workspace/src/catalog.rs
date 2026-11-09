@@ -63,9 +63,13 @@ pub fn project_json(row: &ProjectRow) -> Value {
     })
 }
 
+fn folder_name(path: &str) -> String {
+    Path::new(path).file_name().map_or_else(|| path.to_owned(), |n| n.to_string_lossy().into_owned())
+}
+
+/// The registry name Node lists a project under; a row without one (v1 or imported) is listed under its alias, else its folder.
 fn display_name(row: &ProjectRow) -> String {
-    let folder = Path::new(&row.path).file_name().map_or_else(|| row.path.clone(), |n| n.to_string_lossy().into_owned());
-    row.alias.clone().filter(|a| !a.is_empty()).unwrap_or(folder)
+    row.name.clone().filter(|n| !n.is_empty()).or_else(|| row.alias.clone().filter(|a| !a.is_empty())).unwrap_or_else(|| folder_name(&row.path))
 }
 
 /// The registry's clock: the same one the editor backups read, so a debug build pinned by `MIXDOG_FIXED_NOW_MS` stamps rows on the
@@ -154,9 +158,12 @@ impl Catalog {
         let row = match self.state.project(&path).await.map_err(store)? {
             // Node's `enter` and `register` both undo the legacy hidden tombstone (`unhide`) of the Project they register.
             // A tombstoned project is made again: Node's store gets a fresh entry (`addedAt` now) while the alias of the preferences stays.
-            Some(existing) if existing.hidden => ProjectRow { hidden: false, hidden_rank: None, last_used_at: Some(now_ms()), ..existing },
+            // The registry name starts over as the folder's, while the alias of the preferences stays (Node's two stores).
+            Some(existing) if existing.hidden => {
+                ProjectRow { hidden: false, hidden_rank: None, last_used_at: Some(now_ms()), name: Some(folder_name(&existing.path)), ..existing }
+            }
             Some(existing) => ProjectRow { hidden: false, hidden_rank: None, ..existing },
-            None => ProjectRow { path, alias: None, hidden: false, hidden_rank: None, last_used_at: Some(now_ms()) },
+            None => ProjectRow { name: Some(folder_name(&path)), path, alias: None, hidden: false, hidden_rank: None, last_used_at: Some(now_ms()) },
         };
         let out = project_json(&row);
         self.commit(Some(row.clone()), None, op.map(|o| finish(o, &out))).await?;
@@ -177,6 +184,7 @@ impl Catalog {
         let mut row = self.find(path).await?;
         let trimmed = alias.trim();
         row.alias = (!trimmed.is_empty()).then(|| trimmed.to_owned());
+        row.name = row.alias.clone();
         let out = project_json(&row);
         self.commit(Some(row), None, op.map(|o| finish(o, &out))).await?;
         Ok(out)

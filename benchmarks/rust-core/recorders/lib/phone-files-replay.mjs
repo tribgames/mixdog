@@ -30,8 +30,9 @@ function differences(a, b, path = '') {
   return [path];
 }
 
-async function startCore(exe, coreRoot, relay) {
-  rmSync(coreRoot, { recursive: true, force: true });
+async function startCore(exe, coreRoot, relay, fresh = true) {
+  if (fresh) rmSync(coreRoot, { recursive: true, force: true });
+  rmSync(join(coreRoot, 'runtime', 'daemon.json'), { force: true });
   for (const dir of ['runtime', 'data', 'home', 'config']) mkdirSync(join(coreRoot, dir), { recursive: true });
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith('MIXDOG_')) delete env[key];
@@ -141,7 +142,7 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
     const { relayE2EEPairingMaterial } = await here('apps/desktop/src/shared/remote-e2ee.ts');
     phoneConnector = await relay.openPhone('client-files', PHONE_ID, relayE2EEPairingMaterial(JSON.parse(readFileSync(join(core.dataDir, 'relay-e2ee.json'), 'utf8'))));
   }
-  const client = await connect({ ...base, connector: phoneConnector });
+  let client = await connect({ ...base, connector: phoneConnector });
   const host = { ctx: relay ? { browserId: PHONE_ID } : {}, client: () => client, declareLane() {} };
   // The phone's own entry: every call goes through the router, which queues it (remote-protocol-queue.ts) as it does for every adapter.
   // The router arms a per-call deadline on the page's window timers; the replay compares answers, so its window never fires one.
@@ -164,6 +165,18 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
         frame = { ok: false, error: error.message, ...(typeof error.code === 'string' && error.code ? { errorCode: error.code } : {}) };
       }
       return { frame, hostCalls: window ? window.asked.splice(0) : [] };
+    },
+    // The core stops and starts again over the same data dir (the loopback phone only: a relay leg would have to be re-paired).
+    restart: async () => {
+      if (relay || window) throw new Error('restart is replayed on a loopback phone with no window');
+      client.close?.();
+      const { execFileSync } = await import('node:child_process');
+      const exited = new Promise((resolve) => core.child.once('exit', resolve));
+      execFileSync('taskkill', ['/T', '/F', '/PID', String(core.child.pid)], { stdio: 'ignore' });
+      await exited;
+      Object.assign(core, await startCore(exe, coreRoot, relay, false));
+      base.connector = createWsConnector(async () => core.endpoint);
+      client = await connect({ ...base, connector: base.connector });
     },
     // The one-file permission a paired phone holds for a path outside every project (`transfer/grant/mint`, relay origin).
     grant: async (path) => (await client.call('transfer/grant/mint', { path })).accessToken,
