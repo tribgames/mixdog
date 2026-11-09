@@ -61,6 +61,16 @@ pub fn model_tool_allowlist(profile: ToolProfile) -> Option<&'static [&'static s
     }
 }
 
+/// The allowlist of the profile a thread was started under (`toolProfile` on its header), which fences the
+/// standalone tools (`filterModelToolsForProfile`); a caller's own `schemaAllowedTools` does not.
+pub fn header_profile_allowlist(header: &Header) -> Option<&'static [&'static str]> {
+    match header.get("toolProfile").and_then(Value::as_str) {
+        Some("headless") => model_tool_allowlist(ToolProfile::Headless),
+        Some("heartbeat") => model_tool_allowlist(ToolProfile::Heartbeat),
+        _ => None,
+    }
+}
+
 /// Writes the session's options into its new header. A user session (`thread/start` is never
 /// agent-owned) denies the Lead-only goal tools and, without delegation, `agent`; a narrowed
 /// profile persists its schema allowlist; `toolSpecForMode` gives the tool spec; a switched-off
@@ -70,6 +80,7 @@ pub fn write_header(options: &ThreadSessionOptions, header: &mut Header) {
     // `modelToolSchemaAllowlist(rt.toolProfile)` (`boot/apis.mjs:429`).
     if let Some(allowed) = model_tool_allowlist(profile) {
         header.insert("schemaAllowedTools".into(), names(allowed));
+        header.insert("toolProfile".into(), json!(if profile == ToolProfile::Headless { "headless" } else { "heartbeat" }));
     }
     // `toolSpecForMode(mode)` (`effort.mjs:165`), and Node's `rt.mode` (`normalizeToolMode(params.toolMode)`)
     // which `thread/setToolMode` moves.
@@ -197,6 +208,26 @@ mod tests {
 
     fn refusal(surface: &SessionSurface, name: &str) -> Option<String> {
         surface.refusal(name, None).map(|error| error.message_for_model)
+    }
+
+    /// Every narrowed-profile session Node recorded (`fixtures/tool-resolution/golden.json`) carries the allowlist of
+    /// its profile; the one `write_header` persists is exactly that list, in that order.
+    #[test]
+    fn the_profile_allowlists_are_the_ones_node_recorded() {
+        let golden: Value = mixdog_js::fixture_tools::parse_golden(include_str!("../../../../fixtures/tool-resolution/golden.json")).expect("golden");
+        let mut seen = std::collections::BTreeMap::new();
+        for case in golden["cases"].as_array().expect("cases") {
+            let input = &case["input"];
+            let profile = match input["toolProfile"].as_str() {
+                Some("headless") => ToolProfile::Headless,
+                Some("heartbeat") => ToolProfile::Heartbeat,
+                _ => continue,
+            };
+            let recorded = input["schemaAllowedTools"].clone();
+            assert_eq!(names(model_tool_allowlist(profile).expect("narrowed")), recorded, "{}", case["name"]);
+            *seen.entry(input["toolProfile"].as_str().unwrap().to_owned()).or_insert(0) += 1;
+        }
+        assert_eq!(seen, [("headless".to_owned(), 4), ("heartbeat".to_owned(), 1)].into());
     }
 
     #[test]

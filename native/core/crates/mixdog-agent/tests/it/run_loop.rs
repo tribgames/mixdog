@@ -2995,3 +2995,32 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
     }
     assert!(compared > 100, "scenarios compared: {compared}");
 }
+/// The request snapshot builds its request with `assemble_request`, the function the loop's own send builds through
+/// (`Run::build_request`): for a model with a tail reminder the two are the same request, reminder included.
+#[tokio::test]
+async fn the_request_a_run_sends_is_what_the_shared_assembly_gives_for_a_model_with_a_reminder() {
+    let tail_context = || mixdog_agent::tail_rules::TailContext {
+        provider: "anthropic-oauth".into(),
+        language: Some(mixdog_agent::tail_rules::TailLanguage { id: "ko".into(), name: "Korean".into() }),
+        role: mixdog_agent::tail_rules::TailRole::Lead,
+    };
+    let h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]).with_tail(tail_context());
+    let mut cfg = config();
+    cfg.model = "claude-opus-5-5".into();
+    let messages = vec![AgentMessage::user("hi")];
+    let run = h.run(cfg.clone(), vec![Echo::tool()], messages.clone());
+    finish(run).await;
+    let sent = h.provider.requests()[0].clone();
+    let tail = mixdog_agent::tail_rules::RuleTailReminder { context: tail_context() };
+    let (assembled, reminder) = mixdog_agent::assemble_request(
+        &cfg.model,
+        sent.options.clone(),
+        mixdog_agent::project::project_for_wire(&messages),
+        Some(&tail),
+        ToolSet::with_builtins(vec![Echo::tool()], vec!["echo".into()]).definitions(),
+    );
+    assert_eq!(reminder.as_deref(), Some("<system-reminder>Write all user-facing text in Korean.</system-reminder>"));
+    assert_eq!(format!("{:?}", sent.messages), format!("{:?}", assembled.messages), "the sent messages, tail reminder last");
+    assert_eq!(format!("{:?}", sent.tools), format!("{:?}", assembled.tools));
+    assert_eq!(sent.model, assembled.model);
+}

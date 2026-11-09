@@ -8,15 +8,22 @@ use super::normalize_tool_schema;
 
 #[test]
 fn every_recorded_tool_schema_flattens_to_what_node_returned_byte_for_byte() {
-    let cases: Vec<Value> = serde_json::from_str(include_str!("node_recorded.json")).unwrap();
-    assert!(cases.len() >= 60, "the recording covers every tool: {}", cases.len());
+    let recording: Value = serde_json::from_str(include_str!("node_recorded.json")).unwrap();
+    let manifest = &recording["manifest"];
+    assert_eq!((manifest["node"].as_str(), manifest["exact"].as_bool()), (Some("b6f10295a"), Some(true)));
+    let cases = recording["cases"].as_array().unwrap();
     let mut changed = 0;
-    for case in &cases {
+    let mut names = Vec::new();
+    for case in cases {
         let got = normalize_tool_schema(&case["input"]);
         assert_eq!(got.to_string(), case["expected"].to_string(), "{} ({})", case["name"], case["source"]);
-        changed += usize::from(got != case["input"]);
+        changed += usize::from(case["input"].to_string() != case["expected"].to_string());
+        names.push(format!("{}:{}", case["source"].as_str().unwrap(), case["name"].as_str().unwrap()));
     }
-    assert!(changed >= 30, "the recording holds schemas the flatten changes: {changed}");
+    // The recorder wrote the manifest from the same run: the case list, count and changed count are exactly what Node saw.
+    assert_eq!(names, manifest["names"].as_array().unwrap().iter().map(|n| n.as_str().unwrap().to_owned()).collect::<Vec<_>>());
+    assert_eq!(cases.len() as u64, manifest["count"].as_u64().unwrap());
+    assert_eq!(changed, manifest["changed"].as_u64().unwrap() as usize);
 }
 
 #[test]

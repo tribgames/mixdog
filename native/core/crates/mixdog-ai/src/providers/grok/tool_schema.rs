@@ -63,6 +63,14 @@ fn push_unique(out: &mut Vec<Value>, value: Value) {
     }
 }
 
+/// `new Set([...])` membership (SameValueZero): primitives are the same by value, an object or array is only ever the same
+/// as itself, so two equal-looking ones both stay.
+fn push_set_member(out: &mut Vec<Value>, value: Value) {
+    if value.is_object() || value.is_array() || !out.contains(&value) {
+        out.push(value);
+    }
+}
+
 fn pure_any_of(schema: &Value) -> Vec<Value> {
     match schema.as_object() {
         Some(map) if map.len() == 1 && map.get("anyOf").is_some_and(Value::is_array) => map["anyOf"].as_array().cloned().unwrap_or_default(),
@@ -98,7 +106,7 @@ fn merge_object_branch_properties(branches: &[Value]) -> Map<String, Value> {
             } else if deduped.iter().all(|v| get(v, "enum").is_some_and(Value::is_array) && get(v, "type") == get(&deduped[0], "type")) {
                 let mut values = Vec::new();
                 for value in deduped.iter().flat_map(|v| get(v, "enum").and_then(Value::as_array).cloned().unwrap_or_default()) {
-                    push_unique(&mut values, value);
+                    push_set_member(&mut values, value);
                 }
                 let mut out = deduped[0].as_object().cloned().unwrap_or_default();
                 out.insert("enum".into(), Value::Array(values));
@@ -261,10 +269,18 @@ fn merged_schema_properties(root: &Map<String, Value>, object_branches: &[Value]
 
 fn union_required(root: &Value, object_branches: &[Value]) -> Vec<Value> {
     let first = get(&object_branches[0], "required").and_then(Value::as_array).cloned().unwrap_or_default();
-    let in_every: Vec<Value> = first.into_iter().filter(|key| object_branches.iter().all(|b| get(b, "required").and_then(Value::as_array).is_some_and(|r| r.contains(key)))).collect();
+    // `branch.required.includes(key)`: an object or array key is only found in the very array it came from, the first branch's.
+    let in_every: Vec<Value> = first
+        .into_iter()
+        .filter(|key| {
+            object_branches.iter().enumerate().all(|(index, b)| {
+                get(b, "required").and_then(Value::as_array).is_some_and(|r| index == 0 || (!(key.is_object() || key.is_array()) && r.contains(key)))
+            })
+        })
+        .collect();
     let mut out = Vec::new();
     for key in required_keys(root).into_iter().chain(in_every.iter().cloned()).chain(if in_every.is_empty() { first_exclusive_required(object_branches) } else { Vec::new() }) {
-        push_unique(&mut out, key);
+        push_set_member(&mut out, key);
     }
     out
 }

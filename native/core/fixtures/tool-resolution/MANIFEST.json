@@ -3,28 +3,28 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 112965,
+      "bytes": 132195,
       "path": "golden.json",
-      "sha256": "c2027826f605e9df4b80ec63a2beb787053b81729ac4dd0ffc331e41641c8ea0"
+      "sha256": "06af847f58ed233dca4c3b995be920b64debb57bccce9e73b7d9685f46835080"
     }
   ],
   "product": {
-    "appsSha256": "aceede98659c44d00841dcebd6e231994155fbf785a74b44b542e1857c445d21",
-    "commit": "d6983371ed0de0369c0433e2079ab6419e963044",
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": null,
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9252,
+    "files": 9139,
     "refComparison": {
-      "closestCommit": "d6983371ed0de0369c0433e2079ab6419e963044",
-      "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "closestCommit": "65952520c532f9165175baf37735d06785ef1191",
+      "commitFilesMissingFromTree": 140,
+      "exact": false,
+      "filesDifferingFromCommit": 157
     },
-    "srcSha256": "4487be07c8f73b301f4522e8f7d66d9ffcb2f3f1b8f0093f64fb4f4553e06852",
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "git-checkout",
+    "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tool-resolution.mjs",
   "set": "tool-resolution",
-  "totalBytes": 112965
+  "totalBytes": 132195
 }
