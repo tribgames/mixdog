@@ -4214,6 +4214,16 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local, Ssh],
     },
+    /// A paired phone's WebRTC live-view signal (Node's `browserRemoteWebrtcSignal` relay call).
+    /// The reply settles once every signal it caused was pushed (`browser/webrtcSignal`).
+    BrowserWebrtcSignal => "browser/webrtcSignal" {
+        params: v2::host::BrowserWebrtcSignalParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Relay],
+    },
     /// Run a proxied model call for a server core; events as `modelProxy/run/event`.
     ModelProxyRun => "modelProxy/run" {
         params: v2::host::ModelProxyRunParams,
