@@ -322,7 +322,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // a pass of its own with its own backup. Once this returns the `desktop` section is separated, or (as in Node, where the app's catch wrote
     // `defaults-separation-failed` to its diagnostics log and went on) the failure is on record, the marker unset for the next start's retry.
     let desktop_ms = mixdog_core_session::session::Clock::now_ms(&mixdog_core_session::session::SystemClock);
-    let defaults_separation = crate::desktop_defaults::separate(&config, &b.log, desktop_ms).await;
+    let defaults_separation = crate::desktop_defaults::separate(&config, desktop_ms).await;
     // Node's notification store stamps `migratedAt: now` when it first loads with no document; so does the boot (notify owner: `audience.rs`
     // reads `migrated_at()` and no longer sees 0 for a store nobody wrote).
     config.stamp_notifications(boot_ms).await.map_err(|e| ComposeError::Config(format!("{e:?}")))?;

@@ -370,15 +370,15 @@
       "$ref": "#/definitions/CoreState"
     },
     "defaultsSeparation": {
-      "allOf": [
+      "anyOf": [
         {
           "$ref": "#/definitions/DefaultsSeparation"
+        },
+        {
+          "type": "null"
         }
       ],
-      "default": {
-        "ok": true
-      },
-      "description": "Set once per core start, before any connection is served."
+      "description": "Set once per core start, before any connection is served. Absent from a core that predates it; read that as `ok`."
     },
     "limits": {
       "$ref": "#/definitions/Limits"
