@@ -44,10 +44,11 @@
         "ok": false,
         "error": "Remote screen is not allowed for this device."
       },
-      "hostAsked": 0
+      "hostAsked": 0,
+      "envelopes": []
     },
     {
-      "name": "a paired phone is allowed, then its credential is unpaired and it is refused",
+      "name": "a paired phone is allowed, then unpaired with the relay not removing the pairing: the connection stays and is refused",
       "before": {
         "reply": {
           "id": 7,
@@ -64,12 +65,36 @@
         },
         "hostAsked": 1
       },
+      "envelopesAtUnpair": [],
       "reply": {
         "id": 7,
         "ok": false,
         "error": "Remote screen is not allowed for this device."
       },
       "hostAsked": 0
+    },
+    {
+      "name": "a paired phone is allowed, then unpaired with the relay removing the pairing: the relay ends the connection and nothing is sent",
+      "before": {
+        "reply": {
+          "id": 7,
+          "ok": true,
+          "value": [
+            {
+              "id": "display-1",
+              "label": "Display 1",
+              "primary": true,
+              "width": 1920,
+              "height": 1080
+            }
+          ]
+        },
+        "hostAsked": 1
+      },
+      "envelopesAtUnpair": [],
+      "reply": null,
+      "hostAsked": 0,
+      "envelopesAfter": []
     }
   ]
 }

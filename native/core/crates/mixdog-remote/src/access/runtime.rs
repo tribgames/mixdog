@@ -953,19 +953,13 @@ impl RemoteRuntime {
         self.descriptor().await
     }
 
-    /// Every live connection of an unpaired credential loses access now.
+    /// Every live connection of an unpaired credential loses its grants and screen access now, and stays connected: Node closes none
+    /// (`remote-relay.ts` `revokeClient`); the relay closes the phone once it removed the pairing (`relay-legs.mjs` `revokeClient`,
+    /// 4003), and a relay that did not leaves it open.
     fn drop_credential(&self, credential_id: &str) {
-        let (peers, out) = {
-            let mut state = self.inner.state();
-            let peers = state.table.revoke(credential_id);
-            (peers, state.live.is_some())
-        };
+        let peers = self.inner.state().table.revoke(credential_id);
         for peer in &peers {
-            self.inner.bridge.close_peer(peer);
             self.inner.cfg.registry.detach_peer(peer);
-            if out {
-                self.inner.cfg.link.send(&json!({ "type": "close-client", "clientId": peer, "reason": "device unpaired" }));
-            }
         }
     }
 
@@ -1530,11 +1524,10 @@ impl RemoteRuntime {
 
     async fn on_client_open(&self, client_id: &str, credential_id: &str) {
         let roster = self.inner.roster().await.ok();
-        // A device whose unpair is recorded is refused, new connections included.
-        if roster.is_some_and(|roster| !credential_id.is_empty() && lock(&roster).pending().iter().any(|id| id == credential_id)) {
-            self.inner.cfg.link.send(&json!({ "type": "close-client", "clientId": client_id, "reason": "device unpaired" }));
-            return;
-        }
+        // A device whose unpair is recorded is admitted as a connection with no pairing, as Node revokes it on admission
+        // (`screen-access-publisher.ts` `admitted`): it has no grants and no screen.
+        let unpaired = roster.is_some_and(|roster| !credential_id.is_empty() && lock(&roster).pending().iter().any(|id| id == credential_id));
+        let credential_id = if unpaired { "" } else { credential_id };
         let text = {
             let mut state = self.inner.state();
             // The core owns the peers, so the transport is always on offer to a phone that can take binary frames.

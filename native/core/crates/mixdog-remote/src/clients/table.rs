@@ -139,17 +139,14 @@ impl ClientTable {
         self.clients.get(client_id).map(|c| c.credential_id.as_str())
     }
 
-    /// Removes every client attached with `credential_id` (a revoked pairing); returns their ids.
+    /// Withdraws `credential_id` from every client attached with it (a revoked pairing); they stay attached, as Node leaves them
+    /// (it closes none itself: the relay does, once it removed the pairing). Returns their ids.
     pub fn revoke(&mut self, credential_id: &str) -> Vec<String> {
-        let ids: Vec<String> = self
-            .clients
-            .iter()
-            .filter(|(_, c)| !credential_id.is_empty() && c.credential_id == credential_id)
-            .map(|(id, _)| id.clone())
-            .collect();
-        for id in &ids {
-            if let Some(client) = self.clients.remove(id) {
-                client.end(EndReason::Revoked);
+        let mut ids = Vec::new();
+        for (id, client) in &mut self.clients {
+            if !credential_id.is_empty() && client.credential_id == credential_id {
+                client.credential_id.clear();
+                ids.push(id.clone());
             }
         }
         ids

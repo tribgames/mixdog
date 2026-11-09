@@ -474,7 +474,7 @@ async fn an_unpaired_peer_is_refused_before_any_session_read_or_turn() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_unpaired_device_loses_its_connection_and_its_access_at_once() {
+async fn an_unpaired_device_loses_its_access_at_once_and_its_connection_when_the_relay_ends_it() {
     let h = Harness::start(true).await;
     let (mut phone, connection) = h.connect("p1", CRED).await;
     let credential_of = phone_credential(h.registry.clone());
@@ -484,7 +484,8 @@ async fn an_unpaired_device_loses_its_connection_and_its_access_at_once() {
     h.runtime.revoke_client(CRED).await.unwrap();
     let revoke = h.relay.frame(|frame| frame["type"] == "revoke-client").await;
     assert_eq!(revoke["clientId"], CRED);
-    assert_eq!(phone.closed().await, "device unpaired");
+    // Node closes nothing itself: the relay removed the pairing, so it ends the phone's leg and reports it gone.
+    phone.leave();
     h.closed(connection).await;
     assert_eq!(credential_of(connection), None, "the connection holds no grant of the device once it is unpaired");
     assert!(h.registry.describe(connection.0).is_none());
@@ -499,19 +500,20 @@ async fn an_unpaired_device_loses_its_connection_and_its_access_at_once() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_unpair_the_relay_has_not_confirmed_still_refuses_the_device_on_every_connection() {
+async fn an_unpair_the_relay_has_not_confirmed_leaves_every_connection_open_without_the_grants_of_the_device() {
     let h = Harness::start(false).await;
     let (mut phone, connection) = h.connect("p1", CRED).await;
+    let credential_of = phone_credential(h.registry.clone());
 
     assert!(h.runtime.revoke_client(CRED).await.is_err(), "the relay refused the unpair");
-    assert_eq!(phone.closed().await, "device unpaired");
-    h.closed(connection).await;
+    // Nothing closes the phone (Node closes none; the relay ends a leg only when it removed the pairing), but it holds no grant.
+    assert_eq!(credential_of(connection), None);
+    assert_eq!(list(&mut phone, 1).await["result"], listed());
 
-    // The unpair is recorded and in force: the device is refused before it is even challenged.
-    let again = h.relay.open_peer("p2", CRED);
-    let Event::Closed(reason) = again.next().await else { panic!("a device whose unpair is recorded was challenged") };
-    assert_eq!(reason, "device unpaired");
-    assert_eq!(h.core.mock.opened_connections().len(), 1);
+    // The unpair is recorded and in force: the device's new connection is admitted (Node revokes it on admission) without a grant.
+    let (mut again, again_connection) = h.connect("p2", CRED).await;
+    assert_eq!(credential_of(again_connection), None);
+    assert_eq!(list(&mut again, 1).await["result"], listed());
     h.runtime.close().await;
 }
 
@@ -656,8 +658,9 @@ fn wire_of(node: &Value) -> Value {
     Value::Object(frame)
 }
 
-/// The recorded scenario `name` (by its leading words), checked to hold exactly the keys this replay reads, in it and in its `before`.
-fn recorded(name: &str) -> Value {
+/// The recorded scenario `name` (by its leading words), checked to hold exactly the keys `wanted` (the ones this replay reads), and, when
+/// it has a `before`, the keys of an answer in it.
+fn recorded(name: &str, wanted: &[&str]) -> Value {
     fn keys(value: &Value, wanted: &[&str], at: &str) {
         let mut found: Vec<&str> = value.as_object().unwrap().keys().map(String::as_str).collect();
         found.sort_unstable();
@@ -667,12 +670,9 @@ fn recorded(name: &str) -> Value {
     }
     let all: Value = serde_json::from_str(SCREEN_ACCESS).unwrap();
     let scenario = all["scenarios"].as_array().unwrap().iter().find(|scenario| scenario["name"].as_str().unwrap().starts_with(name)).unwrap_or_else(|| panic!("no recorded scenario {name}")).clone();
-    match scenario.get("before") {
-        Some(before) => {
-            keys(&scenario, &["name", "before", "reply", "hostAsked"], name);
-            keys(before, &["reply", "hostAsked"], name);
-        }
-        None => keys(&scenario, &["name", "reply", "hostAsked"], name),
+    keys(&scenario, wanted, name);
+    if let Some(before) = scenario.get("before") {
+        keys(before, &["reply", "hostAsked"], name);
     }
     scenario
 }
@@ -683,23 +683,27 @@ fn displays_call(reply: &Value) -> Value {
 }
 
 /// Node's composed screen access (`screen-access.json`: the frame the real relay-client call dispatch sent the phone, over the real
-/// relay asking the real publisher), against the production wiring. Every recorded scenario is replayed over a connection the
-/// server's dispatch serves, and the frame the server writes is compared as a whole to the frame Node's recorded reply maps to
-/// (`wire_of`). The host is asked exactly as often as Node's was.
+/// relay asking the real publisher over the real client table), against the production wiring. Every recorded scenario is replayed over a
+/// connection the server's dispatch serves, and the frame the server writes is compared as a whole to the frame Node's recorded reply
+/// maps to (`wire_of`); a recorded `null` reply is no frame at all. The host is asked exactly as often as Node's was.
 ///
-/// The local-client scenario is replayed the same way: Node's dispatch is relay-only, so the frame it recorded is the one a relay
-/// connection with no paired device gets. A relay peer whose pairing ended is closed with "device unpaired" before it can ask anything, so its refusal has no connection of its
-/// own to be written to. The two unpair scenarios put the question on a relay-origin connection that holds no paired device (the state
-/// `phone_credential` reads after the unpair), on the same hub and dispatch.
+/// The unpair scenarios run over the one phone connection throughout. Node's desktop closes nothing at an unpair: the connection stays
+/// attached and its next call is refused, unless the relay removed the pairing, in which case the relay ends the leg (`relay-legs.mjs`
+/// `revokeClient`, only `if (removed)`) and the next call gets nothing. The scripted relay does not close a leg by itself, so the
+/// confirmed case has the phone's leg end (`Phone::leave`) as the relay reports it.
+///
+/// The local-client scenario is replayed on a relay connection that holds no paired device: Node's dispatch is relay-only, so the frame
+/// it recorded is the one such a connection gets.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_composed_screen_access_answers_as_nodes_relay_and_publisher_did() {
     let all: Value = serde_json::from_str(SCREEN_ACCESS).unwrap();
-    assert_eq!(all["scenarios"].as_array().unwrap().len(), 4, "every recorded scenario is replayed below");
+    assert_eq!(all["scenarios"].as_array().unwrap().len(), 5, "every recorded scenario is replayed below");
     let asked = |h: &Harness| h.desktop.asked.lock().unwrap().len() as u64;
     let unpaired_relay_peer = ConnectionOrigin::Relay { peer_id: "gone".to_owned() };
+    let plain = ["name", "reply", "hostAsked"];
 
-    // The first recorded scenario: a paired phone, over its relay channel.
-    let allowed = recorded("a paired, E2EE-established phone");
+    // A paired phone, over its relay channel.
+    let allowed = recorded("a paired, E2EE-established phone", &plain);
     let h = Harness::start(true).await;
     let (mut phone, _) = h.connect("p1", CRED).await;
     phone.send(&displays_call(&allowed["reply"]).to_string());
@@ -707,46 +711,69 @@ async fn the_composed_screen_access_answers_as_nodes_relay_and_publisher_did() {
     assert_eq!(asked(&h), allowed["hostAsked"].as_u64().unwrap());
     h.runtime.close().await;
 
-    // Allowed, then unpaired (the relay confirms the unpair): the phone, then its connection.
-    let revoked = recorded("a paired phone is allowed, then");
+    // Unpaired, the relay not removing the pairing: the same connection stays, and its next call is refused. Desktop envelopes at the
+    // unpair: none (no frame and no close reaches the phone's client).
+    let kept = recorded("a paired phone is allowed, then unpaired with the relay not", &["name", "before", "envelopesAtUnpair", "reply", "hostAsked"]);
+    assert_eq!(kept["envelopesAtUnpair"], json!([]));
+    let h = Harness::start(false).await;
+    let (mut phone, _) = h.connect("p1", CRED).await;
+    phone.send(&displays_call(&kept["before"]["reply"]).to_string());
+    assert_eq!(answer(&mut phone, 7).await, wire_of(&kept["before"]["reply"]), "before the unpair");
+    assert_eq!(asked(&h), kept["before"]["hostAsked"].as_u64().unwrap());
+    let sent = phone.arrived().await;
+    assert!(h.runtime.revoke_client(CRED).await.is_err(), "the relay refused the unpair");
+    assert_eq!(phone.arrived().await, sent, "the unpair sent the phone nothing and closed nothing");
+    phone.send(&displays_call(&kept["reply"]).to_string());
+    assert_eq!(answer(&mut phone, 7).await, wire_of(&kept["reply"]), "the same connection, after the unpair");
+    assert_eq!(asked(&h), kept["before"]["hostAsked"].as_u64().unwrap() + kept["hostAsked"].as_u64().unwrap());
+    h.runtime.close().await;
+
+    // Unpaired, the relay removing the pairing: it ends the phone's leg; the same connection's next call gets nothing.
+    let ended = recorded("a paired phone is allowed, then unpaired with the relay removing", &["name", "before", "envelopesAtUnpair", "reply", "hostAsked", "envelopesAfter"]);
+    assert_eq!((ended["envelopesAtUnpair"].clone(), ended["envelopesAfter"].clone(), ended["reply"].clone()), (json!([]), json!([]), Value::Null));
     let h = Harness::start(true).await;
     let (mut phone, connection) = h.connect("p1", CRED).await;
-    phone.send(&displays_call(&revoked["before"]["reply"]).to_string());
-    assert_eq!(answer(&mut phone, 7).await, wire_of(&revoked["before"]["reply"]), "before the unpair");
-    assert_eq!(asked(&h), revoked["before"]["hostAsked"].as_u64().unwrap());
+    phone.send(&displays_call(&ended["before"]["reply"]).to_string());
+    assert_eq!(answer(&mut phone, 7).await, wire_of(&ended["before"]["reply"]), "before the unpair");
+    assert_eq!(asked(&h), ended["before"]["hostAsked"].as_u64().unwrap());
+    let sent = phone.arrived().await;
     h.runtime.revoke_client(CRED).await.unwrap();
-    assert_eq!(phone.closed().await, "device unpaired");
+    assert_eq!(phone.arrived().await, sent, "the unpair sent the phone nothing and closed nothing");
+    phone.leave();
     h.closed(connection).await;
-    let mut gone = h.client(unpaired_relay_peer.clone(), "phone").await;
-    assert_eq!(gone.call(&displays_call(&revoked["reply"])).await, wire_of(&revoked["reply"]), "after the unpair");
-    assert_eq!(asked(&h), revoked["before"]["hostAsked"].as_u64().unwrap() + revoked["hostAsked"].as_u64().unwrap());
+    phone.send(&displays_call(&kept["reply"]).to_string());
+    // The runtime takes the relay's events in order: another paired phone's answer proves the dead phone's call was handled.
+    let (mut other, _) = h.connect("p2", OTHER_CRED).await;
+    assert_eq!(list(&mut other, 1).await["result"], listed());
+    assert_eq!(phone.arrived().await, sent, "a phone the relay ended is sent nothing");
+    assert_eq!(asked(&h), ended["before"]["hostAsked"].as_u64().unwrap() + ended["hostAsked"].as_u64().unwrap());
+    h.runtime.close().await;
+
+    // A device whose unpair is in force when its connection is admitted: the connection is admitted, and refused the screen.
+    let unpaired = recorded("a device whose unpair is in force", &["name", "reply", "hostAsked", "envelopes"]);
+    assert_eq!(unpaired["envelopes"], json!([]));
+    let h = Harness::start(false).await;
+    assert!(h.runtime.revoke_client(CRED).await.is_err(), "the relay refused the unpair");
+    let (mut phone, _) = h.connect("p1", CRED).await;
+    phone.send(&displays_call(&unpaired["reply"]).to_string());
+    assert_eq!(answer(&mut phone, 7).await, wire_of(&unpaired["reply"]), "an unpair in force");
+    assert_eq!(asked(&h), unpaired["hostAsked"].as_u64().unwrap());
+    h.runtime.close().await;
 
     // A local client, even one naming itself after the paired device.
-    let local = recorded("a local client");
-    // Node's refusal frame is the access rule's answer for a connection that holds no paired device, so it is read off a relay-origin
-    // connection that holds none. Over its own loopback connection the method table refuses the local client before the rule is
-    // asked (`browser/screenDisplays` is a relay method): that is the server's own `permissionDenied` frame, which Node has no
-    // counterpart of, so it is compared to its fixed body.
-    let mut nobody = h.client(unpaired_relay_peer.clone(), "phone").await;
+    let local = recorded("a local client", &plain);
+    let h = Harness::start(true).await;
+    let (_phone, _) = h.connect("p1", CRED).await;
+    let mut nobody = h.client(unpaired_relay_peer, "phone").await;
     assert_eq!(nobody.call(&displays_call(&local["reply"])).await, wire_of(&local["reply"]), "a connection with no paired device");
+    // Over its own loopback connection the method table refuses the local client before the access rule is asked
+    // (`browser/screenDisplays` is a relay method): the server's own `permissionDenied` frame, which Node has no counterpart of.
     let mut named = h.client(ConnectionOrigin::Loopback, "cli").await;
     assert_eq!(
         named.call(&displays_call(&local["reply"])).await,
         json!({ "id": local["reply"]["id"], "error": { "code": -32600, "message": "permissionDenied", "data": { "reason": "permissionDenied", "method": "browser/screenDisplays", "origin": "local" } } }),
         "a local client"
     );
-    assert_eq!(asked(&h), revoked["before"]["hostAsked"].as_u64().unwrap() + revoked["hostAsked"].as_u64().unwrap() + local["hostAsked"].as_u64().unwrap());
-    h.runtime.close().await;
-
-    // An unpair the relay has not confirmed is in force: the device's connection is closed, and nothing it could ask reaches the host.
-    let unpaired = recorded("a device whose unpair is in force");
-    let h = Harness::start(false).await;
-    let (mut phone, connection) = h.connect("p1", CRED).await;
-    assert!(h.runtime.revoke_client(CRED).await.is_err(), "the relay refused the unpair");
-    assert_eq!(phone.closed().await, "device unpaired");
-    h.closed(connection).await;
-    let mut gone = h.client(unpaired_relay_peer, "phone").await;
-    assert_eq!(gone.call(&displays_call(&unpaired["reply"])).await, wire_of(&unpaired["reply"]), "an unpair in force");
-    assert_eq!(asked(&h), unpaired["hostAsked"].as_u64().unwrap());
+    assert_eq!(asked(&h), local["hostAsked"].as_u64().unwrap());
     h.runtime.close().await;
 }
