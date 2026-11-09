@@ -11,7 +11,6 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use futures::future::BoxFuture;
@@ -202,13 +201,20 @@ impl mixdog_core_session::session::thread_settings::ArchiveRetention for Forgott
     }
 }
 
-#[derive(Default)]
-struct Offsets(Mutex<Vec<PathBuf>>);
+/// The memory service's offsets: the paths each request forgot, and one permit per request.
+struct Offsets(Mutex<Vec<PathBuf>>, tokio::sync::Semaphore);
+
+impl Default for Offsets {
+    fn default() -> Self {
+        Self(Mutex::default(), tokio::sync::Semaphore::new(0))
+    }
+}
 
 #[async_trait]
 impl IngestOffsets for Offsets {
     async fn forget_transcripts(&self, paths: &[PathBuf]) -> usize {
         self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).extend_from_slice(paths);
+        self.1.add_permits(1);
         paths.len()
     }
 }
@@ -379,14 +385,11 @@ async fn the_purge_hooks_leave_the_files_a_real_node_delete_leaves() {
     touches.flush().await;
     gaps.flush().await;
 
-    // The turn review's marker and baselines, and the transcript offsets, are requests Node does
-    // not wait for either: wait for the folder to take its final state.
-    let started = Instant::now();
-    let mut left = differences(&golden, home).await;
-    while !left.is_empty() && started.elapsed() < Duration::from_secs(10) {
-        tokio::time::sleep(Duration::from_millis(25)).await;
-        left = differences(&golden, home).await;
-    }
+    // The turn review's marker and baselines, and the transcript offsets (one request per deleted
+    // session), are requests Node does not wait for either: wait until each has landed.
+    mixdog_core_review::turn_review::testing::forgotten(&review).await;
+    drop(offsets.1.acquire_many(2).await.expect("the offsets requests"));
+    let left = differences(&golden, home).await;
     assert!(left.is_empty(), "{}", left.join("\n"));
 
     let mut forgotten: Vec<String> = offsets
