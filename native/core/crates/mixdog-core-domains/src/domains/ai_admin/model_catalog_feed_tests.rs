@@ -81,16 +81,15 @@ async fn a_mutation_publishes_nodes_rows_once_when_they_changed_and_nothing_when
     let mut sync = spawn_provider_sync(rig.config.clone(), rig.effective.clone(), rig.readiness.clone(), rig.loaded.clone(), stop.clone());
     let mut applied = 0;
 
-    // Before anything changes: the first rows loaded are the section's first value.
+    // The first load fills the cache and tells no client: the section's first value is the first trigger's.
     assert_rows("first read", &rig.service.rows(false, false).await.unwrap(), &calls[0]["value"]);
-    feed.refresh(false).await;
-    assert_eq!(published(&publisher), vec![calls[0]["value"].clone()], "the first value");
+    assert!(published(&publisher).is_empty(), "a load alone publishes nothing");
 
-    let mut expected = 1;
+    let mut expected = 0;
+    let mut before = calls[0]["value"].clone();
     let (mut changed, mut unchanged) = (0, 0);
     for pair in calls[1..].chunks(2) {
         let [mutation, read] = pair else { panic!("a mutation and the read after it") };
-        let before = published(&publisher).last().cloned().unwrap();
         let invalidated = apply(&rig, &mut sync, &mut applied, mutation).await;
         // What wakes the feed: the invalidation (it loads the catalog again) or only the stored config (it reads a loaded catalog).
         feed.refresh(invalidated).await;
@@ -105,8 +104,51 @@ async fn a_mutation_publishes_nodes_rows_once_when_they_changed_and_nothing_when
         let sent = published(&publisher);
         assert_eq!(sent.len(), expected, "{what}: one publication per change");
         assert_eq!(sent.last().unwrap(), &read["value"], "{what}: Node's rows");
+        before = read["value"].clone();
     }
     assert_eq!((changed, unchanged), (4, 2), "the recording holds four changes and two mutations that left the rows alone");
+    stop.cancel();
+    sync.task.await.unwrap();
+}
+
+/// `model-catalog-background`: Node's clients kept their cached catalog until a trigger (the provider-change hint, a peer change, a
+/// reconnection). A provider's catalog that moves on its own and a load that adopts the other rows (a forced read here) is no
+/// trigger: nothing is published, and the next trigger (a favorite) publishes Node's rows, the moved catalog included. The wait for
+/// that publication is the check: a publication made at the load would arrive first, with the rows of the load.
+#[tokio::test]
+async fn a_load_that_adopts_other_rows_publishes_nothing_until_a_trigger() {
+    let recording = recording();
+    let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "model-catalog-background").unwrap();
+    let calls = scenario["calls"].as_array().unwrap();
+    let rig = rig(scenario, &recording["seeds"], false).await;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let stop = mixdog_rt::CancellationToken::new();
+    let mut sync = spawn_provider_sync(rig.config.clone(), rig.effective.clone(), rig.readiness.clone(), rig.loaded.clone(), stop.clone());
+    let feed = ModelCatalogFeed::start(rig.service.clone(), Arc::new(Channel(tx)), sync.applied.clone());
+    let (service, woken) = (rig.service.clone(), feed.clone());
+    rig.readiness
+        .bind_invalidation(Arc::new(move || {
+            service.invalidate();
+            woken.invalidated();
+        }))
+        .is_ok()
+        .then_some(())
+        .unwrap();
+
+    assert_rows("first read", &rig.service.rows(false, false).await.unwrap(), &calls[0]["value"]);
+    rig.serve(&calls[1]["stub"]);
+    assert_rows("the load that adopts the moved catalog", &rig.service.rows(true, false).await.unwrap(), &calls[2]["value"]);
+    assert_ne!(calls[2]["value"], calls[0]["value"], "the recording moved the rows with no mutation");
+    assert_rows("the cached read after it", &rig.service.rows(false, false).await.unwrap(), &calls[3]["value"]);
+    assert_eq!(feed.invalidations(), 0, "no invalidation reached the feed");
+    let stray = rx.try_recv();
+    assert!(stray.is_err(), "no trigger yet: {stray:?} applied={}", *sync.applied.borrow());
+
+    let mut applied = 0;
+    assert!(!apply(&rig, &mut sync, &mut applied, &calls[4]).await);
+    assert_eq!(rx.recv().await.unwrap(), calls[5]["value"], "the trigger publishes Node's rows");
+    assert_ne!(calls[5]["value"], calls[2]["value"]);
+    assert!(rx.try_recv().is_err(), "once");
     stop.cancel();
     sync.task.await.unwrap();
 }
@@ -147,9 +189,8 @@ async fn the_composed_task_publishes_each_config_change_and_invalidation_once() 
         .unwrap();
     let mut applied = 0;
 
-    // The load of the first read fills the cache: the first value.
+    // The load of the first read fills the cache and publishes nothing (a stray publication arrives before the next expected one).
     assert_rows("first read", &rig.service.rows(false, false).await.unwrap(), &calls[0]["value"]);
-    assert_eq!(rx.recv().await.unwrap(), calls[0]["value"]);
     let mut last = calls[0]["value"].clone();
     let (mut changed, mut unchanged) = (0, 0);
     for pair in calls[1..].chunks(2) {

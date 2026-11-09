@@ -1,6 +1,6 @@
 // Child of record.mjs: one Node daemon in the isolated env it was started in; records the model-list reads.
 //   node --experimental-transform-types child.mjs <nodeTree> <workspace> <scenario.json>
-import { existsSync, readFileSync, watch } from 'node:fs';
+import { existsSync, readFileSync, watch, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -44,6 +44,12 @@ try {
   }
   for (const call of scenario.calls) {
     let entry;
+    // Not a call to Node: the endpoint answers `call.stub` from here on (a provider's catalog moving on its own).
+    if (call.stub) {
+      writeFileSync(scenario.stubFile, JSON.stringify(call.stub));
+      out.calls.push({ action: call.action, stub: call.stub, ok: true });
+      continue;
+    }
     try {
       const reply = await attached.call(call.configure ? 'session.configure' : 'session.read', { sessionId, action: call.action, args: call.args, open, baseRevision: null });
       entry = { action: call.action, args: call.args, ok: true, value: reply?.value };
