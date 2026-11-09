@@ -503,6 +503,11 @@ impl SessionHandle {
             "inheritedFromSessionId".into(),
             Value::String(self.id.as_str().to_owned()),
         );
+        // The heir is a session of its own: Node stamps its creation, not the source's times.
+        let now = json!(directory.deps.clock.now_ms());
+        for key in ["createdAt", "updatedAt", "lastUsedAt"] {
+            header.insert(key.into(), now.clone());
+        }
         let created = directory
             .create(CreateSpec {
                 id: params.into_thread_id,

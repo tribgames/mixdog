@@ -2072,6 +2072,7 @@ async fn a_drafts_worktree_is_entered_once_the_thread_exists() {
 /// client keeps its header, and an inherit into an existing thread keeps that thread's place.
 #[tokio::test(start_paused = true)]
 async fn a_fork_is_placed_where_the_desktop_places_an_heir() {
+    use super::Clock;
     use mixdog_store::schema::record::Header;
     let rig = Rig::new();
     let place = Arc::new(super::testing::RecordingPlace { projects: vec!["/repo".to_owned()], ..Default::default() });
@@ -2108,6 +2109,10 @@ async fn a_fork_is_placed_where_the_desktop_places_an_heir() {
     };
     let in_worktree = fork("src_wt", source("/repo/.wt/feat", json!({ "classification": "project", "projectPath": "/repo" })), json!({})).await;
     assert_eq!(in_worktree["cwd"], "/repo");
+    // The heir is stamped with its own creation (the source's were 1), as Node's fork is.
+    for key in ["createdAt", "updatedAt", "lastUsedAt"] {
+        assert_eq!(in_worktree[key], json!(rig.clock.now_ms()), "{key}");
+    }
     assert_eq!(in_worktree["desktopSession"], json!({ "classification": "project", "projectPath": "/repo" }));
     assert!(in_worktree.get("workspace").is_none());
     let in_tasks = fork("src_task", source("/tasks", json!({ "classification": "task", "projectPath": null })), json!({})).await;
@@ -2207,6 +2212,24 @@ async fn turn_review_reverts_are_served_by_the_thread_handle() {
         .await
         .expect_err("a file is required");
     assert!(matches!(error, CoreError::InvalidParams { .. }), "{error:?}");
+}
+
+/// Node's `updateSessionManualTitle` writes the title keys only: the row's creation, update and activity times stay.
+#[tokio::test(start_paused = true)]
+async fn a_rename_leaves_the_rows_times_alone() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let times = |handle: &SessionHandle| {
+        let header = handle.cell.header.load_full();
+        ["createdAt", "updatedAt", "lastUsedAt"].map(|key| header.get(key).cloned())
+    };
+    let before = times(&handle);
+    assert!(before.iter().all(Option::is_some), "a started thread is stamped {before:?}");
+    rig.clock.0.store(9_000, std::sync::atomic::Ordering::SeqCst);
+    handle.request(request("thread/name/set", json!({ "threadId": handle.id, "opId": "op-t", "title": "renamed" }), "op-t")).await.expect("name/set");
+    eventually(|| (handle.cell.view.load_full().state.title.as_deref() == Some("renamed")).then_some(())).await;
+    assert_eq!(times(&handle), before);
 }
 
 #[tokio::test(start_paused = true)]
