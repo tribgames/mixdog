@@ -17,29 +17,44 @@ export function pathText(value: unknown): string {
   return text;
 }
 
-/** `path.resolve` of an absolute path as Node ran it on the desktop (`absoluteLocalPath`): separators unified, `.`/`..` and repeated or
- *  trailing separators removed, the root kept. A drive or UNC path is a Windows host's (`\` separators); anything else is POSIX. */
-export function resolveHostPath(text: string): string {
-  const windows = /^(?:[A-Za-z]:[\\/]|[\\/]{2})/.test(text);
-  const parts = (windows ? text.replace(/\//g, '\\') : text).split(windows ? '\\' : '/');
-  let root = windows ? '' : '/';
-  if (windows) {
-    const unc = text.startsWith('\\\\') || text.startsWith('//');
-    // A UNC root is `\\server\share`; a drive root is `X:`. Both are followed by one separator.
-    root = unc ? `\\\\${parts[2] ?? ''}\\${parts[3] ?? ''}` : parts[0];
-    parts.splice(0, unc ? 4 : 1);
-  }
+/** The path rules of the machine the files are on, which the host reports (`initialize`'s `platformOs`), never the spelling of a path:
+ *  `/tmp/x` is a rooted path on a Windows host and an ordinary one on a POSIX host. */
+export type HostPlatform = 'windows' | 'posix';
+
+export const hostPlatformOf = (platformOs: unknown): HostPlatform => (platformOs === 'windows' ? 'windows' : 'posix');
+
+/** The device of a Windows path in `\` spelling, as Node's `path.win32.resolve` reads it: `X:` before a separator, or a `\\server\share`
+ *  with both parts; anything else (`\dir`, `\\server`) has none and takes the working directory's. */
+const windowsRoot = (text: string): { device: string | null; rest: string } => {
+  if (/^[A-Za-z]:\\/.test(text)) return { device: text.slice(0, 2), rest: text.slice(2) };
+  const unc = /^\\\\([^\\]+)\\+([^\\]+)/.exec(text);
+  return unc ? { device: `\\\\${unc[1]}\\${unc[2]}`, rest: text.slice(unc[0].length) } : { device: null, rest: text };
+};
+
+/** `path.isAbsolute` of the host: on Windows a rooted path (`\dir`, `/dir`, `//server`) counts as well as `X:\` and a UNC share. */
+export function isAbsoluteOn(platform: HostPlatform, text: string): boolean {
+  return platform === 'windows' ? /^(?:[\\/]|[A-Za-z]:[\\/])/.test(text) : text.startsWith('/');
+}
+
+/** Whether `resolveOn` needs the device of the host's working directory: a rooted Windows path names none. */
+export const needsHostDevice = (platform: HostPlatform, text: string): boolean =>
+  platform === 'windows' && windowsRoot(text.replace(/\//g, '\\')).device === null;
+
+/** `path.resolve` of an absolute path on the host (Node's `absoluteLocalPath`): separators unified, `.`/`..` and repeated or trailing
+ *  separators removed, the root kept. `hostDevice` is the working directory's device (`D:`, `\\server\share`) for a path without one. */
+export function resolveOn(platform: HostPlatform, text: string, hostDevice: string): string {
+  const windows = platform === 'windows';
+  const spelled = windows ? text.replace(/\//g, '\\') : text;
+  const { device, rest } = windows ? windowsRoot(spelled) : { device: '', rest: spelled };
   const kept: string[] = [];
-  for (const part of parts) {
+  for (const part of rest.split(windows ? '\\' : '/')) {
     if (!part || part === '.') continue;
     if (part === '..') kept.pop();
     else kept.push(part);
   }
   const sep = windows ? '\\' : '/';
-  return `${root}${root.endsWith(sep) ? '' : sep}${kept.join(sep)}`;
+  return `${device ?? hostDevice}${sep}${kept.join(sep)}`;
 }
 
-/** Whether Node's folder-watch registry folds case for this path: it did on a Windows host (`toLocaleLowerCase`). */
-export function foldsCase(resolved: string): boolean {
-  return /^(?:[A-Za-z]:|\\\\)/.test(resolved);
-}
+/** Whether Node's folder-watch registry folds case: it did on a Windows host (`toLocaleLowerCase`). */
+export const foldsCaseOn = (platform: HostPlatform): boolean => platform === 'windows';

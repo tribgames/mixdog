@@ -9,6 +9,8 @@
 //! of the stream.
 
 mod bridge;
+#[cfg(debug_assertions)]
+mod clock_control;
 mod integration;
 mod markers;
 mod profiles;
@@ -469,7 +471,6 @@ impl Claims {
     /// and answers `lapsed <n>\n` (`n` claims ended), so the answer is the completion signal. Each connection has a thread of its own.
     #[cfg(debug_assertions)]
     fn serve_manual_clock(claims: &Arc<Self>, dir: std::path::PathBuf) {
-        use std::io::{BufRead, BufReader, Write};
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("the manual lease clock binds a loopback port");
         let port = listener.local_addr().expect("the bound port").port();
         std::fs::write(dir.join("port.tmp"), port.to_string()).and_then(|()| std::fs::rename(dir.join("port.tmp"), dir.join("port"))).expect("the manual lease clock publishes its port");
@@ -486,21 +487,26 @@ impl Claims {
     /// One control connection, served on its own thread: a client that leaves a line unfinished holds only its own connection.
     #[cfg(debug_assertions)]
     fn serve_manual_clock_connection(claims: &std::sync::Weak<Self>, stream: std::net::TcpStream) {
-        use std::io::{BufRead, BufReader, Write};
+        use clock_control::{Ended, IDLE_DEADLINE, LINE_DEADLINE, WRITE_DEADLINE};
         let Ok(reader) = stream.try_clone() else { return };
         let mut stream = stream;
-        let mut lines = BufReader::new(reader);
+        let mut lines = std::io::BufReader::new(reader);
         loop {
-            let mut line = String::new();
-            let answer = match lines.read_line(&mut line) {
-                Ok(0) => return,
-                Ok(_) => match (line.strip_prefix("advance ").and_then(|ms| ms.trim().parse::<u64>().ok()), claims.upgrade()) {
+            let answer = match clock_control::read_command(&mut lines, IDLE_DEADLINE, LINE_DEADLINE) {
+                Ok(line) => match (line.strip_prefix("advance ").and_then(|ms| ms.trim().parse::<u64>().ok()), claims.upgrade()) {
                     (Some(ms), Some(claims)) => format!("lapsed {}\n", claims.advance(std::time::Duration::from_millis(ms))),
                     _ => "refused\n".to_owned(),
                 },
-                Err(_) => return,
+                Err(Ended::Closed) => return,
+                Err(Ended::Refused(message)) => {
+                    // The client is told what was awaited and the connection ends (its thread and sockets are released).
+                    let _ = clock_control::answer(&mut stream, &format!("refused: {message}\n"), WRITE_DEADLINE);
+                    eprintln!("mixdog lease clock: {message}; the control connection was closed");
+                    return;
+                }
             };
-            if stream.write_all(answer.as_bytes()).is_err() {
+            if let Err(message) = clock_control::answer(&mut stream, &answer, WRITE_DEADLINE) {
+                eprintln!("mixdog lease clock: {message}; the control connection was closed");
                 return;
             }
         }

@@ -247,20 +247,13 @@ async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause(
     service.call(request("terminal/dispose", json!({ "tabId": id }), 2)).await.unwrap();
 }
 
-/// Node's `termActivity` walked its tab map, so the tabs came in creation order, not sorted by id.
-#[tokio::test(flavor = "multi_thread")]
-async fn terminal_activity_lists_tabs_in_creation_order() {
-    let manager = manager();
-    let feeds = ProcessFeeds::new(manager.clone(), scoped());
-    let publisher = Arc::new(SectionLog::default());
-    let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
-    let cwd = temp_dir().as_path().to_string_lossy().into_owned();
-    // Only a shell with the marker integration reports activity; the test picks one itself, so it
-    // does not depend on which shell the machine defaults to.
+/// A shell with the marker integration (only such a shell reports activity); the test picks one itself, so it does not depend on which
+/// shell the machine defaults to.
+async fn integrated_profile(service: &TerminalService) -> String {
     let Reply::Value(profiles) = service.call(request("terminal/profiles", json!({}), 1)).await.unwrap() else {
         panic!("terminal/profiles answers with a value");
     };
-    let integrated = profiles
+    profiles
         .as_array()
         .unwrap()
         .iter()
@@ -273,7 +266,45 @@ async fn terminal_activity_lists_tabs_in_creation_order() {
         .expect("this machine has a shell with terminal integration (PowerShell, bash or zsh)")["id"]
         .as_str()
         .unwrap()
-        .to_owned();
+        .to_owned()
+}
+
+/// Node forwards a disposed tab's end (`state: null`) before it answers the dispose (terminal-manager.ts:541, remote-relay-push-lanes.ts:150,
+/// remote-methods.ts:1284), so a phone has the activity event ahead of the reply. A publish reaches the connection's queue at once, so the
+/// section must already be published when the reply is: read with no wait.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dispose_is_answered_after_the_activity_it_ended_is_published() {
+    let manager = manager();
+    let feeds = ProcessFeeds::new(manager.clone(), scoped());
+    let publisher = Arc::new(SectionLog::default());
+    let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
+    let cwd = temp_dir().as_path().to_string_lossy().into_owned();
+    let integrated = integrated_profile(&service).await;
+    service.call(request("terminal/ensure", json!({ "tabId": "term_end", "options": { "cwd": cwd, "profile": integrated } }), 1)).await.unwrap();
+    let keys = || -> Vec<String> {
+        publisher
+            .published()
+            .iter()
+            .rev()
+            .find_map(|(s, _, change)| match (s, change) {
+                (SectionName::TerminalActivity, SectionChange::Set(bytes)) => Some(serde_json::from_slice::<Value>(bytes).unwrap().as_object().unwrap().keys().cloned().collect()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    };
+    publisher.wait_for("the tab has a known activity", |_| keys() == ["term_end"]).await;
+    service.call(request("terminal/dispose", json!({ "tabId": "term_end" }), 1)).await.unwrap();
+    assert!(keys().is_empty(), "the tab's end was not published before the reply: {:?}", keys());
+}
+/// Node's `termActivity` walked its tab map, so the tabs came in creation order, not sorted by id.
+#[tokio::test(flavor = "multi_thread")]
+async fn terminal_activity_lists_tabs_in_creation_order() {
+    let manager = manager();
+    let feeds = ProcessFeeds::new(manager.clone(), scoped());
+    let publisher = Arc::new(SectionLog::default());
+    let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
+    let cwd = temp_dir().as_path().to_string_lossy().into_owned();
+    let integrated = integrated_profile(&service).await;
     // Created in reverse id order: a section sorted by id would list `term_a` first.
     for id in ["term_b", "term_a"] {
         service

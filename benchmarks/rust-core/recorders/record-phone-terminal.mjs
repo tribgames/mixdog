@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { REPO_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { mock } from 'node:test';
-import { claimTrace as claimTraceOf, play, sizeClaimScript, terminalScript } from './lib/phone-terminal-script.mjs';
+import { play, sizeClaimScript, terminalScript } from './lib/phone-terminal-script.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const ROOT = 'D:\\mixdog-build\\tmp\\ph2-terminal';
@@ -79,6 +79,8 @@ if (!args.has('child')) {
 rmSync(ROOT, { recursive: true, force: true });
 const script = terminalScript(ROOT);
 for (const dir of [script.cwd, script.watched, join(ROOT, 'userdata')]) mkdirSync(dir, { recursive: true });
+// A path without a drive resolves onto the working directory's: the replay's core runs in the same folder.
+process.chdir(ROOT);
 
 const { createDesktopOperations } = await importFrom(tree, 'apps/desktop/src/main/desktop-operations.ts');
 const { createRemoteMethods, executeRemoteFrame } = await importFrom(tree, 'apps/desktop/src/main/remote-methods.ts');
@@ -139,7 +141,15 @@ const operations = createDesktopOperations({
   emit,
 });
 // The relay's data push goes through its own 16 ms buffer; the text the page gets is the output as it was written.
+// A disposed tab's shell is killed and its exit text arrives a moment later; a marker it wrote before dying makes Node push a late activity
+// event for it, so the first script's tabs must have exited before the second script turns the lane on again.
+const ensured = new Set();
+const exited = new Set();
 operations.subscribeTerminalData((event) => {
+  if (event.data.includes('[process exited with code')) {
+    exited.add(event.id);
+    changed();
+  }
   if (!state.lanes.has('terminal')) return;
   events.output[event.id] = (events.output[event.id] ?? '') + event.data;
   changed();
@@ -156,6 +166,7 @@ const otherMethods = methodsOf(OTHER);
 let frameId = 0;
 const driver = {
   async call(name, params) {
+    if (name === 'termEnsure' && typeof params[0] === 'string') ensured.add(params[0]);
     const response = await executeRemoteFrame(methods, JSON.stringify({ id: ++frameId, method: name, params }));
     if (!response.ok) throw new Error(response.error);
     return response.value;
@@ -206,6 +217,7 @@ process.on('exit', () =>
 );
 // `play` returns the driver's own event lists; the first trace is copied before the second script reuses them.
 const trace = JSON.parse(JSON.stringify(await play(script, driver)));
+await driver.waitFor(() => [...ensured].every((id) => exited.has(id)), `the shell of every tab of the first script to exit (${[...ensured].join(', ')})`);
 // The size-claim cases run after, on their own tabs; the lists are emptied so the second trace holds its own events, all of them.
 for (const list of Object.values(events)) if (Array.isArray(list)) list.length = 0;
 events.output = {};
@@ -214,7 +226,7 @@ const claimTrace = await play(claimScript, driver);
 // The tabs' disposals hold timers on the virtual clock; run them so every shell is ended before the clock is released.
 mock.timers.runAll();
 mock.timers.reset();
-trace.claims = claimTraceOf(JSON.parse(JSON.stringify(claimTrace)));
+trace.claims = JSON.parse(JSON.stringify(claimTrace));
 await operations.dispose();
 lanes.dispose();
 process.stdout.write(`\n${TRACE_START}${JSON.stringify(trace)}${TRACE_END}\n`);

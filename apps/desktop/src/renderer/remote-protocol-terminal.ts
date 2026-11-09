@@ -4,7 +4,7 @@
 // Every answer, error text and event equals what Node's remote methods and relay pushes gave (b6f10295a: remote-methods.ts
 // `terminalRemoteMethods`, remote-relay-push-lanes.ts, run-dispatch.ts); the replay in apps/mobile compares them with the recordings.
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
-import { foldsCase, pathText, requiredString, resolveHostPath } from '../shared/remote-arguments';
+import { foldsCaseOn, hostPlatformOf, isAbsoluteOn, needsHostDevice, pathText, requiredString, resolveOn } from '../shared/remote-arguments';
 import { terminalActivityRows, terminalEnsureRequest, terminalReply, terminalRunPush } from '../shared/terminal-protocol';
 import { readTerminalActivityEvent } from '../shared/terminal-activity';
 import type { TerminalSizeOwnerEvent } from '../shared/terminal-size-owner';
@@ -28,16 +28,32 @@ const FILES_LANE = 'files';
 const REMEMBERED_RUNS = 256;
 
 
-/** A path argument as Node's `absoluteLocalPath` made it: checked absolute (a Windows drive, a UNC share or a root), then resolved. */
-function absoluteHostPath(value: unknown): string {
+/** The device (`D:`, `\\server\share`) of the working directory of the host's Windows core: what a rooted path (`\dir`) resolves onto. The
+ *  phone cannot know it; the host's own resolution of `\` says it (`projectFs/statLocal`). */
+const hostDevices = new WeakMap<object, Promise<string>>();
+const hostDeviceOf = (host: PhoneProtocolHost): Promise<string> => {
+  let device = hostDevices.get(host.ctx);
+  if (!device) {
+    device = rpc(host.client(), 'projectFs/statLocal', { paths: ['\\'] }).then((entries) => {
+      const root = String(entries?.[0]?.absolutePath ?? '');
+      return /^[A-Za-z]:/.test(root) ? root.slice(0, 2) : root.replace(/\\+$/, '');
+    });
+    hostDevices.set(host.ctx, device);
+    // A failed lookup is not remembered.
+    device.catch(() => hostDevices.delete(host.ctx));
+  }
+  return device;
+};
+
+/** The registry key of Node's folder watches (`createFolderWatchRegistry`) for a path argument: checked and resolved with the rules of the
+ *  host's platform (Node's `absoluteLocalPath`), folded to lower case on a Windows host. `path` is the resolved path the core is asked to watch. */
+async function watchTarget(value: unknown, recursive: boolean, host: PhoneProtocolHost): Promise<{ key: string; path: string }> {
   const text = pathText(value);
-  if (!/^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(text)) throw new TypeError('path must be absolute.');
-  return resolveHostPath(text);
+  const platform = hostPlatformOf(host.client().server.platformOs);
+  if (!isAbsoluteOn(platform, text)) throw new TypeError('path must be absolute.');
+  const path = resolveOn(platform, text, needsHostDevice(platform, text) ? await hostDeviceOf(host) : '');
+  return { key: `${foldsCaseOn(platform) ? path.toLocaleLowerCase() : path}\0${recursive}`, path };
 }
-
-/** The registry key of Node's folder watches (`createFolderWatchRegistry`): the resolved path, folded to lower case on a Windows host. */
-const watchKey = (path: string, recursive: boolean): string => `${foldsCase(path) ? path.toLocaleLowerCase() : path}\0${recursive}`;
-
 /** The folders this phone watches: Node counted them per directory and recursion, so one OS watch served every caller. */
 const watches = new WeakMap<object, Map<string, { count: number; watchId: string; dir: string }>>();
 let nextWatch = 1;
@@ -185,8 +201,7 @@ export const adapter: PhoneProtocolAdapter = {
       return null;
     },
     folderWatch: async ([dir, recursive], host) => {
-      const path = absoluteHostPath(dir);
-      const key = watchKey(path, recursive === true);
+      const { key, path } = await watchTarget(dir, recursive === true, host);
       const held = watches.get(host.ctx) ?? new Map();
       watches.set(host.ctx, held);
       const watch = held.get(key);
@@ -205,7 +220,7 @@ export const adapter: PhoneProtocolAdapter = {
       return null;
     },
     folderUnwatch: async ([dir, recursive], host) => {
-      const key = watchKey(absoluteHostPath(dir), recursive === true);
+      const { key } = await watchTarget(dir, recursive === true, host);
       const held = watches.get(host.ctx);
       const watch = held?.get(key);
       if (!held || !watch) return null;
