@@ -264,6 +264,18 @@ impl mixdog_tools::exec::TaskNotifier for LateBoardNotifier {
     }
 }
 
+/// The sessions' toasts for the MCP service (`SessionToasts`): the session directory is built after the services, so it is read through the late cell.
+pub struct LateSessionToasts(pub Arc<mixdog_core::run_host::compose_parts::LateDirectory>);
+
+#[async_trait::async_trait]
+impl mixdog_mcp::mcp_service::SessionToasts for LateSessionToasts {
+    async fn toast(&self, thread: &str, text: &str, tone: &str) {
+        if let Some(directory) = self.0.directory() {
+            directory.push_toast(&ThreadId::from(thread), text, tone).await;
+        }
+    }
+}
+
 /// The usage queue as a sink for callers that hold one sink for life (`QueuedLedger`): each row asks the source, as `ProcessInputs.ledger` does.
 pub struct SourcedSink(pub Arc<dyn Fn() -> Option<Arc<dyn mixdog_ai::registry::accounting::UsageSink>> + Send + Sync>);
 
@@ -542,6 +554,8 @@ pub struct McpInputs {
     pub surface: Arc<dyn McpSurface>,
     /// The core's scoped feeds: the MCP sign-in flows publish `login:<flowId>` on them.
     pub scoped_feeds: Arc<dyn ScopedFeeds>,
+    /// Where a sign-in or sign-out posts its notice to the session that asked.
+    pub toasts: Arc<dyn mixdog_mcp::mcp_service::SessionToasts>,
     pub bridges: Arc<dyn BridgeFeatures>,
     /// `rt.hooksStatus()`: the one `HookStatus` the doctor reads (`DoctorInputs.hooks`).
     pub hooks: Arc<dyn HooksStatus>,
@@ -605,6 +619,7 @@ pub fn mcp_services(inputs: McpInputs) -> McpComposed {
         glue.clone(),
         Arc::new(McpServerSecrets::new(secret_ops, process_env.clone())),
         home.clone(),
+        inputs.toasts.clone(),
     ));
     let skills = Arc::new(SkillsService::new(
         catalog.clone(),
@@ -713,6 +728,10 @@ mod tests {
 
     struct Quiet;
 
+    #[async_trait]
+    impl mixdog_mcp::mcp_service::SessionToasts for Quiet {
+        async fn toast(&self, _: &str, _: &str, _: &str) {}
+    }
     #[async_trait]
     impl GmailVerifier for Quiet {
         async fn verify(&self, _: &str, _: &str) -> Result<(), String> {
@@ -987,6 +1006,7 @@ mod tests {
             verifier: quiet.clone(),
             surface,
             scoped_feeds: feeds.clone(),
+            toasts: quiet.clone(),
             bridges: quiet.clone(),
             hooks: quiet.clone(),
             hook_observer: quiet.clone(),

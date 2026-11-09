@@ -239,6 +239,9 @@ pub(crate) enum Inbox {
         header: Option<super::turn_ops::CompactionHeader>,
         tx: oneshot::Sender<Result<super::turn_ops::CompactionCommit, CoreError>>,
     },
+    /// `pushNotice(text, tone)` of the hosted runtime with no `transcript` option: the polished
+    /// text as a toast of the session. Answered once the toast is in the session's state.
+    PushToast { text: String, tone: String, tx: oneshot::Sender<()> },
     /// `HeaderUpdates::update_header`: `update` computes a header change on the actor, from the
     /// header as projected, and the change is written as the next record; answered once durable.
     UpdateHeader { update: mixdog_core_ports::ports::threads::HeaderUpdate, tx: Waiter },
@@ -3698,6 +3701,10 @@ impl SessionActor {
                 let _ = tx.send(plan);
             }
             Inbox::CommitCompaction { snapshot, compaction, header, tx } => self.commit_compaction(snapshot, compaction, header, tx),
+            Inbox::PushToast { text, tone, tx } => {
+                self.push_toast(&super::live_rows::polish_notice_text(&text), &tone, None);
+                let _ = tx.send(());
+            }
             Inbox::QuotaFacts { tx } => {
                 let _ = tx.send(self.resume_check());
             }

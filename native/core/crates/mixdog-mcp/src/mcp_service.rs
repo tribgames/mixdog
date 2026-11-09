@@ -146,6 +146,15 @@ pub trait McpRuntime: Send + Sync {
     fn tools(&self) -> Vec<Value>;
 }
 
+/// Where the session a request addresses shows its transient notices (the `pushNotice` of the
+/// session extensions API, `tui/session/session-api/extensions.mjs`).
+#[async_trait]
+pub trait SessionToasts: Send + Sync {
+    /// `pushNotice(text, tone)` of the runtime hosting `thread`: a toast of that session, in its
+    /// state when this returns. A thread no loaded session hosts shows nothing.
+    async fn toast(&self, thread: &str, text: &str, tone: &str);
+}
+
 type Failure = String;
 
 fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
@@ -193,6 +202,7 @@ pub struct McpService {
     /// saved: two at once never take the same name, nor does one's save drop the other's account.
     /// A waiting addition leaves on its request's cancel, and so does a stuck one.
     adds: mixdog_rt::KeyedGate,
+    toasts: Arc<dyn SessionToasts>,
 }
 
 impl McpService {
@@ -202,8 +212,17 @@ impl McpService {
         runtime: Arc<dyn McpRuntime>,
         secrets: Arc<McpServerSecrets>,
         home: PathBuf,
+        toasts: Arc<dyn SessionToasts>,
     ) -> Self {
-        Self { config, host, runtime, secrets, home, adds: mixdog_rt::KeyedGate::new() }
+        Self { config, host, runtime, secrets, home, adds: mixdog_rt::KeyedGate::new(), toasts }
+    }
+
+    /// The notice a session extensions API call posts to the session it was made on (`pushNotice(text, 'info')`).
+    /// A call with no session (the control session) shows it to no one.
+    async fn post_notice(&self, params: &Value, text: String) {
+        if let Some(thread) = params.get("threadId").and_then(Value::as_str) {
+            self.toasts.toast(thread, &text, "info").await;
+        }
     }
 
     fn agent(&self) -> Value {
@@ -990,11 +1009,24 @@ impl McpService {
             "mcp/removeMcpServer" => self.remove_mcp_server(&text(field(p, "name"))).await,
             "mcp/setMcpServerEnabled" => self.set_mcp_server_enabled(&text(field(p, "name")), field(p, "enabled")).await,
             "mcp/enablePluginMcp" => self.enable_plugin_mcp(field(p, "plugin")).await,
-            "mcp/beginMcpOAuthLogin" => self.begin_oauth_login(&text(field(p, "name")), field(p, "options")).await,
+            // Only a start that waits for the browser is announced; one that stored tokens settled, or that failed, is not.
+            "mcp/beginMcpOAuthLogin" => {
+                let begun = self.begin_oauth_login(&text(field(p, "name")), field(p, "options")).await;
+                if begun.as_ref().is_ok_and(|result| field(result, "state") == "pending") {
+                    self.post_notice(p, format!("mcp sign-in started: {}", mixdog_js::value_to_string(field(p, "name")))).await;
+                }
+                begun
+            }
             "mcp/getMcpOAuthLoginStatus" => self.runtime.login_status(&text(field(p, "flowId")), field(p, "options")).await,
             "mcp/cancelMcpOAuthLogin" => self.runtime.cancel_login(&text(field(p, "flowId"))).await,
             "mcp/completeMcpOAuthLogin" => self.runtime.complete_login(&text(field(p, "flowId")), &text(field(p, "callbackUrl"))).await,
-            "mcp/signOutMcpServer" => self.sign_out_mcp_server(&text(field(p, "name"))).await,
+            "mcp/signOutMcpServer" => {
+                let signed_out = self.sign_out_mcp_server(&text(field(p, "name"))).await;
+                if signed_out.is_ok() {
+                    self.post_notice(p, format!("mcp signed out: {}", mixdog_js::value_to_string(field(p, "name")))).await;
+                }
+                signed_out
+            }
             "mcp/probeMcpServerAuth" => self.probe_mcp_server_auth(field(p, "cfg")).await,
             "connector/addConnectorAccount" => self.add_connector_account(field(p, "input"), &req.ctx.cancel).await.map_err(|_| cancelled())?,
             "connector/listConnectorTools" => Ok(self.list_connector_tools(&text(field(p, "connectorId")))),

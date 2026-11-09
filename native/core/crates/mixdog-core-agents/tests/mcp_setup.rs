@@ -254,6 +254,13 @@ impl DomainService for Recorder {
     }
 }
 
+struct NoToasts;
+
+#[async_trait]
+impl mixdog_mcp::mcp_service::SessionToasts for NoToasts {
+    async fn toast(&self, _: &str, _: &str, _: &str) {}
+}
+
 struct Fixture {
     setup: McpSetup,
     config: Arc<Config>,
@@ -270,7 +277,7 @@ fn fixture() -> Fixture {
     let host = Arc::new(Host { log: Arc::clone(&log), cwd: dir.path().to_path_buf() });
     let runtime = Arc::new(Runtime { config: Arc::clone(&config), dir: dir.path().to_string_lossy().into_owned() });
     let secrets = Arc::new(McpServerSecrets::new(Arc::new(Ops), std::env::vars().collect()));
-    let mcp = Arc::new(McpService::new(config.clone(), host, runtime, secrets, dir.path().join("home")));
+    let mcp = Arc::new(McpService::new(config.clone(), host, runtime, secrets, dir.path().join("home"), Arc::new(NoToasts)));
     let skills = Arc::new(Recorder { methods: &["skills/setDisabledSkills"], failing: &[], seen: Mutex::default() });
     let plugins = Arc::new(Recorder {
         methods: &["plugins/addPlugin", "plugins/updatePlugin", "plugins/setPluginEnabled", "plugins/removePlugin", "plugins/pluginsStatus", "config/setExtensionScope"],

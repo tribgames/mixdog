@@ -29,6 +29,15 @@ pub enum CompactionCommit {
 }
 
 impl super::SessionDirectory {
+    /// `pushNotice(text, tone)` of the runtime hosting `thread` (no `transcript` option): a toast
+    /// of the session, in its state when this returns. `false` when no loaded session hosts it.
+    pub async fn push_toast(&self, thread: &ThreadId, text: &str, tone: &str) -> bool {
+        let Some(handle) = self.handle(thread) else { return false };
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let sent = handle.inbox.send(super::actor::Inbox::PushToast { text: text.to_owned(), tone: tone.to_owned(), tx }).await;
+        sent.is_ok() && rx.await.is_ok()
+    }
+
     /// Commits `compaction`, planned on the model context whose item ids are `snapshot`, to
     /// `thread`. Opens the thread as `loadSession` does. `header` is what the commit sets in the
     /// thread's header with the compaction; `None` writes none (the pre-send pass's telemetry counts it).

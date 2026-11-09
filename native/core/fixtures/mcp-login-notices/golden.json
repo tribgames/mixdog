@@ -1,0 +1,405 @@
+{
+  "flows": [
+    {
+      "name": "a start that waits for the browser",
+      "method": "beginMcpOAuthLogin",
+      "params": {
+        "name": "linear"
+      },
+      "reply": {
+        "flowId": "mcp_oauth_1",
+        "state": "pending",
+        "url": "https://auth.example/authorize?state=abc"
+      },
+      "runtime": {
+        "result": {
+          "flowId": "mcp_oauth_1",
+          "state": "pending",
+          "url": "https://auth.example/authorize?state=abc"
+        }
+      },
+      "events": [
+        {
+          "runtime": "beginMcpOAuthLogin"
+        },
+        {
+          "notice": {
+            "text": "mcp sign-in started: linear",
+            "tone": "info"
+          }
+        },
+        "return"
+      ],
+      "toasts": [
+        {
+          "text": "mcp sign-in started: linear",
+          "tone": "info"
+        }
+      ],
+      "commandBusy": false
+    },
+    {
+      "name": "a start that waits for the browser, with options",
+      "method": "beginMcpOAuthLogin",
+      "params": {
+        "name": "linear",
+        "options": {
+          "openBrowser": false,
+          "mode": "reauth"
+        }
+      },
+      "reply": {
+        "flowId": "mcp_oauth_1",
+        "state": "pending",
+        "url": "https://auth.example/authorize?state=abc"
+      },
+      "runtime": {
+        "result": {
+          "flowId": "mcp_oauth_1",
+          "state": "pending",
+          "url": "https://auth.example/authorize?state=abc"
+        }
+      },
+      "events": [
+        {
+          "runtime": "beginMcpOAuthLogin"
+        },
+        {
+          "notice": {
+            "text": "mcp sign-in started: linear",
+            "tone": "info"
+          }
+        },
+        "return"
+      ],
+      "toasts": [
+        {
+          "text": "mcp sign-in started: linear",
+          "tone": "info"
+        }
+      ],
+      "commandBusy": false
+    },
+    {
+      "name": "a start whose name carries spaces",
+      "method": "beginMcpOAuthLogin",
+      "params": {
+        "name": " linear "
+      },
+      "reply": {
+        "flowId": "mcp_oauth_1",
+        "state": "pending",
+        "url": "https://auth.example/authorize?state=abc"
+      },
+      "runtime": {
+        "result": {
+          "flowId": "mcp_oauth_1",
+          "state": "pending",
+          "url": "https://auth.example/authorize?state=abc"
+        }
+      },
+      "events": [
+        {
+          "runtime": "beginMcpOAuthLogin"
+        },
+        {
+          "notice": {
+            "text": "mcp sign-in started:  linear ",
+            "tone": "info"
+          }
+        },
+        "return"
+      ],
+      "toasts": [
+        {
+          "text": "mcp sign-in started:  linear",
+          "tone": "info"
+        }
+      ],
+      "commandBusy": false
+    },
+    {
+      "name": "a start that stored tokens settled",
+      "method": "beginMcpOAuthLogin",
+      "params": {
+        "name": "linear"
+      },
+      "reply": {
+        "flowId": "mcp_oauth_2",
+        "state": "complete"
+      },
+      "runtime": {
+        "result": {
+          "flowId": "mcp_oauth_2",
+          "state": "complete"
+        }
+      },
+      "events": [
+        {
+          "runtime": "beginMcpOAuthLogin"
+        },
+        "return"
+      ],
+      "toasts": [],
+      "commandBusy": false
+    },
+    {
+      "name": "a start that failed",
+      "method": "beginMcpOAuthLogin",
+      "params": {
+        "name": "linear"
+      },
+      "error": "MCP OAuth sign-in was not completed",
+      "runtime": {
+        "throws": "MCP OAuth sign-in was not completed"
+      },
+      "events": [
+        {
+          "runtime": "beginMcpOAuthLogin"
+        },
+        "return"
+      ],
+      "toasts": [],
+      "commandBusy": false
+    },
+    {
+      "name": "a sign-out",
+      "method": "signOutMcpServer",
+      "params": {
+        "name": "linear"
+      },
+      "reply": {
+        "servers": [
+          {
+            "name": "linear",
+            "status": "connected"
+          }
+        ],
+        "revoked": true
+      },
+      "runtime": {
+        "result": {
+          "servers": [
+            {
+              "name": "linear",
+              "status": "connected"
+            }
+          ],
+          "revoked": true
+        }
+      },
+      "events": [
+        {
+          "runtime": "signOutMcpServer"
+        },
+        {
+          "notice": {
+            "text": "mcp signed out: linear",
+            "tone": "info"
+          }
+        },
+        "return"
+      ],
+      "toasts": [
+        {
+          "text": "mcp signed out: linear",
+          "tone": "info"
+        }
+      ],
+      "commandBusy": false
+    },
+    {
+      "name": "a sign-out whose name carries spaces",
+      "method": "signOutMcpServer",
+      "params": {
+        "name": " linear "
+      },
+      "reply": {
+        "servers": [
+          {
+            "name": "linear",
+            "status": "connected"
+          }
+        ],
+        "revoked": true
+      },
+      "runtime": {
+        "result": {
+          "servers": [
+            {
+              "name": "linear",
+              "status": "connected"
+            }
+          ],
+          "revoked": true
+        }
+      },
+      "events": [
+        {
+          "runtime": "signOutMcpServer"
+        },
+        {
+          "notice": {
+            "text": "mcp signed out:  linear ",
+            "tone": "info"
+          }
+        },
+        "return"
+      ],
+      "toasts": [
+        {
+          "text": "mcp signed out:  linear",
+          "tone": "info"
+        }
+      ],
+      "commandBusy": false
+    },
+    {
+      "name": "a sign-out that failed",
+      "method": "signOutMcpServer",
+      "params": {
+        "name": "linear"
+      },
+      "error": "keychain locked",
+      "runtime": {
+        "throws": "keychain locked"
+      },
+      "events": [
+        {
+          "runtime": "signOutMcpServer"
+        },
+        "return"
+      ],
+      "toasts": [],
+      "commandBusy": false
+    },
+    {
+      "name": "a login status read",
+      "method": "getMcpOAuthLoginStatus",
+      "params": {
+        "flowId": "mcp_oauth_1",
+        "options": {
+          "since": "pending:browser",
+          "waitMs": 0
+        }
+      },
+      "reply": {
+        "flowId": "mcp_oauth_1",
+        "state": "pending",
+        "step": "browser"
+      },
+      "runtime": {
+        "result": {
+          "flowId": "mcp_oauth_1",
+          "state": "pending",
+          "step": "browser"
+        }
+      },
+      "events": [
+        {
+          "runtime": "getMcpOAuthLoginStatus"
+        },
+        "return"
+      ],
+      "toasts": [],
+      "commandBusy": false
+    },
+    {
+      "name": "a cancelled login",
+      "method": "cancelMcpOAuthLogin",
+      "params": {
+        "flowId": "mcp_oauth_1"
+      },
+      "reply": {
+        "flowId": "mcp_oauth_1",
+        "state": "cancelled"
+      },
+      "runtime": {
+        "result": {
+          "flowId": "mcp_oauth_1",
+          "state": "cancelled"
+        }
+      },
+      "events": [
+        {
+          "runtime": "cancelMcpOAuthLogin"
+        },
+        "return"
+      ],
+      "toasts": [],
+      "commandBusy": false
+    },
+    {
+      "name": "a login completed with the pasted address",
+      "method": "completeMcpOAuthLogin",
+      "params": {
+        "flowId": "mcp_oauth_1",
+        "callbackUrl": "http://127.0.0.1/cb?code=1"
+      },
+      "reply": {
+        "flowId": "mcp_oauth_1",
+        "state": "complete"
+      },
+      "runtime": {
+        "result": {
+          "flowId": "mcp_oauth_1",
+          "state": "complete"
+        }
+      },
+      "events": [
+        {
+          "runtime": "completeMcpOAuthLogin"
+        },
+        "return"
+      ],
+      "toasts": [],
+      "commandBusy": false
+    },
+    {
+      "name": "a login completed with a refused address",
+      "method": "completeMcpOAuthLogin",
+      "params": {
+        "flowId": "mcp_oauth_1",
+        "callbackUrl": "nope"
+      },
+      "error": "Invalid callback URL",
+      "runtime": {
+        "throws": "Invalid callback URL"
+      },
+      "events": [
+        {
+          "runtime": "completeMcpOAuthLogin"
+        },
+        "return"
+      ],
+      "toasts": [],
+      "commandBusy": false
+    },
+    {
+      "name": "an auth probe",
+      "method": "probeMcpServerAuth",
+      "params": {
+        "cfg": {
+          "type": "http",
+          "url": "https://x.example/mcp"
+        }
+      },
+      "reply": {
+        "auth": "oauth"
+      },
+      "runtime": {
+        "result": {
+          "auth": "oauth"
+        }
+      },
+      "events": [
+        {
+          "runtime": "probeMcpServerAuth"
+        },
+        "return"
+      ],
+      "toasts": [],
+      "commandBusy": false
+    }
+  ]
+}
