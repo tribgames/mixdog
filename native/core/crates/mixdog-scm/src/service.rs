@@ -111,7 +111,6 @@ struct Flow {
 pub struct ScmService {
     scm: Arc<Scm>,
     feeds: Arc<dyn ScopedFeeds>,
-    publisher: Arc<dyn StatePublisher>,
     gate: Arc<dyn FeatureGate>,
     reviews: Arc<dyn TurnReviewApi>,
     worktrees: Arc<dyn ThreadWorktrees>,
@@ -226,15 +225,13 @@ impl ScmService {
         // Node's one `onTurnReviewChanged` consumer forwards the signal as the data-less global `turn-review-changed` event
         // (`desktop-service.ts:1058`), which every window answers by rereading the review of each session it shows
         // (`use-turn-review-reads.ts`). The same tell is one app-wide `reviewDiff` revision, whatever the windows show.
-        let told = publisher.clone();
         let stop_review_push = reviews.on_review_changed(Arc::new(move || {
-            told.publish(SectionName::ReviewDiff, None, SectionChange::Set(Bytes::from_static(REVIEW_REREAD)));
+            publisher.publish(SectionName::ReviewDiff, None, SectionChange::Set(Bytes::from_static(REVIEW_REREAD)));
         }));
         Arc::new(Self {
             login: scm.github_login(),
             scm,
             feeds,
-            publisher,
             gate,
             reviews,
             worktrees,

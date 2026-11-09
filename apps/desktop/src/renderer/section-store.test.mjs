@@ -142,3 +142,19 @@ test('a replace is swapped in only at its commit, in one notification, with the 
   assert.deepEqual(store.list('usage').map((e) => e.key), ['day']);
   assert.equal(store.get('agentPool').revision, 1);
 });
+
+test('a tell (reviewDiff) is heard when it happens, never from a snapshot or a replace', async () => {
+  const source = bridge({ status: 'ready', entries: [entry('reviewDiff', null, 5, {}), entry('usage', 'day', 1, 'u')] });
+  const store = createSectionStore(source);
+  const heard = [];
+  store.subscribe('reviewDiff', () => heard.push('reviewDiff'));
+  store.subscribe('usage', () => heard.push('usage'));
+  await store.ready();
+  assert.deepEqual(heard, ['usage'], 'a snapshot that holds the last tell does not make a late listener act on it');
+  source.push({ kind: 'sections', changes: [{ section: 'reviewDiff', key: null, entry: entry('reviewDiff', null, 6, {}) }] });
+  assert.deepEqual(heard, ['usage', 'reviewDiff'], 'a tell pushed live is heard');
+  replaceWith(source, [entry('reviewDiff', null, 7, {}), entry('usage', 'day', 2, 'u2')]);
+  assert.deepEqual(heard, ['usage', 'reviewDiff', 'usage'], 'a replace (the core came back) tells nobody about a tell it carries or drops');
+  source.push({ kind: 'sections', changes: [{ section: 'reviewDiff', key: null, entry: entry('reviewDiff', null, 1, {}) }] });
+  assert.deepEqual(heard, ['usage', 'reviewDiff', 'usage', 'reviewDiff'], 'the first tell after a replace is heard whatever its revision was before');
+});

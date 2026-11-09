@@ -76,21 +76,26 @@ export class ReviewWindows {
       await null;
       const next = this.#pending.shift();
       if (!next) return;
-      const entry = { client: next.session, after: next.after, request: next.request, answer: null };
+      const entry = { client: next.session, after: next.after, request: next.request, answer: null, shown: null };
       this.#requests.push(entry);
       entry.answer = await this.#respond(next);
       await act(async () => next.resolve({ value: entry.answer }));
+      // What the bar shows once this answer is in: a burst of tells may skip a read, never a state a user could see only here.
+      entry.shown = this.shown(next.session);
       answered += 1;
       await afterAnswer(answered);
     }
   }
 
+  /** The text of the bar the window of `session` shows now, null when it draws none. */
+  shown(session) {
+    return this.#windows.get(session).container.querySelector('.turn-review-bar')?.textContent ?? null;
+  }
+
   /** What the clients asked and showed in the running operation. */
   trace() {
     const shows = {};
-    for (const [session, { container }] of [...this.#windows].sort(([a], [b]) => a.localeCompare(b))) {
-      shows[session] = container.querySelector('.turn-review-bar')?.textContent ?? null;
-    }
+    for (const session of [...this.#windows.keys()].sort((a, b) => a.localeCompare(b))) shows[session] = this.shown(session);
     return { deliveries: this.deliveries, requests: this.#requests, shows };
   }
 
