@@ -164,7 +164,11 @@ export function createChatApi(
       (await service('openAgentHome', [agentId])) as { sessionId: string },
     resetAgentHome: async (agentId: string): Promise<{ sessionId: string; archivedSessionId: string | null }> =>
       (await service('resetAgentHome', [agentId])) as { sessionId: string; archivedSessionId: string | null },
-    agentRoomAction: (action: string, args: unknown[]): Promise<unknown> => service('agentRoomAction', [action, args]),
+    agentRoomAction: async (action: string, args: unknown[]): Promise<unknown> => {
+      const reply = await service('agentRoomAction', [action, args]);
+      // Node's remove answered nothing; `room/remove` answers `{}` (service.rs:268).
+      return action === 'remove' ? undefined : reply;
+    },
     deleteSession: async (sessionId: string): Promise<SessionSnapshot> => {
       await lane.deleteSession(sessionId);
       await client.unsubscribeThread(sessionId).catch(() => undefined);
