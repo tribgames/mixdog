@@ -278,7 +278,13 @@ async fn a_writer_that_keeps_writing_neither_stalls_the_load_nor_loses_its_keys(
         done.send_replace(true);
         armed
     };
-    let (armed, ()) = tokio::join!(arming, writer);
+    let mut writer = std::pin::pin!(writer);
+    let armed = tokio::select! {
+        biased;
+        armed = arming => armed,
+        () = writer.as_mut() => panic!("the writer ran out of rounds before the load ended"),
+    };
+    assert!(futures::poll!(writer.as_mut()).is_ready(), "the writer is released when the load ends");
     armed.expect("armed");
     let header = store.snapshot();
     assert_eq!(header["title"], json!(49));

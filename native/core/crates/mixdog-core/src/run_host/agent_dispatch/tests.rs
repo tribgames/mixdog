@@ -471,12 +471,18 @@ async fn the_inline_host_hands_the_dispatcher_what_nodes_host_handed_it() {
         verify(id, go(&host, &case(id)["outcome"]["input"]).await);
     }
     // `d4` waits for its abort while the next calls are made.
-    let hanging = {
+    let mut hanging = {
         let host = host.clone();
         let payload = AgentDispatchPayload { dispatch_id: "d4".into(), prompt: "hang".into(), ..payload_of(&json!({ "payload": { "dispatchId": "d4" } })) };
         tokio::spawn(async move { host.run(payload, &Cancel::new()).await })
     };
-    mixdog_core_session::session::testing::eventually_on(&[&watch.1], || (watch.live() == 1).then_some(())).await;
+    // A dispatch that returns without registering ends the task: that is the failure, not a wait with no end.
+    let wakes = [&watch.1];
+    let watched = mixdog_core_session::session::testing::eventually_on(&wakes, || (watch.live() == 1).then_some(()));
+    tokio::select! {
+        () = watched => {}
+        ended = &mut hanging => panic!("the hanging run ended before it was watched: {ended:?}"),
+    }
     // Only the hanging run is in the table: a refused duplicate enters nothing and leaves nothing.
     assert_eq!(watch.live(), 1, "the hanging run alone is watched");
     verify("duplicate-id", go(&host, &case("duplicate-id")["outcome"]["input"]).await);
