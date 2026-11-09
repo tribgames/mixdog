@@ -119,6 +119,39 @@ const SCENARIOS = [
   { name: 'a PreToolUse hook that denies the target', hookDeny: ['probe_write'], script: [round(bridged('c1', 'probe_write', { q: 'x' }), call('c2', 'probe_write', { q: 'x' })), FINAL] },
 ];
 
+SCENARIOS.push({
+  name: 'a hook-denied edit, and a read-only target behind it that streamed',
+  hookDeny: ['edit'],
+  stream: true,
+  script: [round(call('c1', 'edit', { file_path: 'x.txt', old_string: 'a', new_string: 'b' }), bridged('c2', 'probe_read', { q: 'z' })), FINAL],
+});
+
+SCENARIOS.push({
+  name: 'a denied edit, and a read-only target behind it that streamed',
+  session: { disallowedTools: ['edit'] },
+  stream: true,
+  script: [round(call('c1', 'edit', { file_path: 'x.txt', old_string: 'a', new_string: 'b' }), bridged('c2', 'probe_read', { q: 'z' })), FINAL],
+});
+
+// The same turns with a provider that streams its tool calls: each call reaches the loop (and starts its eager dispatch) before the response ends.
+const STREAMED = [
+  'a read-only deferred tool through call_tool, twice in one turn and again in the next',
+  'every refusal of call_tool in one batch',
+  'a target that needs approval, approved',
+  'a mix: two approvals, a refusal and a plain run in one batch',
+  'a session that denies a tool',
+  'a read-only session',
+  'a session with no resolved tool mode',
+  'a loaded deferred tool called directly',
+  'an MCP tool of a connected server through call_tool',
+  'a PreToolUse hook that denies the target',
+  'a hook that rewrites the target',
+];
+for (const name of STREAMED) {
+  const base = SCENARIOS.find((s) => s.name === name);
+  SCENARIOS.push({ ...base, name: `${name} (streamed)`, stream: true });
+}
+
 // ---- one scenario --------------------------------------------------------------------------------------------------------------
 let serial = 0;
 async function runScenario(scenario) {
@@ -131,6 +164,8 @@ async function runScenario(scenario) {
   const cards = [];
   const events = [];
   const sends = [];
+  // Everything observable, in the order it happened: the requests, the hooks, the cards, the tool events and the executors.
+  const timeline = [];
   let sessionRef = null;
   const restoreInternal = setInternalToolsProvider({
     scopeId,
@@ -138,6 +173,7 @@ async function runScenario(scenario) {
     executor: async (name, args) => {
       if (name === 'load_tool') return renderToolSearch(args, sessionRef, 'lead', {});
       executed.push({ name, args: clone(args) });
+      timeline.push({ ev: 'ran', name, args: clone(args) });
       return `ran ${name} ${JSON.stringify(args)}`;
     },
   });
@@ -149,6 +185,7 @@ async function runScenario(scenario) {
       {
         callTool: async (params) => {
           executed.push({ name: `mcp__mail__${params.name}`, args: clone(params.arguments ?? {}) });
+          timeline.push({ ev: 'ran', name: `mcp__mail__${params.name}`, args: clone(params.arguments ?? {}) });
           return { content: [{ type: 'text', text: `ran ${params.name} ${JSON.stringify(params.arguments ?? {})}` }] };
         },
       }
@@ -157,12 +194,26 @@ async function runScenario(scenario) {
   const provider = {
     name: providerName,
     contextWindow: 128000,
-    async send(messages) {
+    async send(messages, _model, _tools, sendOpts) {
       const i = sends.length;
       sends.push(clone(messages.filter((m) => m.role !== 'system')));
+      timeline.push({ ev: 'sent', n: i + 1 });
       const step = scenario.script[i];
       if (!step) throw new Error(`${scenario.name}: the script ran out at request ${i + 1}`);
-      if (step.calls) return { content: '', toolCalls: clone(step.calls), stopReason: 'tool_use', usage: { inputTokens: 1, outputTokens: 1 } };
+      if (step.calls) {
+        // A streaming provider hands the loop each tool call the moment it is complete (`opts.onToolCall`, which starts the
+        // call's eager dispatch) and the response only at the end; a whole-response provider hands nothing before it returns.
+        if (scenario.stream) {
+          for (const streamed of step.calls) {
+            sendOpts.onToolCall(clone(streamed));
+            await new Promise((resolve) => setImmediate(resolve));
+          }
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        timeline.push({ ev: 'answered', n: i + 1 });
+        return { content: '', toolCalls: clone(step.calls), stopReason: 'tool_use', usage: { inputTokens: 1, outputTokens: 1 } };
+      }
+      timeline.push({ ev: 'answered', n: i + 1 });
       return { content: step.text, usage: { inputTokens: 1, outputTokens: 1 } };
     },
   };
@@ -177,6 +228,7 @@ async function runScenario(scenario) {
     for (const key of ['toolSpec', 'featureDeniedTools']) if (scenario.session && key in scenario.session) session[key] = scenario.session[key];
     session.beforeToolHook = async (hookCall) => {
       hooks.before.push({ name: hookCall.name, args: clone(hookCall.args) });
+      timeline.push({ ev: 'pre', name: hookCall.name, args: clone(hookCall.args) });
       const rewrite = scenario.hookRewrite?.[hookCall.name];
       if (rewrite) return { action: 'modify', ...rewrite };
       if (scenario.hookDeny?.includes(hookCall.name)) return { action: 'deny', reason: 'hook says no' };
@@ -185,23 +237,31 @@ async function runScenario(scenario) {
     };
     session.afterToolHook = async (hookCall) => {
       hooks.after.push({ name: hookCall.name, args: clone(hookCall.args), result: hookCall.result });
+      timeline.push({ ev: 'post', name: hookCall.name, args: clone(hookCall.args) });
     };
     const surface = { exposure: session.toolExposureMode ?? null, toolSpec: session.toolSpec ?? null, tools: session.tools.map((t) => t.name), catalog: (session.deferredToolCatalog ?? []).map((t) => t.name), mcpNames: session.deferredMcpToolNames ?? null };
     const turn = await askSession(
       session.id,
       'go',
       null,
-      (iteration, calls) => events.push({ ev: 'toolCall', iteration, calls: clone(calls) }),
+      (iteration, calls) => {
+        events.push({ ev: 'toolCall', iteration, calls: clone(calls) });
+        timeline.push({ ev: 'toolCall', ids: calls.map((c) => c.id) });
+      },
       null,
       null,
       {
         onToolApproval: async (card) => {
           cards.push(clone(card));
+          timeline.push({ ev: 'card', name: card.name, args: clone(card.args) });
           const answer = answers.shift();
           if (!answer) throw new Error(`${scenario.name}: an approval card nobody scripted`);
           return { ...answer, device: 'Pixel' };
         },
-        onToolResult: (message) => events.push({ ev: 'toolResult', message: stripTiming(message) }),
+        onToolResult: (message) => {
+          events.push({ ev: 'toolResult', message: stripTiming(message) });
+          timeline.push({ ev: 'toolResult', id: message.toolCallId, early: message.__earlyNotify === true });
+        },
       }
     );
     const stored = loadSession(session.id);
@@ -216,6 +276,7 @@ async function runScenario(scenario) {
     session: scenario.session ?? {},
     mcp: scenario.mcp === true,
     nonBridge: scenario.nonBridge === true,
+    stream: scenario.stream === true,
     workdir,
     ask: scenario.ask ?? [],
     answers: scenario.answers ?? [],
@@ -228,6 +289,7 @@ async function runScenario(scenario) {
     cards,
     hooks,
     executed,
+    timeline,
   };
 }
 
