@@ -160,7 +160,17 @@
         ],
         "value": {
           "id": "term_ph2a",
-          "replay": ""
+          "replay": {
+            "size": [
+              80,
+              24
+            ],
+            "cursor": [
+              0,
+              0
+            ],
+            "rows": []
+          }
         }
       },
       {
@@ -175,6 +185,52 @@
       },
       {
         "fire": "termWrite"
+      },
+      {
+        "snap": "result",
+        "screens": {
+          "term_ph2a": {
+            "size": [
+              80,
+              24
+            ],
+            "cursor": [
+              41,
+              2
+            ],
+            "rows": [
+              {
+                "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_DONE",
+                "runs": [
+                  [
+                    41,
+                    13,
+                    16777216,
+                    11,
+                    0,
+                    -1,
+                    ""
+                  ],
+                  [
+                    54,
+                    19,
+                    16777216,
+                    7,
+                    0,
+                    -1,
+                    ""
+                  ]
+                ]
+              },
+              {
+                "text": "MIXDOG_PH2_DONE"
+              },
+              {
+                "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+              }
+            ]
+          }
+        }
       },
       {
         "call": "termActivity",
@@ -216,6 +272,81 @@
         "fire": "termResize"
       },
       {
+        "fire": "termWrite"
+      },
+      {
+        "snap": "resized 100x30",
+        "screens": {
+          "term_ph2a": {
+            "size": [
+              100,
+              30
+            ],
+            "cursor": [
+              41,
+              4
+            ],
+            "rows": [
+              {
+                "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_DONE",
+                "runs": [
+                  [
+                    41,
+                    13,
+                    16777216,
+                    11,
+                    0,
+                    -1,
+                    ""
+                  ],
+                  [
+                    54,
+                    15,
+                    16777216,
+                    7,
+                    0,
+                    -1,
+                    ""
+                  ]
+                ]
+              },
+              {
+                "text": "MIXDOG_PH2_DONE"
+              },
+              {
+                "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                "runs": [
+                  [
+                    41,
+                    13,
+                    16777216,
+                    11,
+                    0,
+                    -1,
+                    ""
+                  ],
+                  [
+                    54,
+                    19,
+                    16777216,
+                    7,
+                    0,
+                    -1,
+                    ""
+                  ]
+                ]
+              },
+              {
+                "text": "MIXDOG_PH2_SETTLE_1"
+              },
+              {
+                "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+              }
+            ]
+          }
+        }
+      },
+      {
         "fire": "termResize"
       },
       {
@@ -227,6 +358,73 @@
         ],
         "value": {
           "id": "term_ph2a",
+          "replay": {
+            "size": [
+              100,
+              30
+            ],
+            "cursor": [
+              41,
+              4
+            ],
+            "rows": [
+              {
+                "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_DONE",
+                "runs": [
+                  [
+                    41,
+                    13,
+                    16777216,
+                    11,
+                    0,
+                    -1,
+                    ""
+                  ],
+                  [
+                    54,
+                    15,
+                    16777216,
+                    7,
+                    0,
+                    -1,
+                    ""
+                  ]
+                ]
+              },
+              {
+                "text": "MIXDOG_PH2_DONE"
+              },
+              {
+                "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                "runs": [
+                  [
+                    41,
+                    13,
+                    16777216,
+                    11,
+                    0,
+                    -1,
+                    ""
+                  ],
+                  [
+                    54,
+                    19,
+                    16777216,
+                    7,
+                    0,
+                    -1,
+                    ""
+                  ]
+                ]
+              },
+              {
+                "text": "MIXDOG_PH2_SETTLE_1"
+              },
+              {
+                "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+              }
+            ]
+          },
           "sizeOwner": {
             "cols": 100,
             "rows": 30,
@@ -241,6 +439,73 @@
         ],
         "value": {
           "id": "term_ph2a",
+          "replay": {
+            "size": [
+              100,
+              30
+            ],
+            "cursor": [
+              41,
+              4
+            ],
+            "rows": [
+              {
+                "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_DONE",
+                "runs": [
+                  [
+                    41,
+                    13,
+                    16777216,
+                    11,
+                    0,
+                    -1,
+                    ""
+                  ],
+                  [
+                    54,
+                    15,
+                    16777216,
+                    7,
+                    0,
+                    -1,
+                    ""
+                  ]
+                ]
+              },
+              {
+                "text": "MIXDOG_PH2_DONE"
+              },
+              {
+                "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                "runs": [
+                  [
+                    41,
+                    13,
+                    16777216,
+                    11,
+                    0,
+                    -1,
+                    ""
+                  ],
+                  [
+                    54,
+                    19,
+                    16777216,
+                    7,
+                    0,
+                    -1,
+                    ""
+                  ]
+                ]
+              },
+              {
+                "text": "MIXDOG_PH2_SETTLE_1"
+              },
+              {
+                "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+              }
+            ]
+          },
           "sizeOwner": {
             "cols": 100,
             "rows": 30,
@@ -249,7 +514,36 @@
         }
       },
       {
+        "call": "termEnsure",
+        "params": [
+          "term_ph2b",
+          "D:\\mixdog-build\\tmp\\ph2-terminal\\cwd",
+          null
+        ],
+        "value": {
+          "id": "term_ph2b",
+          "replay": {
+            "size": [
+              80,
+              24
+            ],
+            "cursor": [
+              0,
+              0
+            ],
+            "rows": []
+          }
+        }
+      },
+      {
         "fire": "termResize"
+      },
+      {
+        "call": "termDispose",
+        "params": [
+          "term_ph2b"
+        ],
+        "value": null
       },
       {
         "fire": "termResize"
@@ -260,7 +554,74 @@
           "term_ph2a"
         ],
         "value": {
-          "id": "term_ph2a"
+          "id": "term_ph2a",
+          "replay": {
+            "size": [
+              100,
+              30
+            ],
+            "cursor": [
+              41,
+              4
+            ],
+            "rows": [
+              {
+                "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_DONE",
+                "runs": [
+                  [
+                    41,
+                    13,
+                    16777216,
+                    11,
+                    0,
+                    -1,
+                    ""
+                  ],
+                  [
+                    54,
+                    15,
+                    16777216,
+                    7,
+                    0,
+                    -1,
+                    ""
+                  ]
+                ]
+              },
+              {
+                "text": "MIXDOG_PH2_DONE"
+              },
+              {
+                "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                "runs": [
+                  [
+                    41,
+                    13,
+                    16777216,
+                    11,
+                    0,
+                    -1,
+                    ""
+                  ],
+                  [
+                    54,
+                    19,
+                    16777216,
+                    7,
+                    0,
+                    -1,
+                    ""
+                  ]
+                ]
+              },
+              {
+                "text": "MIXDOG_PH2_SETTLE_1"
+              },
+              {
+                "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+              }
+            ]
+          }
         }
       },
       {
@@ -302,6 +663,78 @@
           true
         ],
         "value": null
+      },
+      {
+        "snap": "end",
+        "screens": {
+          "term_ph2a": {
+            "size": [
+              100,
+              30
+            ],
+            "cursor": [
+              41,
+              4
+            ],
+            "rows": [
+              {
+                "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_DONE",
+                "runs": [
+                  [
+                    41,
+                    13,
+                    16777216,
+                    11,
+                    0,
+                    -1,
+                    ""
+                  ],
+                  [
+                    54,
+                    15,
+                    16777216,
+                    7,
+                    0,
+                    -1,
+                    ""
+                  ]
+                ]
+              },
+              {
+                "text": "MIXDOG_PH2_DONE"
+              },
+              {
+                "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                "runs": [
+                  [
+                    41,
+                    13,
+                    16777216,
+                    11,
+                    0,
+                    -1,
+                    ""
+                  ],
+                  [
+                    54,
+                    19,
+                    16777216,
+                    7,
+                    0,
+                    -1,
+                    ""
+                  ]
+                ]
+              },
+              {
+                "text": "MIXDOG_PH2_SETTLE_1"
+              },
+              {
+                "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+              }
+            ]
+          }
+        }
       },
       {
         "call": "termDispose",
@@ -357,6 +790,22 @@
       },
       {
         "id": "term_ph2a",
+        "state": "running"
+      },
+      {
+        "id": "term_ph2a",
+        "state": "finished"
+      },
+      {
+        "id": "term_ph2b",
+        "state": "idle"
+      },
+      {
+        "id": "term_ph2b",
+        "state": null
+      },
+      {
+        "id": "term_ph2a",
         "state": null
       }
     ],
@@ -368,7 +817,7 @@
         "own": true
       },
       {
-        "id": "term_ph2a",
+        "id": "term_ph2b",
         "cols": 2,
         "rows": 200,
         "own": true
@@ -399,10 +848,6 @@
         "sessionId": "s2"
       }
     ],
-    "output": {
-      "text": "\u001b[?9001h\u001b[?1004h\u001b[?25l\u001b[2J\u001b[m\u001b[H\u001b]0;C:\\Program Files\\PowerShell\\7\\pwsh.exe\u0007\u001b[?25hPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> [echo]MIXDOG_PH2_DONE\r\nPS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> \u001b[?25l",
-      "reRendered": true
-    },
     "claims": {
       "steps": [
         {
@@ -418,7 +863,17 @@
           ],
           "value": {
             "id": "term_ph2_l1",
-            "replay": ""
+            "replay": {
+              "size": [
+                80,
+                24
+              ],
+              "cursor": [
+                0,
+                0
+              ],
+              "rows": []
+            }
           }
         },
         {
@@ -430,7 +885,17 @@
           ],
           "value": {
             "id": "term_ph2_l2",
-            "replay": ""
+            "replay": {
+              "size": [
+                80,
+                24
+              ],
+              "cursor": [
+                0,
+                0
+              ],
+              "rows": []
+            }
           }
         },
         {
@@ -442,7 +907,17 @@
           ],
           "value": {
             "id": "term_ph2_l4",
-            "replay": ""
+            "replay": {
+              "size": [
+                80,
+                24
+              ],
+              "cursor": [
+                0,
+                0
+              ],
+              "rows": []
+            }
           }
         },
         {
@@ -454,7 +929,17 @@
           ],
           "value": {
             "id": "term_ph2_l5",
-            "replay": ""
+            "replay": {
+              "size": [
+                80,
+                24
+              ],
+              "cursor": [
+                0,
+                0
+              ],
+              "rows": []
+            }
           }
         },
         {
@@ -466,7 +951,17 @@
           ],
           "value": {
             "id": "term_ph2_l6",
-            "replay": ""
+            "replay": {
+              "size": [
+                80,
+                24
+              ],
+              "cursor": [
+                0,
+                0
+              ],
+              "rows": []
+            }
           }
         },
         {
@@ -497,12 +992,56 @@
           "fire": "termResize"
         },
         {
+          "fire": "termWrite"
+        },
+        {
           "call": "termAttach",
           "params": [
             "term_ph2_l2"
           ],
           "value": {
             "id": "term_ph2_l2",
+            "replay": {
+              "size": [
+                101,
+                31
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 101,
               "rows": 31,
@@ -514,18 +1053,91 @@
           "fire": "termResize"
         },
         {
+          "fire": "termWrite"
+        },
+        {
           "call": "termAttach",
           "params": [
             "term_ph2_l2"
           ],
           "value": {
             "id": "term_ph2_l2",
+            "replay": {
+              "size": [
+                101,
+                31
+              ],
+              "cursor": [
+                41,
+                4
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_2",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_2"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 101,
               "rows": 31,
               "own": true
             }
           }
+        },
+        {
+          "fire": "termWrite"
         },
         {
           "call": "termAttach",
@@ -534,6 +1146,47 @@
           ],
           "value": {
             "id": "term_ph2_l1",
+            "replay": {
+              "size": [
+                100,
+                30
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 100,
               "rows": 30,
@@ -548,6 +1201,73 @@
           ],
           "value": {
             "id": "term_ph2_l2",
+            "replay": {
+              "size": [
+                101,
+                31
+              ],
+              "cursor": [
+                41,
+                4
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_2",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_2"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 101,
               "rows": 31,
@@ -556,12 +1276,56 @@
           }
         },
         {
+          "fire": "termWrite"
+        },
+        {
           "call": "termAttach",
           "params": [
             "term_ph2_l4"
           ],
           "value": {
             "id": "term_ph2_l4",
+            "replay": {
+              "size": [
+                102,
+                32
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 102,
               "rows": 32,
@@ -570,13 +1334,60 @@
           }
         },
         {
+          "fire": "termWrite"
+        },
+        {
           "call": "termAttach",
           "params": [
             "term_ph2_l5"
           ],
           "value": {
-            "id": "term_ph2_l5"
+            "id": "term_ph2_l5",
+            "replay": {
+              "size": [
+                104,
+                34
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
+        },
+        {
+          "fire": "termWrite"
         },
         {
           "call": "termAttach",
@@ -585,6 +1396,47 @@
           ],
           "value": {
             "id": "term_ph2_l6",
+            "replay": {
+              "size": [
+                103,
+                33
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 103,
               "rows": 33,
@@ -599,6 +1451,47 @@
           ],
           "value": {
             "id": "term_ph2_l1",
+            "replay": {
+              "size": [
+                100,
+                30
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 100,
               "rows": 30,
@@ -613,6 +1506,73 @@
           ],
           "value": {
             "id": "term_ph2_l2",
+            "replay": {
+              "size": [
+                101,
+                31
+              ],
+              "cursor": [
+                41,
+                4
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_2",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_2"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 101,
               "rows": 31,
@@ -627,6 +1587,47 @@
           ],
           "value": {
             "id": "term_ph2_l4",
+            "replay": {
+              "size": [
+                102,
+                32
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 102,
               "rows": 32,
@@ -640,7 +1641,48 @@
             "term_ph2_l5"
           ],
           "value": {
-            "id": "term_ph2_l5"
+            "id": "term_ph2_l5",
+            "replay": {
+              "size": [
+                104,
+                34
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -650,6 +1692,47 @@
           ],
           "value": {
             "id": "term_ph2_l6",
+            "replay": {
+              "size": [
+                103,
+                33
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 103,
               "rows": 33,
@@ -663,7 +1746,48 @@
             "term_ph2_l1"
           ],
           "value": {
-            "id": "term_ph2_l1"
+            "id": "term_ph2_l1",
+            "replay": {
+              "size": [
+                100,
+                30
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -673,6 +1797,73 @@
           ],
           "value": {
             "id": "term_ph2_l2",
+            "replay": {
+              "size": [
+                101,
+                31
+              ],
+              "cursor": [
+                41,
+                4
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_2",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_2"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 101,
               "rows": 31,
@@ -687,6 +1878,47 @@
           ],
           "value": {
             "id": "term_ph2_l4",
+            "replay": {
+              "size": [
+                102,
+                32
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 102,
               "rows": 32,
@@ -700,7 +1932,48 @@
             "term_ph2_l5"
           ],
           "value": {
-            "id": "term_ph2_l5"
+            "id": "term_ph2_l5",
+            "replay": {
+              "size": [
+                104,
+                34
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -710,6 +1983,47 @@
           ],
           "value": {
             "id": "term_ph2_l6",
+            "replay": {
+              "size": [
+                103,
+                33
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 103,
               "rows": 33,
@@ -723,7 +2037,48 @@
             "term_ph2_l1"
           ],
           "value": {
-            "id": "term_ph2_l1"
+            "id": "term_ph2_l1",
+            "replay": {
+              "size": [
+                100,
+                30
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -733,6 +2088,73 @@
           ],
           "value": {
             "id": "term_ph2_l2",
+            "replay": {
+              "size": [
+                101,
+                31
+              ],
+              "cursor": [
+                41,
+                4
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_2",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_2"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 101,
               "rows": 31,
@@ -747,6 +2169,47 @@
           ],
           "value": {
             "id": "term_ph2_l4",
+            "replay": {
+              "size": [
+                102,
+                32
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 102,
               "rows": 32,
@@ -760,7 +2223,48 @@
             "term_ph2_l5"
           ],
           "value": {
-            "id": "term_ph2_l5"
+            "id": "term_ph2_l5",
+            "replay": {
+              "size": [
+                104,
+                34
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -770,6 +2274,47 @@
           ],
           "value": {
             "id": "term_ph2_l6",
+            "replay": {
+              "size": [
+                103,
+                33
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 103,
               "rows": 33,
@@ -783,7 +2328,48 @@
             "term_ph2_l1"
           ],
           "value": {
-            "id": "term_ph2_l1"
+            "id": "term_ph2_l1",
+            "replay": {
+              "size": [
+                100,
+                30
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -793,6 +2379,73 @@
           ],
           "value": {
             "id": "term_ph2_l2",
+            "replay": {
+              "size": [
+                101,
+                31
+              ],
+              "cursor": [
+                41,
+                4
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_2",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_2"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 101,
               "rows": 31,
@@ -806,7 +2459,48 @@
             "term_ph2_l4"
           ],
           "value": {
-            "id": "term_ph2_l4"
+            "id": "term_ph2_l4",
+            "replay": {
+              "size": [
+                102,
+                32
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -815,7 +2509,48 @@
             "term_ph2_l5"
           ],
           "value": {
-            "id": "term_ph2_l5"
+            "id": "term_ph2_l5",
+            "replay": {
+              "size": [
+                104,
+                34
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -825,6 +2560,47 @@
           ],
           "value": {
             "id": "term_ph2_l6",
+            "replay": {
+              "size": [
+                103,
+                33
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 103,
               "rows": 33,
@@ -838,7 +2614,48 @@
             "term_ph2_l1"
           ],
           "value": {
-            "id": "term_ph2_l1"
+            "id": "term_ph2_l1",
+            "replay": {
+              "size": [
+                100,
+                30
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -848,6 +2665,73 @@
           ],
           "value": {
             "id": "term_ph2_l2",
+            "replay": {
+              "size": [
+                101,
+                31
+              ],
+              "cursor": [
+                41,
+                4
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_2",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_2"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 101,
               "rows": 31,
@@ -861,7 +2745,48 @@
             "term_ph2_l4"
           ],
           "value": {
-            "id": "term_ph2_l4"
+            "id": "term_ph2_l4",
+            "replay": {
+              "size": [
+                102,
+                32
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -870,7 +2795,48 @@
             "term_ph2_l5"
           ],
           "value": {
-            "id": "term_ph2_l5"
+            "id": "term_ph2_l5",
+            "replay": {
+              "size": [
+                104,
+                34
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -880,6 +2846,47 @@
           ],
           "value": {
             "id": "term_ph2_l6",
+            "replay": {
+              "size": [
+                103,
+                33
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 103,
               "rows": 33,
@@ -893,7 +2900,48 @@
             "term_ph2_l1"
           ],
           "value": {
-            "id": "term_ph2_l1"
+            "id": "term_ph2_l1",
+            "replay": {
+              "size": [
+                100,
+                30
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -903,6 +2951,73 @@
           ],
           "value": {
             "id": "term_ph2_l2",
+            "replay": {
+              "size": [
+                101,
+                31
+              ],
+              "cursor": [
+                41,
+                4
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_2",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_2"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 101,
               "rows": 31,
@@ -916,7 +3031,48 @@
             "term_ph2_l4"
           ],
           "value": {
-            "id": "term_ph2_l4"
+            "id": "term_ph2_l4",
+            "replay": {
+              "size": [
+                102,
+                32
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -925,7 +3081,48 @@
             "term_ph2_l5"
           ],
           "value": {
-            "id": "term_ph2_l5"
+            "id": "term_ph2_l5",
+            "replay": {
+              "size": [
+                104,
+                34
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -934,7 +3131,48 @@
             "term_ph2_l6"
           ],
           "value": {
-            "id": "term_ph2_l6"
+            "id": "term_ph2_l6",
+            "replay": {
+              "size": [
+                103,
+                33
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -943,7 +3181,48 @@
             "term_ph2_l1"
           ],
           "value": {
-            "id": "term_ph2_l1"
+            "id": "term_ph2_l1",
+            "replay": {
+              "size": [
+                100,
+                30
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -953,6 +3232,73 @@
           ],
           "value": {
             "id": "term_ph2_l2",
+            "replay": {
+              "size": [
+                101,
+                31
+              ],
+              "cursor": [
+                41,
+                4
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_2",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_2"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
             "sizeOwner": {
               "cols": 101,
               "rows": 31,
@@ -966,7 +3312,48 @@
             "term_ph2_l4"
           ],
           "value": {
-            "id": "term_ph2_l4"
+            "id": "term_ph2_l4",
+            "replay": {
+              "size": [
+                102,
+                32
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -975,7 +3362,48 @@
             "term_ph2_l5"
           ],
           "value": {
-            "id": "term_ph2_l5"
+            "id": "term_ph2_l5",
+            "replay": {
+              "size": [
+                104,
+                34
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -984,7 +3412,48 @@
             "term_ph2_l6"
           ],
           "value": {
-            "id": "term_ph2_l6"
+            "id": "term_ph2_l6",
+            "replay": {
+              "size": [
+                103,
+                33
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -993,7 +3462,48 @@
             "term_ph2_l1"
           ],
           "value": {
-            "id": "term_ph2_l1"
+            "id": "term_ph2_l1",
+            "replay": {
+              "size": [
+                100,
+                30
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -1002,7 +3512,74 @@
             "term_ph2_l2"
           ],
           "value": {
-            "id": "term_ph2_l2"
+            "id": "term_ph2_l2",
+            "replay": {
+              "size": [
+                101,
+                31
+              ],
+              "cursor": [
+                41,
+                4
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_2",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_2"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -1011,7 +3588,48 @@
             "term_ph2_l4"
           ],
           "value": {
-            "id": "term_ph2_l4"
+            "id": "term_ph2_l4",
+            "replay": {
+              "size": [
+                102,
+                32
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -1020,7 +3638,48 @@
             "term_ph2_l5"
           ],
           "value": {
-            "id": "term_ph2_l5"
+            "id": "term_ph2_l5",
+            "replay": {
+              "size": [
+                104,
+                34
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {
@@ -1029,7 +3688,284 @@
             "term_ph2_l6"
           ],
           "value": {
-            "id": "term_ph2_l6"
+            "id": "term_ph2_l6",
+            "replay": {
+              "size": [
+                103,
+                33
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "snap": "end",
+          "screens": {
+            "term_ph2_l1": {
+              "size": [
+                100,
+                30
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
+            "term_ph2_l2": {
+              "size": [
+                101,
+                31
+              ],
+              "cursor": [
+                41,
+                4
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_2",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_2"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
+            "term_ph2_l4": {
+              "size": [
+                102,
+                32
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
+            "term_ph2_l5": {
+              "size": [
+                104,
+                34
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            },
+            "term_ph2_l6": {
+              "size": [
+                103,
+                33
+              ],
+              "cursor": [
+                41,
+                2
+              ],
+              "rows": [
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd> Write-Output MIXDOG_PH2_SETTLE_1",
+                  "runs": [
+                    [
+                      41,
+                      13,
+                      16777216,
+                      11,
+                      0,
+                      -1,
+                      ""
+                    ],
+                    [
+                      54,
+                      19,
+                      16777216,
+                      7,
+                      0,
+                      -1,
+                      ""
+                    ]
+                  ]
+                },
+                {
+                  "text": "MIXDOG_PH2_SETTLE_1"
+                },
+                {
+                  "text": "PS D:\\mixdog-build\\tmp\\ph2-terminal\\cwd>"
+                }
+              ]
+            }
           }
         },
         {

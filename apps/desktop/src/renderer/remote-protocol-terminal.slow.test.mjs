@@ -11,7 +11,8 @@ const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-t
 const runner = fileURLToPath(new URL('./remote-protocol-terminal.scenario.mjs', import.meta.url));
 
 test('phone terminal adapter replays the Node recording over a real core', () => {
-  const child = spawnSync(process.execPath, [...process.execArgv, runner], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const child = spawnSync(process.execPath, [...process.execArgv, runner], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 600_000 });
+  assert.ok(!child.error, `scenario did not finish within 600 s: ${child.error?.message}\n${child.stderr?.slice(-3000)}`);
   const at = child.stdout.lastIndexOf('@@TRACE@@');
   assert.ok(child.status === 0 && at >= 0, `scenario failed (${child.status}):\n${child.stdout.slice(-1500)}\n${child.stderr.slice(-3000)}`);
   const got = JSON.parse(child.stdout.slice(at + '@@TRACE@@'.length));
