@@ -1,4 +1,10 @@
 {
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/agent/orchestrator/providers/devin-auth.mjs",
+  "test": "apps/desktop/src/renderer/oauth-failure-copy.test.mjs"
+ },
  "constants": {
   "DEVIN_OAUTH_FAILURE_CODES": [
    "DEVIN_OAUTH_CALLBACK_PORT_IN_USE",
@@ -35,5 +41,7 @@
    }
   ]
  },
+ "services": {},
+ "stubs": {},
  "opaque": []
 }

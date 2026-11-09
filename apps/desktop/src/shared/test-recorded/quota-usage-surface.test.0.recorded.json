@@ -1,4 +1,10 @@
 {
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/shared/llm/usage-ledger.mjs",
+  "test": "apps/desktop/src/renderer/quota-usage-surface.test.mjs"
+ },
  "constants": {},
  "calls": {
   "makeUsageRecord\u0000[{\"ts\":1790741400000,\"provider\":\"anthropic-oauth\",\"model\":\"claude-sonnet-4-5\",\"sessionId\":\"session-a\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":100,\"account\":\"default\"}]": [
@@ -34,7 +40,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "e83e63a3-5ac9-473e-8adf-9ed6d0068968"
+     "id": "39d095d0-6322-4d79-8674-b509c25e698c"
     },
     "async": false
    },
@@ -70,7 +76,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "b515c6ba-aa87-4489-aac1-2acea8cabcd9"
+     "id": "b881339e-7400-4285-a020-e6f3fb01ce13"
     },
     "async": false
    },
@@ -106,7 +112,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "b46d653f-f827-4ef7-95bd-32bb122f2b9c"
+     "id": "66d45dbb-845d-4b58-b0eb-492a42d93935"
     },
     "async": false
    },
@@ -142,7 +148,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "e822fa6c-7520-4cc9-84b2-0fbb9880a220"
+     "id": "1c0aba1e-b9fe-4e9b-8075-3c457f9db84e"
     },
     "async": false
    },
@@ -178,7 +184,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "9440c9e9-1039-4a60-987c-9723acaff343"
+     "id": "6231dd1b-538d-4648-94a3-7b13884fa6b9"
     },
     "async": false
    },
@@ -214,7 +220,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "8af0f2da-79c4-4c88-9d4b-ba3bb99e038a"
+     "id": "0fb6840a-98be-4174-84f7-cb9c4a6ba6a8"
     },
     "async": false
    }
@@ -252,7 +258,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "a22d78e8-37f3-4a20-8148-d0ac61341c2e"
+     "id": "688ddbf4-05d8-4d38-933c-bfda9789c23b"
     },
     "async": false
    },
@@ -288,7 +294,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "0f84552d-8b15-44d4-bff5-179b99c30769"
+     "id": "28eb5367-838f-4bac-929a-859255397dda"
     },
     "async": false
    },
@@ -324,7 +330,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "c82b7104-44d8-4abc-a4f3-ac49508576c0"
+     "id": "e3742ba1-bc61-4d90-bb79-26ecd7fb22d4"
     },
     "async": false
    },
@@ -360,7 +366,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "7f44844d-1a39-469b-96ef-df623e10e0b0"
+     "id": "5a52482c-98b2-44c3-ba8e-4985e0f1ee80"
     },
     "async": false
    },
@@ -396,7 +402,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "dc683ca9-6597-4318-a1fa-06de882d0f69"
+     "id": "bd3307cc-163c-46d3-98ee-c437e6aead15"
     },
     "async": false
    },
@@ -432,7 +438,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "ae00ba71-b696-4e0b-9fbf-d6f9f88a53d2"
+     "id": "53dc276e-a2d8-44f3-92cf-ab505ae99966"
     },
     "async": false
    }
@@ -470,7 +476,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "16a35700-dfc8-45d1-9fa5-60625785959d"
+     "id": "bceebf5d-cd1b-4914-818c-52e58794cc9d"
     },
     "async": false
    }
@@ -508,7 +514,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "0434c725-65e1-4664-a179-ecc1215bdc18"
+     "id": "22d44267-f9a9-49d5-a662-21307bf65471"
     },
     "async": false
    }
@@ -546,7 +552,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "c79c98f0-61f5-4444-ad34-4dce45753eb4"
+     "id": "b4523a8a-e681-49c1-a30e-ff6c179efbbe"
     },
     "async": false
    }
@@ -584,7 +590,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "e2c1930c-aa26-49f4-a5db-3fd24ca860b8"
+     "id": "70858d17-bf8e-4b9c-a499-85746635b5cb"
     },
     "async": false
    }
@@ -622,7 +628,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "db978768-13e9-42ea-9d97-926260deaf01"
+     "id": "26d97bdf-13ed-4abe-8f2b-692892caeba3"
     },
     "async": false
    }
@@ -660,7 +666,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "21b2ca30-d59f-425e-abe7-b13006ada7fc"
+     "id": "ad546a34-0478-4816-8fd3-9290ef57e7e5"
     },
     "async": false
    }
@@ -698,7 +704,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "660df077-e30f-45ee-ae3c-cfe809348e58"
+     "id": "0d3c6093-fd97-4f5a-90d1-c419eafdbea7"
     },
     "async": false
    }
@@ -736,7 +742,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "9c18d35f-4a0c-44cd-8e31-48846b3bf834"
+     "id": "74a6ee8b-add9-46da-ade7-7d904eeb077a"
     },
     "async": false
    }
@@ -774,7 +780,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "5b2f87d5-422c-43fe-a71b-dc5f7f399c7a"
+     "id": "b04f8538-7ce3-4f42-ae9b-54d184a78da1"
     },
     "async": false
    }
@@ -812,7 +818,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "ac7c943f-6927-4ba7-bf25-a1c8ce8d5e74"
+     "id": "d6dc3b0f-79f3-4216-99a2-bb55abcf90d9"
     },
     "async": false
    }
@@ -850,7 +856,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "af7bf7d4-dbf2-4d1d-9fb7-9b9a8828a2f8"
+     "id": "a51bd0d7-b199-49ef-896d-f89f804064ed"
     },
     "async": false
    }
@@ -888,7 +894,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "c49e588a-4089-457a-a3fc-b29b138ad12b"
+     "id": "99f27845-a4f9-48f1-9e5b-66ae7fea9758"
     },
     "async": false
    }
@@ -926,7 +932,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "e157f964-86a3-4fba-bb5f-f144c05913e5"
+     "id": "8492174c-11c8-49f2-9970-39e984175221"
     },
     "async": false
    }
@@ -964,7 +970,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "a16e065c-4abf-4817-91e3-2d149e7282ef"
+     "id": "79ddd90a-a202-490b-9bd8-5272967adedd"
     },
     "async": false
    }
@@ -1002,7 +1008,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "3d84aae5-f8c1-4d47-abba-ba9488877533"
+     "id": "cfa01981-49bc-4e86-bb3a-4c0632cb4be8"
     },
     "async": false
    }
@@ -1040,7 +1046,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "7da9c088-ae44-4b72-80cb-4cb95d090803"
+     "id": "96df1307-de3c-4401-bd8a-61f344c86bdb"
     },
     "async": false
    }
@@ -1078,7 +1084,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "60e2716e-004f-4f20-b536-578126289c70"
+     "id": "2719102a-0a44-47ee-8e32-9ca4cff35e6c"
     },
     "async": false
    }
@@ -1116,7 +1122,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "2d0bad7d-7321-4a56-bd75-12886a00e977"
+     "id": "70886e47-8739-4b49-a94e-04b4bdd7dcd0"
     },
     "async": false
    }
@@ -1154,7 +1160,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "73565acc-3eb7-48a1-93d5-c719d08cdeb8"
+     "id": "0dc26a4b-9821-4fbc-904f-b2450dd614c0"
     },
     "async": false
    }
@@ -1192,7 +1198,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "d99731d9-f357-4647-b8e8-3e438c8c157f"
+     "id": "5f32b636-592d-4265-ae40-96e619535457"
     },
     "async": false
    }
@@ -1230,7 +1236,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "5b06b1e2-e33f-4cb6-8a4d-3c3e5bdeae1f"
+     "id": "9eaae8ef-a285-4d90-9177-ac43d48778d3"
     },
     "async": false
    }
@@ -1268,7 +1274,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "c4f3e5ad-5a65-4838-8035-89496732bb42"
+     "id": "4162cb37-cbea-4f27-8b80-1b3abb3b000f"
     },
     "async": false
    }
@@ -1306,7 +1312,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "797331df-62e1-4489-a435-ae7e2e19f5be"
+     "id": "9dc4428b-9ca6-4755-8f6c-088ccc94eabf"
     },
     "async": false
    }
@@ -1344,7 +1350,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "d0bc6ebe-d1a1-43e0-b0f6-e76ce985a065"
+     "id": "bf49ab93-ede7-4c60-81e4-631233f12a23"
     },
     "async": false
    }
@@ -1382,7 +1388,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "ee90bd6f-699d-44eb-8d36-685d973cfc78"
+     "id": "ee442833-f60c-4439-ad6e-9e9567de77cc"
     },
     "async": false
    }
@@ -1420,7 +1426,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "2b1e3da7-cbbb-4602-9f57-ae176dcf9e47"
+     "id": "e4c16eb0-ba72-4ec7-9bbf-7571570d3355"
     },
     "async": false
    }
@@ -1458,7 +1464,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "d32bda0e-0a07-4a49-96b0-df035e7ff24b"
+     "id": "94ad7d60-d2f1-4512-83f6-2eacc6188f1b"
     },
     "async": false
    }
@@ -1496,7 +1502,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "1b1c84e5-c28b-4d11-8e1a-49772ef6fc69"
+     "id": "44d25a88-62ef-4497-9e68-d2cb8f60ed21"
     },
     "async": false
    }
@@ -1534,7 +1540,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "6c7f400f-8531-4de9-a7cc-f398e049d7b5"
+     "id": "3341716b-5e1a-4802-b3f9-f24aa86576d2"
     },
     "async": false
    }
@@ -1572,7 +1578,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "80147cda-73bf-4050-8f1d-21595394ad9d"
+     "id": "01a7f648-bb9f-4f4b-986e-18d869448e61"
     },
     "async": false
    }
@@ -1610,7 +1616,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "940e4b34-2fd3-4497-a0d5-aeaa3051f230"
+     "id": "ec81fd50-0c28-4e52-ad0e-ab920f2f0439"
     },
     "async": false
    }
@@ -1648,7 +1654,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "fcc74fa8-01d1-4cf8-8581-c50fbb2a364d"
+     "id": "92117e87-7bfc-4d82-9ec0-ddce1f9ab4c3"
     },
     "async": false
    }
@@ -1686,7 +1692,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "5a1ebe70-6854-4f5d-b72b-aa8a97859b02"
+     "id": "c316a850-6547-44e7-9c41-17d85481cdcc"
     },
     "async": false
    }
@@ -1724,7 +1730,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "e79ce400-e417-4171-9e82-243cf580b85e"
+     "id": "f637db33-ef29-4040-9463-6ffd7d8f3e93"
     },
     "async": false
    }
@@ -1762,7 +1768,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "7f882b2a-3846-4153-aa27-6516bb6d3fc4"
+     "id": "8646d1f2-27a2-4889-919b-60296d58faf1"
     },
     "async": false
    }
@@ -1800,7 +1806,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "9caecd8b-d072-424f-bf11-8303dd65a432"
+     "id": "76cb3014-7a85-4b2f-ad9e-beb8e662c8d2"
     },
     "async": false
    }
@@ -1838,7 +1844,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "cdce39b5-197b-4cfe-a4d5-f0bafa7145d3"
+     "id": "f05771ec-7ef2-441c-a4ca-8b17aa1f3c01"
     },
     "async": false
    }
@@ -1876,7 +1882,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "7676a56a-d228-42f3-a9f5-f6e010d1d10c"
+     "id": "6eb2cb24-ea4d-4845-a17a-ad951cfc882b"
     },
     "async": false
    }
@@ -1914,7 +1920,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "e482e205-7f0c-4708-b702-f78afc535619"
+     "id": "d6152f9e-5773-4b42-9fd6-a2369817e1e6"
     },
     "async": false
    }
@@ -1952,7 +1958,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "091e4c6c-56f7-4dd9-9c1e-a02d6f1cfde1"
+     "id": "6aef18ac-b89e-49bf-822c-cba74499d627"
     },
     "async": false
    }
@@ -1990,7 +1996,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "433055dc-b555-4524-82f8-3927adf787bf"
+     "id": "c4f715e7-4826-40e4-a0bb-339aec86a6a6"
     },
     "async": false
    }
@@ -2028,7 +2034,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "3da1c32b-b055-4526-891f-12467c06241d"
+     "id": "0de1451a-9a7e-43ef-8804-33afbbe99675"
     },
     "async": false
    }
@@ -2066,7 +2072,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "587dcb79-eba8-4606-8d3a-6c2003acaa93"
+     "id": "871ef58e-7b46-4cdd-9392-309db0d06cb3"
     },
     "async": false
    }
@@ -2104,7 +2110,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "0a7dbff0-663c-4db8-8e74-11c71765bcdd"
+     "id": "7baa7c35-bf52-47e6-bcf8-fea695600b44"
     },
     "async": false
    }
@@ -2142,7 +2148,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "a925eafc-0d92-434a-9d8b-2fb1954fdeca"
+     "id": "bf2d9115-ef33-4d5e-afdb-731ea880ef92"
     },
     "async": false
    }
@@ -2180,7 +2186,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "cba40984-3e44-4076-ab39-d1f3fcbe2cce"
+     "id": "aa7402ab-e462-4984-b032-1022b8f59eff"
     },
     "async": false
    }
@@ -2218,7 +2224,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "be3a8512-f2e7-44fb-9e34-728fe8c554ae"
+     "id": "89f8ea0d-0a02-4730-8f27-6219b9c96e0f"
     },
     "async": false
    }
@@ -2256,7 +2262,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "638d7fc7-7a54-4618-80ea-606bfb59ba6b"
+     "id": "ef404d85-ecda-427c-8b20-2d7571204963"
     },
     "async": false
    }
@@ -2294,7 +2300,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "9d8baab4-d851-4c22-9ba6-70ba8df039b3"
+     "id": "5e09fbc6-5132-448e-bff4-94c98a701fbf"
     },
     "async": false
    }
@@ -2332,7 +2338,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "df7737e0-0d02-48f5-aa7b-628c28617866"
+     "id": "6b6d455b-7fed-4af1-b08b-b9bd0832d45e"
     },
     "async": false
    }
@@ -2370,7 +2376,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "d53349aa-cf8e-490f-94e3-e2fd61ffca2c"
+     "id": "aff2fccb-4c83-4ee8-a9bb-f8c8ff352497"
     },
     "async": false
    }
@@ -2408,7 +2414,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "d9071998-54b2-4fcf-9a66-cd30c5bc1685"
+     "id": "f5b634bd-5fae-4954-8177-8984a4248dd8"
     },
     "async": false
    }
@@ -2446,7 +2452,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "d1ceda48-a532-44d1-9452-42ff6658446b"
+     "id": "17cfd7b8-366c-4866-8619-bec955a6d8d6"
     },
     "async": false
    }
@@ -2484,7 +2490,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "771942ed-eb36-49ba-bf2d-8a09eab55e4a"
+     "id": "def99409-32f7-466a-af89-9e50c37adb99"
     },
     "async": false
    }
@@ -2522,7 +2528,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "1d09251d-efd0-4068-a56d-5b489b093ec6"
+     "id": "0755eaff-c830-4aef-8138-ebb88c79b18f"
     },
     "async": false
    }
@@ -2560,7 +2566,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "95176780-c426-4264-b07b-2d6028bf5f9f"
+     "id": "60dedf82-a242-40c5-9058-c7c1e5c47f74"
     },
     "async": false
    }
@@ -2598,7 +2604,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "4b3d9c17-8c98-4ec8-8cb0-fd814dd7fbed"
+     "id": "07064ca0-253d-48af-9d11-285012b702ab"
     },
     "async": false
    }
@@ -2636,7 +2642,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "9d9a51f0-3ad2-43ea-a9f3-d0ed84815add"
+     "id": "fbe03d22-9312-4957-9428-63cf579e981a"
     },
     "async": false
    }
@@ -2674,7 +2680,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "ed43c5d1-b283-490d-a72d-fdcf12a31fcb"
+     "id": "8cd6213c-3c61-41bb-8992-30552e4661c4"
     },
     "async": false
    }
@@ -2712,7 +2718,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "0fd0e3cb-20b8-4276-8909-b042f5c1bd3e"
+     "id": "d96c58e6-ed1e-406f-b03a-3f84461cc97b"
     },
     "async": false
    }
@@ -2750,7 +2756,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "32fa104c-0564-474d-98d2-9cff8a31b537"
+     "id": "cdfe10cd-e63b-4b7a-b064-fdc512eb87ec"
     },
     "async": false
    }
@@ -2789,7 +2795,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "ec249498-fc83-4ce4-9e8f-120c35fd8d7f"
+     "id": "5c0413e3-d306-4ea4-bb34-8c093a1fbc63"
     },
     "async": false
    }
@@ -2827,7 +2833,7 @@
      "attempts": 1,
      "ttftMs": null,
      "elapsedMs": 0,
-     "id": "b57cadf0-f8db-4d1f-9452-923937164d00"
+     "id": "c6670e9d-1196-4abc-89c8-6e528bf749f7"
     },
     "async": false
    }

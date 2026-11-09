@@ -1,4 +1,10 @@
 {
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/shared/turn-snapshot.mjs",
+  "test": "apps/desktop/src/renderer/turn-preview-worker.test.mjs"
+ },
  "constants": {},
  "calls": {
   "_resetTurnSnapshotForTest\u0000[]": [
@@ -131,7 +137,7 @@
      "status": "ready",
      "checkpointId": "wake-1",
      "revision": 1,
-     "root": "D:\\mixdog-build\\tmp\\k1-desktop-route-tmp\\mixdog-test-scratch-dcHAYf\\mixdog-preview-worker-eBgrwZ",
+     "root": "D:\\mixdog-build\\tmp\\k1-desktop-route-tmp\\mixdog-test-scratch-nbMSVx\\mixdog-preview-worker-Wa7YKH",
      "files": [
       {
        "path": "design/mockups/x/index.html",
@@ -160,7 +166,7 @@
      "status": "ready",
      "checkpointId": "wake-1",
      "revision": 2,
-     "root": "D:\\mixdog-build\\tmp\\k1-desktop-route-tmp\\mixdog-test-scratch-dcHAYf\\mixdog-preview-worker-puXF1K",
+     "root": "D:\\mixdog-build\\tmp\\k1-desktop-route-tmp\\mixdog-test-scratch-nbMSVx\\mixdog-preview-worker-XWV0bF",
      "files": [
       {
        "path": "design/mockups/x/index.html",

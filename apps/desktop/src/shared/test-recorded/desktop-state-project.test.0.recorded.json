@@ -1,4 +1,10 @@
 {
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/agent/orchestrator/session/store-summary-index.mjs",
+  "test": "apps/desktop/src/main/desktop-state-project.test.mjs"
+ },
  "constants": {
   "SESSION_SUMMARY_INDEX_VERSION": 2
  },
@@ -114,5 +120,7 @@
    }
   ]
  },
+ "services": {},
+ "stubs": {},
  "opaque": []
 }

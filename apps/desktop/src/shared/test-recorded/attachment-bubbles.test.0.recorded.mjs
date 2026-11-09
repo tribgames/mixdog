@@ -1,4 +1,4 @@
-// Node b6f10295a src/tui/session/session-flow/queue/entry-shape.mjs, recorded from the original test's run; replayed by call.
+// Node b6f10295a2f698afc85332467192de28500bd146 src/tui/session/session-flow/queue/entry-shape.mjs, recorded from apps/desktop/src/renderer/attachment-bubbles.test.mjs of that commit run against an exact export of it (record/record.mjs).
 import { readFileSync } from 'node:fs';
 import { replay } from './replay.mjs';
 

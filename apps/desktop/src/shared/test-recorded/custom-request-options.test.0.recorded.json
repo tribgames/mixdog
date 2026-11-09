@@ -1,4 +1,10 @@
 {
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/agent/orchestrator/providers/custom-provider-config.mjs",
+  "test": "apps/desktop/src/renderer/settings/custom-request-options.test.mjs"
+ },
  "constants": {
   "CUSTOM_API_KEY_ENV_RE": {},
   "CUSTOM_HEADER_LIMIT": 64,
@@ -72,5 +78,7 @@
   }
  },
  "calls": {},
+ "services": {},
+ "stubs": {},
  "opaque": []
 }

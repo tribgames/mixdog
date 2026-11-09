@@ -1,4 +1,10 @@
 {
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/computer-bridge/action-schema.mjs",
+  "test": "apps/desktop/src/main/computer/input/unicode-bounds.test.mjs"
+ },
  "constants": {
   "COMPUTER_ACTION_CONTRACTS": [
    {
@@ -1263,5 +1269,7 @@
    }
   ]
  },
+ "services": {},
+ "stubs": {},
  "opaque": []
 }

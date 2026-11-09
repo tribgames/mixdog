@@ -1,4 +1,10 @@
 {
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/shared/background-tasks.mjs",
+  "test": "apps/desktop/src/renderer/transcript-tool-row-pairs.test.mjs"
+ },
  "constants": {
   "TOOL_ASYNC_EXECUTION_CONTRACT": "Runs sync inline by default; async returns a background task_id and delivers a completion notification.",
   "TOOL_MANUAL_CONTROL_CONTRACT": "read returns one current output snapshot; cancel is for manual recovery, while normal completion arrives by notification.",
@@ -12,5 +18,7 @@
    }
   ]
  },
+ "services": {},
+ "stubs": {},
  "opaque": []
 }

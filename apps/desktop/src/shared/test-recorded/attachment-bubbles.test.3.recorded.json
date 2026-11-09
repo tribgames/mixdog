@@ -1,4 +1,10 @@
 {
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/attachments/store.mjs",
+  "test": "apps/desktop/src/renderer/attachment-bubbles.test.mjs"
+ },
  "constants": {},
  "calls": {
   "materializePromptSubmission\u0000[[{\"type\":\"image\",\"data\":\"cG5nIGJ5dGVz\",\"mimeType\":\"image/png\"}],{\"id\":\"sub_pasted_image\",\"pastedImages\":{\"1\":{\"id\":1,\"type\":\"image\",\"sizeBytes\":9,\"mediaType\":\"image/png\",\"filename\":\"Pasted image\"}}}]": [
@@ -435,5 +441,7 @@
    }
   ]
  },
+ "services": {},
+ "stubs": {},
  "opaque": []
 }

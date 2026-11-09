@@ -1,4 +1,10 @@
 {
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/shared/task-notification-envelope.mjs",
+  "test": "apps/desktop/src/renderer/transcript-tool-row-pairs.test.mjs"
+ },
  "constants": {},
  "calls": {
   "renderShellCompletionNotice\u0000[{\"jobId\":\"job_1790959235138_971b88\",\"status\":\"completed\",\"exitCode\":0,\"command\":\"sleep 1\"}]": [
@@ -8,5 +14,7 @@
    }
   ]
  },
+ "services": {},
+ "stubs": {},
  "opaque": []
 }

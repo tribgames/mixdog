@@ -1,11 +1,17 @@
 {
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/tui/session/session-flow/queue/entry-shape.mjs",
+  "test": "apps/desktop/src/renderer/attachment-bubbles.test.mjs"
+ },
  "constants": {},
  "calls": {
   "makeQueueEntry\u0000[[{\"type\":\"image\",\"data\":\"cG5nIGJ5dGVz\",\"mimeType\":\"image/png\"}],{\"id\":\"sub_pasted_image\",\"pastedImages\":{\"1\":{\"id\":1,\"type\":\"image\",\"sizeBytes\":9,\"mediaType\":\"image/png\",\"filename\":\"Pasted image\"}}},{\"$fn\":1}]": [
    {
     "result": {
      "id": "sub_pasted_image",
-     "submittedAt": 1794196164408,
+     "submittedAt": 1794199899022,
      "text": "[Image]",
      "content": [
       {
@@ -61,7 +67,7 @@
    {
     "result": {
      "id": "sub_image_file",
-     "submittedAt": 1794196170825,
+     "submittedAt": 1794199899041,
      "text": "[Image]",
      "content": [
       {
@@ -117,7 +123,7 @@
    {
     "result": {
      "id": "sub_several_pasted_images",
-     "submittedAt": 1794196170832,
+     "submittedAt": 1794199899047,
      "text": "[Image]\n[Image]\n[Image]",
      "content": [
       {
@@ -209,7 +215,7 @@
    {
     "result": {
      "id": "sub_PDF",
-     "submittedAt": 1794196170844,
+     "submittedAt": 1794199899059,
      "text": "[PDF #1: report.pdf]",
      "content": [
       {
@@ -255,7 +261,7 @@
    {
     "result": {
      "id": "sub_office_document",
-     "submittedAt": 1794196171046,
+     "submittedAt": 1794199899076,
      "text": "[File #1: plan.docx]",
      "content": [
       {
@@ -301,7 +307,7 @@
    {
     "result": {
      "id": "sub_text_code_file",
-     "submittedAt": 1794196171337,
+     "submittedAt": 1794199899088,
      "text": "[File #1: main.ts]",
      "content": "[File #1: main.ts]",
      "pastedImages": null,
@@ -344,7 +350,7 @@
    {
     "result": {
      "id": "sub_pasted_text",
-     "submittedAt": 1794196171816,
+     "submittedAt": 1794199899099,
      "text": "[Pasted text #1 +30 lines]",
      "content": "[Pasted text #1 +30 lines]",
      "pastedImages": null,
@@ -387,7 +393,7 @@
    {
     "result": {
      "id": "sub_video_path_",
-     "submittedAt": 1794196172309,
+     "submittedAt": 1794199899123,
      "text": "C:\\clips\\demo.mp4",
      "content": "C:\\clips\\demo.mp4",
      "pastedImages": null,
@@ -422,7 +428,7 @@
    {
     "result": {
      "id": "sub_audio_path_",
-     "submittedAt": 1794196172311,
+     "submittedAt": 1794199899126,
      "text": "C:\\audio\\memo.m4a",
      "content": "C:\\audio\\memo.m4a",
      "pastedImages": null,
@@ -457,7 +463,7 @@
    {
     "result": {
      "id": "sub_folder_path_",
-     "submittedAt": 1794196172314,
+     "submittedAt": 1794199899128,
      "text": "C:\\Project\\app",
      "content": "C:\\Project\\app",
      "pastedImages": null,
@@ -492,7 +498,7 @@
    {
     "result": {
      "id": "sub_voice_recording_dictated_",
-     "submittedAt": 1794196172316,
+     "submittedAt": 1794199899131,
      "text": "회의 내용을 요약하세요",
      "content": "회의 내용을 요약하세요",
      "pastedImages": null,
@@ -527,7 +533,7 @@
    {
     "result": {
      "id": "sub_mixed_attachments",
-     "submittedAt": 1794196172320,
+     "submittedAt": 1794199899135,
      "text": "[PDF #2: report.pdf]\n[File #3: plan.docx]\n[File #4: main.ts]\n[Pasted text #5 +30 lines]",
      "content": [
       {
@@ -614,7 +620,7 @@
    {
     "result": {
      "id": "sub_image_plus_text",
-     "submittedAt": 1794196172335,
+     "submittedAt": 1794199899157,
      "text": "what is this?",
      "content": [
       {
@@ -674,7 +680,7 @@
    {
     "result": {
      "id": "sub_files_plus_text",
-     "submittedAt": 1794196172341,
+     "submittedAt": 1794199899163,
      "text": "review these\n[PDF #1: report.pdf]\n[File #2: main.ts]",
      "content": [
       {
@@ -725,5 +731,7 @@
    }
   ]
  },
+ "services": {},
+ "stubs": {},
  "opaque": []
 }

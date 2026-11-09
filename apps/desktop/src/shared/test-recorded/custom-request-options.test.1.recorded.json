@@ -1,4 +1,10 @@
 {
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/agent/orchestrator/providers/custom-provider.mjs",
+  "test": "apps/desktop/src/renderer/settings/custom-request-options.test.mjs"
+ },
  "constants": {
   "CUSTOM_PROVIDER_PROTOCOLS": [
    "openai-chat",
@@ -25,7 +31,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"messages\":1}}]": [
@@ -36,7 +43,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"input\":1}}]": [
@@ -47,7 +55,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"system\":1}}]": [
@@ -58,7 +67,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"instructions\":1}}]": [
@@ -69,7 +79,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"tools\":1}}]": [
@@ -80,7 +91,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"tool_choice\":1}}]": [
@@ -91,7 +103,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"parallel_tool_calls\":1}}]": [
@@ -102,7 +115,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"stream\":1}}]": [
@@ -113,7 +127,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"stream_options\":1}}]": [
@@ -124,7 +139,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"previous_response_id\":1}}]": [
@@ -135,7 +151,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"store\":1}}]": [
@@ -146,7 +163,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"include\":1}}]": [
@@ -157,7 +175,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"prompt_cache_key\":1}}]": [
@@ -168,7 +187,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"max_tokens\":1}}]": [
@@ -179,7 +199,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"max_output_tokens\":1}}]": [
@@ -190,7 +211,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"max_completion_tokens\":1}}]": [
@@ -201,7 +223,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"__proto__\":1}}]": [
@@ -212,7 +235,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"constructor\":1}}]": [
@@ -223,7 +247,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"prototype\":1}}]": [
@@ -234,7 +259,8 @@
      "code": {
       "$undef": 1
      }
-    }
+    },
+    "async": false
    }
   ],
   "normalizeCustomProviderConfig\u0000[{\"type\":\"custom\",\"schemaVersion\":2,\"name\":\"P\",\"protocol\":\"openai-chat\",\"baseURL\":\"https://llm.example.com/v1\",\"requestBody\":{\"temperature\":1}}]": [
@@ -301,5 +327,7 @@
    }
   ]
  },
+ "services": {},
+ "stubs": {},
  "opaque": []
 }

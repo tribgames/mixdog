@@ -1,4 +1,10 @@
 {
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/standalone/usage-stats-period.mjs",
+  "test": "apps/desktop/src/renderer/usage-stats-speed-layout.slow.test.mjs"
+ },
  "constants": {},
  "calls": {
   "resolveUsageStatsPeriod\u0000[{\"view\":\"hour\",\"now\":1789268400000}]": [

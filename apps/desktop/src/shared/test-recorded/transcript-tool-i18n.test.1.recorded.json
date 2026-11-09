@@ -1,4 +1,10 @@
 {
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/agent/orchestrator/session/conversation-import/imported-session.mjs",
+  "test": "apps/desktop/src/renderer/transcript-tool-i18n.test.mjs"
+ },
  "constants": {},
  "calls": {
   "importedTranscriptMessages\u0000[[{\"role\":\"user\",\"text\":\"Fix it\",\"at\":null},{\"role\":\"assistant\",\"text\":\"Looking.\\n\\n[ran tools: shell ×2, Read ×1, apply_patch ×1]\\n\\nDone.\",\"at\":null,\"toolRuns\":[{\"start\":10,\"end\":56,\"tools\":[{\"name\":\"shell\",\"count\":2},{\"name\":\"Read\",\"count\":1},{\"name\":\"apply_patch\",\"count\":1}]}]}],1]": [
@@ -10,7 +16,7 @@
       "meta": {
        "source": "import",
        "transcript": {
-        "messageId": "msg_ab72a7a5120b448ca746f2f70e332e52",
+        "messageId": "msg_a538ecde46a441aebe089e58fc0ef29b",
         "at": 1
        }
       }
@@ -41,7 +47,7 @@
         }
        ],
        "transcript": {
-        "messageId": "msg_db581518bad843ae9679b9fa84e71572",
+        "messageId": "msg_6ff1415b58644a36b879a5d865af81f5",
         "at": 1
        }
       }
@@ -59,7 +65,7 @@
       "meta": {
        "source": "import",
        "transcript": {
-        "messageId": "msg_71e320aae69945f99e87cf7cef1f9e6d",
+        "messageId": "msg_691f146a4d714f839445d1ba7997c043",
         "at": 1767225600000
        }
       }
@@ -90,7 +96,7 @@
         }
        ],
        "transcript": {
-        "messageId": "msg_963212e1134b4f41bbd4f19dee08a9ee",
+        "messageId": "msg_ef10ca5d558f4ff2bc0c872cb1944efa",
         "at": 1767225600000
        }
       }
