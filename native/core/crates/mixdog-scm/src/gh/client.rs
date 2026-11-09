@@ -63,6 +63,23 @@ pub trait GhRunner: Send + Sync {
 
     /// Looks for the program again (it may have been installed since).
     fn forget_program(&self) {}
+
+    /// Whether the desktop's presence probe has anything to start (`resolveGh`, github-cli.ts): on Windows only a candidate file
+    /// that exists is tried, so a machine with no `gh.exe` anywhere is "not installed" without a single start.
+    fn probe_possible(&self) -> bool {
+        true
+    }
+}
+
+/// `ghPathCandidates` on Windows: every `PATH` folder's `gh.exe`, then Program Files' and the WinGet links folder's.
+fn windows_gh_present() -> bool {
+    let from_path = std::env::var("PATH")
+        .unwrap_or_default()
+        .split(';')
+        .map(|dir| dir.replace('"', "").trim().to_owned())
+        .filter(|dir| !dir.is_empty())
+        .any(|dir| PathBuf::from(dir).join("gh.exe").exists());
+    from_path || gh_candidates().iter().any(|path| path.exists())
 }
 
 /// stdout of a command that must exit 0; a failure carries `gh`'s bounded diagnostic, and a
@@ -122,6 +139,8 @@ pub fn resolve_gh_program() -> String {
 pub struct ProcessGh {
     exec: Arc<Exec>,
     program: Mutex<Option<String>>,
+    /// The program was given, not looked for.
+    fixed: bool,
 }
 
 impl ProcessGh {
@@ -129,6 +148,7 @@ impl ProcessGh {
         Self {
             exec,
             program: Mutex::new(None),
+            fixed: false,
         }
     }
 
@@ -137,6 +157,7 @@ impl ProcessGh {
         Self {
             exec,
             program: Mutex::new(Some(program.into())),
+            fixed: true,
         }
     }
 
@@ -185,6 +206,10 @@ fn bounded(text: &str) -> String {
 impl GhRunner for ProcessGh {
     fn forget_program(&self) {
         self.refresh();
+    }
+
+    fn probe_possible(&self) -> bool {
+        !cfg!(windows) || self.fixed || windows_gh_present()
     }
 
     async fn raw(&self, command: &GhCommand, cwd: &Path, cancel: &CancellationToken) -> Result<GhOutput, ScmFailure> {

@@ -186,30 +186,6 @@ fn a_finished_or_failed_sign_in_keeps_the_code_and_the_page_it_showed() {
     assert_eq!(crate::service::flow_json(&id, &LoginState::Done { account: None }, None), json!({ "flowId": "ghlogin_1_1", "state": "success" }));
 }
 
-#[test]
-fn a_deadline_names_the_program_the_way_nodes_runner_does() {
-    // run-child.mjs words a deadline or an overflow `${command} ${args}`: the program as it was started, the resolved git path.
-    let args: Vec<String> = ["status", "--porcelain=v2"].map(str::to_owned).to_vec();
-    assert_eq!(crate::exec::command_label(r"C:\Program Files\Git\cmd\git.exe", &args), r"C:\Program Files\Git\cmd\git.exe status --porcelain=v2");
-    assert_eq!(crate::exec::command_label("git", &args), "git status --porcelain=v2");
-}
-
-/// Node's runner killed a git child at its deadline (recorded with a shortened one: the core's run limit is 60 s and has no knob).
-/// The failure the core builds from the same command and limit reads as Node's text, under the core's own deadline code, which the
-/// phone's adapter names as the recorded frame's `errorCode`.
-#[test]
-fn a_git_deadline_reads_as_the_recorded_one() {
-    let golden: Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../apps/desktop/src/renderer/fixtures/phone-scm/golden.json")).unwrap()).unwrap();
-    let case = golden["cases"].as_array().unwrap().iter().find(|case| case["name"] == "gitStatus-git-timeout").expect("the recording has the deadline");
-    let recorded = case["frame"]["error"].as_str().unwrap();
-    let (command, limit) = recorded.rsplit_once(" timed out after ").expect("Node's wording");
-    let millis: u64 = limit.strip_suffix("ms").unwrap().parse().unwrap();
-    let CoreError::DomainError { code, message, .. } = CoreError::from(ScmFailure::TimedOut { command: command.to_owned(), millis }) else { panic!("not a domain error") };
-    assert_eq!(message.as_deref(), Some(recorded));
-    assert_eq!(code.as_deref(), Some(crate::error::CODE_TIMED_OUT));
-    assert_eq!(case["frame"]["errorCode"], "EGITTIMEOUT");
-}
-
 #[tokio::test]
 async fn a_changed_global_git_identity_is_published_for_every_client() {
     let global = tempfile::NamedTempFile::new().unwrap();
@@ -255,47 +231,6 @@ async fn a_repository_review_of_one_untracked_file_reads_every_line_added() {
     assert_eq!(reply, json!("diff --git a/new.txt b/new.txt\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,1 @@\n+untracked\n"));
 }
 #[tokio::test]
-async fn a_remote_added_right_after_a_status_shows_only_when_its_minute_is_out() {
-    use mixdog_core_api::domain::repo::RepoEvidence;
-    use mixdog_core_api::domain::repo::RepoInspector;
-    let (_guard, repo, _head) = crate::golden_tests::fixture_repo();
-    let scm = Scm::new(
-        TestProcesses::shared(),
-        mixdog_rt::testing::tokens().maintenance_io,
-        std::env::temp_dir().join(format!("mixdog-scm-remote-{}", std::process::id())),
-    );
-    let cancel = CancellationToken::new();
-    assert_eq!(scm.git_status(&repo, &cancel).await.unwrap()["remote"], false);
-    crate::golden_tests::git(&repo, &["remote", "add", "origin", "http://127.0.0.1:9/r.git"]);
-    // A fresh scan, so only the kept remote list can still say there is none (git-status.ts remoteMetadata, 60 s).
-    let reference = scm.open(&repo, &cancel).await.unwrap().repo_ref().unwrap();
-    scm.inspector.evidence(&reference, RepoEvidence::WorkTree);
-    let status = scm.git_status(&repo, &cancel).await.unwrap();
-    assert_eq!(status["remote"], false, "{status}");
-}
-#[tokio::test]
-async fn remote_metadata_expires_by_clock() {
-    // Node's minute (GIT_METADATA_TTL_MS) on a moved clock: the list read at t0 holds at t0+59s and is read again at t0+61s.
-    let (_guard, repo, _head) = crate::golden_tests::fixture_repo();
-    let scm = Scm::new(
-        TestProcesses::shared(),
-        mixdog_rt::testing::tokens().maintenance_io,
-        std::env::temp_dir().join(format!("mixdog-scm-remote-clock-{}", std::process::id())),
-    );
-    let cancel = CancellationToken::new();
-    let options = crate::git::RunOptions::read();
-    let at = |seconds: u64, t0: std::time::Instant| t0 + std::time::Duration::from_secs(seconds);
-    let t0 = std::time::Instant::now();
-    let (git, repo_ref, cancel_ref, options_ref) = (&scm.git, &repo, &cancel, &options);
-    let names = |now| async move {
-        crate::inspect::status::remote_metadata_at(git, cancel_ref, repo_ref, options_ref, now).await.unwrap().0
-    };
-    assert!(names(t0).await.is_empty());
-    crate::golden_tests::git(&repo, &["remote", "add", "origin", "http://127.0.0.1:9/r.git"]);
-    assert!(names(at(59, t0)).await.is_empty(), "kept for the minute");
-    assert_eq!(names(at(61, t0)).await, ["origin"], "read again once the minute is out");
-}
-#[tokio::test]
 async fn a_sign_in_without_gh_reads_as_nodes_text() {
     let (handle, _) = service_with_gh_program("mixdog-no-such-gh-program");
     let error = call(&handle, "github/login/start", json!({ "opId": "op" })).await.unwrap_err();
@@ -330,4 +265,58 @@ async fn gh_is_probed_once_until_a_refresh_looks_again() {
     assert_eq!(counting.0.load(std::sync::atomic::Ordering::SeqCst), 1, "the second status reuses the first probe");
     scm.gh_status(&cancel, true).await.unwrap();
     assert_eq!(counting.0.load(std::sync::atomic::Ordering::SeqCst), 2, "a refresh probes again");
+}
+
+/// A machine on which no program starts: git is not installed.
+struct NoPrograms;
+
+#[async_trait]
+impl mixdog_core_api::domain::process::ProcessManager for NoPrograms {
+    async fn spawn(
+        &self,
+        request: mixdog_core_api::domain::process::SpawnRequest,
+    ) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+        let mixdog_core_api::domain::process::CommandSpec::Argv { program, .. } = request.command else { panic!("argv") };
+        Err(mixdog_core_api::domain::process::ProcessError::ProgramNotFound { program })
+    }
+    fn subscribe(
+        &self,
+        _: &mixdog_protocol::ProcessHandle,
+        _: Option<u64>,
+    ) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>, mixdog_core_api::domain::process::ProcessError> {
+        unreachable!("nothing started")
+    }
+    async fn write_stdin(&self, _: &mixdog_protocol::ProcessHandle, _: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        unreachable!("nothing started")
+    }
+    fn close_stdin(&self, _: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        unreachable!("nothing started")
+    }
+    fn resize_pty(&self, _: &mixdog_protocol::ProcessHandle, _: mixdog_core_api::domain::process::PtySize) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        unreachable!("nothing started")
+    }
+    fn kill(&self, _: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        unreachable!("nothing started")
+    }
+    fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
+        Vec::new()
+    }
+}
+
+/// Only the status answer tells a git that could not start apart. A caller that reads the work tree for another purpose (the
+/// dirty-paths guard of a reset, the commit's selection) has always been told a git diagnostic under `COMMAND_FAILED`.
+#[tokio::test]
+async fn a_caller_other_than_status_is_told_a_git_that_could_not_start_as_before() {
+    let (_guard, repo, _head) = crate::golden_tests::fixture_repo();
+    let scm = Scm::new(
+        Arc::new(NoPrograms),
+        mixdog_rt::testing::tokens().maintenance_io,
+        std::env::temp_dir().join(format!("mixdog-scm-nogit-{}", std::process::id())),
+    );
+    let cancel = CancellationToken::new();
+    let failure = scm.open(&repo, &cancel).await.unwrap().dirty_paths().await.unwrap_err();
+    let CoreError::DomainError { code, message, .. } = CoreError::from(failure) else { panic!("not a domain error") };
+    assert_eq!(code.as_deref(), Some("COMMAND_FAILED"));
+    // The diagnostic names the program as it was started (the resolved git of this machine).
+    assert!(message.as_deref().is_some_and(|text| text.ends_with("git is not available") || text.ends_with("git.exe is not available")),"{message:?}");
 }

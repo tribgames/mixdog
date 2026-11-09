@@ -112,8 +112,9 @@ impl Exec {
             .ok_or_else(|| ScmFailure::invalid("cwd", "an absolute directory"))?;
         let handle = self.handle();
         let stdin_piped = spec.stdin.is_some();
-        let time_limit = spec.time_limit;
+        let time_limit = crate::seam::run_limit(spec.time_limit, &spec.args);
         let program = spec.program.clone();
+        let attempted_args = spec.args.clone();
         // Node's runners word a deadline or an overflow with the command as `git status -z` (git-runner.ts gitTimeout).
         let command = command_label(&spec.program, &spec.args);
         let request = SpawnRequest {
@@ -132,12 +133,11 @@ impl Exec {
             stdin_piped,
             output: OutputMode::Separate,
             owner: ProcessOwner::Internal,
-            time_limit: spec.time_limit,
+            time_limit,
         };
-        self.processes
-            .spawn(request)
-            .await
-            .map_err(|error| spawn_failure(error, &program))?;
+        let spawned = self.processes.spawn(request).await;
+        crate::seam::attempt(&program, &attempted_args, false, spawned.is_ok());
+        spawned.map_err(|error| spawn_failure(error, &program))?;
         let mut events = self
             .processes
             .subscribe(&handle, Some(0))

@@ -258,7 +258,11 @@ impl LoginFlow for GithubLogin {
             owner: ProcessOwner::Internal,
             time_limit: None,
         };
-        match self.processes.spawn(request).await {
+        let CommandSpec::Argv { program: attempted, args: attempted_args } = &request.command else { unreachable!("built above") };
+        let (attempted, attempted_args) = (attempted.clone(), attempted_args.clone());
+        let spawned = self.processes.spawn(request).await;
+        crate::seam::attempt(&attempted, &attempted_args, true, spawned.is_ok());
+        match spawned {
             Ok(_) => {}
             Err(ProcessError::ProgramNotFound { .. }) => {
                 return Err(LoginError::Failed(LoginFailure::Unavailable { capability: "gh".into() }));

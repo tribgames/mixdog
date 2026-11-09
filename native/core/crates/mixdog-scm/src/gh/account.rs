@@ -54,23 +54,8 @@ impl Scm {
             self.cli_probes.lock().expect("cli probes").gh = None;
         }
         let home = home_dir();
-        let known = self.cli_probes.lock().expect("cli probes").gh.clone();
-        let version = match known {
-            Some(None) => return Ok(json!({ "installed": false, "authenticated": false })),
-            Some(Some(version)) => version,
-            None => {
-                let probe = match self.github.output(&home, cancel, &["--version"]).await {
-                    Ok(output) if output.success() => output,
-                    Ok(_) | Err(ScmFailure::Unavailable { .. }) => {
-                        self.cli_probes.lock().expect("cli probes").gh = Some(None);
-                        return Ok(json!({ "installed": false, "authenticated": false }));
-                    }
-                    Err(other) => return Err(other),
-                };
-                let version = first_version(&probe.stdout, "gh version ");
-                self.cli_probes.lock().expect("cli probes").gh = Some(Some(version.clone()));
-                version
-            }
+        let Some(version) = self.gh_version(cancel).await? else {
+            return Ok(json!({ "installed": false, "authenticated": false }));
         };
         let auth = self
             .github
@@ -88,8 +73,35 @@ impl Scm {
         Ok(status)
     }
 
+    /// `resolveGh` (github-cli.ts): the version of the `gh` that answers `--version`, `None` when none does. The answer is kept,
+    /// a missing `gh` too, until a refresh looks again; every desktop `gh` call asks it first and attempts nothing when it is `None`.
+    pub async fn gh_version(&self, cancel: &CancellationToken) -> Result<Option<String>, ScmFailure> {
+        let known = self.cli_probes.lock().expect("cli probes").gh.clone();
+        if let Some(known) = known {
+            return Ok(known);
+        }
+        if !self.github.runner.probe_possible() {
+            self.cli_probes.lock().expect("cli probes").gh = Some(None);
+            return Ok(None);
+        }
+        let probe = match self.github.output(&home_dir(), cancel, &["--version"]).await {
+            Ok(output) if output.success() => output,
+            Ok(_) | Err(ScmFailure::Unavailable { .. }) => {
+                self.cli_probes.lock().expect("cli probes").gh = Some(None);
+                return Ok(None);
+            }
+            Err(other) => return Err(other),
+        };
+        let version = first_version(&probe.stdout, "gh version ");
+        self.cli_probes.lock().expect("cli probes").gh = Some(Some(version.clone()));
+        Ok(Some(version))
+    }
+
     /// The signed-in account, straight from the GitHub API through `gh`.
     pub async fn gh_account(&self, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+        if self.gh_version(cancel).await?.is_none() {
+            return Err(ScmFailure::git("GitHub CLI is not installed."));
+        }
         let output = match self.github.output(&home_dir(), cancel, &["api", "user"]).await {
             Err(ScmFailure::Unavailable { .. }) => return Err(ScmFailure::git("GitHub CLI is not installed.")),
             other => other?,

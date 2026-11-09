@@ -6165,30 +6165,6 @@
           }
         }
       ],
-      "processes": [
-        {
-          "tool": "gh",
-          "argv": [
-            "--version"
-          ],
-          "cwd": null,
-          "reply": {
-            "code": -1,
-            "stderr": "ENOENT"
-          }
-        },
-        {
-          "tool": "gh",
-          "argv": [
-            "--version"
-          ],
-          "cwd": null,
-          "reply": {
-            "code": -1,
-            "stderr": "ENOENT"
-          }
-        }
-      ],
       "world": {
         "ghInstalled": false,
         "ghAuth": false,
@@ -6647,28 +6623,6 @@
           "reply": {
             "code": 0,
             "stdout": "Successfully installed\n"
-          }
-        },
-        {
-          "tool": "gh",
-          "argv": [
-            "--version"
-          ],
-          "cwd": null,
-          "reply": {
-            "code": -1,
-            "stderr": "ENOENT"
-          }
-        },
-        {
-          "tool": "gh",
-          "argv": [
-            "--version"
-          ],
-          "cwd": null,
-          "reply": {
-            "code": -1,
-            "stderr": "ENOENT"
           }
         }
       ],
@@ -9896,17 +9850,6 @@
           }
         },
         {
-          "tool": "git",
-          "argv": [
-            "--version"
-          ],
-          "cwd": null,
-          "reply": {
-            "code": -1,
-            "stderr": "ENOENT"
-          }
-        },
-        {
           "tool": "winget",
           "argv": [
             "install",
@@ -9971,17 +9914,6 @@
           }
         },
         {
-          "tool": "git",
-          "argv": [
-            "--version"
-          ],
-          "cwd": null,
-          "reply": {
-            "code": -1,
-            "stderr": "ENOENT"
-          }
-        },
-        {
           "tool": "winget",
           "argv": [
             "install",
@@ -9998,17 +9930,6 @@
           "reply": {
             "code": 0,
             "stdout": "Successfully installed\n"
-          }
-        },
-        {
-          "tool": "git",
-          "argv": [
-            "--version"
-          ],
-          "cwd": null,
-          "reply": {
-            "code": -1,
-            "stderr": "ENOENT"
           }
         },
         {
@@ -10105,17 +10026,6 @@
           }
         },
         {
-          "tool": "git",
-          "argv": [
-            "--version"
-          ],
-          "cwd": null,
-          "reply": {
-            "code": -1,
-            "stderr": "ENOENT"
-          }
-        },
-        {
           "tool": "winget",
           "argv": [
             "install",
@@ -10192,17 +10102,6 @@
             "code": -1,
             "stderr": "ENOENT"
           }
-        },
-        {
-          "tool": "soffice.com",
-          "argv": [
-            "--version"
-          ],
-          "cwd": null,
-          "reply": {
-            "code": -1,
-            "stderr": "ENOENT"
-          }
         }
       ],
       "world": {
@@ -10253,17 +10152,6 @@
             "code": -1,
             "stderr": "ENOENT"
           }
-        },
-        {
-          "tool": "soffice.com",
-          "argv": [
-            "--version"
-          ],
-          "cwd": null,
-          "reply": {
-            "code": -1,
-            "stderr": "ENOENT"
-          }
         }
       ],
       "world": {
@@ -10298,17 +10186,6 @@
         }
       ],
       "processes": [
-        {
-          "tool": "soffice.com",
-          "argv": [
-            "--version"
-          ],
-          "cwd": null,
-          "reply": {
-            "code": -1,
-            "stderr": "ENOENT"
-          }
-        },
         {
           "tool": "soffice.com",
           "argv": [
@@ -10384,17 +10261,6 @@
           }
         },
         {
-          "tool": "soffice.com",
-          "argv": [
-            "--version"
-          ],
-          "cwd": null,
-          "reply": {
-            "code": -1,
-            "stderr": "ENOENT"
-          }
-        },
-        {
           "tool": "winget",
           "argv": [
             "install",
@@ -10411,17 +10277,6 @@
           "reply": {
             "code": 0,
             "stdout": "Successfully installed\n"
-          }
-        },
-        {
-          "tool": "soffice.com",
-          "argv": [
-            "--version"
-          ],
-          "cwd": null,
-          "reply": {
-            "code": -1,
-            "stderr": "ENOENT"
           }
         },
         {
@@ -10472,17 +10327,6 @@
         }
       ],
       "processes": [
-        {
-          "tool": "soffice.com",
-          "argv": [
-            "--version"
-          ],
-          "cwd": null,
-          "reply": {
-            "code": -1,
-            "stderr": "ENOENT"
-          }
-        },
         {
           "tool": "soffice.com",
           "argv": [
@@ -10729,6 +10573,79 @@
           }
         }
       ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=all"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "reply": {
+            "code": -1,
+            "stderr": "ENOENT"
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "rev-parse",
+            "--show-toplevel"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "reply": {
+            "code": -1,
+            "stderr": "ENOENT"
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "reply": {
+            "code": -1,
+            "stderr": "ENOENT"
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "diff",
+            "--cached",
+            "--numstat",
+            "-z"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "reply": {
+            "code": -1,
+            "stderr": "ENOENT"
+          }
+        },
+        {
+          "tool": "git",
+          "argv": [
+            "--no-optional-locks",
+            "remote",
+            "-v"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "reply": {
+            "code": -1,
+            "stderr": "ENOENT"
+          }
+        }
+      ],
       "world": {
         "ghInstalled": true,
         "ghAuth": true,
@@ -10763,6 +10680,25 @@
             40
           ],
           "result": []
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "log",
+            "--all",
+            "--topo-order",
+            "--decorate=full",
+            "--skip=0",
+            "-n40",
+            "--pretty=format:%H%x1f%h%x1f%P%x1f%D%x1f%s%x1f%cr%x1f%an%x1f%aI"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "reply": {
+            "code": -1,
+            "stderr": "ENOENT"
+          }
         }
       ],
       "world": {
@@ -10805,6 +10741,22 @@
           "error": {
             "message": "spawn git ENOENT",
             "code": "ENOENT"
+          }
+        }
+      ],
+      "processes": [
+        {
+          "tool": "git",
+          "argv": [
+            "add",
+            "-A",
+            "--",
+            "f.txt"
+          ],
+          "cwd": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+          "reply": {
+            "code": -1,
+            "stderr": "ENOENT"
           }
         }
       ],
