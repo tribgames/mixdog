@@ -862,9 +862,30 @@ jobs:
       - name: Run the mobile script unit tests
         run: python3 -m unittest discover -s apps/mobile/scripts -p "test_*.py" -v
 
+  # K1 replacement lanes: the Rust-core tests that stand in for the Node steps K1 removes
+  # (scripts/rust-core/k1-lanes.mjs lists which step each lane replaces).
+  rust-core:
+    needs: changes
+    timeout-minutes: 60
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: "1.99.1"
+      - name: Check the lanes still name real tests
+        run: node --test scripts/rust-core/k1-lanes.test.mjs
+      - name: Run the lanes
+        env:
+          CARGO_BUILD_JOBS: "3"
+        run: node scripts/rust-core/k1-lanes.mjs
+
   complete:
     if: always()
-    needs: [changes, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, relay, patch, graph, browser-import, secure-desktop, shipped-history, mobile-scripts]
+    needs: [changes, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, relay, patch, graph, browser-import, secure-desktop, shipped-history, mobile-scripts, rust-core]
     timeout-minutes: 5
     runs-on: ubuntu-22.04
     steps:
@@ -884,6 +905,7 @@ jobs:
           SECURE_DESKTOP: ${{ needs.secure-desktop.result }}
           SHIPPED_HISTORY: ${{ needs.shipped-history.result }}
           MOBILE_SCRIPTS: ${{ needs.mobile-scripts.result }}
+          RUST_CORE: ${{ needs.rust-core.result }}
         run: |
           [[ "$CHANGES" == success ]]
           [[ "$RUNTIME" == success || "$RUNTIME" == skipped ]]
@@ -899,3 +921,4 @@ jobs:
           [[ "$SECURE_DESKTOP" == success || "$SECURE_DESKTOP" == skipped ]]
           [[ "$SHIPPED_HISTORY" == success || "$SHIPPED_HISTORY" == skipped ]]
           [[ "$MOBILE_SCRIPTS" == success || "$MOBILE_SCRIPTS" == skipped ]]
+          [[ "$RUST_CORE" == success || "$RUST_CORE" == skipped ]]
