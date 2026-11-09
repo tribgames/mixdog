@@ -426,14 +426,14 @@ pub(super) fn separate_defaults_in_config(root: &Doc, data_dir: &Path) -> Doc {
 
 /// `statSync(path).mode & 0o777`.
 #[cfg(unix)]
-fn source_mode(meta: &std::fs::Metadata) -> u32 {
+pub(crate) fn source_mode(meta: &std::fs::Metadata) -> u32 {
     use std::os::unix::fs::PermissionsExt;
     meta.permissions().mode() & 0o777
 }
 
 /// Where a file has no Unix mode, the new-file default of the publisher.
 #[cfg(not(unix))]
-fn source_mode(_: &std::fs::Metadata) -> u32 {
+pub(crate) fn source_mode(_: &std::fs::Metadata) -> u32 {
     mixdog_statefile::Opts::default().mode
 }
 
@@ -485,26 +485,34 @@ impl Shared {
         let mut raised = super::lock(&self.writer);
         let current = self.doc.load_full();
         let data_dir = self.path.parent().unwrap_or_else(|| Path::new(""));
-        let separating = needs_separation(&current);
-        let mut next = if separating { separate_defaults_in_config(&current, data_dir) } else { (*current).clone() };
-        if separating {
-            if !js_deep_equal(&Value::Object(next.clone()), &Value::Object((*current).clone())) {
-                backup(lane, &self.path, data_dir, now_ms)?;
+        // Node's pass is `updateConfig`: it starts from what `readAllForRmW` settles on.
+        let written = self.guard.locked(lane, |baseline| {
+            let base = baseline.doc.unwrap_or_else(|| (*current).clone());
+            let separating = needs_separation(&base);
+            let mut next = if separating { separate_defaults_in_config(&base, data_dir) } else { base.clone() };
+            if separating {
+                if !js_deep_equal(&Value::Object(next.clone()), &Value::Object(base.clone())) {
+                    backup(lane, &self.path, data_dir, now_ms)?;
+                }
+                next.insert(DEFAULTS_VERSION_KEY.into(), Value::from(2));
             }
-            next.insert(DEFAULTS_VERSION_KEY.into(), Value::from(2));
-        }
-        if let Some(Value::Object(agent)) = next.get("agent") {
-            let catalog = super::storage::saved_catalog(data_dir).unwrap_or_default();
-            if let Some(canonical) = super::storage::migrated_agent(agent, &catalog, now_ms) {
-                next.insert("agent".into(), Value::Object(canonical));
+            if let Some(Value::Object(agent)) = next.get("agent") {
+                let catalog = super::storage::saved_catalog(data_dir).unwrap_or_default();
+                if let Some(canonical) = super::storage::migrated_agent(agent, &catalog, now_ms) {
+                    next.insert("agent".into(), Value::Object(canonical));
+                }
             }
+            let next = super::canonical::canonicalize(next);
+            if next == *current && !baseline.forced {
+                return Ok(None);
+            }
+            self.guard.write(lane, &next, "post-config-write")?;
+            Ok(Some(next))
+        })?;
+        match written {
+            Some(next) if next != *current => Ok(self.install(&mut raised, &current, next)),
+            _ => Ok(Applied::default()),
         }
-        let next = super::canonical::canonicalize(next);
-        if next == *current {
-            return Ok(Applied::default());
-        }
-        super::persist(lane, &self.path, &next)?;
-        Ok(self.install(&mut raised, &current, next))
     }
 }
 

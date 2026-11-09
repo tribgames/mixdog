@@ -47,6 +47,7 @@ pub use json::json_bytes;
 pub use json::json_text_problem;
 pub use json::parse_json_text;
 pub use json::peek;
+pub use json::quarantine_path;
 pub use json::read_json;
 pub use json::rename_with_retry;
 pub use json::update_json;

@@ -31,8 +31,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt", "macros", "time"] }
+tracing = { workspace = true }
 unicode-normalization = { workspace = true }
 url = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
 mixdog-core-base = { workspace = true }
 
 [dev-dependencies]

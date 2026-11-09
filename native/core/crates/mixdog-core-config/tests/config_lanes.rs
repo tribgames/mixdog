@@ -62,7 +62,8 @@ async fn reads_run_on_the_interactive_lane_and_writes_on_the_durability_lane() {
     let (config, _) = Config::open(&path, Arc::new(MockStatePublisher::default()), lanes)
         .await
         .unwrap();
-    assert_eq!(recording.take(), [LaneKind::InteractiveIo], "open reads");
+    // A missing file asks the user-data guard (marker, backups: disk checks) whether the dir lost its config.
+    assert_eq!(recording.take(), [LaneKind::InteractiveIo, LaneKind::DurabilityIo], "open reads, then the guard looks");
 
     config
         .write("desktop.keepAwake", json!(false), ConfigWriteMode::Replace)
@@ -77,9 +78,9 @@ async fn reads_run_on_the_interactive_lane_and_writes_on_the_durability_lane() {
         .unwrap();
     assert_eq!(recording.take(), [LaneKind::DurabilityIo]);
 
-    // A reload reads on interactive, then installs on durability.
+    // A reload reads on interactive, the guard checks the dir's marker on durability, then the install runs on durability.
     config.reload().await.unwrap();
-    assert_eq!(recording.take(), [LaneKind::InteractiveIo, LaneKind::DurabilityIo]);
+    assert_eq!(recording.take(), [LaneKind::InteractiveIo, LaneKind::DurabilityIo, LaneKind::DurabilityIo]);
 
     // Reads of the loaded document are memory loads and submit nothing.
     assert!(!config.desktop_settings().keep_awake);
