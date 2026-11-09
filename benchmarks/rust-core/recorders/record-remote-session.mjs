@@ -6,7 +6,7 @@
 //   node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-remote-session.mjs --tree <exact b6f10295a export>
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree } from './lib/common.mjs';
+import { FIXTURES_ROOT, exactProductIdentity, importFrom, parseArgs, resolveTree, writeSetManifest } from './lib/common.mjs';
 
 const tree = resolveTree(parseArgs());
 const { SessionHostPublication } = await importFrom(tree, 'apps/desktop/src/main/session-host-publication.ts');
@@ -40,7 +40,9 @@ const cases = states.map(([name, state]) => {
   const shell = shells.at(-1);
   return { name, state, remoteEnabled: shell.remoteEnabled, remoteSessionId: shell.remoteSessionId };
 });
-const dir = join(FIXTURES_ROOT, 'desktop', 'phone-chat');
+const dir = join(FIXTURES_ROOT, 'phone-chat-core');
 mkdirSync(dir, { recursive: true });
 writeFileSync(join(dir, 'remote-session.json'), `${JSON.stringify({ recorder: 'benchmarks/rust-core/recorders/record-remote-session.mjs', cases }, null, 2)}\n`);
 console.log(`recorded ${cases.length} cases`);
+// Both recorders write this set; whichever runs last lists every file in the manifest.
+writeSetManifest(join(FIXTURES_ROOT, 'phone-chat-core'), { set: 'phone-chat-core', recorder: 'benchmarks/rust-core/recorders/record-phone-chat-core.mjs + record-remote-session.mjs', command: 'node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-phone-chat-core.mjs --tree <tree>; same for record-remote-session.mjs', identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146') });

@@ -1,5 +1,5 @@
 //! The phone's Chat calls on the wire (PH-2): `turn/interrupt` handing the prompt back, the idle reclaim and the refused
-//! `turn/start`, against what Node's session code did (`fixtures/desktop/phone-chat/phone-chat-core.json`).
+//! `turn/start`, against what Node's session code did (`fixtures/phone-chat-core/phone-chat-core.json`).
 
 use std::sync::Arc;
 
