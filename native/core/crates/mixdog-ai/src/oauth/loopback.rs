@@ -78,10 +78,17 @@ impl Response {
         self.header("content-type", content_type)
     }
 
+    /// A body with no `content-type`, as Node's `res.end(text)` after a bare `writeHead(status)`.
+    pub fn untyped_body(mut self, body: impl Into<Vec<u8>>) -> Self {
+        self.body = body.into();
+        self
+    }
+
     fn bytes(&self) -> Vec<u8> {
         let mut head = format!(
-            "HTTP/1.1 {} -\r\nconnection: close\r\ncontent-length: {}\r\n",
+            "HTTP/1.1 {} {}\r\nconnection: close\r\ncontent-length: {}\r\n",
             self.status,
+            reason_phrase(self.status),
             self.body.len()
         );
         for (k, v) in &self.headers {
@@ -91,6 +98,21 @@ impl Response {
         let mut out = head.into_bytes();
         out.extend_from_slice(&self.body);
         out
+    }
+}
+
+/// Node's `STATUS_CODES` for the statuses a callback server answers with.
+fn reason_phrase(status: u16) -> &'static str {
+    match status {
+        200 => "OK",
+        204 => "No Content",
+        302 => "Found",
+        400 => "Bad Request",
+        403 => "Forbidden",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        500 => "Internal Server Error",
+        _ => "-",
     }
 }
 
@@ -169,9 +191,10 @@ where
     let (tx, mut rx) = mpsc::unbounded_channel::<T>();
     let stop = CancellationToken::new();
     let _close_on_drop = stop.clone().drop_guard();
+    let mut accepting = Vec::new();
     for listener in listeners {
         let (handler, tx, stop) = (handler.clone(), tx.clone(), stop.clone());
-        mixdog_rt::spawn("ai.oauth.loopback", TaskClass::Work, async move {
+        accepting.push(mixdog_rt::spawn("ai.oauth.loopback", TaskClass::Work, async move {
             loop {
                 let accepted = tokio::select! {
                     () = stop.cancelled() => return,
@@ -199,16 +222,22 @@ where
                     }
                 });
             }
-        });
+        }));
     }
     drop(tx);
     // The listener tasks hold the senders; the loop ends only with a value.
-    loop {
+    let value = loop {
         if let Some(value) = rx.recv().await {
-            return value;
+            break value;
         }
         std::future::pending::<()>().await;
+    };
+    // The login is over (Node closes its server first): no connection is accepted once this returns.
+    stop.cancel();
+    for task in accepting {
+        let _ = task.await;
     }
+    value
 }
 
 #[cfg(test)]

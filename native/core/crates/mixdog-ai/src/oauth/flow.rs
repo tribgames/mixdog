@@ -15,8 +15,12 @@ use mixdog_core_api::domain::login::LoginState;
 use mixdog_core_api::domain::login::LoginTarget;
 
 use super::callback::CallbackError;
+use super::callback::CallbackPages;
 use super::callback::CallbackServer;
+use super::callback::Exchange;
 use super::callback::Redirect;
+use super::callback::Refusal;
+use super::callback::Settled;
 use super::callback::parse_pasted_callback;
 use super::pkce::Pkce;
 use super::pkce::random_state;
@@ -44,14 +48,26 @@ pub trait PkceProvider: Send + Sync {
     fn manual_authorize_url(&self, _request: &AuthorizeRequest<'_>) -> Option<String> {
         None
     }
+    /// The pages this provider's callback server leaves the browser with.
+    fn callback_pages(&self) -> CallbackPages;
     /// Exchanges the code and stores the credential; returns the account
-    /// label if the provider states one.
+    /// label if the provider states one. A failure also carries the part of
+    /// its text the browser's failure page shows.
+    async fn exchange_checked(
+        &self,
+        code: &str,
+        verifier: &str,
+        redirect_uri: &str,
+    ) -> Result<Option<String>, Refusal>;
+    /// [`exchange_checked`](Self::exchange_checked) as the login's failure.
     async fn exchange(
         &self,
         code: &str,
         verifier: &str,
         redirect_uri: &str,
-    ) -> Result<Option<String>, LoginFailure>;
+    ) -> Result<Option<String>, LoginFailure> {
+        self.exchange_checked(code, verifier, redirect_uri).await.map_err(|refusal| refusal.failure)
+    }
 }
 
 pub struct PkceLoginFlow {
@@ -90,7 +106,7 @@ impl LoginFlow for PkceLoginFlow {
         let guard = FlowGuard::claim(&self.running).ok_or(LoginError::Busy)?;
         let state = random_state();
         let pkce = Pkce::generate(self.provider.verifier_bytes());
-        let server = CallbackServer::bind(self.provider.redirect(), state.clone())
+        let server = CallbackServer::bind(self.provider.redirect(), state.clone(), self.provider.callback_pages())
             .await
             .map_err(|err| {
                 LoginError::Failed(LoginFailure::Failed {
@@ -111,10 +127,20 @@ impl LoginFlow for PkceLoginFlow {
         let provider = self.provider.clone();
         Ok(start_session(guard, first, true, move |mut ctx, _cancel| async move {
             ctx.set(LoginState::Waiting);
-            let callback = server.wait();
+            let exchange: Exchange = {
+                let (provider, verifier, redirect_uri) = (provider.clone(), pkce.verifier.clone(), redirect_uri.clone());
+                Arc::new(move |code: String| {
+                    let (provider, verifier, redirect_uri) = (provider.clone(), verifier.clone(), redirect_uri.clone());
+                    Box::pin(async move { provider.exchange_checked(&code, &verifier, &redirect_uri).await })
+                })
+            };
+            let callback = server.wait(exchange);
             tokio::pin!(callback);
             let code = tokio::select! {
-                result = &mut callback => result,
+                settled = &mut callback => match settled {
+                    Settled::Exchanged(done) => return done,
+                    Settled::Rejected(error) => Err(error),
+                },
                 Some(text) = ctx.pasted.recv() => {
                     parse_pasted_callback(&text, &redirect_uri, &state)
                 }
@@ -142,11 +168,14 @@ mod tests {
         fn authorize_url(&self, r: &AuthorizeRequest<'_>) -> String {
             format!("https://auth.test/a?redirect_uri={}&state={}", r.redirect_uri, r.state)
         }
-        async fn exchange(&self, code: &str, _: &str, _: &str) -> Result<Option<String>, LoginFailure> {
+        fn callback_pages(&self) -> CallbackPages {
+            super::super::callback::pages::OPENAI
+        }
+        async fn exchange_checked(&self, code: &str, _: &str, _: &str) -> Result<Option<String>, Refusal> {
             if code == "good" {
                 Ok(Some("me".into()))
             } else {
-                Err(LoginFailure::Denied)
+                Err(LoginFailure::Denied.into())
             }
         }
     }

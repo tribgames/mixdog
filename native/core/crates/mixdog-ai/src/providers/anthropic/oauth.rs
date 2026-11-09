@@ -30,11 +30,16 @@ use serde_json::json;
 use url::Url;
 
 use crate::oauth::AuthorizeRequest;
+use crate::oauth::CallbackPages;
 use crate::oauth::CredentialFile;
 use crate::oauth::PkceProvider;
 use crate::oauth::Probe;
 use crate::oauth::RefreshFailure;
+use crate::oauth::Refusal;
 use crate::oauth::classify_refresh_failure;
+use crate::oauth::http;
+use crate::oauth::pages;
+use crate::oauth::scrub::oauth_body_summary;
 use crate::transport::http::HttpSend;
 
 use super::codec::DEFAULT_CLI_VERSION;
@@ -554,6 +559,54 @@ impl AnthropicLogin {
     }
 }
 
+const OPERATION: &str = "[anthropic-oauth] token exchange";
+
+impl AnthropicLogin {
+    /// The code exchange's token call (`exchangeAuthorizationCode`), keeping what Node's failure page quotes: the
+    /// network cause, the endpoint's status with its redacted body (`_tokenEndpointError`), or a malformed answer.
+    async fn token_exchange(
+        &self,
+        request: WireRequest,
+        base: &StoredOAuth,
+        secrets: &[&str],
+    ) -> Result<StoredOAuth, Refusal> {
+        let failed = |message: String| LoginFailure::Failed { code: "token_exchange_failed".into(), message };
+        let unanswered = |error: ProviderError| {
+            let text = http::request_failed(OPERATION, &error);
+            // Only a request that got no answer is worded by `oauthRequestError` (`anthropic-oauth-credentials.mjs:628`).
+            let message = if error.transport.is_some() { text.clone() } else { error.message };
+            Refusal { failure: failed(message), detail: Some(text) }
+        };
+        let response = self.http.send(request, TOKEN_EXCHANGE).await.map_err(unanswered)?;
+        let reply = response.read_all().await.map_err(unanswered)?;
+        let status = reply.status.unwrap_or(0);
+        if !(200..300).contains(&status) {
+            let summary = oauth_body_summary(&String::from_utf8_lossy(&reply.body), secrets);
+            let body = if summary.is_empty() { String::new() } else { format!(": {summary}") };
+            let compatibility = if status == 403 {
+                format!(
+                    " Anthropic returned HTTP 403 for a request sent as claude-cli/{}. Possible causes include OAuth client compatibility, account or scope policy, an intercepting proxy/VPN/WAF, or regional endpoint restrictions. Verify the account has Claude Code access and the required scopes; update Mixdog or set MIXDOG_CLI_VERSION to the installed official Claude Code version; then retry sign-in via /providers without an intercepting network layer if applicable.",
+                    self.cli_version
+                )
+            } else {
+                String::new()
+            };
+            let failure = match token_failure(status, &reply.body) {
+                TokenFailure::Dead => LoginFailure::Denied,
+                TokenFailure::Failed(err) => failed(err.message),
+            };
+            return Err(Refusal { failure, detail: Some(format!("{OPERATION} {status}{body}.{compatibility}")) });
+        }
+        // `oauthResponseJson`: a body that does not parse is named by its status only.
+        let Ok(parsed) = serde_json::from_slice::<Value>(&reply.body) else {
+            let text = format!("{OPERATION} returned a malformed response (HTTP {status})");
+            return Err(Refusal { failure: failed(text.clone()), detail: Some(text) });
+        };
+        apply_token_response(base, &parsed, now_ms(), TokenFlow::Login)
+            .map_err(|err| Refusal::from(failed(err.message)))
+    }
+}
+
 fn blank_credential() -> StoredOAuth {
     StoredOAuth {
         access_token: String::new(),
@@ -578,12 +631,24 @@ impl PkceProvider for AnthropicLogin {
         authorize_url(request.redirect_uri, request.code_challenge, request.state)
     }
 
-    async fn exchange(
+    fn callback_pages(&self) -> CallbackPages {
+        pages::ANTHROPIC
+    }
+
+    async fn exchange_checked(
         &self,
         code: &str,
         verifier: &str,
         redirect_uri: &str,
-    ) -> Result<Option<String>, LoginFailure> {
+    ) -> Result<Option<String>, Refusal> {
+        let code = code.trim();
+        if code.is_empty() {
+            return Err(LoginFailure::Failed {
+                code: "invalid_callback".into(),
+                message: "[anthropic-oauth] authorization code is required".into(),
+            }
+            .into());
+        }
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let request = exchange_request(&self.token_url, code, redirect_uri, verifier, &state, &self.cli_version);
         // A fresh sign-in replaces the tokens and the account but keeps the
@@ -593,19 +658,7 @@ impl PkceProvider for AnthropicLogin {
             message: e.message,
         })?;
         let base = existing.unwrap_or_else(blank_credential);
-        let credential = match token_call(self.http.as_ref(), request, &base, now_ms(), TokenFlow::Login).await {
-            Ok(credential) => credential,
-            Err(TokenFailure::Dead) => return Err(LoginFailure::Denied),
-            Err(TokenFailure::Failed(err)) => {
-                // A request that got no answer is worded by `oauthRequestError` (`anthropic-oauth-credentials.mjs:628`).
-                let message = if err.transport.is_some() {
-                    crate::oauth::http::request_failed("[anthropic-oauth] token exchange", &err)
-                } else {
-                    err.message
-                };
-                return Err(LoginFailure::Failed { code: "token_exchange_failed".into(), message });
-            }
-        };
+        let credential = self.token_exchange(request, &base, &[code, verifier, &state]).await?;
         self.file
             .save(&Document { oauth: credential })
             .await

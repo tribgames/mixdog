@@ -1,12 +1,18 @@
-//! The loopback redirect receiver of browser logins (PW §6.2), with the
-//! strictest validation applied to every provider: `GET` only, the redirect's
-//! own `Host`, the fixed path, exactly one `state` compared in constant time,
-//! exactly one of `code` / `error`. The authorization server's error text is
-//! never reflected.
+//! The loopback redirect receiver of browser logins (PW §6.2) as each Node provider's callback server
+//! answers the browser: the same pages, statuses and headers, and the same decision of which request
+//! ends the login (`*-oauth*.mjs`, `lib/oauth-page.mjs`). The code exchange runs inside the request
+//! that brought the code, because the page the browser is left with is the exchange's outcome. The
+//! authorization server's error text is never reflected.
 
+use std::future::Future;
 use std::io;
+use std::pin::Pin;
+use std::sync::Arc;
 
+use mixdog_core_api::domain::login::LoginFailure;
+use mixdog_core_api::domain::login_page;
 use tokio::net::TcpListener;
+use tokio::sync::OnceCell;
 use url::Url;
 
 use super::loopback;
@@ -21,6 +27,85 @@ pub enum CallbackError {
     Denied,
     StateMismatch,
     Malformed,
+}
+
+/// A code exchange that failed: what the login ends with, and the part of the error text Node's
+/// failure page shows (`oauthFailureReason`: only an error built from codes, statuses and redacted
+/// bodies is quoted, anything else is left to the summary line).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Refusal {
+    pub failure: LoginFailure,
+    pub detail: Option<String>,
+}
+
+impl From<LoginFailure> for Refusal {
+    fn from(failure: LoginFailure) -> Self {
+        Self { failure, detail: None }
+    }
+}
+
+pub type Exchanged = Result<Option<String>, Refusal>;
+/// The flow's code exchange.
+pub type Exchange = Arc<dyn Fn(String) -> Pin<Box<dyn Future<Output = Exchanged> + Send>> + Send + Sync>;
+
+/// How the callback server ended.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Settled {
+    Exchanged(Result<Option<String>, LoginFailure>),
+    Rejected(CallbackError),
+}
+
+/// Which of Node's callback servers a provider has: they differ in what they answer to a request
+/// that is not a usable callback.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Style {
+    /// Anthropic, OpenAI, Grok: a callback without a code or with another state gets the invalid-callback
+    /// page; OpenAI also ends the login when that callback carries this login's own state.
+    Standard { ends_on_codeless: bool },
+    /// Devin: `GET` only, a page for each way a callback can be wrong, a denial ends the login.
+    Devin,
+    /// Antigravity: plain-text answers for a wrong state or a missing code, one fixed failure page.
+    Antigravity,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct CallbackPages {
+    /// The name on the success page (`oauthSuccessHtml(name)`).
+    pub name: &'static str,
+    /// The first line of the failure page of a failed exchange.
+    pub failure_summary: &'static str,
+    pub style: Style,
+}
+
+pub mod pages {
+    use super::CallbackPages;
+    use super::Style;
+
+    pub const ANTHROPIC: CallbackPages = CallbackPages {
+        name: "Claude",
+        failure_summary: "Claude could not complete the token exchange.",
+        style: Style::Standard { ends_on_codeless: false },
+    };
+    pub const OPENAI: CallbackPages = CallbackPages {
+        name: "OpenAI",
+        failure_summary: "OpenAI could not complete the token exchange.",
+        style: Style::Standard { ends_on_codeless: true },
+    };
+    pub const GROK: CallbackPages = CallbackPages {
+        name: "Grok",
+        failure_summary: "Grok could not complete the token exchange.",
+        style: Style::Standard { ends_on_codeless: false },
+    };
+    pub const DEVIN: CallbackPages = CallbackPages {
+        name: "Devin",
+        failure_summary: "Devin could not complete the token exchange.",
+        style: Style::Devin,
+    };
+    pub const ANTIGRAVITY: CallbackPages = CallbackPages {
+        name: "Antigravity",
+        failure_summary: "Antigravity sign-in was not completed. Return to Mixdog for the error details and any account verification link.",
+        style: Style::Antigravity,
+    };
 }
 
 fn constant_time_eq(a: &str, b: &str) -> bool {
@@ -78,34 +163,120 @@ pub fn parse_pasted_callback(
     code_from_query(url.query().unwrap_or(""), state)
 }
 
-/// Checks one request. `Err(None)` is a request that is not this flow's
-/// callback at all (answered 400, ignored); `Err(Some(e))` is a callback
-/// that failed.
-fn parse_request(
-    request: &Request,
-    host: &str,
-    path: &str,
-    state: &str,
-) -> Result<String, Option<CallbackError>> {
-    if request.method != "GET" || request.header("host") != Some(host) || request.path() != path {
-        return Err(None);
-    }
-    code_from_query(request.raw_query(), state).map_err(Some)
+fn page(status: u16, html: String) -> Response {
+    Response::new(status).body(login_page::CONTENT_TYPE, html)
 }
 
-fn page(status: u16, ok: bool) -> Response {
-    let (title, body) = if ok {
-        ("Signed in", "Sign-in complete. You can close this tab. / 로그인이 완료되었습니다. 이 탭을 닫아도 됩니다.")
-    } else {
-        ("Sign-in failed", "Sign-in did not complete. Return to Mixdog. / 로그인이 완료되지 않았습니다. Mixdog로 돌아가세요.")
-    };
-    Response::new(status)
-        .header("cache-control", "no-store")
-        .header("referrer-policy", "no-referrer")
-        .body(
-            "text/html; charset=utf-8",
-            format!("<!doctype html><meta charset=utf-8><title>{title}</title><p>{body}</p>"),
-        )
+fn plain(status: u16, text: &str) -> Response {
+    Response::new(status).untyped_body(text)
+}
+
+/// What every callback server of this module shares while it serves.
+struct Serving {
+    /// The origin a request target is resolved against (`new URL(req.url, origin)`).
+    origin: Url,
+    path: &'static str,
+    state: String,
+    pages: CallbackPages,
+    exchange: Exchange,
+    /// An authorization code is spent once: the first callback starts the exchange and a duplicate
+    /// joins it instead of failing the login.
+    exchanged: OnceCell<Exchanged>,
+}
+
+type Answer = (Response, Option<Settled>);
+
+impl Serving {
+    fn failure_reason(&self, refusal: &Refusal) -> String {
+        match &refusal.detail {
+            Some(detail) => format!("{}\n{detail}", self.pages.failure_summary),
+            None => self.pages.failure_summary.to_owned(),
+        }
+    }
+
+    /// The exchange of `code` (or the one already running), and the page its outcome leaves the browser with.
+    async fn exchange(&self, code: String) -> Answer {
+        match self.exchanged.get_or_init(|| (self.exchange)(code)).await {
+            Ok(account) => (
+                page(200, login_page::success_html(self.pages.name)),
+                Some(Settled::Exchanged(Ok(account.clone()))),
+            ),
+            Err(refusal) => (
+                page(500, login_page::error_html(&self.failure_reason(refusal))),
+                Some(Settled::Exchanged(Err(refusal.failure.clone()))),
+            ),
+        }
+    }
+
+    /// A late denial must not cancel an already accepted code.
+    fn denial(&self, error: CallbackError) -> Option<Settled> {
+        (!self.exchanged.initialized()).then_some(Settled::Rejected(error))
+    }
+
+    async fn answer(&self, request: Request) -> Answer {
+        // `new URL(req.url || '/', origin)`: the same resolution, so `/x/..<path>` or `<path>/` are judged as Node judges them.
+        let Ok(url) = self.origin.join(&request.target) else {
+            return (page(400, login_page::error_html("The sign-in callback was malformed.")), None);
+        };
+        let first = |name: &str| url.query_pairs().find(|(key, _)| key == name).map(|(_, value)| value.into_owned());
+        let state_matches = first("state").is_some_and(|got| constant_time_eq(&got, &self.state));
+        let named = |name: &str| first(name).filter(|value| !value.is_empty());
+        let wrong_path = url.path() != self.path;
+        match self.pages.style {
+            Style::Standard { ends_on_codeless } => {
+                if wrong_path {
+                    return (Response::new(404), None);
+                }
+                let Some(code) = named("code").filter(|_| state_matches) else {
+                    let settles = ends_on_codeless && state_matches;
+                    let error = if named("error").is_some() { CallbackError::Denied } else { CallbackError::Malformed };
+                    return (
+                        page(400, login_page::error_html("The sign-in callback was invalid or did not match this login.")),
+                        settles.then(|| self.denial(error)).flatten(),
+                    );
+                };
+                self.exchange(code).await
+            }
+            Style::Devin => {
+                if request.method != "GET" || wrong_path {
+                    return (Response::new(404), None);
+                }
+                if !state_matches {
+                    return (page(400, login_page::error_html("The sign-in callback did not match this login.")), None);
+                }
+                if named("error").is_some() {
+                    return (
+                        page(400, login_page::error_html("Devin did not authorize this sign-in.")),
+                        self.denial(CallbackError::Denied),
+                    );
+                }
+                let code = first("code").map(|code| mixdog_js::js_trim(&code).to_owned()).filter(|code| !code.is_empty());
+                match code {
+                    Some(code) => self.exchange(code).await,
+                    None => (page(400, login_page::error_html("The sign-in callback carried no authorization code.")), None),
+                }
+            }
+            Style::Antigravity => {
+                if wrong_path {
+                    return (Response::new(404), None);
+                }
+                if !state_matches {
+                    return (plain(400, "Invalid OAuth state"), None);
+                }
+                if named("error").is_some() {
+                    return (
+                        page(400, login_page::error_html(self.pages.failure_summary)),
+                        self.denial(CallbackError::Denied),
+                    );
+                }
+                let code = first("code").map(|code| mixdog_js::js_trim(&code).to_owned()).filter(|code| !code.is_empty());
+                match code {
+                    Some(code) => self.exchange(code).await,
+                    None => (plain(400, "Missing authorization code"), None),
+                }
+            }
+        }
+    }
 }
 
 /// The redirect a provider registered: the host as it appears in the
@@ -145,19 +316,21 @@ pub struct CallbackServer {
     redirect: Redirect,
     port: u16,
     state: String,
+    pages: CallbackPages,
 }
 
 impl CallbackServer {
     /// Listens on every loopback address the redirect's host can reach: for
     /// `localhost` both IPv4 and IPv6 (a browser may try either), for an IP
     /// literal that address.
-    pub async fn bind(redirect: Redirect, state: String) -> io::Result<Self> {
+    pub async fn bind(redirect: Redirect, state: String, pages: CallbackPages) -> io::Result<Self> {
         let (listeners, port) = loopback::bind(redirect.port, redirect.host == "localhost").await?;
         Ok(Self {
             listeners,
             redirect,
             port,
             state,
+            pages,
         })
     }
 
@@ -165,21 +338,23 @@ impl CallbackServer {
         self.redirect.uri(self.port)
     }
 
-    /// Serves until the first valid callback; the result is its code or why it
-    /// failed. Other requests get a 400 and are ignored. Dropping the future
-    /// closes the listener.
-    pub async fn wait(self) -> Result<String, CallbackError> {
-        let host = format!("{}:{}", self.redirect.host, self.port);
-        let (path, state) = (self.redirect.path, self.state);
-        loopback::serve(self.listeners, move |request: Request| -> Handled<Result<String, CallbackError>> {
-            let outcome = parse_request(&request, &host, path, &state);
-            Box::pin(async move {
-                match outcome {
-                    Err(None) => (page(400, false), None),
-                    Ok(code) => (page(200, true), Some(Ok(code))),
-                    Err(Some(error)) => (page(400, false), Some(Err(error))),
-                }
-            })
+    /// Serves until a callback ends the login: the exchange of the first code
+    /// (its page is the exchange's outcome), or a request the provider's server
+    /// treats as the login's end. Other requests are answered and ignored.
+    /// Dropping the future closes the listener.
+    pub async fn wait(self, exchange: Exchange) -> Settled {
+        let origin = Url::parse(&format!("http://{}:{}", self.redirect.host, self.port)).expect("a loopback origin parses");
+        let serving = Arc::new(Serving {
+            origin,
+            path: self.redirect.path,
+            state: self.state,
+            pages: self.pages,
+            exchange,
+            exchanged: OnceCell::new(),
+        });
+        loopback::serve(self.listeners, move |request: Request| -> Handled<Settled> {
+            let serving = serving.clone();
+            Box::pin(async move { serving.answer(request).await })
         })
         .await
     }
@@ -188,24 +363,6 @@ impl CallbackServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::io::AsyncReadExt;
-    use tokio::io::AsyncWriteExt;
-    use tokio::net::TcpStream;
-
-    const HOST: &str = "127.0.0.1:1455";
-
-    fn request(target: &str, host: &str) -> String {
-        format!("GET {target} HTTP/1.1\r\nHost: {host}\r\n\r\n")
-    }
-
-    fn req(method: &str, target: &str, host: &str) -> Request {
-        Request {
-            method: method.into(),
-            target: target.into(),
-            headers: vec![("Host".into(), host.into())],
-            body: Vec::new(),
-        }
-    }
 
     /// The redirect URIs exactly as the Node providers send them
     /// (`anthropic-oauth-credentials.mjs`, `openai-oauth-login.mjs`,
@@ -231,32 +388,6 @@ mod tests {
     }
 
     #[test]
-    fn valid_callback_yields_the_code() {
-        let head = req("GET", "/cb?code=abc%20d&state=S", HOST);
-        assert_eq!(parse_request(&head, HOST, "/cb", "S"), Ok("abc d".into()));
-    }
-
-    #[test]
-    fn rejections() {
-        let ok = |t: &str| parse_request(&req("GET", t, HOST), HOST, "/cb", "S");
-        assert_eq!(ok("/other?code=c&state=S"), Err(None));
-        assert_eq!(
-            parse_request(&req("GET", "/cb?code=c&state=S", "evil.test"), HOST, "/cb", "S"),
-            Err(None)
-        );
-        assert_eq!(
-            parse_request(&req("POST", "/cb?code=c&state=S", HOST), HOST, "/cb", "S"),
-            Err(None)
-        );
-        assert_eq!(ok("/cb?code=c&state=X"), Err(Some(CallbackError::StateMismatch)));
-        assert_eq!(ok("/cb?code=c"), Err(Some(CallbackError::StateMismatch)));
-        assert_eq!(ok("/cb?code=c&state=S&state=S"), Err(Some(CallbackError::StateMismatch)));
-        assert_eq!(ok("/cb?code=a&code=b&state=S"), Err(Some(CallbackError::Malformed)));
-        assert_eq!(ok("/cb?code=c&error=x&state=S"), Err(Some(CallbackError::Malformed)));
-        assert_eq!(ok("/cb?error=access_denied&state=S"), Err(Some(CallbackError::Denied)));
-    }
-
-    #[test]
     fn pasted_callback_is_held_to_the_same_rules() {
         let redirect = "http://127.0.0.1:1455/cb";
         assert_eq!(
@@ -277,27 +408,4 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn server_answers_the_browser_and_returns_the_code() {
-        mixdog_rt::testing::tokens();
-        let redirect = Redirect { host: "localhost", port: 0, path: "/cb" };
-        let server = CallbackServer::bind(redirect, "S".into()).await.unwrap();
-        let port = server.port;
-        assert_eq!(server.redirect_uri(), format!("http://localhost:{port}/cb"));
-        let waiting = tokio::spawn(server.wait());
-        let mut stray = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-        stray.write_all(request("/nope", &format!("localhost:{port}")).as_bytes()).await.unwrap();
-        let mut reply = String::new();
-        stray.read_to_string(&mut reply).await.unwrap();
-        assert!(reply.starts_with("HTTP/1.1 400"));
-        let mut browser = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-        browser
-            .write_all(request("/cb?code=zz&state=S", &format!("localhost:{port}")).as_bytes())
-            .await
-            .unwrap();
-        let mut reply = String::new();
-        browser.read_to_string(&mut reply).await.unwrap();
-        assert!(reply.contains("cache-control: no-store") && reply.starts_with("HTTP/1.1 200"));
-        assert_eq!(waiting.await.unwrap(), Ok("zz".into()));
-    }
 }
