@@ -288,8 +288,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -387,8 +388,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -491,8 +493,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -597,8 +600,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -710,8 +714,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -829,8 +834,9 @@
      },
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -948,8 +954,9 @@
      },
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -1073,8 +1080,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -1205,8 +1213,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -1346,8 +1355,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -1512,8 +1522,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -1648,8 +1659,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -1789,8 +1801,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -2060,8 +2073,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -2115,8 +2129,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -2176,8 +2191,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -2225,8 +2241,9 @@
      },
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -2280,8 +2297,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -2322,8 +2340,9 @@
      },
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -2370,8 +2389,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -2425,8 +2445,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -2484,8 +2505,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -2526,8 +2548,9 @@
      },
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -2578,8 +2601,9 @@
     "deliveries": [
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {
@@ -2627,8 +2651,9 @@
      },
      {
       "notification": {
-       "event": "turn-review-changed",
-       "payload": null
+       "kind": "desktop-event",
+       "name": "turn-review-changed",
+       "value": null
       },
       "rereads": [
        {

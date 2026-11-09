@@ -3,10 +3,11 @@
 //!
 //! Node's `noteTurnReviewChanged` names no session: its desktop consumer forwards each delivery as the data-less
 //! `turn-review-changed` event and every open client rereads the review of the session it shows. The recording holds, per
-//! action, each delivery in order with every client's whole reread answer. The replay runs the same actions through the
-//! real tools (`edit`, `apply_patch`, `git`), the real turn review over real Git and the real scm service; each delivery
-//! must be one `reviewDiff` publication to every open client, exactly the bytes `REVIEW_REREAD`, and each client's reread
-//! must answer the recorded answer whole.
+//! action, each delivery in order: the message the real desktop service emitted, and every client's whole reread answer. The
+//! replay runs the same actions through the real tools (`edit`, `apply_patch`, `git`), the real turn review over real Git and
+//! the real scm service; each delivery must be the publication `told_for` makes of the recorded message to each client that
+//! reread, and each client's reread must answer the recorded answer whole. `listeners.json` records the listener registry
+//! (subscribe, unsubscribe, removal and addition during a delivery) the same way.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup: real directories and a real git")]
 
 use std::collections::HashMap;
@@ -18,7 +19,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
-use bytes::Bytes;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::mock::MockApprovalGate;
@@ -42,7 +42,6 @@ use mixdog_protocol::ThreadId;
 use mixdog_protocol::ToolCallId;
 use mixdog_protocol::TurnId;
 use mixdog_scm::service::FeatureGate;
-use mixdog_scm::service::REVIEW_REREAD;
 use mixdog_scm::service::ScmService;
 use mixdog_scm::service::ThreadWorktrees;
 use mixdog_scm::worktree::review_bases::CapturedBases;
@@ -169,6 +168,33 @@ fn context(world: &World, cwd: &Path, session: &str, call: usize) -> ToolContext
     }
 }
 
+/// What a publication carries as JSON.
+fn decoded(change: &SectionChange) -> Value {
+    match change {
+        SectionChange::Set(body) => serde_json::from_slice(body).expect("a section value is JSON"),
+        other => panic!("a reread tell is a value, not {other:?}"),
+    }
+}
+
+/// The publication that carries one recorded Node notification to the client showing `session`. Node's window receives the desktop
+/// service's `{kind, name, value}` message; the core's section notification to a thread is `(section, thread, value)`. Two facts
+/// map between them: the event `turn-review-changed` is the `reviewDiff` section, and a Node value of `null` (the event carries
+/// nothing) is an empty object, a section value being an object. Anything else in a recorded message has no counterpart, so it fails.
+fn told_for(notification: &Value, session: &str) -> (SectionName, Option<String>, Value) {
+    let message = notification.as_object().expect("a recorded notification is an object");
+    assert_eq!(message.len(), 3, "a notification this replay does not know: {notification}");
+    assert_eq!(message["kind"], "desktop-event", "{notification}");
+    let section = match message["name"].as_str() {
+        Some("turn-review-changed") => SectionName::ReviewDiff,
+        other => panic!("a Node event with no section: {other:?}"),
+    };
+    let value = match &message["value"] {
+        Value::Null => serde_json::json!({}),
+        other => panic!("a Node value the core has no body for: {other}"),
+    };
+    (section, Some(session.to_owned()), value)
+}
+
 /// `<name>` tokens of a recorded value back to the scenario's directories.
 fn restore(value: &Value, roots: &HashMap<&str, PathBuf>) -> Value {
     match value {
@@ -291,17 +317,18 @@ async fn replay(scenario: &Value) {
         }
         // Each delivery is one publication to every open client, then every client rereads, and a reread may raise the next.
         world.shadow.review_signal_settled().await;
-        let mut sorted = clients.clone();
-        sorted.sort();
         for (nth, delivery) in want["deliveries"].as_array().unwrap().iter().enumerate() {
-            assert_eq!(delivery["notification"], serde_json::json!({ "event": "turn-review-changed", "payload": null }));
-            let published = world.clients.published.lock().unwrap().clone();            let group = published.get(seen..seen + sorted.len()).unwrap_or_else(|| panic!("{label}: delivery {nth} was never published"));
-            let expected: Vec<(SectionName, Option<String>, SectionChange)> =
-                sorted.iter().map(|(session, _)| (SectionName::ReviewDiff, Some(session.clone()), SectionChange::Set(Bytes::from_static(REVIEW_REREAD)))).collect();
-            assert_eq!(group, expected.as_slice(), "{label}: delivery {nth}");
-            seen += sorted.len();
-            for (reread, (client, ws)) in delivery["rereads"].as_array().unwrap().iter().zip(&sorted) {
-                assert_eq!(reread["session"], *client, "{label}");
+            // The recording names the clients that reread after this notification, and each one is told it once.
+            let rereads = delivery["rereads"].as_array().unwrap();
+            let published = world.clients.published.lock().unwrap().clone();
+            let group = published.get(seen..seen + rereads.len()).unwrap_or_else(|| panic!("{label}: delivery {nth} was never published"));
+            let told: Vec<(SectionName, Option<String>, Value)> = group.iter().map(|(section, key, change)| (*section, key.clone(), decoded(change))).collect();
+            let expected: Vec<(SectionName, Option<String>, Value)> = rereads.iter().map(|reread| told_for(&delivery["notification"], reread["session"].as_str().unwrap())).collect();
+            assert_eq!(told, expected, "{label}: delivery {nth}");
+            seen += rereads.len();
+            for reread in rereads {
+                let client = reread["session"].as_str().unwrap();
+                let ws = &clients.iter().find(|(session, _)| session == client).unwrap_or_else(|| panic!("{label}: no client {client}")).1;
                 let reply = review.turn_review_diff(&plain(&roots[ws.as_str()]), client, ReviewRead::default()).await;
                 assert_eq!(Value::Object(reply), restore(&reread["answer"], &roots), "{label}: delivery {nth}, client {client}");
                 world.shadow.review_signal_settled().await;
@@ -309,6 +336,117 @@ async fn replay(scenario: &Value) {
         }
         assert_eq!(world.clients.published.lock().unwrap().len(), seen, "{label}: more deliveries than Node made");
     }
+}
+
+/// One recorded listener scenario's functions, handles and call log. What a listener does when it runs is the recording's data.
+struct Script {
+    shadow: Arc<ShadowRepos>,
+    does: HashMap<String, Vec<Value>>,
+    fns: Mutex<HashMap<String, Arc<dyn Fn() + Send + Sync>>>,
+    handles: Mutex<HashMap<String, Arc<dyn Fn() -> bool + Send + Sync>>>,
+    calls: Mutex<Vec<String>>,
+}
+
+impl Script {
+    fn subscribe(&self, name: &str, handle: &str) {
+        let listener = self.fns.lock().unwrap()[name].clone();
+        let unsubscribe = self.shadow.on_review_changed(listener);
+        self.handles.lock().unwrap().insert(handle.to_owned(), unsubscribe);
+    }
+
+    fn unsubscribe(&self, handle: &str) -> bool {
+        let unsubscribe = self.handles.lock().unwrap()[handle].clone();
+        unsubscribe()
+    }
+
+    fn ran(&self, name: &str) {
+        self.calls.lock().unwrap().push(name.to_owned());
+        for action in &self.does[name] {
+            match action["do"].as_str().unwrap() {
+                "unsubscribe" => {
+                    self.unsubscribe(action["handle"].as_str().unwrap());
+                }
+                "subscribe" => self.subscribe(action["fn"].as_str().unwrap(), action["handle"].as_str().unwrap()),
+                "signal" => self.shadow.raise_review_signal(),
+                "throw" => panic!("{name} threw"),
+                other => panic!("unknown action {other}"),
+            }
+        }
+    }
+}
+
+/// `onTurnReviewChanged` / `noteTurnReviewChanged` against Node's recording of the same scripts: which listeners run, in what
+/// order, when an unsubscribe finds its listener, and what a listener that changes the registry mid-delivery does to the delivery
+/// under way. The ops run in one task on the multi-thread runtime, with no yield between them but `drain`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn listeners_come_and_go_as_in_node() {
+    let golden: Value = serde_json::from_slice(&std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/turn-review-signal/listeners.json")).unwrap()).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    for scenario in golden.as_array().unwrap() {
+        let world = world(dir.path());
+        let script = Arc::new(Script {
+            shadow: world.shadow.clone(),
+            does: scenario["fns"].as_object().unwrap().iter().map(|(name, body)| (name.clone(), body["does"].as_array().unwrap().clone())).collect(),
+            fns: Mutex::new(HashMap::new()),
+            handles: Mutex::new(HashMap::new()),
+            calls: Mutex::new(Vec::new()),
+        });
+        for name in script.does.keys() {
+            let (runs, named) = (script.clone(), name.clone());
+            script.fns.lock().unwrap().insert(name.clone(), Arc::new(move || runs.ran(&named)));
+        }
+        let scenario = scenario.clone();
+        let running = script.clone();
+        let shadow = world.shadow.clone();
+        let results = tokio::spawn(async move {
+            let mut results = Vec::new();
+            for (index, op) in scenario["ops"].as_array().unwrap().iter().enumerate() {
+                running.calls.lock().unwrap().clear();
+                let mut answered = None;
+                match op["op"].as_str().unwrap() {
+                    "subscribe" => running.subscribe(op["fn"].as_str().unwrap(), op["handle"].as_str().unwrap()),
+                    "unsubscribe" => answered = Some(running.unsubscribe(op["handle"].as_str().unwrap())),
+                    "signal" => shadow.raise_review_signal(),
+                    "drain" => shadow.review_signal_settled().await,
+                    other => panic!("unknown op {other}"),
+                }
+                let mut result = serde_json::json!({ "op": index, "calls": running.calls.lock().unwrap().clone() });
+                if let Some(answer) = answered {
+                    result["answered"] = answer.into();
+                }
+                results.push(result);
+            }
+            (scenario, results)
+        })
+        .await
+        .unwrap();
+        let (scenario, results) = results;
+        assert_eq!(Value::Array(results), scenario["results"], "{}", scenario["name"]);
+    }
+}
+
+/// A wait for a delivery that never ends fails by assertion, naming what it waited for, once its deadline passes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_delivery_that_never_ends_fails_the_wait() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = world(dir.path());
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let held = Mutex::new(held);
+    world.shadow.on_review_changed(Arc::new(move || {
+        // Held until the test lets go; an error means the test is over.
+        let _ = held.lock().unwrap().recv();
+    }));
+    let shadow = world.shadow.clone();
+    let outcome = tokio::spawn(async move {
+        shadow.raise_review_signal();
+        shadow.review_signal_settled_within(std::time::Duration::from_millis(200)).await;
+    })
+    .await;
+    let failure = outcome.expect_err("the wait must fail while a listener never returns").into_panic();
+    let message = failure.downcast_ref::<String>().expect("the failure names what was awaited");
+    assert!(message.contains("onTurnReviewChanged listeners did not finish within"), "{message}");
+    release.send(()).unwrap();
+    world.shadow.review_signal_settled().await;
 }
 
 /// A burst of signals within one task is one delivery to every listener registered by then, on the multi-thread

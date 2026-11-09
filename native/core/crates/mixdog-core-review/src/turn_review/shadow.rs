@@ -189,7 +189,7 @@ struct ReposShared {
     maintained: Mutex<HashSet<PathBuf>>,
     temp_seq: AtomicU64,
     /// `onTurnReviewChanged` listeners (`turn-boundary-signal.mjs`).
-    review_listeners: Mutex<Vec<Arc<dyn Fn() + Send + Sync>>>,
+    review_listeners: Mutex<Listeners>,
     /// `reviewQueued` (`pending`) and whether a dispatch task is in flight (`running`), one lock so a
     /// signal either joins the delivery still to come or starts the next one.
     review_signal: Mutex<SignalState>,
@@ -202,6 +202,48 @@ struct ReposShared {
 struct SignalState {
     pending: bool,
     running: bool,
+}
+
+type Listener = Arc<dyn Fn() + Send + Sync>;
+
+/// How long a test waits for a signal's dispatch task: a failure guard, never a pause (the wait ends when the task does).
+#[cfg(any(test, feature = "test-support"))]
+const SIGNAL_DISPATCH_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// A JS `Set` of functions as a delivery walks it: a function is in it once (adding it again changes nothing), and the walk sees
+/// what happens to the set meanwhile. An entry removed before the walk reaches it is skipped, one added meanwhile is reached, and
+/// one removed and added again goes to the end (so a walk that already ran it runs it again).
+#[derive(Default)]
+struct Listeners {
+    /// Each entry's position in the set's order; later additions take larger numbers.
+    entries: Vec<(u64, Listener)>,
+    next: u64,
+}
+
+impl Listeners {
+    fn position(&self, listener: &Listener) -> Option<usize> {
+        self.entries.iter().position(|(_, held)| std::ptr::addr_eq(Arc::as_ptr(held), Arc::as_ptr(listener)))
+    }
+
+    /// `set.add(fn)`.
+    fn add(&mut self, listener: &Listener) {
+        if self.position(listener).is_none() {
+            self.entries.push((self.next, listener.clone()));
+            self.next += 1;
+        }
+    }
+
+    /// `set.delete(fn)`: whether it was in the set.
+    fn delete(&mut self, listener: &Listener) -> bool {
+        let Some(at) = self.position(listener) else { return false };
+        self.entries.remove(at);
+        true
+    }
+
+    /// The entry after position `after` (none: the first), with its position.
+    fn following(&self, after: Option<u64>) -> Option<(u64, Listener)> {
+        self.entries.iter().find(|(at, _)| after.is_none_or(|seen| *at > seen)).cloned()
+    }
 }
 
 impl ReposShared {
@@ -230,8 +272,12 @@ impl ReposShared {
                     }
                     state.pending = false;
                 }
-                let listeners: Vec<_> = shared.review_listeners.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                for listener in listeners {
+                // `for (const fn of host.reviews)`: the live set, read again after every listener.
+                let mut seen = None;
+                loop {
+                    let next = shared.review_listeners.lock().unwrap_or_else(|e| e.into_inner()).following(seen);
+                    let Some((at, listener)) = next else { break };
+                    seen = Some(at);
                     // Node: `try { fn() } catch {}`.
                     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener()));
                 }
@@ -271,7 +317,7 @@ impl ShadowRepos {
                 states: Mutex::new(IndexMap::new()),
                 maintained: Mutex::new(HashSet::new()),
                 temp_seq: AtomicU64::new(0),
-                review_listeners: Mutex::new(Vec::new()),
+                review_listeners: Mutex::new(Listeners::default()),
                 review_signal: Mutex::new(SignalState::default()),
                 #[cfg(any(test, feature = "test-support"))]
                 review_dispatch: Mutex::new(None),
@@ -285,19 +331,36 @@ impl ShadowRepos {
         self.shared.note_review_changed();
     }
 
-    /// `onTurnReviewChanged(listener)`.
-    pub fn on_review_changed(&self, listener: Arc<dyn Fn() + Send + Sync>) {
-        self.shared.review_listeners.lock().unwrap_or_else(|e| e.into_inner()).push(listener);
+    /// `onTurnReviewChanged(listener)`: registers it and returns `() => set.delete(fn)`. Like the set, the registration is the
+    /// function's: one registered twice is one entry, and any unsubscribe that names it removes it, however often it was handed out.
+    pub fn on_review_changed(&self, listener: Arc<dyn Fn() + Send + Sync>) -> Arc<dyn Fn() -> bool + Send + Sync> {
+        self.shared.review_listeners.lock().unwrap_or_else(|e| e.into_inner()).add(&listener);
+        let shared = Arc::downgrade(&self.shared);
+        Arc::new(move || shared.upgrade().is_some_and(|shared| shared.review_listeners.lock().unwrap_or_else(|e| e.into_inner()).delete(&listener)))
     }
 
     /// Resolves once every signal raised so far has reached its listeners (what a Node caller gets from one
-    /// `await` after the signal's task). A dispatch task that panicked or was cancelled fails the wait.
+    /// `await` after the signal's task). A dispatch task that panicked or was cancelled fails the wait, and so does one that
+    /// has not finished within [`SIGNAL_DISPATCH_DEADLINE`] (a listener that never returns).
     #[cfg(any(test, feature = "test-support"))]
     pub async fn review_signal_settled(&self) {
+        self.review_signal_settled_within(SIGNAL_DISPATCH_DEADLINE).await;
+    }
+
+    /// [`review_signal_settled`](Self::review_signal_settled) with the deadline for each dispatch task named.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn review_signal_settled_within(&self, deadline: std::time::Duration) {
         loop {
             let dispatch = self.shared.review_dispatch.lock().unwrap_or_else(|e| e.into_inner()).take();
-            let Some(dispatch) = dispatch else { break };
-            dispatch.await.expect("the review signal dispatch ended without delivering");
+            let Some(mut dispatch) = dispatch else { break };
+            match tokio::time::timeout(deadline, &mut dispatch).await {
+                Ok(joined) => joined.expect("the review signal dispatch ended without delivering"),
+                Err(_) => {
+                    // Still in flight: a later wait can still join it.
+                    *self.shared.review_dispatch.lock().unwrap_or_else(|e| e.into_inner()) = Some(dispatch);
+                    panic!("the review signal dispatch to the onTurnReviewChanged listeners did not finish within {deadline:?}");
+                }
+            }
         }
         let state = self.shared.review_signal.lock().unwrap_or_else(|e| e.into_inner());
         assert!(!state.pending && !state.running, "a signal is still waiting for its delivery");
