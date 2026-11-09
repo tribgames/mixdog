@@ -60,33 +60,37 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
   // frame queue empty, and a whole turn of the event loop (`setImmediate` runs after every microtask the last completion queued) in which
   // neither started anything. There is no sleep and no wall-clock quantum: a completion is what ends the wait.
   // Sealing held: a frame whose encryption has not finished has not left the page (the send phase of a call outlasting its transmission).
-  let sealGate = null;
+  // Each held encryption waits in line and leaves on its own release (so frames of concurrent calls finish sealing at different times).
+  let sealHeld = false;
+  const sealLine = [];
   let cryptoInFlight = 0;
   let cryptoDone = () => {};
-  let releaseSealGate = () => {};
   const subtle = globalThis.crypto.subtle;
   const subtleProto = Object.getPrototypeOf(subtle);
+  const counted = (original, callArgs) => {
+    cryptoInFlight += 1;
+    const settled = () => {
+      cryptoInFlight -= 1;
+      cryptoDone();
+    };
+    const result = original.apply(subtle, callArgs);
+    result.then(settled, settled);
+    return result;
+  };
   for (const name of Object.getOwnPropertyNames(subtleProto)) {
     const original = subtleProto[name];
     if (name === 'constructor' || typeof original !== 'function') continue;
     Object.defineProperty(subtle, name, {
       configurable: true,
       writable: true,
-      value: (...callArgs) => {
-        if (name === 'encrypt' && sealGate) return sealGate.then(() => subtle[name](...callArgs));
-        cryptoInFlight += 1;
-        const settled = () => {
-          cryptoInFlight -= 1;
-          cryptoDone();
-        };
-        const result = original.apply(subtle, callArgs);
-        result.then(settled, settled);
-        return result;
-      },
+      value: (...callArgs) =>
+        name === 'encrypt' && sealHeld
+          ? new Promise((resolve) => sealLine.push(resolve)).then(() => counted(original, callArgs))
+          : counted(original, callArgs),
     });
   }
   const holdSeal = () => {
-    sealGate = new Promise((resolve) => (releaseSealGate = resolve));
+    sealHeld = true;
   };
   const turn = () => new Promise((resolve) => setImmediate(resolve));
   const settle = async () => {
@@ -345,9 +349,10 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
     log,
     advance,
     holdSeal,
-    async releaseSeal() {
-      sealGate = null;
-      releaseSealGate();
+    /** Lets the first `count` held encryptions finish (all of them, and the hold ends, when no count is given). */
+    async releaseSeal(count) {
+      if (count === undefined) sealHeld = false;
+      for (const release of sealLine.splice(0, count ?? sealLine.length)) release();
       await settle();
     },
     /** Moves the virtual clock to each next timer until `cond` holds: the wait is on the event, with no step size and no cap. */
