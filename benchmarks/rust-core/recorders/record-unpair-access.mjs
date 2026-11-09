@@ -3,14 +3,79 @@
 // remote method table, with a scripted relay and a real E2EE phone. Per method group the same call is made before the unpair and
 // after it, over the same phone connection, and every decrypted frame is kept whole.
 import { EventEmitter, once } from 'node:events';
-import { writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
+// The values that differ between two Node runs of this script, by exact path in a scenario: [kind, path]. `--vary a b` (two `--raw`
+// runs) proves the list: the paths whose values differ between the runs are exactly these. No time is among them: the clock below is
+// the recorder's own, so every time Node reads or computes is the same in every run. A random id is replaced by `<kind#n>`, numbered
+// by first appearance of the value over the whole recording (scenarios in order, paths in this order), so equal values share one token
+// and different values never do; this run's temporary directory, alone or as the head of a path, by `<dir>`.
+const REMAP = [
+  ['webPushKey', 'before.webPush.value'],
+  ['webPushKey', 'after.webPush.value'],
+  ['grantId', 'before.files.grant.value.grantId'],
+  ['version', 'before.files.grant.value.version'],
+  ['transferId', 'before.files.transfer.value.transferId'],
+  ['version', 'before.files.transfer.value.version'],
+  ['assetId', 'before.files.transfer.value.media.assetId'],
+  ['grantId', 'before.files.unbegun.value.grantId'],
+  ['version', 'before.files.unbegun.value.version'],
+  ['accessToken', 'before.link.resolve.value.0.accessToken'],
+  ['dir', 'before.link.resolve.value.0.absolutePath'],
+  ['dir', 'before.link.resolve.value.0.projectPath'],
+  ['dir', 'before.chat.value.0.cwd'],
+  ['dir', 'before.chat.value.0.projectPath'],
+  ['dir', 'after.chat.value.0.cwd'],
+  ['dir', 'after.chat.value.0.projectPath'],
+];
+
 const args = parseArgs();
+if (args.get('vary')) {
+  // Which leaf paths differ between two raw runs of the same scenario; the exit code says whether they are exactly REMAP's.
+  const [first, second] = [args.get('vary'), args.get('against')].map((file) => JSON.parse(readFileSync(file, 'utf8')));
+  const leaves = (node, path, into) => {
+    if (Array.isArray(node)) node.forEach((item, index) => leaves(item, `${path}.${index}`, into));
+    else if (node !== null && typeof node === 'object') for (const [key, value] of Object.entries(node)) leaves(value, `${path}.${key}`, into);
+    else into.set(path.slice(1), JSON.stringify(node));
+    return into;
+  };
+  const listed = new Set(REMAP.map(([, path]) => path));
+  let exact = true;
+  first.forEach((run, index) => {
+    const [x, y] = [leaves(run.body, '', new Map()), leaves(second[index].body, '', new Map())];
+    const differing = [...new Set([...x.keys(), ...y.keys()])].filter((path) => x.get(path) !== y.get(path));
+    const unlisted = differing.filter((path) => !listed.has(path));
+    const unvaried = [...listed].filter((path) => !differing.includes(path));
+    console.log(`scenario ${index}: ${differing.length} paths differ between the runs; differ but not remapped: ${JSON.stringify(unlisted)}; remapped but equal: ${JSON.stringify(unvaried)}`);
+    for (const path of differing) console.log(`  ${path}`);
+    if (unlisted.length || unvaried.length) exact = false;
+  });
+  process.exit(exact ? 0 : 1);
+}
 const tree = resolveTree(args);
+
+// The clock Node's stack reads (`Date.now`, `new Date()`), installed before any of it loads so what it captures is this one. It moves only
+// when the recorder moves it (a second per call the phone makes), so the order of the times and the distance between them (a grant
+// expires a fixed time after the clock it was made at) are the same in every run.
+const CLOCK_START = Date.UTC(2031, 0, 1);
+const RealDate = globalThis.Date;
+let clock = CLOCK_START;
+globalThis.Date = class extends RealDate {
+  constructor(...given) {
+    super(...(given.length ? given : [clock]));
+  }
+
+  static now() {
+    return clock;
+  }
+};
+// The downloaded file's modification time, in seconds: part of the file's identity Node versions a download by.
+const MTIME_S = Math.floor(CLOCK_START / 1000) - 86_400;
 const identity = exactProductIdentity(tree, args.get('commit') ?? (() => { throw new Error('--commit is required'); })());
 const recorder = 'benchmarks/rust-core/recorders/record-unpair-access.mjs';
 const finalDir = join(FIXTURES_ROOT, 'unpair-access');
@@ -55,56 +120,38 @@ const until = (predicate, what) =>
     check();
   });
 
-// The only values that differ between two Node recordings of this script (proved by running it twice: the two fixtures are
-// byte-identical once these are replaced): clock times, ids Node generates, this run's temporary directory (alone, or as the prefix
-// of the file's path) and the Web Push key generated per install. A varying value is replaced by `<key#n>`, numbered by first
-// appearance among the values of that key, over the frames in `ORDER`; the directory prefix by `<dir>`. Everything else is kept.
-const VARYING = {
-  time: ['updatedAt', 'activityAt', 'expiresAt', 'mtimeMs'],
-  generated: ['grantId', 'transferId', 'assetId', 'version', 'accessToken'],
-  directory: ['cwd', 'projectPath'],
-  directoryPrefix: ['absolutePath'],
-};// The frames of a scenario in the order they were made; `canon` walks them in this order and each object's keys in order.
-const ORDER = [
-  'setup.setNotificationPreferences', 'setup.registerNativePush', 'setup.registerPushSubscription',
-  'before.chat', 'before.terminal', 'before.settings', 'before.notifications', 'before.webPush',
-  'before.files.grant', 'before.files.transfer', 'before.files.unbegun', 'before.link.resolve', 'before.link.read',
-  'after.chat', 'after.terminal', 'after.settings', 'after.notifications', 'after.webPush',
-  'after.files.range', 'after.files.begin', 'after.link.read', 'after.screen', 'after.secondConnection.screen',
-  'after.notificationsAfterForget', 'after.removeNativePush', 'after.removePushSubscription',
-];
 const at = (root, path) => path.split('.').reduce((node, key) => node?.[key], root);
-function canon(scenarioBody, dir) {
-  const seen = new Map();
-  const token = (key, value) => {
-    const known = seen.get(key) ?? seen.set(key, []).get(key);
-    if (!known.some((held) => held === JSON.stringify(value))) known.push(JSON.stringify(value));
-    return `<${key}#${known.indexOf(JSON.stringify(value))}>`;
-  };
-  const replaced = (path, key, value) => {
-    if (VARYING.time.includes(key) && typeof value === 'number') return token(key, value);
-    if (VARYING.generated.includes(key) && typeof value === 'string') return token(key, value);
-    if (VARYING.directory.includes(key) && value === dir) return '<dir>';
-    if (VARYING.directoryPrefix.includes(key) && typeof value === 'string' && value.startsWith(dir)) return `<dir>${value.slice(dir.length)}`;
-    // The Web Push public key is generated once per install; the same key answers before and after.
-    if (path.endsWith('.webPush') && key === 'value') return token('webPushKey', value);
-    return undefined;
-  };
-  const walk = (node, path) => {
-    if (Array.isArray(node)) return node.map((item) => walk(item, path));
-    if (node === null || typeof node !== 'object') return node;
-    return Object.fromEntries(Object.entries(node).map(([key, value]) => [key, replaced(path, key, value) ?? walk(value, path)]));
-  };
-  const out = structuredClone(scenarioBody);
-  for (const path of ORDER) {
+// One token per distinct value over the whole recording, numbered per kind by first appearance.
+const tokens = new Map();
+const counts = new Map();
+function remapped(body, dir) {
+  const out = structuredClone(body);
+  for (const [kind, path] of REMAP) {
     const parts = path.split('.');
     const holder = at(out, parts.slice(0, -1).join('.'));
-    holder[parts.at(-1)] = walk(at(scenarioBody, path), path);
+    const value = holder?.[parts.at(-1)];
+    if (typeof value !== 'string') throw new Error(`remapped path ${path} holds no string in the recording`);
+    if (kind === 'dir') {
+      if (!value.startsWith(dir)) throw new Error(`remapped path ${path} does not start with the temporary directory`);
+      holder[parts.at(-1)] = `<dir>${value.slice(dir.length)}`;
+      continue;
+    }
+    if (!tokens.has(value)) {
+      counts.set(kind, (counts.get(kind) ?? 0) + 1);
+      tokens.set(value, `<${kind}#${counts.get(kind) - 1}>`);
+    }
+    holder[parts.at(-1)] = tokens.get(value);
   }
-  out.feedEvents = scenarioBody.feedEvents === null ? null : scenarioBody.feedEvents.map((frame, index) => walk(frame, `feedEvents.${index}`));
+  // Nothing else may carry this run's directory or a token: the list above is all that is replaced.
+  const stray = (node, path) => {
+    if (typeof node === 'string' && (node.includes(dir) || /^<[A-Za-z]+(#\d+)?>/u.test(node)) && !REMAP.some(([, listed]) => listed === path)) throw new Error(`${path} holds a value the remap list does not name: ${node}`);
+    if (node !== null && typeof node === 'object') for (const [key, value] of Object.entries(node)) stray(value, path ? `${path}.${key}` : key);
+  };
+  stray(out, '');
   return out;
 }
 async function scenario(name, relayConfirms) {
+  clock = CLOCK_START;
   const f = await viewSyncHost();
   const dir = f.options.userDataPath;
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
@@ -169,6 +216,7 @@ async function scenario(name, relayConfirms) {
       await until(() => phone.messages.length > 0, 'the phone is established');
       const send = async (method, params) => {
         const callId = next++;
+        clock += 1000;
         leg.send(JSON.stringify({ type: 'frame', clientId: id, data: await phone.channel.encryptJson({ id: callId, method, params }) }));
         return callId;
       };
@@ -185,7 +233,7 @@ async function scenario(name, relayConfirms) {
         screen: async () => {
           const callId = await send('browserRemoteScreenDisplays', []);
           await call('listSessions', []);
-          return phone.messages.find((m) => m.id === callId) ?? null;
+          return phone.messages.find((m) => m.id === callId) ?? { id: callId, unanswered: true };
         },
       };
     };
@@ -210,6 +258,7 @@ async function scenario(name, relayConfirms) {
     for (const [group, method, params] of groups) before[group] = await call(method, params);
     // Files: a granted one-file download, begun into a transfer, and a second grant not yet begun; both are the device's own.
     await writeFile(download, 'unpair download');
+    await utimes(download, MTIME_S, MTIME_S);
     const request = { source: { kind: 'session', sessionId: 's1', path: download }, purpose: 'save' };
     const grant = await call('fileDownloadAuthorize', [request]);
     const transfer = await call('fileDownloadBegin', [grant.value.grantId]);
@@ -252,7 +301,7 @@ async function scenario(name, relayConfirms) {
     }
     const body = { name, relayConfirms, revokeOutcome, envelopesAtUnpair, desktopClosedPhone: phone.closedByDesktop, phoneStillAttached: connected, setup, before, after, feedEvents };
     // --raw <file>: keep this run's frames exactly as Node produced them (no remapping), to compare two runs.
-    return args.get('raw') ? { dir, body } : canon(body, dir);  } finally {
+    return args.get('raw') ? { dir, body } : remapped(body, dir);  } finally {
     tearingDown = true;
     await service?.dispose();
     leg?.terminate();
@@ -270,7 +319,7 @@ if (args.get('raw')) {
   console.log('raw run written');
   process.exit(0);
 }
-writeJson(join(stage, 'unpair-access.json'), { domain: 'unpair-access', recorder, credential: CRED, token: TOKEN, order: ORDER, remapped: VARYING, scenarios: out });
+writeJson(join(stage, 'unpair-access.json'), { domain: 'unpair-access', recorder, credential: CRED, token: TOKEN, remapped: REMAP.map(([kind, path]) => ({ kind, path })), scenarios: out });
 writeSetManifest(stage, {
   set: 'unpair-access',
   recorder,
