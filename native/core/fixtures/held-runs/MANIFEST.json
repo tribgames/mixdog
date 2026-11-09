@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 67345,
+      "bytes": 77077,
       "path": "golden.json",
-      "sha256": "ed50bfe2f28f4bbb4f6ef39c384c8b02a9035108fcf4b0d3e86fcb4f57878955"
+      "sha256": "0ec08f7b2843182ccd4e8d38c139a971825c0e3d79da71f13ebb0dac5e810f65"
     }
   ],
   "product": {
@@ -26,7 +26,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-held-runs.mjs",
-  "scenarios": 17,
+  "scenarios": 18,
   "set": "held-runs",
-  "totalBytes": 67345
+  "totalBytes": 77077
 }

@@ -417,7 +417,7 @@ fn present(call: &GateCall, decision: GateDecision) -> Value {
 }
 
 fn parse<T: serde::de::DeserializeOwned>(value: Option<&Value>) -> Option<T> {
-    value.filter(|v| !v.is_null()).map(|v| serde_json::from_value(v.clone()).expect("a recorded name"))
+    value.map(|v| serde_json::from_value(v.clone()).expect("a recorded name"))
 }
 
 fn push_json(push: &HeldPush) -> Value {
@@ -437,9 +437,8 @@ impl Seen {
         let rows = scene.home.rows.lock().unwrap();
         let pushes = scene.pushes.lock().unwrap();
         let asked = scene.card.asked.lock().unwrap();
-        let ui: Vec<Value> = asked
+        let ui: Vec<Value> = asked[self.asks..]
             .iter()
-            .skip(self.asks)
             .map(|ask| {
                 let field = |name: &str| ask.payload.get(name).cloned().unwrap_or(Value::Null);
                 json!({ "name": field("name"), "kind": field("kind"), "reason": field("reason"), "remember": field("remember") })
@@ -574,11 +573,14 @@ async fn replay(scenario: &Value) -> Value {
             "advance" => {
                 let ms = op["ms"].as_u64().unwrap();
                 scene.now.fetch_add(ms as i64, Ordering::SeqCst);
-                // What the elapsed time did to the requests is the next `facts` step's recorded state; the timers are counted at the end.
+                // Node registers no timer for a held wait, so nothing happens to a held ask however far the clock moves. `advance` fires
+                // every timer due and yields once, so a timer of the held layer (an expiry) would have run and left the pending list
+                // before the next line; the pending list is the recorded `waiting`, and no held ask's call has returned.
                 tokio::time::advance(Duration::from_millis(ms)).await;
-                // The paused clock only moves on when every task is idle, so the probe returns after everything the elapsed time woke has run to its next wait. The probe is the harness's own timer.
-                tokio::time::sleep(Duration::from_millis(1)).await;
-                trace.push(json!({ "op": "advance", "ms": ms, "now": scene.now.load(Ordering::SeqCst) }));
+                assert!(asks.values().all(|(task, _)| !task.is_finished()), "{}: a held ask returned while the clock moved", scenario["name"]);
+                let mut waiting: Vec<String> = scene.held.pending().into_iter().map(|held| held.id).collect();
+                waiting.sort();
+                trace.push(json!({ "op": "advance", "ms": ms, "now": scene.now.load(Ordering::SeqCst), "waiting": waiting }));
             }
             "release" => {
                 let releasing = scene.home.waiting_release.swap(0, Ordering::SeqCst);
@@ -590,15 +592,6 @@ async fn replay(scenario: &Value) -> Value {
             other => panic!("unknown op {other}"),
         }
     }
-    // Tokio exposes no count of registered timers, so the held layer's timers are observed by what they would do: the runtime goes idle
-    // with the requests still waiting and the paused clock jumps to the earliest timer there is, so a timer of the layer (an expiry)
-    // would run before this far-off harness sleep (which is not counted) and answer or drop a request. That change in the requests is
-    // counted here as `timer_effects`; Node's own count of registered timers is compared to it below, and the recorded state of the
-    // asks and the pending list is compared separately, step by step, in the trace.
-    let (finished, waiting) = (|| asks.values().filter(|(task, _)| task.is_finished()).count(), || scene.held.pending().len());
-    let (finished_before, waiting_before) = (finished(), waiting());
-    tokio::time::sleep(Duration::from_secs(100 * 365 * 86_400)).await;
-    let timer_effects = (finished() - finished_before) + waiting_before.abs_diff(waiting());
     drop(marks);
     let audit: Vec<Value> = scene
         .grants
@@ -619,27 +612,26 @@ async fn replay(scenario: &Value) -> Value {
         .into_iter()
         .map(|g| json!({ "id": g.id, "agentId": g.agent_id, "action": g.action.render(), "mode": g.mode.as_str(), "device": g.device, "at": g.at_ms }))
         .collect();
-    json!({ "trace": trace, "audit": audit, "grants": grants, "timerEffects": timer_effects })
+    json!({ "trace": trace, "audit": audit, "grants": grants })
 }
 
 #[tokio::test(start_paused = true)]
 async fn every_run_node_holds_is_held_and_every_run_it_does_not_hold_is_not() {
     let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
     let scenarios = golden["scenarios"].as_array().expect("scenarios");
-    assert_eq!(scenarios.len(), 17, "the recorded scenario list");
+    assert_eq!(scenarios.len(), 18, "the recorded scenario list");
     for scenario in scenarios {
         let got = replay(scenario).await;
         assert_eq!(scenario["timers"]["registered"], 0, "Node registers no timer: {}", scenario["name"]);
-        assert_eq!(got["timerEffects"], 0, "the held layer's timers did nothing to the requests: {}", scenario["name"]);
         let want = json!({ "trace": scenario["trace"], "audit": scenario["audit"], "grants": scenario["grants"] });
-        for part in ["audit", "grants"] {
-            assert_eq!(got[part], want[part], "{} {part}", scenario["name"]);
-        }
         let (got_trace, want_trace) = (got["trace"].as_array().unwrap(), want["trace"].as_array().unwrap());
         for (index, (g, w)) in got_trace.iter().zip(want_trace).enumerate() {
             assert_eq!(g, w, "{} step {index}", scenario["name"]);
         }
         assert_eq!(got_trace.len(), want_trace.len(), "{}", scenario["name"]);
+        for part in ["audit", "grants"] {
+            assert_eq!(got[part], want[part], "{} {part}", scenario["name"]);
+        }
     }
 }
 
@@ -657,18 +649,12 @@ impl Client {
 
     /// Waits until the response of request `id` is written; it must be a result.
     async fn response(&self, id: i64) {
-        for _ in 0..5_000 {
-            for written in self.wire.drain() {
-                let frame: Value = serde_json::from_slice(&written.frame).unwrap_or(Value::Null);
-                if frame["id"] == json!(id) {
-                    assert!(frame.get("result").is_some(), "request {id} failed: {frame}");
-                    return;
-                }
-            }
-            tokio::task::yield_now().await;
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        }
-        panic!("no response to {id}");
+        // Woken by each frame the connection receives; the frames are `control:<json>` or `<subscription>:<json>`.
+        // Finds the frame answering request `id` among the connection's frames; nothing is compared with Node here, other frames are not this request's response.
+        let frame_of = |text: &String| text.find('{').and_then(|at| serde_json::from_str::<Value>(&text[at..]).ok()).filter(|frame| frame["id"] == json!(id));
+        let frames = self.wire.drain_text_until(|all| all.iter().any(|text| frame_of(text).is_some())).await;
+        let frame = frames.iter().find_map(frame_of).expect("the response frame");
+        assert!(frame.get("result").is_some(), "request {id} failed: {frame}");
     }
 }
 
@@ -694,12 +680,20 @@ const DESKTOP_ON_MEMBER: Attendee = Attendee { kind: "desktop", inbox: false, wa
 /// The approval predicate over the real pieces the composition builds it from (the session directory's header and lineage, the app
 /// server's connections and their subscriptions: `ThreadApprovalSurfaces` over `Outgoing`), driven through the composed gate: a room
 /// member's ask is held exactly when `Surface::attended` says no card can show it. Each case is a way Node runs, or does not run, a
-/// turn with a `toolApprovalHook` (`ask-turn-execute.mjs:284-288`: the hook is set by the client turn that can answer):
-///  - a desktop, a phone or a terminal client shows the card of the thread it watches: attended;
-///  - an inbox client (`approvalsInbox`) answers every thread: attended;
-///  - a client that is connected but not watching the thread, one watching another thread, no client, and a thread that is not loaded
-///    have no card to show: held;
-///  - a headless session (`approvalMode: "implicit"`, `headless-exec.mjs:422`) never has a hook, whoever watches it: held.
+/// turn with a `toolApprovalHook`. Node installs the hook for a turn exactly when `askOpts.onToolApproval` is a function
+/// (`ask-turn-execute.mjs:284-288`, restored at `:334-338`), and the only producer is the client turn
+/// (`tui/session/turn.mjs:442`, answering through `tool-approval.mjs` `requestToolApproval`, which every desktop, phone and terminal
+/// client of that session shows). Rust has no in-process client turn, so the same fact is "a live connection can show the card":
+///  - Node: a desktop, a phone or a terminal client turn (hook installed) <-> Rust: that client watches the thread (`thread/resume`);
+///  - Node: the approvals inbox of a phone or desktop answers every session <-> Rust: a connection with `approvalsInbox`;
+///  - Node: a turn nobody drives, whose ask has no hook (room member, schedule, webhook, recognized run) <-> Rust: no client, a client
+///    connected but not watching the thread, one watching another thread, a thread that is not loaded: held;
+///  - Node: headless/exec passes no `onToolApproval` and runs `approvalMode: "implicit"` (`headless-exec.mjs:422`) <-> Rust: an
+///    implicit header, whoever watches it: held;
+///  - Node: the hook is read at each ask (`tool-helpers.mjs:214-216`), so a turn whose clients left holds its next ask (the golden's
+///    "attached, detached, attached" scenario) <-> Rust: the predicate is read per ask, shown by the second ask after the clients dropped.
+/// Not equal: a Node client turn whose clients all went away keeps its hook and waits in the turn's own queue (`armToolApprovalTimeout`),
+/// where Rust holds the ask; no recording drives a client turn, so that difference is reported, not proved.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_member_is_held_exactly_when_no_client_can_show_its_card() {
     use mixdog_core_api::ids::ConnectionId;
@@ -791,6 +785,19 @@ async fn a_member_is_held_exactly_when_no_client_can_show_its_card() {
         assert_eq!(scene.card.asked.lock().unwrap().len(), usize::from(case.attended), "{}: asks on the card", case.name);
         assert_eq!(scene.held.pending().len(), usize::from(!case.attended), "{}: pending", case.name);
         if held {
+            task.abort();
+        }
+        if case.attended {
+            // The predicate is read at each ask: once every client has gone the same session's next ask is held.
+            clients.clear();
+            let gate = scene.gate(&member);
+            let call = GateCall::new("shell".to_owned(), json!({ "command": "echo again" }));
+            let mut task = tokio::spawn(async move { present(&call, gate.check_call("call_b", &call).await) });
+            tokio::select! {
+                settled = &mut task => panic!("{}: the ask after the clients left was not held: {settled:?}", case.name),
+                push = scene.waiting.recv() => { push.expect("a push"); }
+            }
+            assert_eq!(scene.held.pending().len(), 1, "{}: pending after the clients left", case.name);
             task.abort();
         }
         drop(clients);
