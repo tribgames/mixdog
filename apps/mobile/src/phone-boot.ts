@@ -166,9 +166,9 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
       probeAnswered: () => {
         if (!resyncAfterProbe) return;
         resyncAfterProbe = false;
-        void view?.resync();
+        void view?.resync().catch(() => undefined);
       },
-      resyncHint: () => void view?.resync(),
+      resyncHint: () => void view?.resync().catch(() => undefined),
       ready: (hello) => {
         ctx.limits.learnRoutingCaps(hello);
         setRemoteHostOpenAccess(hello.remoteOpenAccess === 1);

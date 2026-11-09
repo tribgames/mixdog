@@ -545,7 +545,9 @@ export function protocolDialect(initializeResult) {
           return reply({ subscription });
         case 'thread/resume':
           leg.core.view = [...new Set([...leg.core.view, frame.params.threadId])];
-          return reply({ thread: { id: frame.params.threadId }, subscription });
+          // A change of the view is the phone's counterpart of Node's synchronizeViews (one request of the view), traced and held under that name.
+          leg.requested('synchronizeViews');
+          return leg.answer('synchronizeViews', (ok, value) => (ok ? { id: frame.id, result: value ?? { thread: { id: frame.params.threadId }, subscription } } : { id: frame.id, error: { code: -32000, message: 'refused' } }));
         case 'thread/unsubscribe':
           leg.core.view = leg.core.view.filter((id) => id !== frame.params.threadId);
           return reply({});

@@ -424,6 +424,108 @@ export const SCENARIOS = {
     { op: 'advance', ms: 0 },
     { op: 'mark', name: 'served' },
   ],
+  // The connection ends while a resync is held and a gated read waits on it: Node's close() rejects the waiter as interrupted
+  // (remote-view-sync.ts:97), the read settles with that (remote-shim-calls.ts:301) and is not asked again; a read asked on the redialed
+  // connection is served. The held answer belonged to the dead leg.
+  'disconnect-during-held-resync': [
+    { op: 'boot', reads: true },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'advance', ms: 10000 },
+    { op: 'mark', name: 'boot-window-expired' },
+    { op: 'hold', name: 'synchronizeViews' },
+    { op: 'relay-hint' },
+    { op: 'read', name: 'readSettings', as: 'gated' },
+    { op: 'advance', ms: 3000 },
+    { op: 'mark', name: 'resync-held' },
+    { op: 'random', value: 0 },
+    { op: 'drop', code: 1006 },
+    { op: 'unhold', name: 'synchronizeViews' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'dropped' },
+    { op: 'accept' },
+    { op: 'check', name: 'back', expect: { foreground: true } },
+    { op: 'read', name: 'readSettings', as: 'after' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'served' },
+  ],
+  // Repeated refusals recycle the connection (remote-view-sync.ts:56-59), which rejects the waiting gated read as interrupted.
+  'resync-recycle-rejects-gate': [
+    { op: 'boot', reads: true },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'advance', ms: 10000 },
+    { op: 'mark', name: 'boot-window-expired' },
+    { op: 'fail-sync', times: 3 },
+    { op: 'relay-hint' },
+    { op: 'read', name: 'readSettings', as: 'gated' },
+    { op: 'advance', ms: 749 },
+    { op: 'mark', name: 'refused-twice' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'recycled' },
+    { op: 'accept' },
+    { op: 'check', name: 'back', expect: { foreground: true } },
+    { op: 'read', name: 'readSettings', as: 'after' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'served' },
+  ],
+  // A change of the view is a sync request too (remote-shim-api.ts:306-307): a gated read waits for it, and the caller of the change gets its
+  // answer when it lands.
+  'view-change-gates-reads': [
+    { op: 'boot', reads: true },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'advance', ms: 10000 },
+    { op: 'mark', name: 'boot-window-expired' },
+    { op: 'hold', name: 'synchronizeViews' },
+    { op: 'visible', ids: ['s1'], as: 'view' },
+    { op: 'read', name: 'readSettings', as: 'gated' },
+    { op: 'advance', ms: 3000 },
+    { op: 'mark', name: 'view-sync-held' },
+    { op: 'release', name: 'synchronizeViews' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'view-sync-landed' },
+  ],
+  // The connection ends while a view change is held: the change's own caller is interrupted too, as is the read behind it.
+  'disconnect-during-view-change': [
+    { op: 'boot', reads: true },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'advance', ms: 10000 },
+    { op: 'mark', name: 'boot-window-expired' },
+    { op: 'hold', name: 'synchronizeViews' },
+    { op: 'visible', ids: ['s1'], as: 'view' },
+    { op: 'read', name: 'readSettings', as: 'gated' },
+    { op: 'advance', ms: 1000 },
+    { op: 'random', value: 0 },
+    { op: 'drop', code: 1006 },
+    { op: 'unhold', name: 'synchronizeViews' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'dropped' },
+    // Ends here: the redialed connection re-attaches the thread with one more request on the phone (app feed and thread) than Node's single
+    // synchronizeViews, a dialect difference the request trace would show and nothing a caller sees.
+  ],
+
+  // A gated read asked while no connection is up waits for the next one *and its sync* (Node: connect(), then ready() on the new connection):
+  // with that sync held, the read is not requested; it leaves when the sync lands.
+  'gated-read-while-down-sync-held': [
+    { op: 'boot', reads: true },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'advance', ms: 10000 },
+    { op: 'mark', name: 'boot-window-expired' },
+    { op: 'random', value: 0 },
+    { op: 'drop', code: 1006 },
+    { op: 'advance', ms: 0 },
+    { op: 'read', name: 'readSettings', as: 'while-down' },
+    { op: 'hold', name: 'synchronizeViews' },
+    { op: 'accept' },
+    { op: 'advance', ms: 3000 },
+    { op: 'mark', name: 'reconnected-sync-held' },
+    { op: 'release', name: 'synchronizeViews' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'sync-landed' },
+  ],
   // The reads the app makes as it mounts (Node: prefetchBootReads, remote-shim-calls.ts): started beside the first view sync, so a consumer
   // mounted while the sync is blocked is answered; the two reads of state the sync owns (snapshot, projects) wait for it.
   'boot-reads-sync-held': [
@@ -545,7 +647,7 @@ export async function play(world, driver, ops) {
       ...(traceReads
         ? {
             requests: slice.filter((e) => e.ev === 'request').map((e) => `${e.name}@${e.at - since}`).sort(),
-            settled: slice.filter((e) => e.ev === 'settled').map((e) => `${e.as}:${e.ok ? `ok=${JSON.stringify(e.value)}` : 'err'}@${e.at - since}`).sort(),
+            settled: slice.filter((e) => e.ev === 'settled').map((e) => `${e.as}:${e.ok ? `ok=${JSON.stringify(e.value)}` : `err(${e.code})`}@${e.at - since}`).sort(),
           }
         : {}),
       pairingInvalid: slice.filter((e) => e.ev === 'pairing-invalid').map((e) => e.message),
@@ -645,8 +747,12 @@ export async function play(world, driver, ops) {
       case 'read':
         driver.api()[op.name]().then(
           (value) => world.log({ ev: 'settled', as: op.as, ok: true, value }),
-          () => world.log({ ev: 'settled', as: op.as, ok: false })
+          (error) => world.log({ ev: 'settled', as: op.as, ok: false, code: error?.code })
         );
+        break;
+      case 'unhold':
+        world.holds.delete(op.name);
+        world.held = world.held.filter((h) => h.name !== op.name);
         break;
       case 'hold':
         world.holds.add(op.name);
@@ -661,7 +767,10 @@ export async function play(world, driver, ops) {
         world.window.dispatchEvent(new CustomEvent(driver.visualizePanelsEvent, { detail: op.ids }));
         break;
       case 'visible':
-        void driver.api().setVisibleSessions(op.ids);
+        driver.api().setVisibleSessions(op.ids).then(
+          (value) => world.log({ ev: 'settled', as: op.as ?? 'visible', ok: true, value }),
+          (error) => world.log({ ev: 'settled', as: op.as ?? 'visible', ok: false, code: error?.code })
+        );
         break;
       case 'lane':
         driver.api().subscribeTermData(() => {});

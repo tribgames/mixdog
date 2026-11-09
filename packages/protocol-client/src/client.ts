@@ -255,7 +255,12 @@ class Engine implements ProtocolClient<Json> {
     this.reducer = options.threadReducer;
     this.budgetMs = options.turn?.budgetMs ?? 8;
     this.now = options.turn?.now ?? (() => performance.now());
-    this.yieldTurn = options.turn?.yieldTurn ?? (() => new Promise<void>((r) => (typeof setImmediate === 'function' ? setImmediate(r) : setTimeout(r, 0))));
+    this.yieldTurn = options.turn?.yieldTurn ?? (() => new Promise<void>((r) => {
+      // Read at call time: the renderer's program has no Node globals, and a page has no setImmediate.
+      const immediate = (globalThis as { setImmediate?: (callback: () => void) => unknown }).setImmediate;
+      if (typeof immediate === 'function') immediate(r);
+      else setTimeout(r, 0);
+    }));
   }
 
   /** The turn's budget is spent. */

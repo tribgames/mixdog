@@ -2761,6 +2761,667 @@
         }
       }
     ],
+    "disconnect-during-held-resync": [
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "requests": [
+          "getSnapshot@0",
+          "listProjects@0",
+          "readActivityRailPins@0",
+          "readHostDisplayPreferences@0",
+          "readSettings@0",
+          "synchronizeViews@0",
+          "viewerDevice@0"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "boot-window-expired",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "wire": [],
+        "requests": [],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "resync-held",
+        "states": [
+          "syncing"
+        ],
+        "banner": [
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "resync@0"
+        ],
+        "requests": [
+          "synchronizeViews@0"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 1
+        }
+      },
+      {
+        "name": "dropped",
+        "states": [
+          "syncing",
+          "reconnecting"
+        ],
+        "banner": [
+          false,
+          true
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "requests": [],
+        "settled": [
+          "gated:err(MIXDOG_REMOTE_CONNECTION_INTERRUPTED)@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": null
+      },
+      {
+        "name": "back",
+        "states": [
+          "reconnecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [],
+        "requests": [
+          "synchronizeViews@0"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 1,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "served",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "wire": [],
+        "requests": [
+          "readSettings@0"
+        ],
+        "settled": [
+          "after:ok={\"settings\":\"S\"}@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      }
+    ],
+    "resync-recycle-rejects-gate": [
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "requests": [
+          "getSnapshot@0",
+          "listProjects@0",
+          "readActivityRailPins@0",
+          "readHostDisplayPreferences@0",
+          "readSettings@0",
+          "synchronizeViews@0",
+          "viewerDevice@0"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "boot-window-expired",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "wire": [],
+        "requests": [],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "refused-twice",
+        "states": [
+          "syncing"
+        ],
+        "banner": [
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "resync@0",
+          "resync@250"
+        ],
+        "requests": [
+          "synchronizeViews@0",
+          "synchronizeViews@250"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 2
+        }
+      },
+      {
+        "name": "recycled",
+        "states": [
+          "syncing",
+          "reconnecting"
+        ],
+        "banner": [
+          false,
+          true
+        ],
+        "offline": false,
+        "wire": [
+          "resync@1",
+          "close(null,null)@1",
+          "socket@1"
+        ],
+        "requests": [
+          "synchronizeViews@1"
+        ],
+        "settled": [
+          "gated:err(MIXDOG_REMOTE_CONNECTION_INTERRUPTED)@1"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 3
+        }
+      },
+      {
+        "name": "back",
+        "states": [
+          "reconnecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [],
+        "requests": [
+          "synchronizeViews@0"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 1,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "served",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "wire": [],
+        "requests": [
+          "readSettings@0"
+        ],
+        "settled": [
+          "after:ok={\"settings\":\"S\"}@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      }
+    ],
+    "view-change-gates-reads": [
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "requests": [
+          "getSnapshot@0",
+          "listProjects@0",
+          "readActivityRailPins@0",
+          "readHostDisplayPreferences@0",
+          "readSettings@0",
+          "synchronizeViews@0",
+          "viewerDevice@0"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "boot-window-expired",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "wire": [],
+        "requests": [],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "view-sync-held",
+        "states": [
+          "syncing"
+        ],
+        "banner": [
+          false
+        ],
+        "offline": false,
+        "wire": [],
+        "requests": [
+          "synchronizeViews@0"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [
+            "s1"
+          ],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "view-sync-landed",
+        "states": [
+          "connected"
+        ],
+        "banner": [
+          false
+        ],
+        "offline": false,
+        "wire": [],
+        "requests": [
+          "readSettings@0"
+        ],
+        "settled": [
+          "gated:ok={\"settings\":\"S\"}@0",
+          "view:ok=true@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [
+            "s1"
+          ],
+          "lanes": [],
+          "resyncs": 0
+        }
+      }
+    ],
+    "disconnect-during-view-change": [
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "requests": [
+          "getSnapshot@0",
+          "listProjects@0",
+          "readActivityRailPins@0",
+          "readHostDisplayPreferences@0",
+          "readSettings@0",
+          "synchronizeViews@0",
+          "viewerDevice@0"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "boot-window-expired",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "wire": [],
+        "requests": [],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "dropped",
+        "states": [
+          "syncing",
+          "reconnecting"
+        ],
+        "banner": [
+          false,
+          true
+        ],
+        "offline": false,
+        "wire": [
+          "socket@1000"
+        ],
+        "requests": [
+          "synchronizeViews@0"
+        ],
+        "settled": [
+          "gated:err(MIXDOG_REMOTE_CONNECTION_INTERRUPTED)@1000",
+          "view:err(MIXDOG_REMOTE_CONNECTION_INTERRUPTED)@1000"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": null
+      }
+    ],
+    "gated-read-while-down-sync-held": [
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "requests": [
+          "getSnapshot@0",
+          "listProjects@0",
+          "readActivityRailPins@0",
+          "readHostDisplayPreferences@0",
+          "readSettings@0",
+          "synchronizeViews@0",
+          "viewerDevice@0"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "boot-window-expired",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "wire": [],
+        "requests": [],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "reconnected-sync-held",
+        "states": [
+          "connected",
+          "reconnecting",
+          "syncing"
+        ],
+        "banner": [
+          false,
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "requests": [
+          "synchronizeViews@0"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": null,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "sync-landed",
+        "states": [
+          "connected"
+        ],
+        "banner": [
+          false
+        ],
+        "offline": false,
+        "wire": [],
+        "requests": [
+          "readSettings@0"
+        ],
+        "settled": [
+          "while-down:ok={\"settings\":\"S\"}@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 1,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      }
+    ],
     "boot-reads-sync-held": [
       {
         "name": "sync-held",
@@ -3082,7 +3743,7 @@
         "wire": [],
         "requests": [],
         "settled": [
-          "display-1:err@0"
+          "display-1:err(undefined)@0"
         ],
         "pairingInvalid": [],
         "reconnected": 0,
