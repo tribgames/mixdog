@@ -1,0 +1,85 @@
+{
+  "exact": true,
+  "source": {
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+    "files": [
+      {
+        "path": "apps/desktop/src/main/index.ts",
+        "blob": "3a5e734fbbfff250af93b98282a22c67e8d17610",
+        "sha256": "7fa9506b221d18032f930bb5f8953c98f3e4fbe6f2c6b533a847856017185d3e"
+      },
+      {
+        "path": "apps/desktop/src/main/desktop-diagnostics.ts",
+        "blob": "e7d4cca048c37f16019be69b600fa26203e86fab",
+        "sha256": "7dd43b26fba31a12d2d7f445590b19cb063ccb4a6ac61f97df325b4f17d4a169"
+      }
+    ],
+    "functions": [
+      {
+        "name": "reportDaemonServiceStart",
+        "file": "apps/desktop/src/main/index.ts",
+        "lines": [
+          732,
+          738
+        ],
+        "sha256": "864578739cd19bcc6c25a64c82afcb79a2be350294bcc848ec8b23e3dc5e07e8"
+      },
+      {
+        "name": "startDesktopDiagnostics",
+        "file": "apps/desktop/src/main/index.ts",
+        "lines": [
+          2799,
+          2842
+        ],
+        "sha256": "c7a723d37f8cc0f4e5d39eec05686f63ac3e5a37ac68262444a5e00a0e2a8c22"
+      }
+    ]
+  },
+  "inputs": {
+    "desktopProcessStartedAt": 1767323040000,
+    "daemonServiceStartedAt": 1767323040300,
+    "appReadyAt": 1767323040900,
+    "now": 1767323041500,
+    "appVersion": "1.2.3",
+    "packaged": true,
+    "desktopBootId": "boot-1",
+    "desktopBootScenario": "defaults-failure",
+    "softwareRenderingThisLaunch": false,
+    "crashReporterStatus": "started",
+    "crashReporterErrorName": "",
+    "gpuFallbackMarker": null,
+    "early": [
+      {
+        "event": "login-shell-environment",
+        "entry": {
+          "durationMs": 12
+        },
+        "at": "2026-01-02T03:04:04.000Z"
+      }
+    ],
+    "error": {
+      "class": "Error",
+      "message": "EACCES: permission denied, open 'mixdog-config.json'"
+    },
+    "process": {
+      "pid": 13064,
+      "platform": "win32",
+      "arch": "x64",
+      "versions": {
+        "node": "22.20.0",
+        "electron": null,
+        "chrome": null
+      }
+    }
+  },
+  "lines": [
+    "{\"schemaVersion\":1,\"at\":\"2026-01-02T03:04:01.500Z\",\"event\":\"process-entry\",\"pid\":13064,\"platform\":\"win32\",\"arch\":\"x64\",\"appVersion\":\"1.2.3\",\"packaged\":true,\"bootId\":\"boot-1\",\"scenario\":\"defaults-failure\",\"occurredAt\":\"2026-01-02T03:04:00.000Z\",\"totalMs\":0}",
+    "{\"schemaVersion\":1,\"at\":\"2026-01-02T03:04:01.500Z\",\"event\":\"app-ready\",\"pid\":13064,\"platform\":\"win32\",\"arch\":\"x64\",\"appVersion\":\"1.2.3\",\"packaged\":true,\"bootId\":\"boot-1\",\"scenario\":\"defaults-failure\",\"totalMs\":900}",
+    "{\"schemaVersion\":1,\"at\":\"2026-01-02T03:04:01.500Z\",\"event\":\"daemon-service-start\",\"pid\":13064,\"platform\":\"win32\",\"arch\":\"x64\",\"appVersion\":\"1.2.3\",\"packaged\":true,\"bootId\":\"boot-1\",\"scenario\":\"defaults-failure\",\"totalMs\":300}",
+    "{\"schemaVersion\":1,\"at\":\"2026-01-02T03:04:01.500Z\",\"event\":\"login-shell-environment\",\"pid\":13064,\"platform\":\"win32\",\"arch\":\"x64\",\"appVersion\":\"1.2.3\",\"packaged\":true,\"bootId\":\"boot-1\",\"scenario\":\"defaults-failure\",\"durationMs\":12,\"occurredAt\":\"2026-01-02T03:04:04.000Z\"}",
+    "{\"schemaVersion\":1,\"at\":\"2026-01-02T03:04:01.500Z\",\"event\":\"desktop-start\",\"pid\":13064,\"platform\":\"win32\",\"arch\":\"x64\",\"appVersion\":\"1.2.3\",\"packaged\":true,\"bootId\":\"boot-1\",\"scenario\":\"defaults-failure\",\"totalMs\":1500,\"nodeVersion\":\"22.20.0\",\"sessionProcess\":\"daemon\",\"gpuRendering\":\"hardware\",\"crashReporterStatus\":\"started\"}",
+    "{\"schemaVersion\":1,\"at\":\"2026-01-02T03:04:01.500Z\",\"event\":\"defaults-separation-failed\",\"pid\":13064,\"platform\":\"win32\",\"arch\":\"x64\",\"appVersion\":\"1.2.3\",\"packaged\":true,\"bootId\":\"boot-1\",\"scenario\":\"defaults-failure\",\"message\":\"EACCES: permission denied, open 'mixdog-config.json'\"}"
+  ],
+  "jsonl": "{\"schemaVersion\":1,\"at\":\"2026-01-02T03:04:01.500Z\",\"event\":\"process-entry\",\"pid\":13064,\"platform\":\"win32\",\"arch\":\"x64\",\"appVersion\":\"1.2.3\",\"packaged\":true,\"bootId\":\"boot-1\",\"scenario\":\"defaults-failure\",\"occurredAt\":\"2026-01-02T03:04:00.000Z\",\"totalMs\":0}\n{\"schemaVersion\":1,\"at\":\"2026-01-02T03:04:01.500Z\",\"event\":\"app-ready\",\"pid\":13064,\"platform\":\"win32\",\"arch\":\"x64\",\"appVersion\":\"1.2.3\",\"packaged\":true,\"bootId\":\"boot-1\",\"scenario\":\"defaults-failure\",\"totalMs\":900}\n{\"schemaVersion\":1,\"at\":\"2026-01-02T03:04:01.500Z\",\"event\":\"daemon-service-start\",\"pid\":13064,\"platform\":\"win32\",\"arch\":\"x64\",\"appVersion\":\"1.2.3\",\"packaged\":true,\"bootId\":\"boot-1\",\"scenario\":\"defaults-failure\",\"totalMs\":300}\n{\"schemaVersion\":1,\"at\":\"2026-01-02T03:04:01.500Z\",\"event\":\"login-shell-environment\",\"pid\":13064,\"platform\":\"win32\",\"arch\":\"x64\",\"appVersion\":\"1.2.3\",\"packaged\":true,\"bootId\":\"boot-1\",\"scenario\":\"defaults-failure\",\"durationMs\":12,\"occurredAt\":\"2026-01-02T03:04:04.000Z\"}\n{\"schemaVersion\":1,\"at\":\"2026-01-02T03:04:01.500Z\",\"event\":\"desktop-start\",\"pid\":13064,\"platform\":\"win32\",\"arch\":\"x64\",\"appVersion\":\"1.2.3\",\"packaged\":true,\"bootId\":\"boot-1\",\"scenario\":\"defaults-failure\",\"totalMs\":1500,\"nodeVersion\":\"22.20.0\",\"sessionProcess\":\"daemon\",\"gpuRendering\":\"hardware\",\"crashReporterStatus\":\"started\"}\n{\"schemaVersion\":1,\"at\":\"2026-01-02T03:04:01.500Z\",\"event\":\"defaults-separation-failed\",\"pid\":13064,\"platform\":\"win32\",\"arch\":\"x64\",\"appVersion\":\"1.2.3\",\"packaged\":true,\"bootId\":\"boot-1\",\"scenario\":\"defaults-failure\",\"message\":\"EACCES: permission denied, open 'mixdog-config.json'\"}\n"
+}
