@@ -108,7 +108,7 @@ for (const name of actions) {
     await attached(r, listOf(name));
     assert.equal(r.published.length, 1);
     assert.equal(nodeStep(`attach:${name}`).published.length, 1);
-    assertParity(t, parity.diff(nodeStep(`attach:${name}`).roster, finalRoster(r)));
+    assertParity(t, parity.classify(nodeStep(`attach:${name}`).roster, finalRoster(r)));
     assert.ok(r.requests.length > 1 && r.requests.every((q) => q.params.limit === 1000), 'every page follows the cursor');
     assert.deepEqual(r.requests.slice(1).map((q) => q.params.cursor), ['2', '4'].slice(0, r.requests.length - 1));
   });
@@ -125,7 +125,7 @@ actions.slice(1).forEach((name, at) => {
     r.store({ type: 'subscription', feedId: 'app', state: 'restored' });
     await done;
     assert.equal(r.published.length, 1);
-    assertParity(t, parity.diff(nodeStep(`restart:${prev}>${name}`).roster, finalRoster(r)));
+    assertParity(t, parity.classify(nodeStep(`restart:${prev}>${name}`).roster, finalRoster(r)));
   });
 
   test(`between (${prev} > ${name}): a change between re-subscribing and the list outranks the listing, as Node's pushed roster did`, async (t) => {
@@ -140,7 +140,7 @@ actions.slice(1).forEach((name, at) => {
     for (const edge of liveStep(name).edges) r.edge(edge);
     release();
     await done;
-    assertParity(t, parity.diff(nodeStep(`between:${prev}>${name}`).roster, finalRoster(r)));
+    assertParity(t, parity.classify(nodeStep(`between:${prev}>${name}`).roster, finalRoster(r)));
   });
 });
 
@@ -164,7 +164,7 @@ test('a lost app feed is read again at the next snapshot', async (t) => {
   const done = r.published_();
   r.store({ type: 'appSnapshot' });
   await done;
-  assertParity(t, parity.diff(nodeStep('attach:turns').roster, finalRoster(r)));
+  assertParity(t, parity.classify(nodeStep('attach:turns').roster, finalRoster(r)));
 });
 
 test('the order is Node\'s byActivityThenId: ties and rows without activity included', async () => {

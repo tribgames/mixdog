@@ -62,7 +62,7 @@ live.steps.forEach((step, at) => {
     for (const edge of step.edges) r.edge(edge);
     // Node published once at the end of an action (its roster publication per store change coalesces to the action's result); the phone
     // feed publishes per edge, so the result of the action is the last roster published.
-    assertParity(t, parity.diff(node.steps.find((s) => s.name === `action:${step.name}`).roster, r.published.at(-1)));
+    assertParity(t, parity.classify(node.steps.find((s) => s.name === `action:${step.name}`).roster, r.published.at(-1)));
   });
 });
 
