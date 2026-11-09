@@ -316,6 +316,8 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
     holdHello: false,
     /** How many of the next view syncs of a leg that is already synced the desktop refuses. */
     failViewSync: 0,
+    /** How many of the next view-sync requests of any leg (a new connection's first included) the desktop refuses. */
+    refuseSyncs: 0,
     /** Requests (by traced name) the desktop receives but does not answer until `release`, and ones it refuses once. */
     holds: new Set(),
     refusals: new Set(),
@@ -493,6 +495,10 @@ export const nodeDialect = {
     else if (frame.method === 'synchronizeViews') {
       // Synchronizing the view that is already held is a resync request (view-sync peers resync by synchronizing again); a different set is the page changing its view.
       const again = leg.core.synced && JSON.stringify([...a].sort()) === JSON.stringify([...leg.core.view].sort());
+      if (leg.world.refuseSyncs > 0) {
+        leg.world.refuseSyncs -= 1;
+        return void leg.toPhone({ id: frame.id, ok: false, error: 'view sync refused' });
+      }
       if (again) {
         leg.core.resyncs += 1;
         log({ ev: 'resync' });
@@ -532,6 +538,10 @@ export function protocolDialect(initializeResult) {
           return reply(initializeResult);
         case 'app/subscribe':
           // The app feed is attached once per leg; asking again is the protocol's state resync (Node's stateResync).
+          if (leg.world.refuseSyncs > 0) {
+            leg.world.refuseSyncs -= 1;
+            return void leg.toPhone({ id: frame.id, error: { code: -32000, message: 'view sync refused' } });
+          }
           const again = leg.core.appAttached;
           if (again) {
             leg.core.resyncs += 1;

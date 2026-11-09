@@ -526,6 +526,55 @@ export const SCENARIOS = {
     { op: 'advance', ms: 0 },
     { op: 'mark', name: 'sync-landed' },
   ],
+  // The redialed connection's first sync is refused once: the gate stays shut across the 250 ms retry (remote-view-sync.ts:46-53, :67-71) and the
+  // read that waited leaves only when the retry lands; the indicator stays on syncing meanwhile.
+  'reconnect-sync-refused-once': [
+    { op: 'boot', reads: true },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'advance', ms: 10000 },
+    { op: 'mark', name: 'boot-window-expired' },
+    { op: 'random', value: 0 },
+    { op: 'drop', code: 1006 },
+    { op: 'refuse-syncs', times: 1 },
+    { op: 'advance', ms: 0 },
+    { op: 'read', name: 'readSettings', as: 'gated' },
+    { op: 'accept' },
+    { op: 'advance', ms: 249 },
+    { op: 'mark', name: 'refused-and-waiting' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'retried' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'landed' },
+  ],
+  // Refused three times in a row on one connection: retries at 250 and 500 ms, then the connection is recycled (remote-view-sync.ts:56-59),
+  // which rejects the waiting read as interrupted (:97); the next connection syncs and serves a read.
+  'reconnect-sync-refused-repeatedly': [
+    { op: 'boot', reads: true },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'advance', ms: 10000 },
+    { op: 'mark', name: 'boot-window-expired' },
+    { op: 'random', value: 0 },
+    { op: 'drop', code: 1006 },
+    { op: 'refuse-syncs', times: 3 },
+    { op: 'advance', ms: 0 },
+    { op: 'read', name: 'readSettings', as: 'gated' },
+    { op: 'accept' },
+    { op: 'advance', ms: 249 },
+    { op: 'mark', name: 'first-refused' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'second-refused' },
+    { op: 'advance', ms: 499 },
+    { op: 'mark', name: 'before-third' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'recycled' },
+    { op: 'accept' },
+    { op: 'check', name: 'back', expect: { foreground: true } },
+    { op: 'read', name: 'readSettings', as: 'after' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'served' },
+  ],
   // The reads the app makes as it mounts (Node: prefetchBootReads, remote-shim-calls.ts): started beside the first view sync, so a consumer
   // mounted while the sync is blocked is answered; the two reads of state the sync owns (snapshot, projects) wait for it.
   'boot-reads-sync-held': [
@@ -726,6 +775,9 @@ export async function play(world, driver, ops) {
         break;
       case 'fail-sync':
         world.failViewSync = op.times;
+        break;
+      case 'refuse-syncs':
+        world.refuseSyncs = op.times;
         break;
       case 'hold-hello':
         world.holdHello = true;

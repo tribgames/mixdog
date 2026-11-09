@@ -192,6 +192,7 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     });
     view = createViewManager(connected.client, {
       restored: ctx.restoredVisibleSessionIds,
+      wanted: ctx.lastVisibleSessionIds,
       onSynced,
       syncing: () => setRemoteConnectionState('syncing'),
       error: (error) => {
@@ -203,13 +204,8 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
     lanes = createLaneFeeds(connected.client);
     for (const [lane, feeds] of declaredLanes) lanes.declare(lane, feeds);
     lanes.use(pendingLanes);
-    // The first sync: the app feed and the threads the page named (or the last visit had). Retried until the connection holds it.
-    void (async () => {
-      for (let attempt = 0; connected.client.status.state !== 'closed'; attempt++) {
-        if (await view!.set(ctx.lastVisibleSessionIds)) return;
-        await sleep(ladderDelay(attempt, random()));
-      }
-    })();
+    // The threads the page named (or the last visit had); the first sync, and every later connection's, is the view machine's own.
+    void view.set(ctx.lastVisibleSessionIds).catch(() => undefined);
     return connected;
   };
 

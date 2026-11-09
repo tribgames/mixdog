@@ -3422,6 +3422,369 @@
         }
       }
     ],
+    "reconnect-sync-refused-once": [
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "requests": [
+          "getSnapshot@0",
+          "listProjects@0",
+          "readActivityRailPins@0",
+          "readHostDisplayPreferences@0",
+          "readSettings@0",
+          "synchronizeViews@0",
+          "viewerDevice@0"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "boot-window-expired",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "wire": [],
+        "requests": [],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "refused-and-waiting",
+        "states": [
+          "connected",
+          "reconnecting",
+          "syncing"
+        ],
+        "banner": [
+          false,
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "requests": [
+          "synchronizeViews@0"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": null,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "retried",
+        "states": [
+          "connected"
+        ],
+        "banner": [
+          false
+        ],
+        "offline": false,
+        "wire": [],
+        "requests": [
+          "readSettings@1",
+          "synchronizeViews@1"
+        ],
+        "settled": [
+          "gated:ok={\"settings\":\"S\"}@1"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 1,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "landed",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "wire": [],
+        "requests": [],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      }
+    ],
+    "reconnect-sync-refused-repeatedly": [
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "requests": [
+          "getSnapshot@0",
+          "listProjects@0",
+          "readActivityRailPins@0",
+          "readHostDisplayPreferences@0",
+          "readSettings@0",
+          "synchronizeViews@0",
+          "viewerDevice@0"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "boot-window-expired",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "wire": [],
+        "requests": [],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "first-refused",
+        "states": [
+          "connected",
+          "reconnecting",
+          "syncing"
+        ],
+        "banner": [
+          false,
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "requests": [
+          "synchronizeViews@0"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": null,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "second-refused",
+        "states": [
+          "syncing"
+        ],
+        "banner": [
+          false
+        ],
+        "offline": false,
+        "wire": [],
+        "requests": [
+          "synchronizeViews@1"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": null,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "before-third",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "wire": [],
+        "requests": [],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": null,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "recycled",
+        "states": [
+          "syncing",
+          "reconnecting"
+        ],
+        "banner": [
+          false,
+          true
+        ],
+        "offline": false,
+        "wire": [
+          "close(null,null)@1",
+          "socket@1"
+        ],
+        "requests": [
+          "synchronizeViews@1"
+        ],
+        "settled": [
+          "gated:err(MIXDOG_REMOTE_CONNECTION_INTERRUPTED)@1"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": null,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "back",
+        "states": [
+          "reconnecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [],
+        "requests": [
+          "synchronizeViews@0"
+        ],
+        "settled": [],
+        "pairingInvalid": [],
+        "reconnected": 1,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "served",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "wire": [],
+        "requests": [
+          "readSettings@0"
+        ],
+        "settled": [
+          "after:ok={\"settings\":\"S\"}@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      }
+    ],
     "boot-reads-sync-held": [
       {
         "name": "sync-held",
