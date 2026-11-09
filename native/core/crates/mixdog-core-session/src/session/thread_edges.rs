@@ -44,6 +44,12 @@ fn listed(row: &StoredRow, task_workspace: &str) -> Option<LeadRow> {
     (is_lead_visible_row(&map) && roster_row(&map, row.user_name.as_deref(), task_workspace)).then_some(LeadRow { row: map, archived: row.archived })
 }
 
+/// A listed row's place in the catalog's order: its negated activity (`lastUsedAt || updatedAt || 0`, newest first) and its id.
+fn place_of(row: &serde_json::Map<String, Value>) -> (f64, String) {
+    let number = |key: &str| row.get(key).and_then(Value::as_f64).filter(|n| n.is_finite() && *n != 0.0);
+    (-number("lastUsedAt").or_else(|| number("updatedAt")).unwrap_or(0.0), row.get("id").and_then(Value::as_str).unwrap_or_default().to_owned())
+}
+
 /// `isTaskWorkspaceFolder` (`shared/task-workspace.ts`): slash style, a trailing slash and letter case do not matter; an unknown
 /// task workspace (`""`) matches nothing.
 fn is_task_workspace_folder(folder: &str, task_workspace: &str) -> bool {
@@ -173,15 +179,32 @@ impl ThreadEdgePublisher {
             std::mem::take(&mut *held)
         };
         let Ok(workspace) = looked_up else { return };
-        for edge in batch {
-            self.publish_change(edge, &workspace).await;
+        // Each side is judged with the name the user had given at its own write (the index keeps it with the row), as Node's
+        // summaries read `names` as of each roster: a rename that makes a meaningless title count is a start.
+        // The notifications of a recovered batch follow the roster Node pushed: the rows it lists (new and changed) by their place in
+        // the catalog's order (`ORDER BY activity DESC, id ASC`, `catalog-db/worker.mjs:186`), then the rows that left it by their
+        // place in the roster they left.
+        let mut changes: Vec<_> = batch
+            .into_iter()
+            .map(|edge| {
+                let (was, now) = (edge.before.as_ref().and_then(|row| listed(row, &workspace)), listed(&edge.after, &workspace));
+                let key = match (&now, &was) {
+                    (Some(now), _) => (0, place_of(&now.row)),
+                    (None, Some(was)) => (1, place_of(&was.row)),
+                    (None, None) => (2, (0.0, String::new())),
+                };
+                (key, edge, was, now)
+            })
+            .collect();
+        changes.sort_by(|left, right| left.0.0.cmp(&right.0.0).then_with(|| left.0.1.0.total_cmp(&right.0.1.0)).then_with(|| left.0.1.1.cmp(&right.0.1.1)));
+        for (_, edge, was, now) in changes {
+            self.publish_change(edge, was, now, &workspace).await;
         }
     }
 
-    async fn publish_change(&self, edge: RowEdge, workspace: &str) {
-        let id = ThreadId::from(edge.id.clone());        // Each side is judged with the name the user had given at its own write (the index keeps it with the row), as Node's
-        // summaries read `names` as of each roster: a rename that makes a meaningless title count is a start.
-        match (edge.before.as_ref().and_then(|row| listed(row, workspace)), listed(&edge.after, workspace)) {
+    async fn publish_change(&self, edge: RowEdge, was: Option<LeadRow>, now: Option<LeadRow>, workspace: &str) {
+        let id = ThreadId::from(edge.id.clone());
+        match (was, now) {
             (None, Some(now)) => self.send(&id, &now, workspace, |thread| (STARTED, ThreadStartedParams { thread })).await,
             (Some(was), Some(now)) => {
                 let (was, shown) = (on_roster(summary_of_list_row(&id, &Value::Object(was.row.clone()), now.archived), &was.row, workspace), on_roster(summary_of_list_row(&id, &Value::Object(now.row.clone()), now.archived), &now.row, workspace));

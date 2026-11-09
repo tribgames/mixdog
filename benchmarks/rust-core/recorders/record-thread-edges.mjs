@@ -19,6 +19,7 @@ const args = parseArgs();
 const tree = resolveTree(args);
 const { _sessionSummary } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/store-summary-index.mjs');
 const { isLeadVisibleRow } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/store-summary-catalog.mjs');
+const { byActivityThenId } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/catalog-db/schema.mjs');
 const { desktopSessionSummaries } = await importFrom(tree, 'apps/desktop/src/main/desktop-state.ts');
 const { compactedSessionTitle } = await importFrom(tree, 'apps/desktop/src/shared/session-title.mjs');
 
@@ -63,7 +64,9 @@ const newNode = () => {
       catalog: { ensureStoreWatcher() {} },
       agentRooms: { withRooms: passthrough, noteMemberRows() {} },
       sessionMetadata: { load: async () => {}, titles: {}, names: {}, withReadCursors: passthrough, withFavoriteFlags: passthrough, withRetiredFlags: passthrough, withArchiveFlags: passthrough },
-      sessionClient: { list: async () => ({ sessions: node.rows, remoteSession: null }) },
+      // The catalog lists the lead-visible rows newest activity first, ties by id (`ORDER BY activity DESC, id ASC`, catalog-db/worker.mjs:186;
+      // `byActivityThenId` is that order, "the DB order", in schema.mjs): the roster keeps this order.
+      sessionClient: { list: async () => ({ sessions: [...node.rows].sort(byActivityThenId), remoteSession: null }) },
       callOptions: () => ({}),
       listSessions: SessionHost.prototype.listSessions,
       sessionCatalog: SessionHost.prototype.sessionCatalog,
@@ -161,6 +164,30 @@ const triggers = [
       rec('s_n1', { title: 'Folder of the task workspace', cwd: TASK_WORKSPACE, updatedAt: 4400 }),
       rec('s_n1', { title: 'Renamed by the work', cwd: TASK_WORKSPACE, updatedAt: 4500 }),
       rec('s_n2', { title: 'Elsewhere', cwd: 'C:/elsewhere', updatedAt: 4600 }),
+    ],
+  },
+  // Rows written while the lookup fails are published together by the refresh that recovers, in the catalog's order: newest activity
+  // first, ties by id. s_oa is held first, s_ob (newer) next, s_oc ties s_oa; the roster is s_ob, s_oa, s_oc.
+  {
+    name: 'held-rows-come-out-in-the-catalogs-order',
+    lookups: ['fail', 'fail', 'fail', 'ok'],
+    writes: [
+      rec('s_oa', { title: 'Held first', cwd: 'C:/w', updatedAt: 5000 }),
+      rec('s_ob', { title: 'Held second, newer', cwd: 'C:/w', updatedAt: 6000 }),
+      rec('s_oc', { title: 'Held third, ties the first', cwd: 'C:/w', updatedAt: 5000 }),
+      rec('s_od', { title: 'Written after it recovered', cwd: 'C:/w', updatedAt: 5500 }),
+    ],
+  },
+  // A held row changes again before the recovery, and a newer row arrives between: one notification per session, by roster place.
+  {
+    name: 'held-rows-keep-the-last-write-in-the-catalogs-order',
+    lookups: ['ok', 'fail', 'fail', 'fail', 'ok'],
+    writes: [
+      rec('s_pa', { title: 'Listed before', cwd: 'C:/w', updatedAt: 7000 }),
+      rec('s_pa', { title: 'Changed while it fails', cwd: 'C:/w', updatedAt: 7100 }),
+      rec('s_pb', { title: 'New and newer', cwd: 'C:/w', updatedAt: 7500 }),
+      rec('s_pa', { title: 'Changed again', cwd: 'C:/w', updatedAt: 7200 }),
+      rec('s_pc', { title: 'Written after it recovered', cwd: 'C:/w', updatedAt: 7300 }),
     ],
   },
 ];
