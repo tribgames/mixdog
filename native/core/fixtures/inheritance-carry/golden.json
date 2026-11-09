@@ -1,0 +1,1550 @@
+{
+  "cases": [
+    {
+      "name": "the source is the heir",
+      "setup": {
+        "source": {
+          "id": "sess_heir",
+          "title": "Source title",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the source session. Rules of the source."
+            },
+            {
+              "role": "system",
+              "content": "# Core\n\nsource core context",
+              "cacheTier": "tier3"
+            },
+            {
+              "role": "system",
+              "content": "# Environment\n\nsource environment facts",
+              "cacheTier": "env"
+            },
+            {
+              "role": "user",
+              "content": "hello",
+              "meta": {
+                "transcript": {
+                  "messageId": "m1"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "hi",
+              "meta": {
+                "transcript": {
+                  "messageId": "m2"
+                }
+              }
+            },
+            {
+              "role": "user",
+              "content": "one more",
+              "meta": {
+                "transcript": {
+                  "messageId": "m3"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "done",
+              "meta": {
+                "transcript": {
+                  "messageId": "m4"
+                }
+              }
+            }
+          ]
+        },
+        "heir": {
+          "id": "sess_heir",
+          "title": "",
+          "messages": [
+            {
+              "role": "system",
+              "content": "Rules of the heir."
+            }
+          ],
+          "liveTurnMessages": []
+        }
+      },
+      "options": {},
+      "sourceId": "sess_heir",
+      "fit": {
+        "messages": 4,
+        "known": true,
+        "fits": true,
+        "used": 22,
+        "limit": 200000
+      },
+      "fitCompacted": null,
+      "budgetTokens": 50000,
+      "compactorAnswer": null,
+      "compactorCalls": [],
+      "outcome": {
+        "error": "inheritFrom: a session cannot inherit from itself"
+      },
+      "carried": [],
+      "title": "",
+      "inheritedFromSessionId": null
+    },
+    {
+      "name": "the heir holds a conversation",
+      "setup": {
+        "source": {
+          "id": "sess_source",
+          "title": "Source title",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the source session. Rules of the source."
+            },
+            {
+              "role": "system",
+              "content": "# Core\n\nsource core context",
+              "cacheTier": "tier3"
+            },
+            {
+              "role": "system",
+              "content": "# Environment\n\nsource environment facts",
+              "cacheTier": "env"
+            },
+            {
+              "role": "user",
+              "content": "hello",
+              "meta": {
+                "transcript": {
+                  "messageId": "m1"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "hi",
+              "meta": {
+                "transcript": {
+                  "messageId": "m2"
+                }
+              }
+            },
+            {
+              "role": "user",
+              "content": "one more",
+              "meta": {
+                "transcript": {
+                  "messageId": "m3"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "done",
+              "meta": {
+                "transcript": {
+                  "messageId": "m4"
+                }
+              }
+            }
+          ]
+        },
+        "heir": {
+          "id": "sess_heir",
+          "title": "",
+          "messages": [
+            {
+              "role": "system",
+              "content": "r"
+            },
+            {
+              "role": "user",
+              "content": "already here"
+            },
+            {
+              "role": "assistant",
+              "content": "yes"
+            }
+          ],
+          "liveTurnMessages": []
+        }
+      },
+      "options": {},
+      "sourceId": "sess_source",
+      "fit": {
+        "messages": 4,
+        "known": true,
+        "fits": true,
+        "used": 22,
+        "limit": 200000
+      },
+      "fitCompacted": null,
+      "budgetTokens": 50000,
+      "compactorAnswer": null,
+      "compactorCalls": [],
+      "outcome": {
+        "error": "inheritFrom: this session already holds a conversation"
+      },
+      "carried": [],
+      "title": "",
+      "inheritedFromSessionId": null
+    },
+    {
+      "name": "the heir has a turn in flight",
+      "setup": {
+        "source": {
+          "id": "sess_source",
+          "title": "Source title",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the source session. Rules of the source."
+            },
+            {
+              "role": "system",
+              "content": "# Core\n\nsource core context",
+              "cacheTier": "tier3"
+            },
+            {
+              "role": "system",
+              "content": "# Environment\n\nsource environment facts",
+              "cacheTier": "env"
+            },
+            {
+              "role": "user",
+              "content": "hello",
+              "meta": {
+                "transcript": {
+                  "messageId": "m1"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "hi",
+              "meta": {
+                "transcript": {
+                  "messageId": "m2"
+                }
+              }
+            },
+            {
+              "role": "user",
+              "content": "one more",
+              "meta": {
+                "transcript": {
+                  "messageId": "m3"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "done",
+              "meta": {
+                "transcript": {
+                  "messageId": "m4"
+                }
+              }
+            }
+          ]
+        },
+        "heir": {
+          "id": "sess_heir",
+          "title": "",
+          "messages": [
+            {
+              "role": "system",
+              "content": "Rules of the heir."
+            }
+          ],
+          "liveTurnMessages": [
+            {
+              "role": "user",
+              "content": "typing"
+            }
+          ]
+        }
+      },
+      "options": {},
+      "sourceId": "sess_source",
+      "fit": {
+        "messages": 4,
+        "known": true,
+        "fits": true,
+        "used": 22,
+        "limit": 200000
+      },
+      "fitCompacted": null,
+      "budgetTokens": 50000,
+      "compactorAnswer": null,
+      "compactorCalls": [],
+      "outcome": {
+        "error": "inheritFrom: this session already holds a conversation"
+      },
+      "carried": [],
+      "title": "",
+      "inheritedFromSessionId": null
+    },
+    {
+      "name": "the source is missing",
+      "setup": {
+        "source": null,
+        "heir": {
+          "id": "sess_heir",
+          "title": "",
+          "messages": [
+            {
+              "role": "system",
+              "content": "Rules of the heir."
+            }
+          ],
+          "liveTurnMessages": []
+        }
+      },
+      "options": {},
+      "sourceId": "sess_gone",
+      "fit": null,
+      "fitCompacted": null,
+      "budgetTokens": 50000,
+      "compactorAnswer": null,
+      "compactorCalls": [],
+      "outcome": {
+        "error": "inheritFrom: session sess_gone was not found"
+      },
+      "carried": [],
+      "title": "",
+      "inheritedFromSessionId": null
+    },
+    {
+      "name": "the source has no conversation",
+      "setup": {
+        "source": {
+          "id": "sess_source",
+          "title": "Source title",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the source session. Rules of the source."
+            },
+            {
+              "role": "system",
+              "content": "# Core\n\nsource core context",
+              "cacheTier": "tier3"
+            },
+            {
+              "role": "system",
+              "content": "# Environment\n\nsource environment facts",
+              "cacheTier": "env"
+            },
+            {
+              "role": "assistant",
+              "content": "only me"
+            }
+          ]
+        },
+        "heir": {
+          "id": "sess_heir",
+          "title": "",
+          "messages": [
+            {
+              "role": "system",
+              "content": "Rules of the heir."
+            }
+          ],
+          "liveTurnMessages": []
+        }
+      },
+      "options": {},
+      "sourceId": "sess_source",
+      "fit": {
+        "messages": 1,
+        "known": true,
+        "fits": true,
+        "used": 6,
+        "limit": 200000
+      },
+      "fitCompacted": null,
+      "budgetTokens": 50000,
+      "compactorAnswer": null,
+      "compactorCalls": [],
+      "outcome": {
+        "error": "inheritFrom: the source session has no conversation to carry"
+      },
+      "carried": [],
+      "title": "",
+      "inheritedFromSessionId": null
+    },
+    {
+      "name": "every message travels, whatever its id",
+      "setup": {
+        "source": {
+          "id": "sess_source",
+          "title": "Source title",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the source session. Rules of the source."
+            },
+            {
+              "role": "system",
+              "content": "# Core\n\nsource core context",
+              "cacheTier": "tier3"
+            },
+            {
+              "role": "system",
+              "content": "# Environment\n\nsource environment facts",
+              "cacheTier": "env"
+            },
+            {
+              "role": "user",
+              "content": "one"
+            },
+            {
+              "role": "assistant",
+              "content": "two"
+            },
+            {
+              "role": "user",
+              "content": "three",
+              "meta": {
+                "transcript": {
+                  "messageId": "same"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "four",
+              "meta": {
+                "transcript": {
+                  "messageId": "same"
+                }
+              }
+            }
+          ]
+        },
+        "heir": {
+          "id": "sess_heir",
+          "title": "",
+          "messages": [
+            {
+              "role": "system",
+              "content": "Rules of the heir."
+            }
+          ],
+          "liveTurnMessages": []
+        }
+      },
+      "options": {},
+      "sourceId": "sess_source",
+      "fit": {
+        "messages": 4,
+        "known": true,
+        "fits": true,
+        "used": 21,
+        "limit": 200000
+      },
+      "fitCompacted": null,
+      "budgetTokens": 50000,
+      "compactorAnswer": null,
+      "compactorCalls": [],
+      "outcome": {
+        "ok": {
+          "sessionId": "sess_heir",
+          "sourceSessionId": "sess_source",
+          "messages": 4,
+          "provider": "custom-harness",
+          "model": "harness-model"
+        }
+      },
+      "carried": [
+        {
+          "role": "user",
+          "content": "one"
+        },
+        {
+          "role": "assistant",
+          "content": "two"
+        },
+        {
+          "role": "user",
+          "content": "three"
+        },
+        {
+          "role": "assistant",
+          "content": "four"
+        }
+      ],
+      "title": "Source title",
+      "inheritedFromSessionId": "sess_source"
+    },
+    {
+      "name": "the heir keeps its own title",
+      "setup": {
+        "source": {
+          "id": "sess_source",
+          "title": "Source title",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the source session. Rules of the source."
+            },
+            {
+              "role": "system",
+              "content": "# Core\n\nsource core context",
+              "cacheTier": "tier3"
+            },
+            {
+              "role": "system",
+              "content": "# Environment\n\nsource environment facts",
+              "cacheTier": "env"
+            },
+            {
+              "role": "user",
+              "content": "hello",
+              "meta": {
+                "transcript": {
+                  "messageId": "m1"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "hi",
+              "meta": {
+                "transcript": {
+                  "messageId": "m2"
+                }
+              }
+            },
+            {
+              "role": "user",
+              "content": "one more",
+              "meta": {
+                "transcript": {
+                  "messageId": "m3"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "done",
+              "meta": {
+                "transcript": {
+                  "messageId": "m4"
+                }
+              }
+            }
+          ]
+        },
+        "heir": {
+          "id": "sess_heir",
+          "title": "Heir title",
+          "messages": [
+            {
+              "role": "system",
+              "content": "Rules of the heir."
+            }
+          ],
+          "liveTurnMessages": []
+        }
+      },
+      "options": {},
+      "sourceId": "sess_source",
+      "fit": {
+        "messages": 4,
+        "known": true,
+        "fits": true,
+        "used": 22,
+        "limit": 200000
+      },
+      "fitCompacted": null,
+      "budgetTokens": 50000,
+      "compactorAnswer": null,
+      "compactorCalls": [],
+      "outcome": {
+        "ok": {
+          "sessionId": "sess_heir",
+          "sourceSessionId": "sess_source",
+          "messages": 4,
+          "provider": "custom-harness",
+          "model": "harness-model"
+        }
+      },
+      "carried": [
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": "hi"
+        },
+        {
+          "role": "user",
+          "content": "one more"
+        },
+        {
+          "role": "assistant",
+          "content": "done"
+        }
+      ],
+      "title": "Heir title",
+      "inheritedFromSessionId": "sess_source"
+    },
+    {
+      "name": "an explicit compact summarizes",
+      "setup": {
+        "source": {
+          "id": "sess_source",
+          "title": "Source title",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the source session. Rules of the source."
+            },
+            {
+              "role": "system",
+              "content": "# Core\n\nsource core context",
+              "cacheTier": "tier3"
+            },
+            {
+              "role": "system",
+              "content": "# Environment\n\nsource environment facts",
+              "cacheTier": "env"
+            },
+            {
+              "role": "user",
+              "content": "hello",
+              "meta": {
+                "transcript": {
+                  "messageId": "m1"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "hi",
+              "meta": {
+                "transcript": {
+                  "messageId": "m2"
+                }
+              }
+            },
+            {
+              "role": "user",
+              "content": "one more",
+              "meta": {
+                "transcript": {
+                  "messageId": "m3"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "done",
+              "meta": {
+                "transcript": {
+                  "messageId": "m4"
+                }
+              }
+            }
+          ]
+        },
+        "heir": {
+          "id": "sess_heir",
+          "title": "",
+          "messages": [
+            {
+              "role": "system",
+              "content": "Rules of the heir."
+            }
+          ],
+          "liveTurnMessages": []
+        }
+      },
+      "options": {
+        "compact": true
+      },
+      "sourceId": "sess_source",
+      "fit": {
+        "messages": 4,
+        "known": true,
+        "fits": true,
+        "used": 22,
+        "limit": 200000
+      },
+      "fitCompacted": {
+        "messages": 1,
+        "known": true,
+        "fits": true,
+        "used": 13,
+        "limit": 200000
+      },
+      "budgetTokens": 50000,
+      "compactorAnswer": [
+        {
+          "role": "system",
+          "content": "rules"
+        },
+        {
+          "role": "user",
+          "content": "Summary of the conversation so far."
+        }
+      ],
+      "compactorCalls": [
+        {
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the source session. Rules of the source."
+            },
+            {
+              "role": "system",
+              "content": "# Core\n\nsource core context",
+              "cacheTier": "tier3"
+            },
+            {
+              "role": "system",
+              "content": "# Environment\n\nsource environment facts",
+              "cacheTier": "env"
+            },
+            {
+              "role": "user",
+              "content": "hello"
+            },
+            {
+              "role": "assistant",
+              "content": "hi"
+            },
+            {
+              "role": "user",
+              "content": "one more"
+            },
+            {
+              "role": "assistant",
+              "content": "done"
+            }
+          ],
+          "budgetTokens": 50000,
+          "boundaryTokens": 200000,
+          "reserveTokens": 0,
+          "contextWindow": 200000,
+          "sessionId": "sess_source",
+          "conversationThresholdTokens": 1,
+          "sourceItself": false
+        }
+      ],
+      "outcome": {
+        "ok": {
+          "sessionId": "sess_heir",
+          "sourceSessionId": "sess_source",
+          "messages": 1,
+          "provider": "custom-harness",
+          "model": "harness-model"
+        }
+      },
+      "carried": [
+        {
+          "role": "user",
+          "content": "Summary of the conversation so far."
+        }
+      ],
+      "title": "Source title",
+      "inheritedFromSessionId": "sess_source"
+    },
+    {
+      "name": "an explicit compact that compacts nothing",
+      "setup": {
+        "source": {
+          "id": "sess_source",
+          "title": "Source title",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the source session. Rules of the source."
+            },
+            {
+              "role": "system",
+              "content": "# Core\n\nsource core context",
+              "cacheTier": "tier3"
+            },
+            {
+              "role": "system",
+              "content": "# Environment\n\nsource environment facts",
+              "cacheTier": "env"
+            },
+            {
+              "role": "user",
+              "content": "hello",
+              "meta": {
+                "transcript": {
+                  "messageId": "m1"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "hi",
+              "meta": {
+                "transcript": {
+                  "messageId": "m2"
+                }
+              }
+            },
+            {
+              "role": "user",
+              "content": "one more",
+              "meta": {
+                "transcript": {
+                  "messageId": "m3"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "done",
+              "meta": {
+                "transcript": {
+                  "messageId": "m4"
+                }
+              }
+            }
+          ]
+        },
+        "heir": {
+          "id": "sess_heir",
+          "title": "",
+          "messages": [
+            {
+              "role": "system",
+              "content": "Rules of the heir."
+            }
+          ],
+          "liveTurnMessages": []
+        }
+      },
+      "options": {
+        "compact": true
+      },
+      "sourceId": "sess_source",
+      "fit": {
+        "messages": 4,
+        "known": true,
+        "fits": true,
+        "used": 22,
+        "limit": 200000
+      },
+      "fitCompacted": null,
+      "budgetTokens": 50000,
+      "compactorAnswer": [],
+      "compactorCalls": [
+        {
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the source session. Rules of the source."
+            },
+            {
+              "role": "system",
+              "content": "# Core\n\nsource core context",
+              "cacheTier": "tier3"
+            },
+            {
+              "role": "system",
+              "content": "# Environment\n\nsource environment facts",
+              "cacheTier": "env"
+            },
+            {
+              "role": "user",
+              "content": "hello"
+            },
+            {
+              "role": "assistant",
+              "content": "hi"
+            },
+            {
+              "role": "user",
+              "content": "one more"
+            },
+            {
+              "role": "assistant",
+              "content": "done"
+            }
+          ],
+          "budgetTokens": 50000,
+          "boundaryTokens": 200000,
+          "reserveTokens": 0,
+          "contextWindow": 200000,
+          "sessionId": "sess_source",
+          "conversationThresholdTokens": 1,
+          "sourceItself": false
+        }
+      ],
+      "outcome": {
+        "error": "inheritFrom: the conversation could not be compacted for the new session"
+      },
+      "carried": [],
+      "title": "",
+      "inheritedFromSessionId": null
+    },
+    {
+      "name": "an explicit compact whose compaction throws",
+      "setup": {
+        "source": {
+          "id": "sess_source",
+          "title": "Source title",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the source session. Rules of the source."
+            },
+            {
+              "role": "system",
+              "content": "# Core\n\nsource core context",
+              "cacheTier": "tier3"
+            },
+            {
+              "role": "system",
+              "content": "# Environment\n\nsource environment facts",
+              "cacheTier": "env"
+            },
+            {
+              "role": "user",
+              "content": "hello",
+              "meta": {
+                "transcript": {
+                  "messageId": "m1"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "hi",
+              "meta": {
+                "transcript": {
+                  "messageId": "m2"
+                }
+              }
+            },
+            {
+              "role": "user",
+              "content": "one more",
+              "meta": {
+                "transcript": {
+                  "messageId": "m3"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "done",
+              "meta": {
+                "transcript": {
+                  "messageId": "m4"
+                }
+              }
+            }
+          ]
+        },
+        "heir": {
+          "id": "sess_heir",
+          "title": "",
+          "messages": [
+            {
+              "role": "system",
+              "content": "Rules of the heir."
+            }
+          ],
+          "liveTurnMessages": []
+        }
+      },
+      "options": {
+        "compact": true
+      },
+      "sourceId": "sess_source",
+      "fit": {
+        "messages": 4,
+        "known": true,
+        "fits": true,
+        "used": 22,
+        "limit": 200000
+      },
+      "fitCompacted": null,
+      "budgetTokens": 50000,
+      "compactorAnswer": "throws",
+      "compactorCalls": [
+        {
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the source session. Rules of the source."
+            },
+            {
+              "role": "system",
+              "content": "# Core\n\nsource core context",
+              "cacheTier": "tier3"
+            },
+            {
+              "role": "system",
+              "content": "# Environment\n\nsource environment facts",
+              "cacheTier": "env"
+            },
+            {
+              "role": "user",
+              "content": "hello"
+            },
+            {
+              "role": "assistant",
+              "content": "hi"
+            },
+            {
+              "role": "user",
+              "content": "one more"
+            },
+            {
+              "role": "assistant",
+              "content": "done"
+            }
+          ],
+          "budgetTokens": 50000,
+          "boundaryTokens": 200000,
+          "reserveTokens": 0,
+          "contextWindow": 200000,
+          "sessionId": "sess_source",
+          "conversationThresholdTokens": 1,
+          "sourceItself": false
+        }
+      ],
+      "outcome": {
+        "error": "inheritFrom: the conversation could not be compacted for the new session"
+      },
+      "carried": [],
+      "title": "",
+      "inheritedFromSessionId": null
+    },
+    {
+      "name": "too large, compacted to fit",
+      "setup": {
+        "source": {
+          "id": "sess_source",
+          "title": "Source title",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the source session. Rules of the source."
+            },
+            {
+              "role": "system",
+              "content": "# Core\n\nsource core context",
+              "cacheTier": "tier3"
+            },
+            {
+              "role": "system",
+              "content": "# Environment\n\nsource environment facts",
+              "cacheTier": "env"
+            },
+            {
+              "role": "user",
+              "content": "u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31 u32 u33 u34 u35 u36 u37 u38 u39 u40 u41 u42 u43 u44 u45 u46 u47 u48 u49 u50 u51 u52 u53 u54 u55 u56 u57 u58 u59 u60 u61 u62 u63 u64 u65 u66 u67 u68 u69 u70 u71 u72 u73 u74 u75 u76 u77 u78 u79 u80 u81 u82 u83 u84 u85 u86 u87 u88 u89 u90 u91 u92 u93 u94 u95 u96 u97 u98 u99 u100 u101 u102 u103 u104 u105 u106 u107 u108 u109 u110 u111 u112 u113 u114 u115 u116 u117 u118 u119 u120 u121 u122 u123 u124 u125 u126 u127 u128 u129 u130 u131 u132 u133 u134 u135 u136 u137 u138 u139 u140 u141 u142 u143 u144 u145 u146 u147 u148 u149 u150 u151 u152 u153 u154 u155 u156 u157 u158 u159 u160 u161 u162 u163 u164 u165 u166 u167 u168 u169 u170 u171 u172 u173 u174 u175 u176 u177 u178 u179 u180 u181 u182 u183 u184 u185 u186 u187 u188 u189 u190 u191 u192 u193 u194 u195 u196 u197 u198 u199 u200 u201 u202 u203 u204 u205 u206 u207 u208 u209 u210 u211 u212 u213 u214 u215 u216 u217 u218 u219 u220 u221 u222 u223 u224 u225 u226 u227 u228 u229 u230 u231 u232 u233 u234 u235 u236 u237 u238 u239 u240 u241 u242 u243 u244 u245 u246 u247 u248 u249 u250 u251 u252 u253 u254 u255 u256 u257 u258 u259 u260 u261 u262 u263 u264 u265 u266 u267 u268 u269 u270 u271 u272 u273 u274 u275 u276 u277 u278 u279 u280 u281 u282 u283 u284 u285 u286 u287 u288 u289 u290 u291 u292 u293 u294 u295 u296 u297 u298 u299 u300 u301 u302 u303 u304 u305 u306 u307 u308 u309 u310 u311 u312 u313 u314 u315 u316 u317 u318 u319 u320 u321 u322 u323 u324 u325 u326 u327 u328 u329 u330 u331 u332 u333 u334 u335 u336 u337 u338 u339 u340 u341 u342 u343 u344 u345 u346 u347 u348 u349 u350 u351 u352 u353 u354 u355 u356 u357 u358 u359 u360 u361 u362 u363 u364 u365 u366 u367 u368 u369 u370 u371 u372 u373 u374 u375 u376 u377 u378 u379 u380 u381 u382 u383 u384 u385 u386 u387 u388 u389 u390 u391 u392 u393 u394 u395 u396 u397 u398 u399 u400 u401 u402 u403 u404 u405 u406 u407 u408 u409 u410 u411 u412 u413 u414 u415 u416 u417 u418 u419 u420 u421 u422 u423 u424 u425 u426 u427 u428 u429 u430 u431 u432 u433 u434 u435 u436 u437 u438 u439 u440 u441 u442 u443 u444 u445 u446 u447 u448 u449 u450 u451 u452 u453 u454 u455 u456 u457 u458 u459 u460 u461 u462 u463 u464 u465 u466 u467 u468 u469 u470 u471 u472 u473 u474 u475 u476 u477 u478 u479 u480 u481 u482 u483 u484 u485 u486 u487 u488 u489 u490 u491 u492 u493 u494 u495 u496 u497 u498 u499 u500 u501 u502 u503 u504 u505 u506 u507 u508 u509 u510 u511 u512 u513 u514 u515 u516 u517 u518 u519 u520 u521 u522 u523 u524 u525 u526 u527 u528 u529 u530 u531 u532 u533 u534 u535 u536 u537 u538 u539 u540 u541 u542 u543 u544 u545 u546 u547 u548 u549 u550 u551 u552 u553 u554 u555 u556 u557 u558 u559 u560 u561 u562 u563 u564 u565 u566 u567 u568 u569 u570 u571 u572 u573 u574 u575 u576 u577 u578 u579 u580 u581 u582 u583 u584 u585 u586 u587 u588 u589 u590 u591 u592 u593 u594 u595 u596 u597 u598 u599 u600 u601 u602 u603 u604 u605 u606 u607 u608 u609 u610 u611 u612 u613 u614 u615 u616 u617 u618 u619 u620 u621 u622 u623 u624 u625 u626 u627 u628 u629 u630 u631 u632 u633 u634 u635 u636 u637 u638 u639 u640 u641 u642 u643 u644 u645 u646 u647 u648 u649 u650 u651 u652 u653 u654 u655 u656 u657 u658 u659 u660 u661 u662 u663 u664 u665 u666 u667 u668 u669 u670 u671 u672 u673 u674 u675 u676 u677 u678 u679 u680 u681 u682 u683 u684 u685 u686 u687 u688 u689 u690 u691 u692 u693 u694 u695 u696 u697 u698 u699 u700 u701 u702 u703 u704 u705 u706 u707 u708 u709 u710 u711 u712 u713 u714 u715 u716 u717 u718 u719 u720 u721 u722 u723 u724 u725 u726 u727 u728 u729 u730 u731 u732 u733 u734 u735 u736 u737 u738 u739 u740 u741 u742 u743 u744 u745 u746 u747 u748 u749 u750 u751 u752 u753 u754 u755 u756 u757 u758 u759 u760 u761 u762 u763 u764 u765 u766 u767 u768 u769 u770 u771 u772 u773 u774 u775 u776 u777 u778 u779 u780 u781 u782 u783 u784 u785 u786 u787 u788 u789 u790 u791 u792 u793 u794 u795 u796 u797 u798 u799 u800 u801 u802 u803 u804 u805 u806 u807 u808 u809 u810 u811 u812 u813 u814 u815 u816 u817 u818 u819 u820 u821 u822 u823 u824 u825 u826 u827 u828 u829 u830 u831 u832 u833 u834 u835 u836 u837 u838 u839 u840 u841 u842 u843 u844 u845 u846 u847 u848 u849 u850 u851 u852 u853 u854 u855 u856 u857 u858 u859 u860 u861 u862 u863 u864 u865 u866 u867 u868 u869 u870 u871 u872 u873 u874 u875 u876 u877 u878 u879 u880 u881 u882 u883 u884 u885 u886 u887 u888 u889 u890 u891 u892 u893 u894 u895 u896 u897 u898 u899",
+              "meta": {
+                "transcript": {
+                  "messageId": "b1"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23 a24 a25 a26 a27 a28 a29 a30 a31 a32 a33 a34 a35 a36 a37 a38 a39 a40 a41 a42 a43 a44 a45 a46 a47 a48 a49 a50 a51 a52 a53 a54 a55 a56 a57 a58 a59 a60 a61 a62 a63 a64 a65 a66 a67 a68 a69 a70 a71 a72 a73 a74 a75 a76 a77 a78 a79 a80 a81 a82 a83 a84 a85 a86 a87 a88 a89 a90 a91 a92 a93 a94 a95 a96 a97 a98 a99 a100 a101 a102 a103 a104 a105 a106 a107 a108 a109 a110 a111 a112 a113 a114 a115 a116 a117 a118 a119 a120 a121 a122 a123 a124 a125 a126 a127 a128 a129 a130 a131 a132 a133 a134 a135 a136 a137 a138 a139 a140 a141 a142 a143 a144 a145 a146 a147 a148 a149 a150 a151 a152 a153 a154 a155 a156 a157 a158 a159 a160 a161 a162 a163 a164 a165 a166 a167 a168 a169 a170 a171 a172 a173 a174 a175 a176 a177 a178 a179 a180 a181 a182 a183 a184 a185 a186 a187 a188 a189 a190 a191 a192 a193 a194 a195 a196 a197 a198 a199 a200 a201 a202 a203 a204 a205 a206 a207 a208 a209 a210 a211 a212 a213 a214 a215 a216 a217 a218 a219 a220 a221 a222 a223 a224 a225 a226 a227 a228 a229 a230 a231 a232 a233 a234 a235 a236 a237 a238 a239 a240 a241 a242 a243 a244 a245 a246 a247 a248 a249 a250 a251 a252 a253 a254 a255 a256 a257 a258 a259 a260 a261 a262 a263 a264 a265 a266 a267 a268 a269 a270 a271 a272 a273 a274 a275 a276 a277 a278 a279 a280 a281 a282 a283 a284 a285 a286 a287 a288 a289 a290 a291 a292 a293 a294 a295 a296 a297 a298 a299 a300 a301 a302 a303 a304 a305 a306 a307 a308 a309 a310 a311 a312 a313 a314 a315 a316 a317 a318 a319 a320 a321 a322 a323 a324 a325 a326 a327 a328 a329 a330 a331 a332 a333 a334 a335 a336 a337 a338 a339 a340 a341 a342 a343 a344 a345 a346 a347 a348 a349 a350 a351 a352 a353 a354 a355 a356 a357 a358 a359 a360 a361 a362 a363 a364 a365 a366 a367 a368 a369 a370 a371 a372 a373 a374 a375 a376 a377 a378 a379 a380 a381 a382 a383 a384 a385 a386 a387 a388 a389 a390 a391 a392 a393 a394 a395 a396 a397 a398 a399 a400 a401 a402 a403 a404 a405 a406 a407 a408 a409 a410 a411 a412 a413 a414 a415 a416 a417 a418 a419 a420 a421 a422 a423 a424 a425 a426 a427 a428 a429 a430 a431 a432 a433 a434 a435 a436 a437 a438 a439 a440 a441 a442 a443 a444 a445 a446 a447 a448 a449 a450 a451 a452 a453 a454 a455 a456 a457 a458 a459 a460 a461 a462 a463 a464 a465 a466 a467 a468 a469 a470 a471 a472 a473 a474 a475 a476 a477 a478 a479 a480 a481 a482 a483 a484 a485 a486 a487 a488 a489 a490 a491 a492 a493 a494 a495 a496 a497 a498 a499 a500 a501 a502 a503 a504 a505 a506 a507 a508 a509 a510 a511 a512 a513 a514 a515 a516 a517 a518 a519 a520 a521 a522 a523 a524 a525 a526 a527 a528 a529 a530 a531 a532 a533 a534 a535 a536 a537 a538 a539 a540 a541 a542 a543 a544 a545 a546 a547 a548 a549 a550 a551 a552 a553 a554 a555 a556 a557 a558 a559 a560 a561 a562 a563 a564 a565 a566 a567 a568 a569 a570 a571 a572 a573 a574 a575 a576 a577 a578 a579 a580 a581 a582 a583 a584 a585 a586 a587 a588 a589 a590 a591 a592 a593 a594 a595 a596 a597 a598 a599 a600 a601 a602 a603 a604 a605 a606 a607 a608 a609 a610 a611 a612 a613 a614 a615 a616 a617 a618 a619 a620 a621 a622 a623 a624 a625 a626 a627 a628 a629 a630 a631 a632 a633 a634 a635 a636 a637 a638 a639 a640 a641 a642 a643 a644 a645 a646 a647 a648 a649 a650 a651 a652 a653 a654 a655 a656 a657 a658 a659 a660 a661 a662 a663 a664 a665 a666 a667 a668 a669 a670 a671 a672 a673 a674 a675 a676 a677 a678 a679 a680 a681 a682 a683 a684 a685 a686 a687 a688 a689 a690 a691 a692 a693 a694 a695 a696 a697 a698 a699 a700 a701 a702 a703 a704 a705 a706 a707 a708 a709 a710 a711 a712 a713 a714 a715 a716 a717 a718 a719 a720 a721 a722 a723 a724 a725 a726 a727 a728 a729 a730 a731 a732 a733 a734 a735 a736 a737 a738 a739 a740 a741 a742 a743 a744 a745 a746 a747 a748 a749 a750 a751 a752 a753 a754 a755 a756 a757 a758 a759 a760 a761 a762 a763 a764 a765 a766 a767 a768 a769 a770 a771 a772 a773 a774 a775 a776 a777 a778 a779 a780 a781 a782 a783 a784 a785 a786 a787 a788 a789 a790 a791 a792 a793 a794 a795 a796 a797 a798 a799 a800 a801 a802 a803 a804 a805 a806 a807 a808 a809 a810 a811 a812 a813 a814 a815 a816 a817 a818 a819 a820 a821 a822 a823 a824 a825 a826 a827 a828 a829 a830 a831 a832 a833 a834 a835 a836 a837 a838 a839 a840 a841 a842 a843 a844 a845 a846 a847 a848 a849 a850 a851 a852 a853 a854 a855 a856 a857 a858 a859 a860 a861 a862 a863 a864 a865 a866 a867 a868 a869 a870 a871 a872 a873 a874 a875 a876 a877 a878 a879 a880 a881 a882 a883 a884 a885 a886 a887 a888 a889 a890 a891 a892 a893 a894 a895 a896 a897 a898 a899",
+              "meta": {
+                "transcript": {
+                  "messageId": "b2"
+                }
+              }
+            },
+            {
+              "role": "user",
+              "content": "v0 v1 v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13 v14 v15 v16 v17 v18 v19 v20 v21 v22 v23 v24 v25 v26 v27 v28 v29 v30 v31 v32 v33 v34 v35 v36 v37 v38 v39 v40 v41 v42 v43 v44 v45 v46 v47 v48 v49 v50 v51 v52 v53 v54 v55 v56 v57 v58 v59 v60 v61 v62 v63 v64 v65 v66 v67 v68 v69 v70 v71 v72 v73 v74 v75 v76 v77 v78 v79 v80 v81 v82 v83 v84 v85 v86 v87 v88 v89 v90 v91 v92 v93 v94 v95 v96 v97 v98 v99 v100 v101 v102 v103 v104 v105 v106 v107 v108 v109 v110 v111 v112 v113 v114 v115 v116 v117 v118 v119 v120 v121 v122 v123 v124 v125 v126 v127 v128 v129 v130 v131 v132 v133 v134 v135 v136 v137 v138 v139 v140 v141 v142 v143 v144 v145 v146 v147 v148 v149 v150 v151 v152 v153 v154 v155 v156 v157 v158 v159 v160 v161 v162 v163 v164 v165 v166 v167 v168 v169 v170 v171 v172 v173 v174 v175 v176 v177 v178 v179 v180 v181 v182 v183 v184 v185 v186 v187 v188 v189 v190 v191 v192 v193 v194 v195 v196 v197 v198 v199 v200 v201 v202 v203 v204 v205 v206 v207 v208 v209 v210 v211 v212 v213 v214 v215 v216 v217 v218 v219 v220 v221 v222 v223 v224 v225 v226 v227 v228 v229 v230 v231 v232 v233 v234 v235 v236 v237 v238 v239 v240 v241 v242 v243 v244 v245 v246 v247 v248 v249 v250 v251 v252 v253 v254 v255 v256 v257 v258 v259 v260 v261 v262 v263 v264 v265 v266 v267 v268 v269 v270 v271 v272 v273 v274 v275 v276 v277 v278 v279 v280 v281 v282 v283 v284 v285 v286 v287 v288 v289 v290 v291 v292 v293 v294 v295 v296 v297 v298 v299 v300 v301 v302 v303 v304 v305 v306 v307 v308 v309 v310 v311 v312 v313 v314 v315 v316 v317 v318 v319 v320 v321 v322 v323 v324 v325 v326 v327 v328 v329 v330 v331 v332 v333 v334 v335 v336 v337 v338 v339 v340 v341 v342 v343 v344 v345 v346 v347 v348 v349 v350 v351 v352 v353 v354 v355 v356 v357 v358 v359 v360 v361 v362 v363 v364 v365 v366 v367 v368 v369 v370 v371 v372 v373 v374 v375 v376 v377 v378 v379 v380 v381 v382 v383 v384 v385 v386 v387 v388 v389 v390 v391 v392 v393 v394 v395 v396 v397 v398 v399 v400 v401 v402 v403 v404 v405 v406 v407 v408 v409 v410 v411 v412 v413 v414 v415 v416 v417 v418 v419 v420 v421 v422 v423 v424 v425 v426 v427 v428 v429 v430 v431 v432 v433 v434 v435 v436 v437 v438 v439 v440 v441 v442 v443 v444 v445 v446 v447 v448 v449 v450 v451 v452 v453 v454 v455 v456 v457 v458 v459 v460 v461 v462 v463 v464 v465 v466 v467 v468 v469 v470 v471 v472 v473 v474 v475 v476 v477 v478 v479 v480 v481 v482 v483 v484 v485 v486 v487 v488 v489 v490 v491 v492 v493 v494 v495 v496 v497 v498 v499 v500 v501 v502 v503 v504 v505 v506 v507 v508 v509 v510 v511 v512 v513 v514 v515 v516 v517 v518 v519 v520 v521 v522 v523 v524 v525 v526 v527 v528 v529 v530 v531 v532 v533 v534 v535 v536 v537 v538 v539 v540 v541 v542 v543 v544 v545 v546 v547 v548 v549 v550 v551 v552 v553 v554 v555 v556 v557 v558 v559 v560 v561 v562 v563 v564 v565 v566 v567 v568 v569 v570 v571 v572 v573 v574 v575 v576 v577 v578 v579 v580 v581 v582 v583 v584 v585 v586 v587 v588 v589 v590 v591 v592 v593 v594 v595 v596 v597 v598 v599 v600 v601 v602 v603 v604 v605 v606 v607 v608 v609 v610 v611 v612 v613 v614 v615 v616 v617 v618 v619 v620 v621 v622 v623 v624 v625 v626 v627 v628 v629 v630 v631 v632 v633 v634 v635 v636 v637 v638 v639 v640 v641 v642 v643 v644 v645 v646 v647 v648 v649 v650 v651 v652 v653 v654 v655 v656 v657 v658 v659 v660 v661 v662 v663 v664 v665 v666 v667 v668 v669 v670 v671 v672 v673 v674 v675 v676 v677 v678 v679 v680 v681 v682 v683 v684 v685 v686 v687 v688 v689 v690 v691 v692 v693 v694 v695 v696 v697 v698 v699 v700 v701 v702 v703 v704 v705 v706 v707 v708 v709 v710 v711 v712 v713 v714 v715 v716 v717 v718 v719 v720 v721 v722 v723 v724 v725 v726 v727 v728 v729 v730 v731 v732 v733 v734 v735 v736 v737 v738 v739 v740 v741 v742 v743 v744 v745 v746 v747 v748 v749 v750 v751 v752 v753 v754 v755 v756 v757 v758 v759 v760 v761 v762 v763 v764 v765 v766 v767 v768 v769 v770 v771 v772 v773 v774 v775 v776 v777 v778 v779 v780 v781 v782 v783 v784 v785 v786 v787 v788 v789 v790 v791 v792 v793 v794 v795 v796 v797 v798 v799 v800 v801 v802 v803 v804 v805 v806 v807 v808 v809 v810 v811 v812 v813 v814 v815 v816 v817 v818 v819 v820 v821 v822 v823 v824 v825 v826 v827 v828 v829 v830 v831 v832 v833 v834 v835 v836 v837 v838 v839 v840 v841 v842 v843 v844 v845 v846 v847 v848 v849 v850 v851 v852 v853 v854 v855 v856 v857 v858 v859 v860 v861 v862 v863 v864 v865 v866 v867 v868 v869 v870 v871 v872 v873 v874 v875 v876 v877 v878 v879 v880 v881 v882 v883 v884 v885 v886 v887 v888 v889 v890 v891 v892 v893 v894 v895 v896 v897 v898 v899",
+              "meta": {
+                "transcript": {
+                  "messageId": "b3"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "b0 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16 b17 b18 b19 b20 b21 b22 b23 b24 b25 b26 b27 b28 b29 b30 b31 b32 b33 b34 b35 b36 b37 b38 b39 b40 b41 b42 b43 b44 b45 b46 b47 b48 b49 b50 b51 b52 b53 b54 b55 b56 b57 b58 b59 b60 b61 b62 b63 b64 b65 b66 b67 b68 b69 b70 b71 b72 b73 b74 b75 b76 b77 b78 b79 b80 b81 b82 b83 b84 b85 b86 b87 b88 b89 b90 b91 b92 b93 b94 b95 b96 b97 b98 b99 b100 b101 b102 b103 b104 b105 b106 b107 b108 b109 b110 b111 b112 b113 b114 b115 b116 b117 b118 b119 b120 b121 b122 b123 b124 b125 b126 b127 b128 b129 b130 b131 b132 b133 b134 b135 b136 b137 b138 b139 b140 b141 b142 b143 b144 b145 b146 b147 b148 b149 b150 b151 b152 b153 b154 b155 b156 b157 b158 b159 b160 b161 b162 b163 b164 b165 b166 b167 b168 b169 b170 b171 b172 b173 b174 b175 b176 b177 b178 b179 b180 b181 b182 b183 b184 b185 b186 b187 b188 b189 b190 b191 b192 b193 b194 b195 b196 b197 b198 b199 b200 b201 b202 b203 b204 b205 b206 b207 b208 b209 b210 b211 b212 b213 b214 b215 b216 b217 b218 b219 b220 b221 b222 b223 b224 b225 b226 b227 b228 b229 b230 b231 b232 b233 b234 b235 b236 b237 b238 b239 b240 b241 b242 b243 b244 b245 b246 b247 b248 b249 b250 b251 b252 b253 b254 b255 b256 b257 b258 b259 b260 b261 b262 b263 b264 b265 b266 b267 b268 b269 b270 b271 b272 b273 b274 b275 b276 b277 b278 b279 b280 b281 b282 b283 b284 b285 b286 b287 b288 b289 b290 b291 b292 b293 b294 b295 b296 b297 b298 b299 b300 b301 b302 b303 b304 b305 b306 b307 b308 b309 b310 b311 b312 b313 b314 b315 b316 b317 b318 b319 b320 b321 b322 b323 b324 b325 b326 b327 b328 b329 b330 b331 b332 b333 b334 b335 b336 b337 b338 b339 b340 b341 b342 b343 b344 b345 b346 b347 b348 b349 b350 b351 b352 b353 b354 b355 b356 b357 b358 b359 b360 b361 b362 b363 b364 b365 b366 b367 b368 b369 b370 b371 b372 b373 b374 b375 b376 b377 b378 b379 b380 b381 b382 b383 b384 b385 b386 b387 b388 b389 b390 b391 b392 b393 b394 b395 b396 b397 b398 b399 b400 b401 b402 b403 b404 b405 b406 b407 b408 b409 b410 b411 b412 b413 b414 b415 b416 b417 b418 b419 b420 b421 b422 b423 b424 b425 b426 b427 b428 b429 b430 b431 b432 b433 b434 b435 b436 b437 b438 b439 b440 b441 b442 b443 b444 b445 b446 b447 b448 b449 b450 b451 b452 b453 b454 b455 b456 b457 b458 b459 b460 b461 b462 b463 b464 b465 b466 b467 b468 b469 b470 b471 b472 b473 b474 b475 b476 b477 b478 b479 b480 b481 b482 b483 b484 b485 b486 b487 b488 b489 b490 b491 b492 b493 b494 b495 b496 b497 b498 b499 b500 b501 b502 b503 b504 b505 b506 b507 b508 b509 b510 b511 b512 b513 b514 b515 b516 b517 b518 b519 b520 b521 b522 b523 b524 b525 b526 b527 b528 b529 b530 b531 b532 b533 b534 b535 b536 b537 b538 b539 b540 b541 b542 b543 b544 b545 b546 b547 b548 b549 b550 b551 b552 b553 b554 b555 b556 b557 b558 b559 b560 b561 b562 b563 b564 b565 b566 b567 b568 b569 b570 b571 b572 b573 b574 b575 b576 b577 b578 b579 b580 b581 b582 b583 b584 b585 b586 b587 b588 b589 b590 b591 b592 b593 b594 b595 b596 b597 b598 b599 b600 b601 b602 b603 b604 b605 b606 b607 b608 b609 b610 b611 b612 b613 b614 b615 b616 b617 b618 b619 b620 b621 b622 b623 b624 b625 b626 b627 b628 b629 b630 b631 b632 b633 b634 b635 b636 b637 b638 b639 b640 b641 b642 b643 b644 b645 b646 b647 b648 b649 b650 b651 b652 b653 b654 b655 b656 b657 b658 b659 b660 b661 b662 b663 b664 b665 b666 b667 b668 b669 b670 b671 b672 b673 b674 b675 b676 b677 b678 b679 b680 b681 b682 b683 b684 b685 b686 b687 b688 b689 b690 b691 b692 b693 b694 b695 b696 b697 b698 b699 b700 b701 b702 b703 b704 b705 b706 b707 b708 b709 b710 b711 b712 b713 b714 b715 b716 b717 b718 b719 b720 b721 b722 b723 b724 b725 b726 b727 b728 b729 b730 b731 b732 b733 b734 b735 b736 b737 b738 b739 b740 b741 b742 b743 b744 b745 b746 b747 b748 b749 b750 b751 b752 b753 b754 b755 b756 b757 b758 b759 b760 b761 b762 b763 b764 b765 b766 b767 b768 b769 b770 b771 b772 b773 b774 b775 b776 b777 b778 b779 b780 b781 b782 b783 b784 b785 b786 b787 b788 b789 b790 b791 b792 b793 b794 b795 b796 b797 b798 b799 b800 b801 b802 b803 b804 b805 b806 b807 b808 b809 b810 b811 b812 b813 b814 b815 b816 b817 b818 b819 b820 b821 b822 b823 b824 b825 b826 b827 b828 b829 b830 b831 b832 b833 b834 b835 b836 b837 b838 b839 b840 b841 b842 b843 b844 b845 b846 b847 b848 b849 b850 b851 b852 b853 b854 b855 b856 b857 b858 b859 b860 b861 b862 b863 b864 b865 b866 b867 b868 b869 b870 b871 b872 b873 b874 b875 b876 b877 b878 b879 b880 b881 b882 b883 b884 b885 b886 b887 b888 b889 b890 b891 b892 b893 b894 b895 b896 b897 b898 b899",
+              "meta": {
+                "transcript": {
+                  "messageId": "b4"
+                }
+              }
+            }
+          ]
+        },
+        "heir": {
+          "id": "sess_heir",
+          "title": "",
+          "messages": [
+            {
+              "role": "system",
+              "content": "Rules of the heir."
+            }
+          ],
+          "liveTurnMessages": []
+        }
+      },
+      "options": {},
+      "sourceId": "sess_source",
+      "fit": {
+        "messages": 4,
+        "known": true,
+        "fits": false,
+        "used": 4408,
+        "limit": 3000
+      },
+      "fitCompacted": {
+        "messages": 1,
+        "known": true,
+        "fits": true,
+        "used": 13,
+        "limit": 3000
+      },
+      "budgetTokens": 4000,
+      "compactorAnswer": [
+        {
+          "role": "system",
+          "content": "rules"
+        },
+        {
+          "role": "user",
+          "content": "Summary of the conversation so far."
+        }
+      ],
+      "compactorCalls": [
+        {
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the source session. Rules of the source."
+            },
+            {
+              "role": "system",
+              "content": "# Core\n\nsource core context",
+              "cacheTier": "tier3"
+            },
+            {
+              "role": "system",
+              "content": "# Environment\n\nsource environment facts",
+              "cacheTier": "env"
+            },
+            {
+              "role": "user",
+              "content": "u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31 u32 u33 u34 u35 u36 u37 u38 u39 u40 u41 u42 u43 u44 u45 u46 u47 u48 u49 u50 u51 u52 u53 u54 u55 u56 u57 u58 u59 u60 u61 u62 u63 u64 u65 u66 u67 u68 u69 u70 u71 u72 u73 u74 u75 u76 u77 u78 u79 u80 u81 u82 u83 u84 u85 u86 u87 u88 u89 u90 u91 u92 u93 u94 u95 u96 u97 u98 u99 u100 u101 u102 u103 u104 u105 u106 u107 u108 u109 u110 u111 u112 u113 u114 u115 u116 u117 u118 u119 u120 u121 u122 u123 u124 u125 u126 u127 u128 u129 u130 u131 u132 u133 u134 u135 u136 u137 u138 u139 u140 u141 u142 u143 u144 u145 u146 u147 u148 u149 u150 u151 u152 u153 u154 u155 u156 u157 u158 u159 u160 u161 u162 u163 u164 u165 u166 u167 u168 u169 u170 u171 u172 u173 u174 u175 u176 u177 u178 u179 u180 u181 u182 u183 u184 u185 u186 u187 u188 u189 u190 u191 u192 u193 u194 u195 u196 u197 u198 u199 u200 u201 u202 u203 u204 u205 u206 u207 u208 u209 u210 u211 u212 u213 u214 u215 u216 u217 u218 u219 u220 u221 u222 u223 u224 u225 u226 u227 u228 u229 u230 u231 u232 u233 u234 u235 u236 u237 u238 u239 u240 u241 u242 u243 u244 u245 u246 u247 u248 u249 u250 u251 u252 u253 u254 u255 u256 u257 u258 u259 u260 u261 u262 u263 u264 u265 u266 u267 u268 u269 u270 u271 u272 u273 u274 u275 u276 u277 u278 u279 u280 u281 u282 u283 u284 u285 u286 u287 u288 u289 u290 u291 u292 u293 u294 u295 u296 u297 u298 u299 u300 u301 u302 u303 u304 u305 u306 u307 u308 u309 u310 u311 u312 u313 u314 u315 u316 u317 u318 u319 u320 u321 u322 u323 u324 u325 u326 u327 u328 u329 u330 u331 u332 u333 u334 u335 u336 u337 u338 u339 u340 u341 u342 u343 u344 u345 u346 u347 u348 u349 u350 u351 u352 u353 u354 u355 u356 u357 u358 u359 u360 u361 u362 u363 u364 u365 u366 u367 u368 u369 u370 u371 u372 u373 u374 u375 u376 u377 u378 u379 u380 u381 u382 u383 u384 u385 u386 u387 u388 u389 u390 u391 u392 u393 u394 u395 u396 u397 u398 u399 u400 u401 u402 u403 u404 u405 u406 u407 u408 u409 u410 u411 u412 u413 u414 u415 u416 u417 u418 u419 u420 u421 u422 u423 u424 u425 u426 u427 u428 u429 u430 u431 u432 u433 u434 u435 u436 u437 u438 u439 u440 u441 u442 u443 u444 u445 u446 u447 u448 u449 u450 u451 u452 u453 u454 u455 u456 u457 u458 u459 u460 u461 u462 u463 u464 u465 u466 u467 u468 u469 u470 u471 u472 u473 u474 u475 u476 u477 u478 u479 u480 u481 u482 u483 u484 u485 u486 u487 u488 u489 u490 u491 u492 u493 u494 u495 u496 u497 u498 u499 u500 u501 u502 u503 u504 u505 u506 u507 u508 u509 u510 u511 u512 u513 u514 u515 u516 u517 u518 u519 u520 u521 u522 u523 u524 u525 u526 u527 u528 u529 u530 u531 u532 u533 u534 u535 u536 u537 u538 u539 u540 u541 u542 u543 u544 u545 u546 u547 u548 u549 u550 u551 u552 u553 u554 u555 u556 u557 u558 u559 u560 u561 u562 u563 u564 u565 u566 u567 u568 u569 u570 u571 u572 u573 u574 u575 u576 u577 u578 u579 u580 u581 u582 u583 u584 u585 u586 u587 u588 u589 u590 u591 u592 u593 u594 u595 u596 u597 u598 u599 u600 u601 u602 u603 u604 u605 u606 u607 u608 u609 u610 u611 u612 u613 u614 u615 u616 u617 u618 u619 u620 u621 u622 u623 u624 u625 u626 u627 u628 u629 u630 u631 u632 u633 u634 u635 u636 u637 u638 u639 u640 u641 u642 u643 u644 u645 u646 u647 u648 u649 u650 u651 u652 u653 u654 u655 u656 u657 u658 u659 u660 u661 u662 u663 u664 u665 u666 u667 u668 u669 u670 u671 u672 u673 u674 u675 u676 u677 u678 u679 u680 u681 u682 u683 u684 u685 u686 u687 u688 u689 u690 u691 u692 u693 u694 u695 u696 u697 u698 u699 u700 u701 u702 u703 u704 u705 u706 u707 u708 u709 u710 u711 u712 u713 u714 u715 u716 u717 u718 u719 u720 u721 u722 u723 u724 u725 u726 u727 u728 u729 u730 u731 u732 u733 u734 u735 u736 u737 u738 u739 u740 u741 u742 u743 u744 u745 u746 u747 u748 u749 u750 u751 u752 u753 u754 u755 u756 u757 u758 u759 u760 u761 u762 u763 u764 u765 u766 u767 u768 u769 u770 u771 u772 u773 u774 u775 u776 u777 u778 u779 u780 u781 u782 u783 u784 u785 u786 u787 u788 u789 u790 u791 u792 u793 u794 u795 u796 u797 u798 u799 u800 u801 u802 u803 u804 u805 u806 u807 u808 u809 u810 u811 u812 u813 u814 u815 u816 u817 u818 u819 u820 u821 u822 u823 u824 u825 u826 u827 u828 u829 u830 u831 u832 u833 u834 u835 u836 u837 u838 u839 u840 u841 u842 u843 u844 u845 u846 u847 u848 u849 u850 u851 u852 u853 u854 u855 u856 u857 u858 u859 u860 u861 u862 u863 u864 u865 u866 u867 u868 u869 u870 u871 u872 u873 u874 u875 u876 u877 u878 u879 u880 u881 u882 u883 u884 u885 u886 u887 u888 u889 u890 u891 u892 u893 u894 u895 u896 u897 u898 u899"
+            },
+            {
+              "role": "assistant",
+              "content": "a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23 a24 a25 a26 a27 a28 a29 a30 a31 a32 a33 a34 a35 a36 a37 a38 a39 a40 a41 a42 a43 a44 a45 a46 a47 a48 a49 a50 a51 a52 a53 a54 a55 a56 a57 a58 a59 a60 a61 a62 a63 a64 a65 a66 a67 a68 a69 a70 a71 a72 a73 a74 a75 a76 a77 a78 a79 a80 a81 a82 a83 a84 a85 a86 a87 a88 a89 a90 a91 a92 a93 a94 a95 a96 a97 a98 a99 a100 a101 a102 a103 a104 a105 a106 a107 a108 a109 a110 a111 a112 a113 a114 a115 a116 a117 a118 a119 a120 a121 a122 a123 a124 a125 a126 a127 a128 a129 a130 a131 a132 a133 a134 a135 a136 a137 a138 a139 a140 a141 a142 a143 a144 a145 a146 a147 a148 a149 a150 a151 a152 a153 a154 a155 a156 a157 a158 a159 a160 a161 a162 a163 a164 a165 a166 a167 a168 a169 a170 a171 a172 a173 a174 a175 a176 a177 a178 a179 a180 a181 a182 a183 a184 a185 a186 a187 a188 a189 a190 a191 a192 a193 a194 a195 a196 a197 a198 a199 a200 a201 a202 a203 a204 a205 a206 a207 a208 a209 a210 a211 a212 a213 a214 a215 a216 a217 a218 a219 a220 a221 a222 a223 a224 a225 a226 a227 a228 a229 a230 a231 a232 a233 a234 a235 a236 a237 a238 a239 a240 a241 a242 a243 a244 a245 a246 a247 a248 a249 a250 a251 a252 a253 a254 a255 a256 a257 a258 a259 a260 a261 a262 a263 a264 a265 a266 a267 a268 a269 a270 a271 a272 a273 a274 a275 a276 a277 a278 a279 a280 a281 a282 a283 a284 a285 a286 a287 a288 a289 a290 a291 a292 a293 a294 a295 a296 a297 a298 a299 a300 a301 a302 a303 a304 a305 a306 a307 a308 a309 a310 a311 a312 a313 a314 a315 a316 a317 a318 a319 a320 a321 a322 a323 a324 a325 a326 a327 a328 a329 a330 a331 a332 a333 a334 a335 a336 a337 a338 a339 a340 a341 a342 a343 a344 a345 a346 a347 a348 a349 a350 a351 a352 a353 a354 a355 a356 a357 a358 a359 a360 a361 a362 a363 a364 a365 a366 a367 a368 a369 a370 a371 a372 a373 a374 a375 a376 a377 a378 a379 a380 a381 a382 a383 a384 a385 a386 a387 a388 a389 a390 a391 a392 a393 a394 a395 a396 a397 a398 a399 a400 a401 a402 a403 a404 a405 a406 a407 a408 a409 a410 a411 a412 a413 a414 a415 a416 a417 a418 a419 a420 a421 a422 a423 a424 a425 a426 a427 a428 a429 a430 a431 a432 a433 a434 a435 a436 a437 a438 a439 a440 a441 a442 a443 a444 a445 a446 a447 a448 a449 a450 a451 a452 a453 a454 a455 a456 a457 a458 a459 a460 a461 a462 a463 a464 a465 a466 a467 a468 a469 a470 a471 a472 a473 a474 a475 a476 a477 a478 a479 a480 a481 a482 a483 a484 a485 a486 a487 a488 a489 a490 a491 a492 a493 a494 a495 a496 a497 a498 a499 a500 a501 a502 a503 a504 a505 a506 a507 a508 a509 a510 a511 a512 a513 a514 a515 a516 a517 a518 a519 a520 a521 a522 a523 a524 a525 a526 a527 a528 a529 a530 a531 a532 a533 a534 a535 a536 a537 a538 a539 a540 a541 a542 a543 a544 a545 a546 a547 a548 a549 a550 a551 a552 a553 a554 a555 a556 a557 a558 a559 a560 a561 a562 a563 a564 a565 a566 a567 a568 a569 a570 a571 a572 a573 a574 a575 a576 a577 a578 a579 a580 a581 a582 a583 a584 a585 a586 a587 a588 a589 a590 a591 a592 a593 a594 a595 a596 a597 a598 a599 a600 a601 a602 a603 a604 a605 a606 a607 a608 a609 a610 a611 a612 a613 a614 a615 a616 a617 a618 a619 a620 a621 a622 a623 a624 a625 a626 a627 a628 a629 a630 a631 a632 a633 a634 a635 a636 a637 a638 a639 a640 a641 a642 a643 a644 a645 a646 a647 a648 a649 a650 a651 a652 a653 a654 a655 a656 a657 a658 a659 a660 a661 a662 a663 a664 a665 a666 a667 a668 a669 a670 a671 a672 a673 a674 a675 a676 a677 a678 a679 a680 a681 a682 a683 a684 a685 a686 a687 a688 a689 a690 a691 a692 a693 a694 a695 a696 a697 a698 a699 a700 a701 a702 a703 a704 a705 a706 a707 a708 a709 a710 a711 a712 a713 a714 a715 a716 a717 a718 a719 a720 a721 a722 a723 a724 a725 a726 a727 a728 a729 a730 a731 a732 a733 a734 a735 a736 a737 a738 a739 a740 a741 a742 a743 a744 a745 a746 a747 a748 a749 a750 a751 a752 a753 a754 a755 a756 a757 a758 a759 a760 a761 a762 a763 a764 a765 a766 a767 a768 a769 a770 a771 a772 a773 a774 a775 a776 a777 a778 a779 a780 a781 a782 a783 a784 a785 a786 a787 a788 a789 a790 a791 a792 a793 a794 a795 a796 a797 a798 a799 a800 a801 a802 a803 a804 a805 a806 a807 a808 a809 a810 a811 a812 a813 a814 a815 a816 a817 a818 a819 a820 a821 a822 a823 a824 a825 a826 a827 a828 a829 a830 a831 a832 a833 a834 a835 a836 a837 a838 a839 a840 a841 a842 a843 a844 a845 a846 a847 a848 a849 a850 a851 a852 a853 a854 a855 a856 a857 a858 a859 a860 a861 a862 a863 a864 a865 a866 a867 a868 a869 a870 a871 a872 a873 a874 a875 a876 a877 a878 a879 a880 a881 a882 a883 a884 a885 a886 a887 a888 a889 a890 a891 a892 a893 a894 a895 a896 a897 a898 a899"
+            },
+            {
+              "role": "user",
+              "content": "v0 v1 v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13 v14 v15 v16 v17 v18 v19 v20 v21 v22 v23 v24 v25 v26 v27 v28 v29 v30 v31 v32 v33 v34 v35 v36 v37 v38 v39 v40 v41 v42 v43 v44 v45 v46 v47 v48 v49 v50 v51 v52 v53 v54 v55 v56 v57 v58 v59 v60 v61 v62 v63 v64 v65 v66 v67 v68 v69 v70 v71 v72 v73 v74 v75 v76 v77 v78 v79 v80 v81 v82 v83 v84 v85 v86 v87 v88 v89 v90 v91 v92 v93 v94 v95 v96 v97 v98 v99 v100 v101 v102 v103 v104 v105 v106 v107 v108 v109 v110 v111 v112 v113 v114 v115 v116 v117 v118 v119 v120 v121 v122 v123 v124 v125 v126 v127 v128 v129 v130 v131 v132 v133 v134 v135 v136 v137 v138 v139 v140 v141 v142 v143 v144 v145 v146 v147 v148 v149 v150 v151 v152 v153 v154 v155 v156 v157 v158 v159 v160 v161 v162 v163 v164 v165 v166 v167 v168 v169 v170 v171 v172 v173 v174 v175 v176 v177 v178 v179 v180 v181 v182 v183 v184 v185 v186 v187 v188 v189 v190 v191 v192 v193 v194 v195 v196 v197 v198 v199 v200 v201 v202 v203 v204 v205 v206 v207 v208 v209 v210 v211 v212 v213 v214 v215 v216 v217 v218 v219 v220 v221 v222 v223 v224 v225 v226 v227 v228 v229 v230 v231 v232 v233 v234 v235 v236 v237 v238 v239 v240 v241 v242 v243 v244 v245 v246 v247 v248 v249 v250 v251 v252 v253 v254 v255 v256 v257 v258 v259 v260 v261 v262 v263 v264 v265 v266 v267 v268 v269 v270 v271 v272 v273 v274 v275 v276 v277 v278 v279 v280 v281 v282 v283 v284 v285 v286 v287 v288 v289 v290 v291 v292 v293 v294 v295 v296 v297 v298 v299 v300 v301 v302 v303 v304 v305 v306 v307 v308 v309 v310 v311 v312 v313 v314 v315 v316 v317 v318 v319 v320 v321 v322 v323 v324 v325 v326 v327 v328 v329 v330 v331 v332 v333 v334 v335 v336 v337 v338 v339 v340 v341 v342 v343 v344 v345 v346 v347 v348 v349 v350 v351 v352 v353 v354 v355 v356 v357 v358 v359 v360 v361 v362 v363 v364 v365 v366 v367 v368 v369 v370 v371 v372 v373 v374 v375 v376 v377 v378 v379 v380 v381 v382 v383 v384 v385 v386 v387 v388 v389 v390 v391 v392 v393 v394 v395 v396 v397 v398 v399 v400 v401 v402 v403 v404 v405 v406 v407 v408 v409 v410 v411 v412 v413 v414 v415 v416 v417 v418 v419 v420 v421 v422 v423 v424 v425 v426 v427 v428 v429 v430 v431 v432 v433 v434 v435 v436 v437 v438 v439 v440 v441 v442 v443 v444 v445 v446 v447 v448 v449 v450 v451 v452 v453 v454 v455 v456 v457 v458 v459 v460 v461 v462 v463 v464 v465 v466 v467 v468 v469 v470 v471 v472 v473 v474 v475 v476 v477 v478 v479 v480 v481 v482 v483 v484 v485 v486 v487 v488 v489 v490 v491 v492 v493 v494 v495 v496 v497 v498 v499 v500 v501 v502 v503 v504 v505 v506 v507 v508 v509 v510 v511 v512 v513 v514 v515 v516 v517 v518 v519 v520 v521 v522 v523 v524 v525 v526 v527 v528 v529 v530 v531 v532 v533 v534 v535 v536 v537 v538 v539 v540 v541 v542 v543 v544 v545 v546 v547 v548 v549 v550 v551 v552 v553 v554 v555 v556 v557 v558 v559 v560 v561 v562 v563 v564 v565 v566 v567 v568 v569 v570 v571 v572 v573 v574 v575 v576 v577 v578 v579 v580 v581 v582 v583 v584 v585 v586 v587 v588 v589 v590 v591 v592 v593 v594 v595 v596 v597 v598 v599 v600 v601 v602 v603 v604 v605 v606 v607 v608 v609 v610 v611 v612 v613 v614 v615 v616 v617 v618 v619 v620 v621 v622 v623 v624 v625 v626 v627 v628 v629 v630 v631 v632 v633 v634 v635 v636 v637 v638 v639 v640 v641 v642 v643 v644 v645 v646 v647 v648 v649 v650 v651 v652 v653 v654 v655 v656 v657 v658 v659 v660 v661 v662 v663 v664 v665 v666 v667 v668 v669 v670 v671 v672 v673 v674 v675 v676 v677 v678 v679 v680 v681 v682 v683 v684 v685 v686 v687 v688 v689 v690 v691 v692 v693 v694 v695 v696 v697 v698 v699 v700 v701 v702 v703 v704 v705 v706 v707 v708 v709 v710 v711 v712 v713 v714 v715 v716 v717 v718 v719 v720 v721 v722 v723 v724 v725 v726 v727 v728 v729 v730 v731 v732 v733 v734 v735 v736 v737 v738 v739 v740 v741 v742 v743 v744 v745 v746 v747 v748 v749 v750 v751 v752 v753 v754 v755 v756 v757 v758 v759 v760 v761 v762 v763 v764 v765 v766 v767 v768 v769 v770 v771 v772 v773 v774 v775 v776 v777 v778 v779 v780 v781 v782 v783 v784 v785 v786 v787 v788 v789 v790 v791 v792 v793 v794 v795 v796 v797 v798 v799 v800 v801 v802 v803 v804 v805 v806 v807 v808 v809 v810 v811 v812 v813 v814 v815 v816 v817 v818 v819 v820 v821 v822 v823 v824 v825 v826 v827 v828 v829 v830 v831 v832 v833 v834 v835 v836 v837 v838 v839 v840 v841 v842 v843 v844 v845 v846 v847 v848 v849 v850 v851 v852 v853 v854 v855 v856 v857 v858 v859 v860 v861 v862 v863 v864 v865 v866 v867 v868 v869 v870 v871 v872 v873 v874 v875 v876 v877 v878 v879 v880 v881 v882 v883 v884 v885 v886 v887 v888 v889 v890 v891 v892 v893 v894 v895 v896 v897 v898 v899"
+            },
+            {
+              "role": "assistant",
+              "content": "b0 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16 b17 b18 b19 b20 b21 b22 b23 b24 b25 b26 b27 b28 b29 b30 b31 b32 b33 b34 b35 b36 b37 b38 b39 b40 b41 b42 b43 b44 b45 b46 b47 b48 b49 b50 b51 b52 b53 b54 b55 b56 b57 b58 b59 b60 b61 b62 b63 b64 b65 b66 b67 b68 b69 b70 b71 b72 b73 b74 b75 b76 b77 b78 b79 b80 b81 b82 b83 b84 b85 b86 b87 b88 b89 b90 b91 b92 b93 b94 b95 b96 b97 b98 b99 b100 b101 b102 b103 b104 b105 b106 b107 b108 b109 b110 b111 b112 b113 b114 b115 b116 b117 b118 b119 b120 b121 b122 b123 b124 b125 b126 b127 b128 b129 b130 b131 b132 b133 b134 b135 b136 b137 b138 b139 b140 b141 b142 b143 b144 b145 b146 b147 b148 b149 b150 b151 b152 b153 b154 b155 b156 b157 b158 b159 b160 b161 b162 b163 b164 b165 b166 b167 b168 b169 b170 b171 b172 b173 b174 b175 b176 b177 b178 b179 b180 b181 b182 b183 b184 b185 b186 b187 b188 b189 b190 b191 b192 b193 b194 b195 b196 b197 b198 b199 b200 b201 b202 b203 b204 b205 b206 b207 b208 b209 b210 b211 b212 b213 b214 b215 b216 b217 b218 b219 b220 b221 b222 b223 b224 b225 b226 b227 b228 b229 b230 b231 b232 b233 b234 b235 b236 b237 b238 b239 b240 b241 b242 b243 b244 b245 b246 b247 b248 b249 b250 b251 b252 b253 b254 b255 b256 b257 b258 b259 b260 b261 b262 b263 b264 b265 b266 b267 b268 b269 b270 b271 b272 b273 b274 b275 b276 b277 b278 b279 b280 b281 b282 b283 b284 b285 b286 b287 b288 b289 b290 b291 b292 b293 b294 b295 b296 b297 b298 b299 b300 b301 b302 b303 b304 b305 b306 b307 b308 b309 b310 b311 b312 b313 b314 b315 b316 b317 b318 b319 b320 b321 b322 b323 b324 b325 b326 b327 b328 b329 b330 b331 b332 b333 b334 b335 b336 b337 b338 b339 b340 b341 b342 b343 b344 b345 b346 b347 b348 b349 b350 b351 b352 b353 b354 b355 b356 b357 b358 b359 b360 b361 b362 b363 b364 b365 b366 b367 b368 b369 b370 b371 b372 b373 b374 b375 b376 b377 b378 b379 b380 b381 b382 b383 b384 b385 b386 b387 b388 b389 b390 b391 b392 b393 b394 b395 b396 b397 b398 b399 b400 b401 b402 b403 b404 b405 b406 b407 b408 b409 b410 b411 b412 b413 b414 b415 b416 b417 b418 b419 b420 b421 b422 b423 b424 b425 b426 b427 b428 b429 b430 b431 b432 b433 b434 b435 b436 b437 b438 b439 b440 b441 b442 b443 b444 b445 b446 b447 b448 b449 b450 b451 b452 b453 b454 b455 b456 b457 b458 b459 b460 b461 b462 b463 b464 b465 b466 b467 b468 b469 b470 b471 b472 b473 b474 b475 b476 b477 b478 b479 b480 b481 b482 b483 b484 b485 b486 b487 b488 b489 b490 b491 b492 b493 b494 b495 b496 b497 b498 b499 b500 b501 b502 b503 b504 b505 b506 b507 b508 b509 b510 b511 b512 b513 b514 b515 b516 b517 b518 b519 b520 b521 b522 b523 b524 b525 b526 b527 b528 b529 b530 b531 b532 b533 b534 b535 b536 b537 b538 b539 b540 b541 b542 b543 b544 b545 b546 b547 b548 b549 b550 b551 b552 b553 b554 b555 b556 b557 b558 b559 b560 b561 b562 b563 b564 b565 b566 b567 b568 b569 b570 b571 b572 b573 b574 b575 b576 b577 b578 b579 b580 b581 b582 b583 b584 b585 b586 b587 b588 b589 b590 b591 b592 b593 b594 b595 b596 b597 b598 b599 b600 b601 b602 b603 b604 b605 b606 b607 b608 b609 b610 b611 b612 b613 b614 b615 b616 b617 b618 b619 b620 b621 b622 b623 b624 b625 b626 b627 b628 b629 b630 b631 b632 b633 b634 b635 b636 b637 b638 b639 b640 b641 b642 b643 b644 b645 b646 b647 b648 b649 b650 b651 b652 b653 b654 b655 b656 b657 b658 b659 b660 b661 b662 b663 b664 b665 b666 b667 b668 b669 b670 b671 b672 b673 b674 b675 b676 b677 b678 b679 b680 b681 b682 b683 b684 b685 b686 b687 b688 b689 b690 b691 b692 b693 b694 b695 b696 b697 b698 b699 b700 b701 b702 b703 b704 b705 b706 b707 b708 b709 b710 b711 b712 b713 b714 b715 b716 b717 b718 b719 b720 b721 b722 b723 b724 b725 b726 b727 b728 b729 b730 b731 b732 b733 b734 b735 b736 b737 b738 b739 b740 b741 b742 b743 b744 b745 b746 b747 b748 b749 b750 b751 b752 b753 b754 b755 b756 b757 b758 b759 b760 b761 b762 b763 b764 b765 b766 b767 b768 b769 b770 b771 b772 b773 b774 b775 b776 b777 b778 b779 b780 b781 b782 b783 b784 b785 b786 b787 b788 b789 b790 b791 b792 b793 b794 b795 b796 b797 b798 b799 b800 b801 b802 b803 b804 b805 b806 b807 b808 b809 b810 b811 b812 b813 b814 b815 b816 b817 b818 b819 b820 b821 b822 b823 b824 b825 b826 b827 b828 b829 b830 b831 b832 b833 b834 b835 b836 b837 b838 b839 b840 b841 b842 b843 b844 b845 b846 b847 b848 b849 b850 b851 b852 b853 b854 b855 b856 b857 b858 b859 b860 b861 b862 b863 b864 b865 b866 b867 b868 b869 b870 b871 b872 b873 b874 b875 b876 b877 b878 b879 b880 b881 b882 b883 b884 b885 b886 b887 b888 b889 b890 b891 b892 b893 b894 b895 b896 b897 b898 b899"
+            }
+          ],
+          "budgetTokens": 4000,
+          "boundaryTokens": 3000,
+          "reserveTokens": 0,
+          "contextWindow": 3000,
+          "sessionId": "sess_source",
+          "conversationThresholdTokens": null,
+          "sourceItself": false
+        }
+      ],
+      "outcome": {
+        "ok": {
+          "sessionId": "sess_heir",
+          "sourceSessionId": "sess_source",
+          "messages": 1,
+          "provider": "custom-harness",
+          "model": "harness-model"
+        }
+      },
+      "carried": [
+        {
+          "role": "user",
+          "content": "Summary of the conversation so far."
+        }
+      ],
+      "title": "Source title",
+      "inheritedFromSessionId": "sess_source"
+    },
+    {
+      "name": "too large, still too large compacted",
+      "setup": {
+        "source": {
+          "id": "sess_source",
+          "title": "Source title",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the source session. Rules of the source."
+            },
+            {
+              "role": "system",
+              "content": "# Core\n\nsource core context",
+              "cacheTier": "tier3"
+            },
+            {
+              "role": "system",
+              "content": "# Environment\n\nsource environment facts",
+              "cacheTier": "env"
+            },
+            {
+              "role": "user",
+              "content": "u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31 u32 u33 u34 u35 u36 u37 u38 u39 u40 u41 u42 u43 u44 u45 u46 u47 u48 u49 u50 u51 u52 u53 u54 u55 u56 u57 u58 u59 u60 u61 u62 u63 u64 u65 u66 u67 u68 u69 u70 u71 u72 u73 u74 u75 u76 u77 u78 u79 u80 u81 u82 u83 u84 u85 u86 u87 u88 u89 u90 u91 u92 u93 u94 u95 u96 u97 u98 u99 u100 u101 u102 u103 u104 u105 u106 u107 u108 u109 u110 u111 u112 u113 u114 u115 u116 u117 u118 u119 u120 u121 u122 u123 u124 u125 u126 u127 u128 u129 u130 u131 u132 u133 u134 u135 u136 u137 u138 u139 u140 u141 u142 u143 u144 u145 u146 u147 u148 u149 u150 u151 u152 u153 u154 u155 u156 u157 u158 u159 u160 u161 u162 u163 u164 u165 u166 u167 u168 u169 u170 u171 u172 u173 u174 u175 u176 u177 u178 u179 u180 u181 u182 u183 u184 u185 u186 u187 u188 u189 u190 u191 u192 u193 u194 u195 u196 u197 u198 u199 u200 u201 u202 u203 u204 u205 u206 u207 u208 u209 u210 u211 u212 u213 u214 u215 u216 u217 u218 u219 u220 u221 u222 u223 u224 u225 u226 u227 u228 u229 u230 u231 u232 u233 u234 u235 u236 u237 u238 u239 u240 u241 u242 u243 u244 u245 u246 u247 u248 u249 u250 u251 u252 u253 u254 u255 u256 u257 u258 u259 u260 u261 u262 u263 u264 u265 u266 u267 u268 u269 u270 u271 u272 u273 u274 u275 u276 u277 u278 u279 u280 u281 u282 u283 u284 u285 u286 u287 u288 u289 u290 u291 u292 u293 u294 u295 u296 u297 u298 u299 u300 u301 u302 u303 u304 u305 u306 u307 u308 u309 u310 u311 u312 u313 u314 u315 u316 u317 u318 u319 u320 u321 u322 u323 u324 u325 u326 u327 u328 u329 u330 u331 u332 u333 u334 u335 u336 u337 u338 u339 u340 u341 u342 u343 u344 u345 u346 u347 u348 u349 u350 u351 u352 u353 u354 u355 u356 u357 u358 u359 u360 u361 u362 u363 u364 u365 u366 u367 u368 u369 u370 u371 u372 u373 u374 u375 u376 u377 u378 u379 u380 u381 u382 u383 u384 u385 u386 u387 u388 u389 u390 u391 u392 u393 u394 u395 u396 u397 u398 u399 u400 u401 u402 u403 u404 u405 u406 u407 u408 u409 u410 u411 u412 u413 u414 u415 u416 u417 u418 u419 u420 u421 u422 u423 u424 u425 u426 u427 u428 u429 u430 u431 u432 u433 u434 u435 u436 u437 u438 u439 u440 u441 u442 u443 u444 u445 u446 u447 u448 u449 u450 u451 u452 u453 u454 u455 u456 u457 u458 u459 u460 u461 u462 u463 u464 u465 u466 u467 u468 u469 u470 u471 u472 u473 u474 u475 u476 u477 u478 u479 u480 u481 u482 u483 u484 u485 u486 u487 u488 u489 u490 u491 u492 u493 u494 u495 u496 u497 u498 u499 u500 u501 u502 u503 u504 u505 u506 u507 u508 u509 u510 u511 u512 u513 u514 u515 u516 u517 u518 u519 u520 u521 u522 u523 u524 u525 u526 u527 u528 u529 u530 u531 u532 u533 u534 u535 u536 u537 u538 u539 u540 u541 u542 u543 u544 u545 u546 u547 u548 u549 u550 u551 u552 u553 u554 u555 u556 u557 u558 u559 u560 u561 u562 u563 u564 u565 u566 u567 u568 u569 u570 u571 u572 u573 u574 u575 u576 u577 u578 u579 u580 u581 u582 u583 u584 u585 u586 u587 u588 u589 u590 u591 u592 u593 u594 u595 u596 u597 u598 u599 u600 u601 u602 u603 u604 u605 u606 u607 u608 u609 u610 u611 u612 u613 u614 u615 u616 u617 u618 u619 u620 u621 u622 u623 u624 u625 u626 u627 u628 u629 u630 u631 u632 u633 u634 u635 u636 u637 u638 u639 u640 u641 u642 u643 u644 u645 u646 u647 u648 u649 u650 u651 u652 u653 u654 u655 u656 u657 u658 u659 u660 u661 u662 u663 u664 u665 u666 u667 u668 u669 u670 u671 u672 u673 u674 u675 u676 u677 u678 u679 u680 u681 u682 u683 u684 u685 u686 u687 u688 u689 u690 u691 u692 u693 u694 u695 u696 u697 u698 u699 u700 u701 u702 u703 u704 u705 u706 u707 u708 u709 u710 u711 u712 u713 u714 u715 u716 u717 u718 u719 u720 u721 u722 u723 u724 u725 u726 u727 u728 u729 u730 u731 u732 u733 u734 u735 u736 u737 u738 u739 u740 u741 u742 u743 u744 u745 u746 u747 u748 u749 u750 u751 u752 u753 u754 u755 u756 u757 u758 u759 u760 u761 u762 u763 u764 u765 u766 u767 u768 u769 u770 u771 u772 u773 u774 u775 u776 u777 u778 u779 u780 u781 u782 u783 u784 u785 u786 u787 u788 u789 u790 u791 u792 u793 u794 u795 u796 u797 u798 u799 u800 u801 u802 u803 u804 u805 u806 u807 u808 u809 u810 u811 u812 u813 u814 u815 u816 u817 u818 u819 u820 u821 u822 u823 u824 u825 u826 u827 u828 u829 u830 u831 u832 u833 u834 u835 u836 u837 u838 u839 u840 u841 u842 u843 u844 u845 u846 u847 u848 u849 u850 u851 u852 u853 u854 u855 u856 u857 u858 u859 u860 u861 u862 u863 u864 u865 u866 u867 u868 u869 u870 u871 u872 u873 u874 u875 u876 u877 u878 u879 u880 u881 u882 u883 u884 u885 u886 u887 u888 u889 u890 u891 u892 u893 u894 u895 u896 u897 u898 u899",
+              "meta": {
+                "transcript": {
+                  "messageId": "b1"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23 a24 a25 a26 a27 a28 a29 a30 a31 a32 a33 a34 a35 a36 a37 a38 a39 a40 a41 a42 a43 a44 a45 a46 a47 a48 a49 a50 a51 a52 a53 a54 a55 a56 a57 a58 a59 a60 a61 a62 a63 a64 a65 a66 a67 a68 a69 a70 a71 a72 a73 a74 a75 a76 a77 a78 a79 a80 a81 a82 a83 a84 a85 a86 a87 a88 a89 a90 a91 a92 a93 a94 a95 a96 a97 a98 a99 a100 a101 a102 a103 a104 a105 a106 a107 a108 a109 a110 a111 a112 a113 a114 a115 a116 a117 a118 a119 a120 a121 a122 a123 a124 a125 a126 a127 a128 a129 a130 a131 a132 a133 a134 a135 a136 a137 a138 a139 a140 a141 a142 a143 a144 a145 a146 a147 a148 a149 a150 a151 a152 a153 a154 a155 a156 a157 a158 a159 a160 a161 a162 a163 a164 a165 a166 a167 a168 a169 a170 a171 a172 a173 a174 a175 a176 a177 a178 a179 a180 a181 a182 a183 a184 a185 a186 a187 a188 a189 a190 a191 a192 a193 a194 a195 a196 a197 a198 a199 a200 a201 a202 a203 a204 a205 a206 a207 a208 a209 a210 a211 a212 a213 a214 a215 a216 a217 a218 a219 a220 a221 a222 a223 a224 a225 a226 a227 a228 a229 a230 a231 a232 a233 a234 a235 a236 a237 a238 a239 a240 a241 a242 a243 a244 a245 a246 a247 a248 a249 a250 a251 a252 a253 a254 a255 a256 a257 a258 a259 a260 a261 a262 a263 a264 a265 a266 a267 a268 a269 a270 a271 a272 a273 a274 a275 a276 a277 a278 a279 a280 a281 a282 a283 a284 a285 a286 a287 a288 a289 a290 a291 a292 a293 a294 a295 a296 a297 a298 a299 a300 a301 a302 a303 a304 a305 a306 a307 a308 a309 a310 a311 a312 a313 a314 a315 a316 a317 a318 a319 a320 a321 a322 a323 a324 a325 a326 a327 a328 a329 a330 a331 a332 a333 a334 a335 a336 a337 a338 a339 a340 a341 a342 a343 a344 a345 a346 a347 a348 a349 a350 a351 a352 a353 a354 a355 a356 a357 a358 a359 a360 a361 a362 a363 a364 a365 a366 a367 a368 a369 a370 a371 a372 a373 a374 a375 a376 a377 a378 a379 a380 a381 a382 a383 a384 a385 a386 a387 a388 a389 a390 a391 a392 a393 a394 a395 a396 a397 a398 a399 a400 a401 a402 a403 a404 a405 a406 a407 a408 a409 a410 a411 a412 a413 a414 a415 a416 a417 a418 a419 a420 a421 a422 a423 a424 a425 a426 a427 a428 a429 a430 a431 a432 a433 a434 a435 a436 a437 a438 a439 a440 a441 a442 a443 a444 a445 a446 a447 a448 a449 a450 a451 a452 a453 a454 a455 a456 a457 a458 a459 a460 a461 a462 a463 a464 a465 a466 a467 a468 a469 a470 a471 a472 a473 a474 a475 a476 a477 a478 a479 a480 a481 a482 a483 a484 a485 a486 a487 a488 a489 a490 a491 a492 a493 a494 a495 a496 a497 a498 a499 a500 a501 a502 a503 a504 a505 a506 a507 a508 a509 a510 a511 a512 a513 a514 a515 a516 a517 a518 a519 a520 a521 a522 a523 a524 a525 a526 a527 a528 a529 a530 a531 a532 a533 a534 a535 a536 a537 a538 a539 a540 a541 a542 a543 a544 a545 a546 a547 a548 a549 a550 a551 a552 a553 a554 a555 a556 a557 a558 a559 a560 a561 a562 a563 a564 a565 a566 a567 a568 a569 a570 a571 a572 a573 a574 a575 a576 a577 a578 a579 a580 a581 a582 a583 a584 a585 a586 a587 a588 a589 a590 a591 a592 a593 a594 a595 a596 a597 a598 a599 a600 a601 a602 a603 a604 a605 a606 a607 a608 a609 a610 a611 a612 a613 a614 a615 a616 a617 a618 a619 a620 a621 a622 a623 a624 a625 a626 a627 a628 a629 a630 a631 a632 a633 a634 a635 a636 a637 a638 a639 a640 a641 a642 a643 a644 a645 a646 a647 a648 a649 a650 a651 a652 a653 a654 a655 a656 a657 a658 a659 a660 a661 a662 a663 a664 a665 a666 a667 a668 a669 a670 a671 a672 a673 a674 a675 a676 a677 a678 a679 a680 a681 a682 a683 a684 a685 a686 a687 a688 a689 a690 a691 a692 a693 a694 a695 a696 a697 a698 a699 a700 a701 a702 a703 a704 a705 a706 a707 a708 a709 a710 a711 a712 a713 a714 a715 a716 a717 a718 a719 a720 a721 a722 a723 a724 a725 a726 a727 a728 a729 a730 a731 a732 a733 a734 a735 a736 a737 a738 a739 a740 a741 a742 a743 a744 a745 a746 a747 a748 a749 a750 a751 a752 a753 a754 a755 a756 a757 a758 a759 a760 a761 a762 a763 a764 a765 a766 a767 a768 a769 a770 a771 a772 a773 a774 a775 a776 a777 a778 a779 a780 a781 a782 a783 a784 a785 a786 a787 a788 a789 a790 a791 a792 a793 a794 a795 a796 a797 a798 a799 a800 a801 a802 a803 a804 a805 a806 a807 a808 a809 a810 a811 a812 a813 a814 a815 a816 a817 a818 a819 a820 a821 a822 a823 a824 a825 a826 a827 a828 a829 a830 a831 a832 a833 a834 a835 a836 a837 a838 a839 a840 a841 a842 a843 a844 a845 a846 a847 a848 a849 a850 a851 a852 a853 a854 a855 a856 a857 a858 a859 a860 a861 a862 a863 a864 a865 a866 a867 a868 a869 a870 a871 a872 a873 a874 a875 a876 a877 a878 a879 a880 a881 a882 a883 a884 a885 a886 a887 a888 a889 a890 a891 a892 a893 a894 a895 a896 a897 a898 a899",
+              "meta": {
+                "transcript": {
+                  "messageId": "b2"
+                }
+              }
+            },
+            {
+              "role": "user",
+              "content": "v0 v1 v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13 v14 v15 v16 v17 v18 v19 v20 v21 v22 v23 v24 v25 v26 v27 v28 v29 v30 v31 v32 v33 v34 v35 v36 v37 v38 v39 v40 v41 v42 v43 v44 v45 v46 v47 v48 v49 v50 v51 v52 v53 v54 v55 v56 v57 v58 v59 v60 v61 v62 v63 v64 v65 v66 v67 v68 v69 v70 v71 v72 v73 v74 v75 v76 v77 v78 v79 v80 v81 v82 v83 v84 v85 v86 v87 v88 v89 v90 v91 v92 v93 v94 v95 v96 v97 v98 v99 v100 v101 v102 v103 v104 v105 v106 v107 v108 v109 v110 v111 v112 v113 v114 v115 v116 v117 v118 v119 v120 v121 v122 v123 v124 v125 v126 v127 v128 v129 v130 v131 v132 v133 v134 v135 v136 v137 v138 v139 v140 v141 v142 v143 v144 v145 v146 v147 v148 v149 v150 v151 v152 v153 v154 v155 v156 v157 v158 v159 v160 v161 v162 v163 v164 v165 v166 v167 v168 v169 v170 v171 v172 v173 v174 v175 v176 v177 v178 v179 v180 v181 v182 v183 v184 v185 v186 v187 v188 v189 v190 v191 v192 v193 v194 v195 v196 v197 v198 v199 v200 v201 v202 v203 v204 v205 v206 v207 v208 v209 v210 v211 v212 v213 v214 v215 v216 v217 v218 v219 v220 v221 v222 v223 v224 v225 v226 v227 v228 v229 v230 v231 v232 v233 v234 v235 v236 v237 v238 v239 v240 v241 v242 v243 v244 v245 v246 v247 v248 v249 v250 v251 v252 v253 v254 v255 v256 v257 v258 v259 v260 v261 v262 v263 v264 v265 v266 v267 v268 v269 v270 v271 v272 v273 v274 v275 v276 v277 v278 v279 v280 v281 v282 v283 v284 v285 v286 v287 v288 v289 v290 v291 v292 v293 v294 v295 v296 v297 v298 v299 v300 v301 v302 v303 v304 v305 v306 v307 v308 v309 v310 v311 v312 v313 v314 v315 v316 v317 v318 v319 v320 v321 v322 v323 v324 v325 v326 v327 v328 v329 v330 v331 v332 v333 v334 v335 v336 v337 v338 v339 v340 v341 v342 v343 v344 v345 v346 v347 v348 v349 v350 v351 v352 v353 v354 v355 v356 v357 v358 v359 v360 v361 v362 v363 v364 v365 v366 v367 v368 v369 v370 v371 v372 v373 v374 v375 v376 v377 v378 v379 v380 v381 v382 v383 v384 v385 v386 v387 v388 v389 v390 v391 v392 v393 v394 v395 v396 v397 v398 v399 v400 v401 v402 v403 v404 v405 v406 v407 v408 v409 v410 v411 v412 v413 v414 v415 v416 v417 v418 v419 v420 v421 v422 v423 v424 v425 v426 v427 v428 v429 v430 v431 v432 v433 v434 v435 v436 v437 v438 v439 v440 v441 v442 v443 v444 v445 v446 v447 v448 v449 v450 v451 v452 v453 v454 v455 v456 v457 v458 v459 v460 v461 v462 v463 v464 v465 v466 v467 v468 v469 v470 v471 v472 v473 v474 v475 v476 v477 v478 v479 v480 v481 v482 v483 v484 v485 v486 v487 v488 v489 v490 v491 v492 v493 v494 v495 v496 v497 v498 v499 v500 v501 v502 v503 v504 v505 v506 v507 v508 v509 v510 v511 v512 v513 v514 v515 v516 v517 v518 v519 v520 v521 v522 v523 v524 v525 v526 v527 v528 v529 v530 v531 v532 v533 v534 v535 v536 v537 v538 v539 v540 v541 v542 v543 v544 v545 v546 v547 v548 v549 v550 v551 v552 v553 v554 v555 v556 v557 v558 v559 v560 v561 v562 v563 v564 v565 v566 v567 v568 v569 v570 v571 v572 v573 v574 v575 v576 v577 v578 v579 v580 v581 v582 v583 v584 v585 v586 v587 v588 v589 v590 v591 v592 v593 v594 v595 v596 v597 v598 v599 v600 v601 v602 v603 v604 v605 v606 v607 v608 v609 v610 v611 v612 v613 v614 v615 v616 v617 v618 v619 v620 v621 v622 v623 v624 v625 v626 v627 v628 v629 v630 v631 v632 v633 v634 v635 v636 v637 v638 v639 v640 v641 v642 v643 v644 v645 v646 v647 v648 v649 v650 v651 v652 v653 v654 v655 v656 v657 v658 v659 v660 v661 v662 v663 v664 v665 v666 v667 v668 v669 v670 v671 v672 v673 v674 v675 v676 v677 v678 v679 v680 v681 v682 v683 v684 v685 v686 v687 v688 v689 v690 v691 v692 v693 v694 v695 v696 v697 v698 v699 v700 v701 v702 v703 v704 v705 v706 v707 v708 v709 v710 v711 v712 v713 v714 v715 v716 v717 v718 v719 v720 v721 v722 v723 v724 v725 v726 v727 v728 v729 v730 v731 v732 v733 v734 v735 v736 v737 v738 v739 v740 v741 v742 v743 v744 v745 v746 v747 v748 v749 v750 v751 v752 v753 v754 v755 v756 v757 v758 v759 v760 v761 v762 v763 v764 v765 v766 v767 v768 v769 v770 v771 v772 v773 v774 v775 v776 v777 v778 v779 v780 v781 v782 v783 v784 v785 v786 v787 v788 v789 v790 v791 v792 v793 v794 v795 v796 v797 v798 v799 v800 v801 v802 v803 v804 v805 v806 v807 v808 v809 v810 v811 v812 v813 v814 v815 v816 v817 v818 v819 v820 v821 v822 v823 v824 v825 v826 v827 v828 v829 v830 v831 v832 v833 v834 v835 v836 v837 v838 v839 v840 v841 v842 v843 v844 v845 v846 v847 v848 v849 v850 v851 v852 v853 v854 v855 v856 v857 v858 v859 v860 v861 v862 v863 v864 v865 v866 v867 v868 v869 v870 v871 v872 v873 v874 v875 v876 v877 v878 v879 v880 v881 v882 v883 v884 v885 v886 v887 v888 v889 v890 v891 v892 v893 v894 v895 v896 v897 v898 v899",
+              "meta": {
+                "transcript": {
+                  "messageId": "b3"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "b0 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16 b17 b18 b19 b20 b21 b22 b23 b24 b25 b26 b27 b28 b29 b30 b31 b32 b33 b34 b35 b36 b37 b38 b39 b40 b41 b42 b43 b44 b45 b46 b47 b48 b49 b50 b51 b52 b53 b54 b55 b56 b57 b58 b59 b60 b61 b62 b63 b64 b65 b66 b67 b68 b69 b70 b71 b72 b73 b74 b75 b76 b77 b78 b79 b80 b81 b82 b83 b84 b85 b86 b87 b88 b89 b90 b91 b92 b93 b94 b95 b96 b97 b98 b99 b100 b101 b102 b103 b104 b105 b106 b107 b108 b109 b110 b111 b112 b113 b114 b115 b116 b117 b118 b119 b120 b121 b122 b123 b124 b125 b126 b127 b128 b129 b130 b131 b132 b133 b134 b135 b136 b137 b138 b139 b140 b141 b142 b143 b144 b145 b146 b147 b148 b149 b150 b151 b152 b153 b154 b155 b156 b157 b158 b159 b160 b161 b162 b163 b164 b165 b166 b167 b168 b169 b170 b171 b172 b173 b174 b175 b176 b177 b178 b179 b180 b181 b182 b183 b184 b185 b186 b187 b188 b189 b190 b191 b192 b193 b194 b195 b196 b197 b198 b199 b200 b201 b202 b203 b204 b205 b206 b207 b208 b209 b210 b211 b212 b213 b214 b215 b216 b217 b218 b219 b220 b221 b222 b223 b224 b225 b226 b227 b228 b229 b230 b231 b232 b233 b234 b235 b236 b237 b238 b239 b240 b241 b242 b243 b244 b245 b246 b247 b248 b249 b250 b251 b252 b253 b254 b255 b256 b257 b258 b259 b260 b261 b262 b263 b264 b265 b266 b267 b268 b269 b270 b271 b272 b273 b274 b275 b276 b277 b278 b279 b280 b281 b282 b283 b284 b285 b286 b287 b288 b289 b290 b291 b292 b293 b294 b295 b296 b297 b298 b299 b300 b301 b302 b303 b304 b305 b306 b307 b308 b309 b310 b311 b312 b313 b314 b315 b316 b317 b318 b319 b320 b321 b322 b323 b324 b325 b326 b327 b328 b329 b330 b331 b332 b333 b334 b335 b336 b337 b338 b339 b340 b341 b342 b343 b344 b345 b346 b347 b348 b349 b350 b351 b352 b353 b354 b355 b356 b357 b358 b359 b360 b361 b362 b363 b364 b365 b366 b367 b368 b369 b370 b371 b372 b373 b374 b375 b376 b377 b378 b379 b380 b381 b382 b383 b384 b385 b386 b387 b388 b389 b390 b391 b392 b393 b394 b395 b396 b397 b398 b399 b400 b401 b402 b403 b404 b405 b406 b407 b408 b409 b410 b411 b412 b413 b414 b415 b416 b417 b418 b419 b420 b421 b422 b423 b424 b425 b426 b427 b428 b429 b430 b431 b432 b433 b434 b435 b436 b437 b438 b439 b440 b441 b442 b443 b444 b445 b446 b447 b448 b449 b450 b451 b452 b453 b454 b455 b456 b457 b458 b459 b460 b461 b462 b463 b464 b465 b466 b467 b468 b469 b470 b471 b472 b473 b474 b475 b476 b477 b478 b479 b480 b481 b482 b483 b484 b485 b486 b487 b488 b489 b490 b491 b492 b493 b494 b495 b496 b497 b498 b499 b500 b501 b502 b503 b504 b505 b506 b507 b508 b509 b510 b511 b512 b513 b514 b515 b516 b517 b518 b519 b520 b521 b522 b523 b524 b525 b526 b527 b528 b529 b530 b531 b532 b533 b534 b535 b536 b537 b538 b539 b540 b541 b542 b543 b544 b545 b546 b547 b548 b549 b550 b551 b552 b553 b554 b555 b556 b557 b558 b559 b560 b561 b562 b563 b564 b565 b566 b567 b568 b569 b570 b571 b572 b573 b574 b575 b576 b577 b578 b579 b580 b581 b582 b583 b584 b585 b586 b587 b588 b589 b590 b591 b592 b593 b594 b595 b596 b597 b598 b599 b600 b601 b602 b603 b604 b605 b606 b607 b608 b609 b610 b611 b612 b613 b614 b615 b616 b617 b618 b619 b620 b621 b622 b623 b624 b625 b626 b627 b628 b629 b630 b631 b632 b633 b634 b635 b636 b637 b638 b639 b640 b641 b642 b643 b644 b645 b646 b647 b648 b649 b650 b651 b652 b653 b654 b655 b656 b657 b658 b659 b660 b661 b662 b663 b664 b665 b666 b667 b668 b669 b670 b671 b672 b673 b674 b675 b676 b677 b678 b679 b680 b681 b682 b683 b684 b685 b686 b687 b688 b689 b690 b691 b692 b693 b694 b695 b696 b697 b698 b699 b700 b701 b702 b703 b704 b705 b706 b707 b708 b709 b710 b711 b712 b713 b714 b715 b716 b717 b718 b719 b720 b721 b722 b723 b724 b725 b726 b727 b728 b729 b730 b731 b732 b733 b734 b735 b736 b737 b738 b739 b740 b741 b742 b743 b744 b745 b746 b747 b748 b749 b750 b751 b752 b753 b754 b755 b756 b757 b758 b759 b760 b761 b762 b763 b764 b765 b766 b767 b768 b769 b770 b771 b772 b773 b774 b775 b776 b777 b778 b779 b780 b781 b782 b783 b784 b785 b786 b787 b788 b789 b790 b791 b792 b793 b794 b795 b796 b797 b798 b799 b800 b801 b802 b803 b804 b805 b806 b807 b808 b809 b810 b811 b812 b813 b814 b815 b816 b817 b818 b819 b820 b821 b822 b823 b824 b825 b826 b827 b828 b829 b830 b831 b832 b833 b834 b835 b836 b837 b838 b839 b840 b841 b842 b843 b844 b845 b846 b847 b848 b849 b850 b851 b852 b853 b854 b855 b856 b857 b858 b859 b860 b861 b862 b863 b864 b865 b866 b867 b868 b869 b870 b871 b872 b873 b874 b875 b876 b877 b878 b879 b880 b881 b882 b883 b884 b885 b886 b887 b888 b889 b890 b891 b892 b893 b894 b895 b896 b897 b898 b899",
+              "meta": {
+                "transcript": {
+                  "messageId": "b4"
+                }
+              }
+            }
+          ]
+        },
+        "heir": {
+          "id": "sess_heir",
+          "title": "",
+          "messages": [
+            {
+              "role": "system",
+              "content": "Rules of the heir."
+            }
+          ],
+          "liveTurnMessages": []
+        }
+      },
+      "options": {},
+      "sourceId": "sess_source",
+      "fit": {
+        "messages": 4,
+        "known": true,
+        "fits": false,
+        "used": 4408,
+        "limit": 3000
+      },
+      "fitCompacted": {
+        "messages": 3,
+        "known": true,
+        "fits": false,
+        "used": 3306,
+        "limit": 3000
+      },
+      "budgetTokens": 4000,
+      "compactorAnswer": [
+        {
+          "role": "user",
+          "content": "u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31 u32 u33 u34 u35 u36 u37 u38 u39 u40 u41 u42 u43 u44 u45 u46 u47 u48 u49 u50 u51 u52 u53 u54 u55 u56 u57 u58 u59 u60 u61 u62 u63 u64 u65 u66 u67 u68 u69 u70 u71 u72 u73 u74 u75 u76 u77 u78 u79 u80 u81 u82 u83 u84 u85 u86 u87 u88 u89 u90 u91 u92 u93 u94 u95 u96 u97 u98 u99 u100 u101 u102 u103 u104 u105 u106 u107 u108 u109 u110 u111 u112 u113 u114 u115 u116 u117 u118 u119 u120 u121 u122 u123 u124 u125 u126 u127 u128 u129 u130 u131 u132 u133 u134 u135 u136 u137 u138 u139 u140 u141 u142 u143 u144 u145 u146 u147 u148 u149 u150 u151 u152 u153 u154 u155 u156 u157 u158 u159 u160 u161 u162 u163 u164 u165 u166 u167 u168 u169 u170 u171 u172 u173 u174 u175 u176 u177 u178 u179 u180 u181 u182 u183 u184 u185 u186 u187 u188 u189 u190 u191 u192 u193 u194 u195 u196 u197 u198 u199 u200 u201 u202 u203 u204 u205 u206 u207 u208 u209 u210 u211 u212 u213 u214 u215 u216 u217 u218 u219 u220 u221 u222 u223 u224 u225 u226 u227 u228 u229 u230 u231 u232 u233 u234 u235 u236 u237 u238 u239 u240 u241 u242 u243 u244 u245 u246 u247 u248 u249 u250 u251 u252 u253 u254 u255 u256 u257 u258 u259 u260 u261 u262 u263 u264 u265 u266 u267 u268 u269 u270 u271 u272 u273 u274 u275 u276 u277 u278 u279 u280 u281 u282 u283 u284 u285 u286 u287 u288 u289 u290 u291 u292 u293 u294 u295 u296 u297 u298 u299 u300 u301 u302 u303 u304 u305 u306 u307 u308 u309 u310 u311 u312 u313 u314 u315 u316 u317 u318 u319 u320 u321 u322 u323 u324 u325 u326 u327 u328 u329 u330 u331 u332 u333 u334 u335 u336 u337 u338 u339 u340 u341 u342 u343 u344 u345 u346 u347 u348 u349 u350 u351 u352 u353 u354 u355 u356 u357 u358 u359 u360 u361 u362 u363 u364 u365 u366 u367 u368 u369 u370 u371 u372 u373 u374 u375 u376 u377 u378 u379 u380 u381 u382 u383 u384 u385 u386 u387 u388 u389 u390 u391 u392 u393 u394 u395 u396 u397 u398 u399 u400 u401 u402 u403 u404 u405 u406 u407 u408 u409 u410 u411 u412 u413 u414 u415 u416 u417 u418 u419 u420 u421 u422 u423 u424 u425 u426 u427 u428 u429 u430 u431 u432 u433 u434 u435 u436 u437 u438 u439 u440 u441 u442 u443 u444 u445 u446 u447 u448 u449 u450 u451 u452 u453 u454 u455 u456 u457 u458 u459 u460 u461 u462 u463 u464 u465 u466 u467 u468 u469 u470 u471 u472 u473 u474 u475 u476 u477 u478 u479 u480 u481 u482 u483 u484 u485 u486 u487 u488 u489 u490 u491 u492 u493 u494 u495 u496 u497 u498 u499 u500 u501 u502 u503 u504 u505 u506 u507 u508 u509 u510 u511 u512 u513 u514 u515 u516 u517 u518 u519 u520 u521 u522 u523 u524 u525 u526 u527 u528 u529 u530 u531 u532 u533 u534 u535 u536 u537 u538 u539 u540 u541 u542 u543 u544 u545 u546 u547 u548 u549 u550 u551 u552 u553 u554 u555 u556 u557 u558 u559 u560 u561 u562 u563 u564 u565 u566 u567 u568 u569 u570 u571 u572 u573 u574 u575 u576 u577 u578 u579 u580 u581 u582 u583 u584 u585 u586 u587 u588 u589 u590 u591 u592 u593 u594 u595 u596 u597 u598 u599 u600 u601 u602 u603 u604 u605 u606 u607 u608 u609 u610 u611 u612 u613 u614 u615 u616 u617 u618 u619 u620 u621 u622 u623 u624 u625 u626 u627 u628 u629 u630 u631 u632 u633 u634 u635 u636 u637 u638 u639 u640 u641 u642 u643 u644 u645 u646 u647 u648 u649 u650 u651 u652 u653 u654 u655 u656 u657 u658 u659 u660 u661 u662 u663 u664 u665 u666 u667 u668 u669 u670 u671 u672 u673 u674 u675 u676 u677 u678 u679 u680 u681 u682 u683 u684 u685 u686 u687 u688 u689 u690 u691 u692 u693 u694 u695 u696 u697 u698 u699 u700 u701 u702 u703 u704 u705 u706 u707 u708 u709 u710 u711 u712 u713 u714 u715 u716 u717 u718 u719 u720 u721 u722 u723 u724 u725 u726 u727 u728 u729 u730 u731 u732 u733 u734 u735 u736 u737 u738 u739 u740 u741 u742 u743 u744 u745 u746 u747 u748 u749 u750 u751 u752 u753 u754 u755 u756 u757 u758 u759 u760 u761 u762 u763 u764 u765 u766 u767 u768 u769 u770 u771 u772 u773 u774 u775 u776 u777 u778 u779 u780 u781 u782 u783 u784 u785 u786 u787 u788 u789 u790 u791 u792 u793 u794 u795 u796 u797 u798 u799 u800 u801 u802 u803 u804 u805 u806 u807 u808 u809 u810 u811 u812 u813 u814 u815 u816 u817 u818 u819 u820 u821 u822 u823 u824 u825 u826 u827 u828 u829 u830 u831 u832 u833 u834 u835 u836 u837 u838 u839 u840 u841 u842 u843 u844 u845 u846 u847 u848 u849 u850 u851 u852 u853 u854 u855 u856 u857 u858 u859 u860 u861 u862 u863 u864 u865 u866 u867 u868 u869 u870 u871 u872 u873 u874 u875 u876 u877 u878 u879 u880 u881 u882 u883 u884 u885 u886 u887 u888 u889 u890 u891 u892 u893 u894 u895 u896 u897 u898 u899"
+        },
+        {
+          "role": "assistant",
+          "content": "a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23 a24 a25 a26 a27 a28 a29 a30 a31 a32 a33 a34 a35 a36 a37 a38 a39 a40 a41 a42 a43 a44 a45 a46 a47 a48 a49 a50 a51 a52 a53 a54 a55 a56 a57 a58 a59 a60 a61 a62 a63 a64 a65 a66 a67 a68 a69 a70 a71 a72 a73 a74 a75 a76 a77 a78 a79 a80 a81 a82 a83 a84 a85 a86 a87 a88 a89 a90 a91 a92 a93 a94 a95 a96 a97 a98 a99 a100 a101 a102 a103 a104 a105 a106 a107 a108 a109 a110 a111 a112 a113 a114 a115 a116 a117 a118 a119 a120 a121 a122 a123 a124 a125 a126 a127 a128 a129 a130 a131 a132 a133 a134 a135 a136 a137 a138 a139 a140 a141 a142 a143 a144 a145 a146 a147 a148 a149 a150 a151 a152 a153 a154 a155 a156 a157 a158 a159 a160 a161 a162 a163 a164 a165 a166 a167 a168 a169 a170 a171 a172 a173 a174 a175 a176 a177 a178 a179 a180 a181 a182 a183 a184 a185 a186 a187 a188 a189 a190 a191 a192 a193 a194 a195 a196 a197 a198 a199 a200 a201 a202 a203 a204 a205 a206 a207 a208 a209 a210 a211 a212 a213 a214 a215 a216 a217 a218 a219 a220 a221 a222 a223 a224 a225 a226 a227 a228 a229 a230 a231 a232 a233 a234 a235 a236 a237 a238 a239 a240 a241 a242 a243 a244 a245 a246 a247 a248 a249 a250 a251 a252 a253 a254 a255 a256 a257 a258 a259 a260 a261 a262 a263 a264 a265 a266 a267 a268 a269 a270 a271 a272 a273 a274 a275 a276 a277 a278 a279 a280 a281 a282 a283 a284 a285 a286 a287 a288 a289 a290 a291 a292 a293 a294 a295 a296 a297 a298 a299 a300 a301 a302 a303 a304 a305 a306 a307 a308 a309 a310 a311 a312 a313 a314 a315 a316 a317 a318 a319 a320 a321 a322 a323 a324 a325 a326 a327 a328 a329 a330 a331 a332 a333 a334 a335 a336 a337 a338 a339 a340 a341 a342 a343 a344 a345 a346 a347 a348 a349 a350 a351 a352 a353 a354 a355 a356 a357 a358 a359 a360 a361 a362 a363 a364 a365 a366 a367 a368 a369 a370 a371 a372 a373 a374 a375 a376 a377 a378 a379 a380 a381 a382 a383 a384 a385 a386 a387 a388 a389 a390 a391 a392 a393 a394 a395 a396 a397 a398 a399 a400 a401 a402 a403 a404 a405 a406 a407 a408 a409 a410 a411 a412 a413 a414 a415 a416 a417 a418 a419 a420 a421 a422 a423 a424 a425 a426 a427 a428 a429 a430 a431 a432 a433 a434 a435 a436 a437 a438 a439 a440 a441 a442 a443 a444 a445 a446 a447 a448 a449 a450 a451 a452 a453 a454 a455 a456 a457 a458 a459 a460 a461 a462 a463 a464 a465 a466 a467 a468 a469 a470 a471 a472 a473 a474 a475 a476 a477 a478 a479 a480 a481 a482 a483 a484 a485 a486 a487 a488 a489 a490 a491 a492 a493 a494 a495 a496 a497 a498 a499 a500 a501 a502 a503 a504 a505 a506 a507 a508 a509 a510 a511 a512 a513 a514 a515 a516 a517 a518 a519 a520 a521 a522 a523 a524 a525 a526 a527 a528 a529 a530 a531 a532 a533 a534 a535 a536 a537 a538 a539 a540 a541 a542 a543 a544 a545 a546 a547 a548 a549 a550 a551 a552 a553 a554 a555 a556 a557 a558 a559 a560 a561 a562 a563 a564 a565 a566 a567 a568 a569 a570 a571 a572 a573 a574 a575 a576 a577 a578 a579 a580 a581 a582 a583 a584 a585 a586 a587 a588 a589 a590 a591 a592 a593 a594 a595 a596 a597 a598 a599 a600 a601 a602 a603 a604 a605 a606 a607 a608 a609 a610 a611 a612 a613 a614 a615 a616 a617 a618 a619 a620 a621 a622 a623 a624 a625 a626 a627 a628 a629 a630 a631 a632 a633 a634 a635 a636 a637 a638 a639 a640 a641 a642 a643 a644 a645 a646 a647 a648 a649 a650 a651 a652 a653 a654 a655 a656 a657 a658 a659 a660 a661 a662 a663 a664 a665 a666 a667 a668 a669 a670 a671 a672 a673 a674 a675 a676 a677 a678 a679 a680 a681 a682 a683 a684 a685 a686 a687 a688 a689 a690 a691 a692 a693 a694 a695 a696 a697 a698 a699 a700 a701 a702 a703 a704 a705 a706 a707 a708 a709 a710 a711 a712 a713 a714 a715 a716 a717 a718 a719 a720 a721 a722 a723 a724 a725 a726 a727 a728 a729 a730 a731 a732 a733 a734 a735 a736 a737 a738 a739 a740 a741 a742 a743 a744 a745 a746 a747 a748 a749 a750 a751 a752 a753 a754 a755 a756 a757 a758 a759 a760 a761 a762 a763 a764 a765 a766 a767 a768 a769 a770 a771 a772 a773 a774 a775 a776 a777 a778 a779 a780 a781 a782 a783 a784 a785 a786 a787 a788 a789 a790 a791 a792 a793 a794 a795 a796 a797 a798 a799 a800 a801 a802 a803 a804 a805 a806 a807 a808 a809 a810 a811 a812 a813 a814 a815 a816 a817 a818 a819 a820 a821 a822 a823 a824 a825 a826 a827 a828 a829 a830 a831 a832 a833 a834 a835 a836 a837 a838 a839 a840 a841 a842 a843 a844 a845 a846 a847 a848 a849 a850 a851 a852 a853 a854 a855 a856 a857 a858 a859 a860 a861 a862 a863 a864 a865 a866 a867 a868 a869 a870 a871 a872 a873 a874 a875 a876 a877 a878 a879 a880 a881 a882 a883 a884 a885 a886 a887 a888 a889 a890 a891 a892 a893 a894 a895 a896 a897 a898 a899"
+        },
+        {
+          "role": "user",
+          "content": "v0 v1 v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13 v14 v15 v16 v17 v18 v19 v20 v21 v22 v23 v24 v25 v26 v27 v28 v29 v30 v31 v32 v33 v34 v35 v36 v37 v38 v39 v40 v41 v42 v43 v44 v45 v46 v47 v48 v49 v50 v51 v52 v53 v54 v55 v56 v57 v58 v59 v60 v61 v62 v63 v64 v65 v66 v67 v68 v69 v70 v71 v72 v73 v74 v75 v76 v77 v78 v79 v80 v81 v82 v83 v84 v85 v86 v87 v88 v89 v90 v91 v92 v93 v94 v95 v96 v97 v98 v99 v100 v101 v102 v103 v104 v105 v106 v107 v108 v109 v110 v111 v112 v113 v114 v115 v116 v117 v118 v119 v120 v121 v122 v123 v124 v125 v126 v127 v128 v129 v130 v131 v132 v133 v134 v135 v136 v137 v138 v139 v140 v141 v142 v143 v144 v145 v146 v147 v148 v149 v150 v151 v152 v153 v154 v155 v156 v157 v158 v159 v160 v161 v162 v163 v164 v165 v166 v167 v168 v169 v170 v171 v172 v173 v174 v175 v176 v177 v178 v179 v180 v181 v182 v183 v184 v185 v186 v187 v188 v189 v190 v191 v192 v193 v194 v195 v196 v197 v198 v199 v200 v201 v202 v203 v204 v205 v206 v207 v208 v209 v210 v211 v212 v213 v214 v215 v216 v217 v218 v219 v220 v221 v222 v223 v224 v225 v226 v227 v228 v229 v230 v231 v232 v233 v234 v235 v236 v237 v238 v239 v240 v241 v242 v243 v244 v245 v246 v247 v248 v249 v250 v251 v252 v253 v254 v255 v256 v257 v258 v259 v260 v261 v262 v263 v264 v265 v266 v267 v268 v269 v270 v271 v272 v273 v274 v275 v276 v277 v278 v279 v280 v281 v282 v283 v284 v285 v286 v287 v288 v289 v290 v291 v292 v293 v294 v295 v296 v297 v298 v299 v300 v301 v302 v303 v304 v305 v306 v307 v308 v309 v310 v311 v312 v313 v314 v315 v316 v317 v318 v319 v320 v321 v322 v323 v324 v325 v326 v327 v328 v329 v330 v331 v332 v333 v334 v335 v336 v337 v338 v339 v340 v341 v342 v343 v344 v345 v346 v347 v348 v349 v350 v351 v352 v353 v354 v355 v356 v357 v358 v359 v360 v361 v362 v363 v364 v365 v366 v367 v368 v369 v370 v371 v372 v373 v374 v375 v376 v377 v378 v379 v380 v381 v382 v383 v384 v385 v386 v387 v388 v389 v390 v391 v392 v393 v394 v395 v396 v397 v398 v399 v400 v401 v402 v403 v404 v405 v406 v407 v408 v409 v410 v411 v412 v413 v414 v415 v416 v417 v418 v419 v420 v421 v422 v423 v424 v425 v426 v427 v428 v429 v430 v431 v432 v433 v434 v435 v436 v437 v438 v439 v440 v441 v442 v443 v444 v445 v446 v447 v448 v449 v450 v451 v452 v453 v454 v455 v456 v457 v458 v459 v460 v461 v462 v463 v464 v465 v466 v467 v468 v469 v470 v471 v472 v473 v474 v475 v476 v477 v478 v479 v480 v481 v482 v483 v484 v485 v486 v487 v488 v489 v490 v491 v492 v493 v494 v495 v496 v497 v498 v499 v500 v501 v502 v503 v504 v505 v506 v507 v508 v509 v510 v511 v512 v513 v514 v515 v516 v517 v518 v519 v520 v521 v522 v523 v524 v525 v526 v527 v528 v529 v530 v531 v532 v533 v534 v535 v536 v537 v538 v539 v540 v541 v542 v543 v544 v545 v546 v547 v548 v549 v550 v551 v552 v553 v554 v555 v556 v557 v558 v559 v560 v561 v562 v563 v564 v565 v566 v567 v568 v569 v570 v571 v572 v573 v574 v575 v576 v577 v578 v579 v580 v581 v582 v583 v584 v585 v586 v587 v588 v589 v590 v591 v592 v593 v594 v595 v596 v597 v598 v599 v600 v601 v602 v603 v604 v605 v606 v607 v608 v609 v610 v611 v612 v613 v614 v615 v616 v617 v618 v619 v620 v621 v622 v623 v624 v625 v626 v627 v628 v629 v630 v631 v632 v633 v634 v635 v636 v637 v638 v639 v640 v641 v642 v643 v644 v645 v646 v647 v648 v649 v650 v651 v652 v653 v654 v655 v656 v657 v658 v659 v660 v661 v662 v663 v664 v665 v666 v667 v668 v669 v670 v671 v672 v673 v674 v675 v676 v677 v678 v679 v680 v681 v682 v683 v684 v685 v686 v687 v688 v689 v690 v691 v692 v693 v694 v695 v696 v697 v698 v699 v700 v701 v702 v703 v704 v705 v706 v707 v708 v709 v710 v711 v712 v713 v714 v715 v716 v717 v718 v719 v720 v721 v722 v723 v724 v725 v726 v727 v728 v729 v730 v731 v732 v733 v734 v735 v736 v737 v738 v739 v740 v741 v742 v743 v744 v745 v746 v747 v748 v749 v750 v751 v752 v753 v754 v755 v756 v757 v758 v759 v760 v761 v762 v763 v764 v765 v766 v767 v768 v769 v770 v771 v772 v773 v774 v775 v776 v777 v778 v779 v780 v781 v782 v783 v784 v785 v786 v787 v788 v789 v790 v791 v792 v793 v794 v795 v796 v797 v798 v799 v800 v801 v802 v803 v804 v805 v806 v807 v808 v809 v810 v811 v812 v813 v814 v815 v816 v817 v818 v819 v820 v821 v822 v823 v824 v825 v826 v827 v828 v829 v830 v831 v832 v833 v834 v835 v836 v837 v838 v839 v840 v841 v842 v843 v844 v845 v846 v847 v848 v849 v850 v851 v852 v853 v854 v855 v856 v857 v858 v859 v860 v861 v862 v863 v864 v865 v866 v867 v868 v869 v870 v871 v872 v873 v874 v875 v876 v877 v878 v879 v880 v881 v882 v883 v884 v885 v886 v887 v888 v889 v890 v891 v892 v893 v894 v895 v896 v897 v898 v899"
+        }
+      ],
+      "compactorCalls": [
+        {
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the source session. Rules of the source."
+            },
+            {
+              "role": "system",
+              "content": "# Core\n\nsource core context",
+              "cacheTier": "tier3"
+            },
+            {
+              "role": "system",
+              "content": "# Environment\n\nsource environment facts",
+              "cacheTier": "env"
+            },
+            {
+              "role": "user",
+              "content": "u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31 u32 u33 u34 u35 u36 u37 u38 u39 u40 u41 u42 u43 u44 u45 u46 u47 u48 u49 u50 u51 u52 u53 u54 u55 u56 u57 u58 u59 u60 u61 u62 u63 u64 u65 u66 u67 u68 u69 u70 u71 u72 u73 u74 u75 u76 u77 u78 u79 u80 u81 u82 u83 u84 u85 u86 u87 u88 u89 u90 u91 u92 u93 u94 u95 u96 u97 u98 u99 u100 u101 u102 u103 u104 u105 u106 u107 u108 u109 u110 u111 u112 u113 u114 u115 u116 u117 u118 u119 u120 u121 u122 u123 u124 u125 u126 u127 u128 u129 u130 u131 u132 u133 u134 u135 u136 u137 u138 u139 u140 u141 u142 u143 u144 u145 u146 u147 u148 u149 u150 u151 u152 u153 u154 u155 u156 u157 u158 u159 u160 u161 u162 u163 u164 u165 u166 u167 u168 u169 u170 u171 u172 u173 u174 u175 u176 u177 u178 u179 u180 u181 u182 u183 u184 u185 u186 u187 u188 u189 u190 u191 u192 u193 u194 u195 u196 u197 u198 u199 u200 u201 u202 u203 u204 u205 u206 u207 u208 u209 u210 u211 u212 u213 u214 u215 u216 u217 u218 u219 u220 u221 u222 u223 u224 u225 u226 u227 u228 u229 u230 u231 u232 u233 u234 u235 u236 u237 u238 u239 u240 u241 u242 u243 u244 u245 u246 u247 u248 u249 u250 u251 u252 u253 u254 u255 u256 u257 u258 u259 u260 u261 u262 u263 u264 u265 u266 u267 u268 u269 u270 u271 u272 u273 u274 u275 u276 u277 u278 u279 u280 u281 u282 u283 u284 u285 u286 u287 u288 u289 u290 u291 u292 u293 u294 u295 u296 u297 u298 u299 u300 u301 u302 u303 u304 u305 u306 u307 u308 u309 u310 u311 u312 u313 u314 u315 u316 u317 u318 u319 u320 u321 u322 u323 u324 u325 u326 u327 u328 u329 u330 u331 u332 u333 u334 u335 u336 u337 u338 u339 u340 u341 u342 u343 u344 u345 u346 u347 u348 u349 u350 u351 u352 u353 u354 u355 u356 u357 u358 u359 u360 u361 u362 u363 u364 u365 u366 u367 u368 u369 u370 u371 u372 u373 u374 u375 u376 u377 u378 u379 u380 u381 u382 u383 u384 u385 u386 u387 u388 u389 u390 u391 u392 u393 u394 u395 u396 u397 u398 u399 u400 u401 u402 u403 u404 u405 u406 u407 u408 u409 u410 u411 u412 u413 u414 u415 u416 u417 u418 u419 u420 u421 u422 u423 u424 u425 u426 u427 u428 u429 u430 u431 u432 u433 u434 u435 u436 u437 u438 u439 u440 u441 u442 u443 u444 u445 u446 u447 u448 u449 u450 u451 u452 u453 u454 u455 u456 u457 u458 u459 u460 u461 u462 u463 u464 u465 u466 u467 u468 u469 u470 u471 u472 u473 u474 u475 u476 u477 u478 u479 u480 u481 u482 u483 u484 u485 u486 u487 u488 u489 u490 u491 u492 u493 u494 u495 u496 u497 u498 u499 u500 u501 u502 u503 u504 u505 u506 u507 u508 u509 u510 u511 u512 u513 u514 u515 u516 u517 u518 u519 u520 u521 u522 u523 u524 u525 u526 u527 u528 u529 u530 u531 u532 u533 u534 u535 u536 u537 u538 u539 u540 u541 u542 u543 u544 u545 u546 u547 u548 u549 u550 u551 u552 u553 u554 u555 u556 u557 u558 u559 u560 u561 u562 u563 u564 u565 u566 u567 u568 u569 u570 u571 u572 u573 u574 u575 u576 u577 u578 u579 u580 u581 u582 u583 u584 u585 u586 u587 u588 u589 u590 u591 u592 u593 u594 u595 u596 u597 u598 u599 u600 u601 u602 u603 u604 u605 u606 u607 u608 u609 u610 u611 u612 u613 u614 u615 u616 u617 u618 u619 u620 u621 u622 u623 u624 u625 u626 u627 u628 u629 u630 u631 u632 u633 u634 u635 u636 u637 u638 u639 u640 u641 u642 u643 u644 u645 u646 u647 u648 u649 u650 u651 u652 u653 u654 u655 u656 u657 u658 u659 u660 u661 u662 u663 u664 u665 u666 u667 u668 u669 u670 u671 u672 u673 u674 u675 u676 u677 u678 u679 u680 u681 u682 u683 u684 u685 u686 u687 u688 u689 u690 u691 u692 u693 u694 u695 u696 u697 u698 u699 u700 u701 u702 u703 u704 u705 u706 u707 u708 u709 u710 u711 u712 u713 u714 u715 u716 u717 u718 u719 u720 u721 u722 u723 u724 u725 u726 u727 u728 u729 u730 u731 u732 u733 u734 u735 u736 u737 u738 u739 u740 u741 u742 u743 u744 u745 u746 u747 u748 u749 u750 u751 u752 u753 u754 u755 u756 u757 u758 u759 u760 u761 u762 u763 u764 u765 u766 u767 u768 u769 u770 u771 u772 u773 u774 u775 u776 u777 u778 u779 u780 u781 u782 u783 u784 u785 u786 u787 u788 u789 u790 u791 u792 u793 u794 u795 u796 u797 u798 u799 u800 u801 u802 u803 u804 u805 u806 u807 u808 u809 u810 u811 u812 u813 u814 u815 u816 u817 u818 u819 u820 u821 u822 u823 u824 u825 u826 u827 u828 u829 u830 u831 u832 u833 u834 u835 u836 u837 u838 u839 u840 u841 u842 u843 u844 u845 u846 u847 u848 u849 u850 u851 u852 u853 u854 u855 u856 u857 u858 u859 u860 u861 u862 u863 u864 u865 u866 u867 u868 u869 u870 u871 u872 u873 u874 u875 u876 u877 u878 u879 u880 u881 u882 u883 u884 u885 u886 u887 u888 u889 u890 u891 u892 u893 u894 u895 u896 u897 u898 u899"
+            },
+            {
+              "role": "assistant",
+              "content": "a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23 a24 a25 a26 a27 a28 a29 a30 a31 a32 a33 a34 a35 a36 a37 a38 a39 a40 a41 a42 a43 a44 a45 a46 a47 a48 a49 a50 a51 a52 a53 a54 a55 a56 a57 a58 a59 a60 a61 a62 a63 a64 a65 a66 a67 a68 a69 a70 a71 a72 a73 a74 a75 a76 a77 a78 a79 a80 a81 a82 a83 a84 a85 a86 a87 a88 a89 a90 a91 a92 a93 a94 a95 a96 a97 a98 a99 a100 a101 a102 a103 a104 a105 a106 a107 a108 a109 a110 a111 a112 a113 a114 a115 a116 a117 a118 a119 a120 a121 a122 a123 a124 a125 a126 a127 a128 a129 a130 a131 a132 a133 a134 a135 a136 a137 a138 a139 a140 a141 a142 a143 a144 a145 a146 a147 a148 a149 a150 a151 a152 a153 a154 a155 a156 a157 a158 a159 a160 a161 a162 a163 a164 a165 a166 a167 a168 a169 a170 a171 a172 a173 a174 a175 a176 a177 a178 a179 a180 a181 a182 a183 a184 a185 a186 a187 a188 a189 a190 a191 a192 a193 a194 a195 a196 a197 a198 a199 a200 a201 a202 a203 a204 a205 a206 a207 a208 a209 a210 a211 a212 a213 a214 a215 a216 a217 a218 a219 a220 a221 a222 a223 a224 a225 a226 a227 a228 a229 a230 a231 a232 a233 a234 a235 a236 a237 a238 a239 a240 a241 a242 a243 a244 a245 a246 a247 a248 a249 a250 a251 a252 a253 a254 a255 a256 a257 a258 a259 a260 a261 a262 a263 a264 a265 a266 a267 a268 a269 a270 a271 a272 a273 a274 a275 a276 a277 a278 a279 a280 a281 a282 a283 a284 a285 a286 a287 a288 a289 a290 a291 a292 a293 a294 a295 a296 a297 a298 a299 a300 a301 a302 a303 a304 a305 a306 a307 a308 a309 a310 a311 a312 a313 a314 a315 a316 a317 a318 a319 a320 a321 a322 a323 a324 a325 a326 a327 a328 a329 a330 a331 a332 a333 a334 a335 a336 a337 a338 a339 a340 a341 a342 a343 a344 a345 a346 a347 a348 a349 a350 a351 a352 a353 a354 a355 a356 a357 a358 a359 a360 a361 a362 a363 a364 a365 a366 a367 a368 a369 a370 a371 a372 a373 a374 a375 a376 a377 a378 a379 a380 a381 a382 a383 a384 a385 a386 a387 a388 a389 a390 a391 a392 a393 a394 a395 a396 a397 a398 a399 a400 a401 a402 a403 a404 a405 a406 a407 a408 a409 a410 a411 a412 a413 a414 a415 a416 a417 a418 a419 a420 a421 a422 a423 a424 a425 a426 a427 a428 a429 a430 a431 a432 a433 a434 a435 a436 a437 a438 a439 a440 a441 a442 a443 a444 a445 a446 a447 a448 a449 a450 a451 a452 a453 a454 a455 a456 a457 a458 a459 a460 a461 a462 a463 a464 a465 a466 a467 a468 a469 a470 a471 a472 a473 a474 a475 a476 a477 a478 a479 a480 a481 a482 a483 a484 a485 a486 a487 a488 a489 a490 a491 a492 a493 a494 a495 a496 a497 a498 a499 a500 a501 a502 a503 a504 a505 a506 a507 a508 a509 a510 a511 a512 a513 a514 a515 a516 a517 a518 a519 a520 a521 a522 a523 a524 a525 a526 a527 a528 a529 a530 a531 a532 a533 a534 a535 a536 a537 a538 a539 a540 a541 a542 a543 a544 a545 a546 a547 a548 a549 a550 a551 a552 a553 a554 a555 a556 a557 a558 a559 a560 a561 a562 a563 a564 a565 a566 a567 a568 a569 a570 a571 a572 a573 a574 a575 a576 a577 a578 a579 a580 a581 a582 a583 a584 a585 a586 a587 a588 a589 a590 a591 a592 a593 a594 a595 a596 a597 a598 a599 a600 a601 a602 a603 a604 a605 a606 a607 a608 a609 a610 a611 a612 a613 a614 a615 a616 a617 a618 a619 a620 a621 a622 a623 a624 a625 a626 a627 a628 a629 a630 a631 a632 a633 a634 a635 a636 a637 a638 a639 a640 a641 a642 a643 a644 a645 a646 a647 a648 a649 a650 a651 a652 a653 a654 a655 a656 a657 a658 a659 a660 a661 a662 a663 a664 a665 a666 a667 a668 a669 a670 a671 a672 a673 a674 a675 a676 a677 a678 a679 a680 a681 a682 a683 a684 a685 a686 a687 a688 a689 a690 a691 a692 a693 a694 a695 a696 a697 a698 a699 a700 a701 a702 a703 a704 a705 a706 a707 a708 a709 a710 a711 a712 a713 a714 a715 a716 a717 a718 a719 a720 a721 a722 a723 a724 a725 a726 a727 a728 a729 a730 a731 a732 a733 a734 a735 a736 a737 a738 a739 a740 a741 a742 a743 a744 a745 a746 a747 a748 a749 a750 a751 a752 a753 a754 a755 a756 a757 a758 a759 a760 a761 a762 a763 a764 a765 a766 a767 a768 a769 a770 a771 a772 a773 a774 a775 a776 a777 a778 a779 a780 a781 a782 a783 a784 a785 a786 a787 a788 a789 a790 a791 a792 a793 a794 a795 a796 a797 a798 a799 a800 a801 a802 a803 a804 a805 a806 a807 a808 a809 a810 a811 a812 a813 a814 a815 a816 a817 a818 a819 a820 a821 a822 a823 a824 a825 a826 a827 a828 a829 a830 a831 a832 a833 a834 a835 a836 a837 a838 a839 a840 a841 a842 a843 a844 a845 a846 a847 a848 a849 a850 a851 a852 a853 a854 a855 a856 a857 a858 a859 a860 a861 a862 a863 a864 a865 a866 a867 a868 a869 a870 a871 a872 a873 a874 a875 a876 a877 a878 a879 a880 a881 a882 a883 a884 a885 a886 a887 a888 a889 a890 a891 a892 a893 a894 a895 a896 a897 a898 a899"
+            },
+            {
+              "role": "user",
+              "content": "v0 v1 v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13 v14 v15 v16 v17 v18 v19 v20 v21 v22 v23 v24 v25 v26 v27 v28 v29 v30 v31 v32 v33 v34 v35 v36 v37 v38 v39 v40 v41 v42 v43 v44 v45 v46 v47 v48 v49 v50 v51 v52 v53 v54 v55 v56 v57 v58 v59 v60 v61 v62 v63 v64 v65 v66 v67 v68 v69 v70 v71 v72 v73 v74 v75 v76 v77 v78 v79 v80 v81 v82 v83 v84 v85 v86 v87 v88 v89 v90 v91 v92 v93 v94 v95 v96 v97 v98 v99 v100 v101 v102 v103 v104 v105 v106 v107 v108 v109 v110 v111 v112 v113 v114 v115 v116 v117 v118 v119 v120 v121 v122 v123 v124 v125 v126 v127 v128 v129 v130 v131 v132 v133 v134 v135 v136 v137 v138 v139 v140 v141 v142 v143 v144 v145 v146 v147 v148 v149 v150 v151 v152 v153 v154 v155 v156 v157 v158 v159 v160 v161 v162 v163 v164 v165 v166 v167 v168 v169 v170 v171 v172 v173 v174 v175 v176 v177 v178 v179 v180 v181 v182 v183 v184 v185 v186 v187 v188 v189 v190 v191 v192 v193 v194 v195 v196 v197 v198 v199 v200 v201 v202 v203 v204 v205 v206 v207 v208 v209 v210 v211 v212 v213 v214 v215 v216 v217 v218 v219 v220 v221 v222 v223 v224 v225 v226 v227 v228 v229 v230 v231 v232 v233 v234 v235 v236 v237 v238 v239 v240 v241 v242 v243 v244 v245 v246 v247 v248 v249 v250 v251 v252 v253 v254 v255 v256 v257 v258 v259 v260 v261 v262 v263 v264 v265 v266 v267 v268 v269 v270 v271 v272 v273 v274 v275 v276 v277 v278 v279 v280 v281 v282 v283 v284 v285 v286 v287 v288 v289 v290 v291 v292 v293 v294 v295 v296 v297 v298 v299 v300 v301 v302 v303 v304 v305 v306 v307 v308 v309 v310 v311 v312 v313 v314 v315 v316 v317 v318 v319 v320 v321 v322 v323 v324 v325 v326 v327 v328 v329 v330 v331 v332 v333 v334 v335 v336 v337 v338 v339 v340 v341 v342 v343 v344 v345 v346 v347 v348 v349 v350 v351 v352 v353 v354 v355 v356 v357 v358 v359 v360 v361 v362 v363 v364 v365 v366 v367 v368 v369 v370 v371 v372 v373 v374 v375 v376 v377 v378 v379 v380 v381 v382 v383 v384 v385 v386 v387 v388 v389 v390 v391 v392 v393 v394 v395 v396 v397 v398 v399 v400 v401 v402 v403 v404 v405 v406 v407 v408 v409 v410 v411 v412 v413 v414 v415 v416 v417 v418 v419 v420 v421 v422 v423 v424 v425 v426 v427 v428 v429 v430 v431 v432 v433 v434 v435 v436 v437 v438 v439 v440 v441 v442 v443 v444 v445 v446 v447 v448 v449 v450 v451 v452 v453 v454 v455 v456 v457 v458 v459 v460 v461 v462 v463 v464 v465 v466 v467 v468 v469 v470 v471 v472 v473 v474 v475 v476 v477 v478 v479 v480 v481 v482 v483 v484 v485 v486 v487 v488 v489 v490 v491 v492 v493 v494 v495 v496 v497 v498 v499 v500 v501 v502 v503 v504 v505 v506 v507 v508 v509 v510 v511 v512 v513 v514 v515 v516 v517 v518 v519 v520 v521 v522 v523 v524 v525 v526 v527 v528 v529 v530 v531 v532 v533 v534 v535 v536 v537 v538 v539 v540 v541 v542 v543 v544 v545 v546 v547 v548 v549 v550 v551 v552 v553 v554 v555 v556 v557 v558 v559 v560 v561 v562 v563 v564 v565 v566 v567 v568 v569 v570 v571 v572 v573 v574 v575 v576 v577 v578 v579 v580 v581 v582 v583 v584 v585 v586 v587 v588 v589 v590 v591 v592 v593 v594 v595 v596 v597 v598 v599 v600 v601 v602 v603 v604 v605 v606 v607 v608 v609 v610 v611 v612 v613 v614 v615 v616 v617 v618 v619 v620 v621 v622 v623 v624 v625 v626 v627 v628 v629 v630 v631 v632 v633 v634 v635 v636 v637 v638 v639 v640 v641 v642 v643 v644 v645 v646 v647 v648 v649 v650 v651 v652 v653 v654 v655 v656 v657 v658 v659 v660 v661 v662 v663 v664 v665 v666 v667 v668 v669 v670 v671 v672 v673 v674 v675 v676 v677 v678 v679 v680 v681 v682 v683 v684 v685 v686 v687 v688 v689 v690 v691 v692 v693 v694 v695 v696 v697 v698 v699 v700 v701 v702 v703 v704 v705 v706 v707 v708 v709 v710 v711 v712 v713 v714 v715 v716 v717 v718 v719 v720 v721 v722 v723 v724 v725 v726 v727 v728 v729 v730 v731 v732 v733 v734 v735 v736 v737 v738 v739 v740 v741 v742 v743 v744 v745 v746 v747 v748 v749 v750 v751 v752 v753 v754 v755 v756 v757 v758 v759 v760 v761 v762 v763 v764 v765 v766 v767 v768 v769 v770 v771 v772 v773 v774 v775 v776 v777 v778 v779 v780 v781 v782 v783 v784 v785 v786 v787 v788 v789 v790 v791 v792 v793 v794 v795 v796 v797 v798 v799 v800 v801 v802 v803 v804 v805 v806 v807 v808 v809 v810 v811 v812 v813 v814 v815 v816 v817 v818 v819 v820 v821 v822 v823 v824 v825 v826 v827 v828 v829 v830 v831 v832 v833 v834 v835 v836 v837 v838 v839 v840 v841 v842 v843 v844 v845 v846 v847 v848 v849 v850 v851 v852 v853 v854 v855 v856 v857 v858 v859 v860 v861 v862 v863 v864 v865 v866 v867 v868 v869 v870 v871 v872 v873 v874 v875 v876 v877 v878 v879 v880 v881 v882 v883 v884 v885 v886 v887 v888 v889 v890 v891 v892 v893 v894 v895 v896 v897 v898 v899"
+            },
+            {
+              "role": "assistant",
+              "content": "b0 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16 b17 b18 b19 b20 b21 b22 b23 b24 b25 b26 b27 b28 b29 b30 b31 b32 b33 b34 b35 b36 b37 b38 b39 b40 b41 b42 b43 b44 b45 b46 b47 b48 b49 b50 b51 b52 b53 b54 b55 b56 b57 b58 b59 b60 b61 b62 b63 b64 b65 b66 b67 b68 b69 b70 b71 b72 b73 b74 b75 b76 b77 b78 b79 b80 b81 b82 b83 b84 b85 b86 b87 b88 b89 b90 b91 b92 b93 b94 b95 b96 b97 b98 b99 b100 b101 b102 b103 b104 b105 b106 b107 b108 b109 b110 b111 b112 b113 b114 b115 b116 b117 b118 b119 b120 b121 b122 b123 b124 b125 b126 b127 b128 b129 b130 b131 b132 b133 b134 b135 b136 b137 b138 b139 b140 b141 b142 b143 b144 b145 b146 b147 b148 b149 b150 b151 b152 b153 b154 b155 b156 b157 b158 b159 b160 b161 b162 b163 b164 b165 b166 b167 b168 b169 b170 b171 b172 b173 b174 b175 b176 b177 b178 b179 b180 b181 b182 b183 b184 b185 b186 b187 b188 b189 b190 b191 b192 b193 b194 b195 b196 b197 b198 b199 b200 b201 b202 b203 b204 b205 b206 b207 b208 b209 b210 b211 b212 b213 b214 b215 b216 b217 b218 b219 b220 b221 b222 b223 b224 b225 b226 b227 b228 b229 b230 b231 b232 b233 b234 b235 b236 b237 b238 b239 b240 b241 b242 b243 b244 b245 b246 b247 b248 b249 b250 b251 b252 b253 b254 b255 b256 b257 b258 b259 b260 b261 b262 b263 b264 b265 b266 b267 b268 b269 b270 b271 b272 b273 b274 b275 b276 b277 b278 b279 b280 b281 b282 b283 b284 b285 b286 b287 b288 b289 b290 b291 b292 b293 b294 b295 b296 b297 b298 b299 b300 b301 b302 b303 b304 b305 b306 b307 b308 b309 b310 b311 b312 b313 b314 b315 b316 b317 b318 b319 b320 b321 b322 b323 b324 b325 b326 b327 b328 b329 b330 b331 b332 b333 b334 b335 b336 b337 b338 b339 b340 b341 b342 b343 b344 b345 b346 b347 b348 b349 b350 b351 b352 b353 b354 b355 b356 b357 b358 b359 b360 b361 b362 b363 b364 b365 b366 b367 b368 b369 b370 b371 b372 b373 b374 b375 b376 b377 b378 b379 b380 b381 b382 b383 b384 b385 b386 b387 b388 b389 b390 b391 b392 b393 b394 b395 b396 b397 b398 b399 b400 b401 b402 b403 b404 b405 b406 b407 b408 b409 b410 b411 b412 b413 b414 b415 b416 b417 b418 b419 b420 b421 b422 b423 b424 b425 b426 b427 b428 b429 b430 b431 b432 b433 b434 b435 b436 b437 b438 b439 b440 b441 b442 b443 b444 b445 b446 b447 b448 b449 b450 b451 b452 b453 b454 b455 b456 b457 b458 b459 b460 b461 b462 b463 b464 b465 b466 b467 b468 b469 b470 b471 b472 b473 b474 b475 b476 b477 b478 b479 b480 b481 b482 b483 b484 b485 b486 b487 b488 b489 b490 b491 b492 b493 b494 b495 b496 b497 b498 b499 b500 b501 b502 b503 b504 b505 b506 b507 b508 b509 b510 b511 b512 b513 b514 b515 b516 b517 b518 b519 b520 b521 b522 b523 b524 b525 b526 b527 b528 b529 b530 b531 b532 b533 b534 b535 b536 b537 b538 b539 b540 b541 b542 b543 b544 b545 b546 b547 b548 b549 b550 b551 b552 b553 b554 b555 b556 b557 b558 b559 b560 b561 b562 b563 b564 b565 b566 b567 b568 b569 b570 b571 b572 b573 b574 b575 b576 b577 b578 b579 b580 b581 b582 b583 b584 b585 b586 b587 b588 b589 b590 b591 b592 b593 b594 b595 b596 b597 b598 b599 b600 b601 b602 b603 b604 b605 b606 b607 b608 b609 b610 b611 b612 b613 b614 b615 b616 b617 b618 b619 b620 b621 b622 b623 b624 b625 b626 b627 b628 b629 b630 b631 b632 b633 b634 b635 b636 b637 b638 b639 b640 b641 b642 b643 b644 b645 b646 b647 b648 b649 b650 b651 b652 b653 b654 b655 b656 b657 b658 b659 b660 b661 b662 b663 b664 b665 b666 b667 b668 b669 b670 b671 b672 b673 b674 b675 b676 b677 b678 b679 b680 b681 b682 b683 b684 b685 b686 b687 b688 b689 b690 b691 b692 b693 b694 b695 b696 b697 b698 b699 b700 b701 b702 b703 b704 b705 b706 b707 b708 b709 b710 b711 b712 b713 b714 b715 b716 b717 b718 b719 b720 b721 b722 b723 b724 b725 b726 b727 b728 b729 b730 b731 b732 b733 b734 b735 b736 b737 b738 b739 b740 b741 b742 b743 b744 b745 b746 b747 b748 b749 b750 b751 b752 b753 b754 b755 b756 b757 b758 b759 b760 b761 b762 b763 b764 b765 b766 b767 b768 b769 b770 b771 b772 b773 b774 b775 b776 b777 b778 b779 b780 b781 b782 b783 b784 b785 b786 b787 b788 b789 b790 b791 b792 b793 b794 b795 b796 b797 b798 b799 b800 b801 b802 b803 b804 b805 b806 b807 b808 b809 b810 b811 b812 b813 b814 b815 b816 b817 b818 b819 b820 b821 b822 b823 b824 b825 b826 b827 b828 b829 b830 b831 b832 b833 b834 b835 b836 b837 b838 b839 b840 b841 b842 b843 b844 b845 b846 b847 b848 b849 b850 b851 b852 b853 b854 b855 b856 b857 b858 b859 b860 b861 b862 b863 b864 b865 b866 b867 b868 b869 b870 b871 b872 b873 b874 b875 b876 b877 b878 b879 b880 b881 b882 b883 b884 b885 b886 b887 b888 b889 b890 b891 b892 b893 b894 b895 b896 b897 b898 b899"
+            }
+          ],
+          "budgetTokens": 4000,
+          "boundaryTokens": 3000,
+          "reserveTokens": 0,
+          "contextWindow": 3000,
+          "sessionId": "sess_source",
+          "conversationThresholdTokens": null,
+          "sourceItself": false
+        }
+      ],
+      "outcome": {
+        "error": "inheritFrom: the full conversation needs 3306 tokens but custom-harness/harness-model allows 3000 before compaction"
+      },
+      "carried": [],
+      "title": "",
+      "inheritedFromSessionId": null
+    },
+    {
+      "name": "too large, the compaction throws",
+      "setup": {
+        "source": {
+          "id": "sess_source",
+          "title": "Source title",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the source session. Rules of the source."
+            },
+            {
+              "role": "system",
+              "content": "# Core\n\nsource core context",
+              "cacheTier": "tier3"
+            },
+            {
+              "role": "system",
+              "content": "# Environment\n\nsource environment facts",
+              "cacheTier": "env"
+            },
+            {
+              "role": "user",
+              "content": "u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31 u32 u33 u34 u35 u36 u37 u38 u39 u40 u41 u42 u43 u44 u45 u46 u47 u48 u49 u50 u51 u52 u53 u54 u55 u56 u57 u58 u59 u60 u61 u62 u63 u64 u65 u66 u67 u68 u69 u70 u71 u72 u73 u74 u75 u76 u77 u78 u79 u80 u81 u82 u83 u84 u85 u86 u87 u88 u89 u90 u91 u92 u93 u94 u95 u96 u97 u98 u99 u100 u101 u102 u103 u104 u105 u106 u107 u108 u109 u110 u111 u112 u113 u114 u115 u116 u117 u118 u119 u120 u121 u122 u123 u124 u125 u126 u127 u128 u129 u130 u131 u132 u133 u134 u135 u136 u137 u138 u139 u140 u141 u142 u143 u144 u145 u146 u147 u148 u149 u150 u151 u152 u153 u154 u155 u156 u157 u158 u159 u160 u161 u162 u163 u164 u165 u166 u167 u168 u169 u170 u171 u172 u173 u174 u175 u176 u177 u178 u179 u180 u181 u182 u183 u184 u185 u186 u187 u188 u189 u190 u191 u192 u193 u194 u195 u196 u197 u198 u199 u200 u201 u202 u203 u204 u205 u206 u207 u208 u209 u210 u211 u212 u213 u214 u215 u216 u217 u218 u219 u220 u221 u222 u223 u224 u225 u226 u227 u228 u229 u230 u231 u232 u233 u234 u235 u236 u237 u238 u239 u240 u241 u242 u243 u244 u245 u246 u247 u248 u249 u250 u251 u252 u253 u254 u255 u256 u257 u258 u259 u260 u261 u262 u263 u264 u265 u266 u267 u268 u269 u270 u271 u272 u273 u274 u275 u276 u277 u278 u279 u280 u281 u282 u283 u284 u285 u286 u287 u288 u289 u290 u291 u292 u293 u294 u295 u296 u297 u298 u299 u300 u301 u302 u303 u304 u305 u306 u307 u308 u309 u310 u311 u312 u313 u314 u315 u316 u317 u318 u319 u320 u321 u322 u323 u324 u325 u326 u327 u328 u329 u330 u331 u332 u333 u334 u335 u336 u337 u338 u339 u340 u341 u342 u343 u344 u345 u346 u347 u348 u349 u350 u351 u352 u353 u354 u355 u356 u357 u358 u359 u360 u361 u362 u363 u364 u365 u366 u367 u368 u369 u370 u371 u372 u373 u374 u375 u376 u377 u378 u379 u380 u381 u382 u383 u384 u385 u386 u387 u388 u389 u390 u391 u392 u393 u394 u395 u396 u397 u398 u399 u400 u401 u402 u403 u404 u405 u406 u407 u408 u409 u410 u411 u412 u413 u414 u415 u416 u417 u418 u419 u420 u421 u422 u423 u424 u425 u426 u427 u428 u429 u430 u431 u432 u433 u434 u435 u436 u437 u438 u439 u440 u441 u442 u443 u444 u445 u446 u447 u448 u449 u450 u451 u452 u453 u454 u455 u456 u457 u458 u459 u460 u461 u462 u463 u464 u465 u466 u467 u468 u469 u470 u471 u472 u473 u474 u475 u476 u477 u478 u479 u480 u481 u482 u483 u484 u485 u486 u487 u488 u489 u490 u491 u492 u493 u494 u495 u496 u497 u498 u499 u500 u501 u502 u503 u504 u505 u506 u507 u508 u509 u510 u511 u512 u513 u514 u515 u516 u517 u518 u519 u520 u521 u522 u523 u524 u525 u526 u527 u528 u529 u530 u531 u532 u533 u534 u535 u536 u537 u538 u539 u540 u541 u542 u543 u544 u545 u546 u547 u548 u549 u550 u551 u552 u553 u554 u555 u556 u557 u558 u559 u560 u561 u562 u563 u564 u565 u566 u567 u568 u569 u570 u571 u572 u573 u574 u575 u576 u577 u578 u579 u580 u581 u582 u583 u584 u585 u586 u587 u588 u589 u590 u591 u592 u593 u594 u595 u596 u597 u598 u599 u600 u601 u602 u603 u604 u605 u606 u607 u608 u609 u610 u611 u612 u613 u614 u615 u616 u617 u618 u619 u620 u621 u622 u623 u624 u625 u626 u627 u628 u629 u630 u631 u632 u633 u634 u635 u636 u637 u638 u639 u640 u641 u642 u643 u644 u645 u646 u647 u648 u649 u650 u651 u652 u653 u654 u655 u656 u657 u658 u659 u660 u661 u662 u663 u664 u665 u666 u667 u668 u669 u670 u671 u672 u673 u674 u675 u676 u677 u678 u679 u680 u681 u682 u683 u684 u685 u686 u687 u688 u689 u690 u691 u692 u693 u694 u695 u696 u697 u698 u699 u700 u701 u702 u703 u704 u705 u706 u707 u708 u709 u710 u711 u712 u713 u714 u715 u716 u717 u718 u719 u720 u721 u722 u723 u724 u725 u726 u727 u728 u729 u730 u731 u732 u733 u734 u735 u736 u737 u738 u739 u740 u741 u742 u743 u744 u745 u746 u747 u748 u749 u750 u751 u752 u753 u754 u755 u756 u757 u758 u759 u760 u761 u762 u763 u764 u765 u766 u767 u768 u769 u770 u771 u772 u773 u774 u775 u776 u777 u778 u779 u780 u781 u782 u783 u784 u785 u786 u787 u788 u789 u790 u791 u792 u793 u794 u795 u796 u797 u798 u799 u800 u801 u802 u803 u804 u805 u806 u807 u808 u809 u810 u811 u812 u813 u814 u815 u816 u817 u818 u819 u820 u821 u822 u823 u824 u825 u826 u827 u828 u829 u830 u831 u832 u833 u834 u835 u836 u837 u838 u839 u840 u841 u842 u843 u844 u845 u846 u847 u848 u849 u850 u851 u852 u853 u854 u855 u856 u857 u858 u859 u860 u861 u862 u863 u864 u865 u866 u867 u868 u869 u870 u871 u872 u873 u874 u875 u876 u877 u878 u879 u880 u881 u882 u883 u884 u885 u886 u887 u888 u889 u890 u891 u892 u893 u894 u895 u896 u897 u898 u899",
+              "meta": {
+                "transcript": {
+                  "messageId": "b1"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23 a24 a25 a26 a27 a28 a29 a30 a31 a32 a33 a34 a35 a36 a37 a38 a39 a40 a41 a42 a43 a44 a45 a46 a47 a48 a49 a50 a51 a52 a53 a54 a55 a56 a57 a58 a59 a60 a61 a62 a63 a64 a65 a66 a67 a68 a69 a70 a71 a72 a73 a74 a75 a76 a77 a78 a79 a80 a81 a82 a83 a84 a85 a86 a87 a88 a89 a90 a91 a92 a93 a94 a95 a96 a97 a98 a99 a100 a101 a102 a103 a104 a105 a106 a107 a108 a109 a110 a111 a112 a113 a114 a115 a116 a117 a118 a119 a120 a121 a122 a123 a124 a125 a126 a127 a128 a129 a130 a131 a132 a133 a134 a135 a136 a137 a138 a139 a140 a141 a142 a143 a144 a145 a146 a147 a148 a149 a150 a151 a152 a153 a154 a155 a156 a157 a158 a159 a160 a161 a162 a163 a164 a165 a166 a167 a168 a169 a170 a171 a172 a173 a174 a175 a176 a177 a178 a179 a180 a181 a182 a183 a184 a185 a186 a187 a188 a189 a190 a191 a192 a193 a194 a195 a196 a197 a198 a199 a200 a201 a202 a203 a204 a205 a206 a207 a208 a209 a210 a211 a212 a213 a214 a215 a216 a217 a218 a219 a220 a221 a222 a223 a224 a225 a226 a227 a228 a229 a230 a231 a232 a233 a234 a235 a236 a237 a238 a239 a240 a241 a242 a243 a244 a245 a246 a247 a248 a249 a250 a251 a252 a253 a254 a255 a256 a257 a258 a259 a260 a261 a262 a263 a264 a265 a266 a267 a268 a269 a270 a271 a272 a273 a274 a275 a276 a277 a278 a279 a280 a281 a282 a283 a284 a285 a286 a287 a288 a289 a290 a291 a292 a293 a294 a295 a296 a297 a298 a299 a300 a301 a302 a303 a304 a305 a306 a307 a308 a309 a310 a311 a312 a313 a314 a315 a316 a317 a318 a319 a320 a321 a322 a323 a324 a325 a326 a327 a328 a329 a330 a331 a332 a333 a334 a335 a336 a337 a338 a339 a340 a341 a342 a343 a344 a345 a346 a347 a348 a349 a350 a351 a352 a353 a354 a355 a356 a357 a358 a359 a360 a361 a362 a363 a364 a365 a366 a367 a368 a369 a370 a371 a372 a373 a374 a375 a376 a377 a378 a379 a380 a381 a382 a383 a384 a385 a386 a387 a388 a389 a390 a391 a392 a393 a394 a395 a396 a397 a398 a399 a400 a401 a402 a403 a404 a405 a406 a407 a408 a409 a410 a411 a412 a413 a414 a415 a416 a417 a418 a419 a420 a421 a422 a423 a424 a425 a426 a427 a428 a429 a430 a431 a432 a433 a434 a435 a436 a437 a438 a439 a440 a441 a442 a443 a444 a445 a446 a447 a448 a449 a450 a451 a452 a453 a454 a455 a456 a457 a458 a459 a460 a461 a462 a463 a464 a465 a466 a467 a468 a469 a470 a471 a472 a473 a474 a475 a476 a477 a478 a479 a480 a481 a482 a483 a484 a485 a486 a487 a488 a489 a490 a491 a492 a493 a494 a495 a496 a497 a498 a499 a500 a501 a502 a503 a504 a505 a506 a507 a508 a509 a510 a511 a512 a513 a514 a515 a516 a517 a518 a519 a520 a521 a522 a523 a524 a525 a526 a527 a528 a529 a530 a531 a532 a533 a534 a535 a536 a537 a538 a539 a540 a541 a542 a543 a544 a545 a546 a547 a548 a549 a550 a551 a552 a553 a554 a555 a556 a557 a558 a559 a560 a561 a562 a563 a564 a565 a566 a567 a568 a569 a570 a571 a572 a573 a574 a575 a576 a577 a578 a579 a580 a581 a582 a583 a584 a585 a586 a587 a588 a589 a590 a591 a592 a593 a594 a595 a596 a597 a598 a599 a600 a601 a602 a603 a604 a605 a606 a607 a608 a609 a610 a611 a612 a613 a614 a615 a616 a617 a618 a619 a620 a621 a622 a623 a624 a625 a626 a627 a628 a629 a630 a631 a632 a633 a634 a635 a636 a637 a638 a639 a640 a641 a642 a643 a644 a645 a646 a647 a648 a649 a650 a651 a652 a653 a654 a655 a656 a657 a658 a659 a660 a661 a662 a663 a664 a665 a666 a667 a668 a669 a670 a671 a672 a673 a674 a675 a676 a677 a678 a679 a680 a681 a682 a683 a684 a685 a686 a687 a688 a689 a690 a691 a692 a693 a694 a695 a696 a697 a698 a699 a700 a701 a702 a703 a704 a705 a706 a707 a708 a709 a710 a711 a712 a713 a714 a715 a716 a717 a718 a719 a720 a721 a722 a723 a724 a725 a726 a727 a728 a729 a730 a731 a732 a733 a734 a735 a736 a737 a738 a739 a740 a741 a742 a743 a744 a745 a746 a747 a748 a749 a750 a751 a752 a753 a754 a755 a756 a757 a758 a759 a760 a761 a762 a763 a764 a765 a766 a767 a768 a769 a770 a771 a772 a773 a774 a775 a776 a777 a778 a779 a780 a781 a782 a783 a784 a785 a786 a787 a788 a789 a790 a791 a792 a793 a794 a795 a796 a797 a798 a799 a800 a801 a802 a803 a804 a805 a806 a807 a808 a809 a810 a811 a812 a813 a814 a815 a816 a817 a818 a819 a820 a821 a822 a823 a824 a825 a826 a827 a828 a829 a830 a831 a832 a833 a834 a835 a836 a837 a838 a839 a840 a841 a842 a843 a844 a845 a846 a847 a848 a849 a850 a851 a852 a853 a854 a855 a856 a857 a858 a859 a860 a861 a862 a863 a864 a865 a866 a867 a868 a869 a870 a871 a872 a873 a874 a875 a876 a877 a878 a879 a880 a881 a882 a883 a884 a885 a886 a887 a888 a889 a890 a891 a892 a893 a894 a895 a896 a897 a898 a899",
+              "meta": {
+                "transcript": {
+                  "messageId": "b2"
+                }
+              }
+            },
+            {
+              "role": "user",
+              "content": "v0 v1 v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13 v14 v15 v16 v17 v18 v19 v20 v21 v22 v23 v24 v25 v26 v27 v28 v29 v30 v31 v32 v33 v34 v35 v36 v37 v38 v39 v40 v41 v42 v43 v44 v45 v46 v47 v48 v49 v50 v51 v52 v53 v54 v55 v56 v57 v58 v59 v60 v61 v62 v63 v64 v65 v66 v67 v68 v69 v70 v71 v72 v73 v74 v75 v76 v77 v78 v79 v80 v81 v82 v83 v84 v85 v86 v87 v88 v89 v90 v91 v92 v93 v94 v95 v96 v97 v98 v99 v100 v101 v102 v103 v104 v105 v106 v107 v108 v109 v110 v111 v112 v113 v114 v115 v116 v117 v118 v119 v120 v121 v122 v123 v124 v125 v126 v127 v128 v129 v130 v131 v132 v133 v134 v135 v136 v137 v138 v139 v140 v141 v142 v143 v144 v145 v146 v147 v148 v149 v150 v151 v152 v153 v154 v155 v156 v157 v158 v159 v160 v161 v162 v163 v164 v165 v166 v167 v168 v169 v170 v171 v172 v173 v174 v175 v176 v177 v178 v179 v180 v181 v182 v183 v184 v185 v186 v187 v188 v189 v190 v191 v192 v193 v194 v195 v196 v197 v198 v199 v200 v201 v202 v203 v204 v205 v206 v207 v208 v209 v210 v211 v212 v213 v214 v215 v216 v217 v218 v219 v220 v221 v222 v223 v224 v225 v226 v227 v228 v229 v230 v231 v232 v233 v234 v235 v236 v237 v238 v239 v240 v241 v242 v243 v244 v245 v246 v247 v248 v249 v250 v251 v252 v253 v254 v255 v256 v257 v258 v259 v260 v261 v262 v263 v264 v265 v266 v267 v268 v269 v270 v271 v272 v273 v274 v275 v276 v277 v278 v279 v280 v281 v282 v283 v284 v285 v286 v287 v288 v289 v290 v291 v292 v293 v294 v295 v296 v297 v298 v299 v300 v301 v302 v303 v304 v305 v306 v307 v308 v309 v310 v311 v312 v313 v314 v315 v316 v317 v318 v319 v320 v321 v322 v323 v324 v325 v326 v327 v328 v329 v330 v331 v332 v333 v334 v335 v336 v337 v338 v339 v340 v341 v342 v343 v344 v345 v346 v347 v348 v349 v350 v351 v352 v353 v354 v355 v356 v357 v358 v359 v360 v361 v362 v363 v364 v365 v366 v367 v368 v369 v370 v371 v372 v373 v374 v375 v376 v377 v378 v379 v380 v381 v382 v383 v384 v385 v386 v387 v388 v389 v390 v391 v392 v393 v394 v395 v396 v397 v398 v399 v400 v401 v402 v403 v404 v405 v406 v407 v408 v409 v410 v411 v412 v413 v414 v415 v416 v417 v418 v419 v420 v421 v422 v423 v424 v425 v426 v427 v428 v429 v430 v431 v432 v433 v434 v435 v436 v437 v438 v439 v440 v441 v442 v443 v444 v445 v446 v447 v448 v449 v450 v451 v452 v453 v454 v455 v456 v457 v458 v459 v460 v461 v462 v463 v464 v465 v466 v467 v468 v469 v470 v471 v472 v473 v474 v475 v476 v477 v478 v479 v480 v481 v482 v483 v484 v485 v486 v487 v488 v489 v490 v491 v492 v493 v494 v495 v496 v497 v498 v499 v500 v501 v502 v503 v504 v505 v506 v507 v508 v509 v510 v511 v512 v513 v514 v515 v516 v517 v518 v519 v520 v521 v522 v523 v524 v525 v526 v527 v528 v529 v530 v531 v532 v533 v534 v535 v536 v537 v538 v539 v540 v541 v542 v543 v544 v545 v546 v547 v548 v549 v550 v551 v552 v553 v554 v555 v556 v557 v558 v559 v560 v561 v562 v563 v564 v565 v566 v567 v568 v569 v570 v571 v572 v573 v574 v575 v576 v577 v578 v579 v580 v581 v582 v583 v584 v585 v586 v587 v588 v589 v590 v591 v592 v593 v594 v595 v596 v597 v598 v599 v600 v601 v602 v603 v604 v605 v606 v607 v608 v609 v610 v611 v612 v613 v614 v615 v616 v617 v618 v619 v620 v621 v622 v623 v624 v625 v626 v627 v628 v629 v630 v631 v632 v633 v634 v635 v636 v637 v638 v639 v640 v641 v642 v643 v644 v645 v646 v647 v648 v649 v650 v651 v652 v653 v654 v655 v656 v657 v658 v659 v660 v661 v662 v663 v664 v665 v666 v667 v668 v669 v670 v671 v672 v673 v674 v675 v676 v677 v678 v679 v680 v681 v682 v683 v684 v685 v686 v687 v688 v689 v690 v691 v692 v693 v694 v695 v696 v697 v698 v699 v700 v701 v702 v703 v704 v705 v706 v707 v708 v709 v710 v711 v712 v713 v714 v715 v716 v717 v718 v719 v720 v721 v722 v723 v724 v725 v726 v727 v728 v729 v730 v731 v732 v733 v734 v735 v736 v737 v738 v739 v740 v741 v742 v743 v744 v745 v746 v747 v748 v749 v750 v751 v752 v753 v754 v755 v756 v757 v758 v759 v760 v761 v762 v763 v764 v765 v766 v767 v768 v769 v770 v771 v772 v773 v774 v775 v776 v777 v778 v779 v780 v781 v782 v783 v784 v785 v786 v787 v788 v789 v790 v791 v792 v793 v794 v795 v796 v797 v798 v799 v800 v801 v802 v803 v804 v805 v806 v807 v808 v809 v810 v811 v812 v813 v814 v815 v816 v817 v818 v819 v820 v821 v822 v823 v824 v825 v826 v827 v828 v829 v830 v831 v832 v833 v834 v835 v836 v837 v838 v839 v840 v841 v842 v843 v844 v845 v846 v847 v848 v849 v850 v851 v852 v853 v854 v855 v856 v857 v858 v859 v860 v861 v862 v863 v864 v865 v866 v867 v868 v869 v870 v871 v872 v873 v874 v875 v876 v877 v878 v879 v880 v881 v882 v883 v884 v885 v886 v887 v888 v889 v890 v891 v892 v893 v894 v895 v896 v897 v898 v899",
+              "meta": {
+                "transcript": {
+                  "messageId": "b3"
+                }
+              }
+            },
+            {
+              "role": "assistant",
+              "content": "b0 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16 b17 b18 b19 b20 b21 b22 b23 b24 b25 b26 b27 b28 b29 b30 b31 b32 b33 b34 b35 b36 b37 b38 b39 b40 b41 b42 b43 b44 b45 b46 b47 b48 b49 b50 b51 b52 b53 b54 b55 b56 b57 b58 b59 b60 b61 b62 b63 b64 b65 b66 b67 b68 b69 b70 b71 b72 b73 b74 b75 b76 b77 b78 b79 b80 b81 b82 b83 b84 b85 b86 b87 b88 b89 b90 b91 b92 b93 b94 b95 b96 b97 b98 b99 b100 b101 b102 b103 b104 b105 b106 b107 b108 b109 b110 b111 b112 b113 b114 b115 b116 b117 b118 b119 b120 b121 b122 b123 b124 b125 b126 b127 b128 b129 b130 b131 b132 b133 b134 b135 b136 b137 b138 b139 b140 b141 b142 b143 b144 b145 b146 b147 b148 b149 b150 b151 b152 b153 b154 b155 b156 b157 b158 b159 b160 b161 b162 b163 b164 b165 b166 b167 b168 b169 b170 b171 b172 b173 b174 b175 b176 b177 b178 b179 b180 b181 b182 b183 b184 b185 b186 b187 b188 b189 b190 b191 b192 b193 b194 b195 b196 b197 b198 b199 b200 b201 b202 b203 b204 b205 b206 b207 b208 b209 b210 b211 b212 b213 b214 b215 b216 b217 b218 b219 b220 b221 b222 b223 b224 b225 b226 b227 b228 b229 b230 b231 b232 b233 b234 b235 b236 b237 b238 b239 b240 b241 b242 b243 b244 b245 b246 b247 b248 b249 b250 b251 b252 b253 b254 b255 b256 b257 b258 b259 b260 b261 b262 b263 b264 b265 b266 b267 b268 b269 b270 b271 b272 b273 b274 b275 b276 b277 b278 b279 b280 b281 b282 b283 b284 b285 b286 b287 b288 b289 b290 b291 b292 b293 b294 b295 b296 b297 b298 b299 b300 b301 b302 b303 b304 b305 b306 b307 b308 b309 b310 b311 b312 b313 b314 b315 b316 b317 b318 b319 b320 b321 b322 b323 b324 b325 b326 b327 b328 b329 b330 b331 b332 b333 b334 b335 b336 b337 b338 b339 b340 b341 b342 b343 b344 b345 b346 b347 b348 b349 b350 b351 b352 b353 b354 b355 b356 b357 b358 b359 b360 b361 b362 b363 b364 b365 b366 b367 b368 b369 b370 b371 b372 b373 b374 b375 b376 b377 b378 b379 b380 b381 b382 b383 b384 b385 b386 b387 b388 b389 b390 b391 b392 b393 b394 b395 b396 b397 b398 b399 b400 b401 b402 b403 b404 b405 b406 b407 b408 b409 b410 b411 b412 b413 b414 b415 b416 b417 b418 b419 b420 b421 b422 b423 b424 b425 b426 b427 b428 b429 b430 b431 b432 b433 b434 b435 b436 b437 b438 b439 b440 b441 b442 b443 b444 b445 b446 b447 b448 b449 b450 b451 b452 b453 b454 b455 b456 b457 b458 b459 b460 b461 b462 b463 b464 b465 b466 b467 b468 b469 b470 b471 b472 b473 b474 b475 b476 b477 b478 b479 b480 b481 b482 b483 b484 b485 b486 b487 b488 b489 b490 b491 b492 b493 b494 b495 b496 b497 b498 b499 b500 b501 b502 b503 b504 b505 b506 b507 b508 b509 b510 b511 b512 b513 b514 b515 b516 b517 b518 b519 b520 b521 b522 b523 b524 b525 b526 b527 b528 b529 b530 b531 b532 b533 b534 b535 b536 b537 b538 b539 b540 b541 b542 b543 b544 b545 b546 b547 b548 b549 b550 b551 b552 b553 b554 b555 b556 b557 b558 b559 b560 b561 b562 b563 b564 b565 b566 b567 b568 b569 b570 b571 b572 b573 b574 b575 b576 b577 b578 b579 b580 b581 b582 b583 b584 b585 b586 b587 b588 b589 b590 b591 b592 b593 b594 b595 b596 b597 b598 b599 b600 b601 b602 b603 b604 b605 b606 b607 b608 b609 b610 b611 b612 b613 b614 b615 b616 b617 b618 b619 b620 b621 b622 b623 b624 b625 b626 b627 b628 b629 b630 b631 b632 b633 b634 b635 b636 b637 b638 b639 b640 b641 b642 b643 b644 b645 b646 b647 b648 b649 b650 b651 b652 b653 b654 b655 b656 b657 b658 b659 b660 b661 b662 b663 b664 b665 b666 b667 b668 b669 b670 b671 b672 b673 b674 b675 b676 b677 b678 b679 b680 b681 b682 b683 b684 b685 b686 b687 b688 b689 b690 b691 b692 b693 b694 b695 b696 b697 b698 b699 b700 b701 b702 b703 b704 b705 b706 b707 b708 b709 b710 b711 b712 b713 b714 b715 b716 b717 b718 b719 b720 b721 b722 b723 b724 b725 b726 b727 b728 b729 b730 b731 b732 b733 b734 b735 b736 b737 b738 b739 b740 b741 b742 b743 b744 b745 b746 b747 b748 b749 b750 b751 b752 b753 b754 b755 b756 b757 b758 b759 b760 b761 b762 b763 b764 b765 b766 b767 b768 b769 b770 b771 b772 b773 b774 b775 b776 b777 b778 b779 b780 b781 b782 b783 b784 b785 b786 b787 b788 b789 b790 b791 b792 b793 b794 b795 b796 b797 b798 b799 b800 b801 b802 b803 b804 b805 b806 b807 b808 b809 b810 b811 b812 b813 b814 b815 b816 b817 b818 b819 b820 b821 b822 b823 b824 b825 b826 b827 b828 b829 b830 b831 b832 b833 b834 b835 b836 b837 b838 b839 b840 b841 b842 b843 b844 b845 b846 b847 b848 b849 b850 b851 b852 b853 b854 b855 b856 b857 b858 b859 b860 b861 b862 b863 b864 b865 b866 b867 b868 b869 b870 b871 b872 b873 b874 b875 b876 b877 b878 b879 b880 b881 b882 b883 b884 b885 b886 b887 b888 b889 b890 b891 b892 b893 b894 b895 b896 b897 b898 b899",
+              "meta": {
+                "transcript": {
+                  "messageId": "b4"
+                }
+              }
+            }
+          ]
+        },
+        "heir": {
+          "id": "sess_heir",
+          "title": "",
+          "messages": [
+            {
+              "role": "system",
+              "content": "Rules of the heir."
+            }
+          ],
+          "liveTurnMessages": []
+        }
+      },
+      "options": {},
+      "sourceId": "sess_source",
+      "fit": {
+        "messages": 4,
+        "known": true,
+        "fits": false,
+        "used": 4408,
+        "limit": 3000
+      },
+      "fitCompacted": null,
+      "budgetTokens": 4000,
+      "compactorAnswer": "throws",
+      "compactorCalls": [
+        {
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are the source session. Rules of the source."
+            },
+            {
+              "role": "system",
+              "content": "# Core\n\nsource core context",
+              "cacheTier": "tier3"
+            },
+            {
+              "role": "system",
+              "content": "# Environment\n\nsource environment facts",
+              "cacheTier": "env"
+            },
+            {
+              "role": "user",
+              "content": "u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11 u12 u13 u14 u15 u16 u17 u18 u19 u20 u21 u22 u23 u24 u25 u26 u27 u28 u29 u30 u31 u32 u33 u34 u35 u36 u37 u38 u39 u40 u41 u42 u43 u44 u45 u46 u47 u48 u49 u50 u51 u52 u53 u54 u55 u56 u57 u58 u59 u60 u61 u62 u63 u64 u65 u66 u67 u68 u69 u70 u71 u72 u73 u74 u75 u76 u77 u78 u79 u80 u81 u82 u83 u84 u85 u86 u87 u88 u89 u90 u91 u92 u93 u94 u95 u96 u97 u98 u99 u100 u101 u102 u103 u104 u105 u106 u107 u108 u109 u110 u111 u112 u113 u114 u115 u116 u117 u118 u119 u120 u121 u122 u123 u124 u125 u126 u127 u128 u129 u130 u131 u132 u133 u134 u135 u136 u137 u138 u139 u140 u141 u142 u143 u144 u145 u146 u147 u148 u149 u150 u151 u152 u153 u154 u155 u156 u157 u158 u159 u160 u161 u162 u163 u164 u165 u166 u167 u168 u169 u170 u171 u172 u173 u174 u175 u176 u177 u178 u179 u180 u181 u182 u183 u184 u185 u186 u187 u188 u189 u190 u191 u192 u193 u194 u195 u196 u197 u198 u199 u200 u201 u202 u203 u204 u205 u206 u207 u208 u209 u210 u211 u212 u213 u214 u215 u216 u217 u218 u219 u220 u221 u222 u223 u224 u225 u226 u227 u228 u229 u230 u231 u232 u233 u234 u235 u236 u237 u238 u239 u240 u241 u242 u243 u244 u245 u246 u247 u248 u249 u250 u251 u252 u253 u254 u255 u256 u257 u258 u259 u260 u261 u262 u263 u264 u265 u266 u267 u268 u269 u270 u271 u272 u273 u274 u275 u276 u277 u278 u279 u280 u281 u282 u283 u284 u285 u286 u287 u288 u289 u290 u291 u292 u293 u294 u295 u296 u297 u298 u299 u300 u301 u302 u303 u304 u305 u306 u307 u308 u309 u310 u311 u312 u313 u314 u315 u316 u317 u318 u319 u320 u321 u322 u323 u324 u325 u326 u327 u328 u329 u330 u331 u332 u333 u334 u335 u336 u337 u338 u339 u340 u341 u342 u343 u344 u345 u346 u347 u348 u349 u350 u351 u352 u353 u354 u355 u356 u357 u358 u359 u360 u361 u362 u363 u364 u365 u366 u367 u368 u369 u370 u371 u372 u373 u374 u375 u376 u377 u378 u379 u380 u381 u382 u383 u384 u385 u386 u387 u388 u389 u390 u391 u392 u393 u394 u395 u396 u397 u398 u399 u400 u401 u402 u403 u404 u405 u406 u407 u408 u409 u410 u411 u412 u413 u414 u415 u416 u417 u418 u419 u420 u421 u422 u423 u424 u425 u426 u427 u428 u429 u430 u431 u432 u433 u434 u435 u436 u437 u438 u439 u440 u441 u442 u443 u444 u445 u446 u447 u448 u449 u450 u451 u452 u453 u454 u455 u456 u457 u458 u459 u460 u461 u462 u463 u464 u465 u466 u467 u468 u469 u470 u471 u472 u473 u474 u475 u476 u477 u478 u479 u480 u481 u482 u483 u484 u485 u486 u487 u488 u489 u490 u491 u492 u493 u494 u495 u496 u497 u498 u499 u500 u501 u502 u503 u504 u505 u506 u507 u508 u509 u510 u511 u512 u513 u514 u515 u516 u517 u518 u519 u520 u521 u522 u523 u524 u525 u526 u527 u528 u529 u530 u531 u532 u533 u534 u535 u536 u537 u538 u539 u540 u541 u542 u543 u544 u545 u546 u547 u548 u549 u550 u551 u552 u553 u554 u555 u556 u557 u558 u559 u560 u561 u562 u563 u564 u565 u566 u567 u568 u569 u570 u571 u572 u573 u574 u575 u576 u577 u578 u579 u580 u581 u582 u583 u584 u585 u586 u587 u588 u589 u590 u591 u592 u593 u594 u595 u596 u597 u598 u599 u600 u601 u602 u603 u604 u605 u606 u607 u608 u609 u610 u611 u612 u613 u614 u615 u616 u617 u618 u619 u620 u621 u622 u623 u624 u625 u626 u627 u628 u629 u630 u631 u632 u633 u634 u635 u636 u637 u638 u639 u640 u641 u642 u643 u644 u645 u646 u647 u648 u649 u650 u651 u652 u653 u654 u655 u656 u657 u658 u659 u660 u661 u662 u663 u664 u665 u666 u667 u668 u669 u670 u671 u672 u673 u674 u675 u676 u677 u678 u679 u680 u681 u682 u683 u684 u685 u686 u687 u688 u689 u690 u691 u692 u693 u694 u695 u696 u697 u698 u699 u700 u701 u702 u703 u704 u705 u706 u707 u708 u709 u710 u711 u712 u713 u714 u715 u716 u717 u718 u719 u720 u721 u722 u723 u724 u725 u726 u727 u728 u729 u730 u731 u732 u733 u734 u735 u736 u737 u738 u739 u740 u741 u742 u743 u744 u745 u746 u747 u748 u749 u750 u751 u752 u753 u754 u755 u756 u757 u758 u759 u760 u761 u762 u763 u764 u765 u766 u767 u768 u769 u770 u771 u772 u773 u774 u775 u776 u777 u778 u779 u780 u781 u782 u783 u784 u785 u786 u787 u788 u789 u790 u791 u792 u793 u794 u795 u796 u797 u798 u799 u800 u801 u802 u803 u804 u805 u806 u807 u808 u809 u810 u811 u812 u813 u814 u815 u816 u817 u818 u819 u820 u821 u822 u823 u824 u825 u826 u827 u828 u829 u830 u831 u832 u833 u834 u835 u836 u837 u838 u839 u840 u841 u842 u843 u844 u845 u846 u847 u848 u849 u850 u851 u852 u853 u854 u855 u856 u857 u858 u859 u860 u861 u862 u863 u864 u865 u866 u867 u868 u869 u870 u871 u872 u873 u874 u875 u876 u877 u878 u879 u880 u881 u882 u883 u884 u885 u886 u887 u888 u889 u890 u891 u892 u893 u894 u895 u896 u897 u898 u899"
+            },
+            {
+              "role": "assistant",
+              "content": "a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 a10 a11 a12 a13 a14 a15 a16 a17 a18 a19 a20 a21 a22 a23 a24 a25 a26 a27 a28 a29 a30 a31 a32 a33 a34 a35 a36 a37 a38 a39 a40 a41 a42 a43 a44 a45 a46 a47 a48 a49 a50 a51 a52 a53 a54 a55 a56 a57 a58 a59 a60 a61 a62 a63 a64 a65 a66 a67 a68 a69 a70 a71 a72 a73 a74 a75 a76 a77 a78 a79 a80 a81 a82 a83 a84 a85 a86 a87 a88 a89 a90 a91 a92 a93 a94 a95 a96 a97 a98 a99 a100 a101 a102 a103 a104 a105 a106 a107 a108 a109 a110 a111 a112 a113 a114 a115 a116 a117 a118 a119 a120 a121 a122 a123 a124 a125 a126 a127 a128 a129 a130 a131 a132 a133 a134 a135 a136 a137 a138 a139 a140 a141 a142 a143 a144 a145 a146 a147 a148 a149 a150 a151 a152 a153 a154 a155 a156 a157 a158 a159 a160 a161 a162 a163 a164 a165 a166 a167 a168 a169 a170 a171 a172 a173 a174 a175 a176 a177 a178 a179 a180 a181 a182 a183 a184 a185 a186 a187 a188 a189 a190 a191 a192 a193 a194 a195 a196 a197 a198 a199 a200 a201 a202 a203 a204 a205 a206 a207 a208 a209 a210 a211 a212 a213 a214 a215 a216 a217 a218 a219 a220 a221 a222 a223 a224 a225 a226 a227 a228 a229 a230 a231 a232 a233 a234 a235 a236 a237 a238 a239 a240 a241 a242 a243 a244 a245 a246 a247 a248 a249 a250 a251 a252 a253 a254 a255 a256 a257 a258 a259 a260 a261 a262 a263 a264 a265 a266 a267 a268 a269 a270 a271 a272 a273 a274 a275 a276 a277 a278 a279 a280 a281 a282 a283 a284 a285 a286 a287 a288 a289 a290 a291 a292 a293 a294 a295 a296 a297 a298 a299 a300 a301 a302 a303 a304 a305 a306 a307 a308 a309 a310 a311 a312 a313 a314 a315 a316 a317 a318 a319 a320 a321 a322 a323 a324 a325 a326 a327 a328 a329 a330 a331 a332 a333 a334 a335 a336 a337 a338 a339 a340 a341 a342 a343 a344 a345 a346 a347 a348 a349 a350 a351 a352 a353 a354 a355 a356 a357 a358 a359 a360 a361 a362 a363 a364 a365 a366 a367 a368 a369 a370 a371 a372 a373 a374 a375 a376 a377 a378 a379 a380 a381 a382 a383 a384 a385 a386 a387 a388 a389 a390 a391 a392 a393 a394 a395 a396 a397 a398 a399 a400 a401 a402 a403 a404 a405 a406 a407 a408 a409 a410 a411 a412 a413 a414 a415 a416 a417 a418 a419 a420 a421 a422 a423 a424 a425 a426 a427 a428 a429 a430 a431 a432 a433 a434 a435 a436 a437 a438 a439 a440 a441 a442 a443 a444 a445 a446 a447 a448 a449 a450 a451 a452 a453 a454 a455 a456 a457 a458 a459 a460 a461 a462 a463 a464 a465 a466 a467 a468 a469 a470 a471 a472 a473 a474 a475 a476 a477 a478 a479 a480 a481 a482 a483 a484 a485 a486 a487 a488 a489 a490 a491 a492 a493 a494 a495 a496 a497 a498 a499 a500 a501 a502 a503 a504 a505 a506 a507 a508 a509 a510 a511 a512 a513 a514 a515 a516 a517 a518 a519 a520 a521 a522 a523 a524 a525 a526 a527 a528 a529 a530 a531 a532 a533 a534 a535 a536 a537 a538 a539 a540 a541 a542 a543 a544 a545 a546 a547 a548 a549 a550 a551 a552 a553 a554 a555 a556 a557 a558 a559 a560 a561 a562 a563 a564 a565 a566 a567 a568 a569 a570 a571 a572 a573 a574 a575 a576 a577 a578 a579 a580 a581 a582 a583 a584 a585 a586 a587 a588 a589 a590 a591 a592 a593 a594 a595 a596 a597 a598 a599 a600 a601 a602 a603 a604 a605 a606 a607 a608 a609 a610 a611 a612 a613 a614 a615 a616 a617 a618 a619 a620 a621 a622 a623 a624 a625 a626 a627 a628 a629 a630 a631 a632 a633 a634 a635 a636 a637 a638 a639 a640 a641 a642 a643 a644 a645 a646 a647 a648 a649 a650 a651 a652 a653 a654 a655 a656 a657 a658 a659 a660 a661 a662 a663 a664 a665 a666 a667 a668 a669 a670 a671 a672 a673 a674 a675 a676 a677 a678 a679 a680 a681 a682 a683 a684 a685 a686 a687 a688 a689 a690 a691 a692 a693 a694 a695 a696 a697 a698 a699 a700 a701 a702 a703 a704 a705 a706 a707 a708 a709 a710 a711 a712 a713 a714 a715 a716 a717 a718 a719 a720 a721 a722 a723 a724 a725 a726 a727 a728 a729 a730 a731 a732 a733 a734 a735 a736 a737 a738 a739 a740 a741 a742 a743 a744 a745 a746 a747 a748 a749 a750 a751 a752 a753 a754 a755 a756 a757 a758 a759 a760 a761 a762 a763 a764 a765 a766 a767 a768 a769 a770 a771 a772 a773 a774 a775 a776 a777 a778 a779 a780 a781 a782 a783 a784 a785 a786 a787 a788 a789 a790 a791 a792 a793 a794 a795 a796 a797 a798 a799 a800 a801 a802 a803 a804 a805 a806 a807 a808 a809 a810 a811 a812 a813 a814 a815 a816 a817 a818 a819 a820 a821 a822 a823 a824 a825 a826 a827 a828 a829 a830 a831 a832 a833 a834 a835 a836 a837 a838 a839 a840 a841 a842 a843 a844 a845 a846 a847 a848 a849 a850 a851 a852 a853 a854 a855 a856 a857 a858 a859 a860 a861 a862 a863 a864 a865 a866 a867 a868 a869 a870 a871 a872 a873 a874 a875 a876 a877 a878 a879 a880 a881 a882 a883 a884 a885 a886 a887 a888 a889 a890 a891 a892 a893 a894 a895 a896 a897 a898 a899"
+            },
+            {
+              "role": "user",
+              "content": "v0 v1 v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 v13 v14 v15 v16 v17 v18 v19 v20 v21 v22 v23 v24 v25 v26 v27 v28 v29 v30 v31 v32 v33 v34 v35 v36 v37 v38 v39 v40 v41 v42 v43 v44 v45 v46 v47 v48 v49 v50 v51 v52 v53 v54 v55 v56 v57 v58 v59 v60 v61 v62 v63 v64 v65 v66 v67 v68 v69 v70 v71 v72 v73 v74 v75 v76 v77 v78 v79 v80 v81 v82 v83 v84 v85 v86 v87 v88 v89 v90 v91 v92 v93 v94 v95 v96 v97 v98 v99 v100 v101 v102 v103 v104 v105 v106 v107 v108 v109 v110 v111 v112 v113 v114 v115 v116 v117 v118 v119 v120 v121 v122 v123 v124 v125 v126 v127 v128 v129 v130 v131 v132 v133 v134 v135 v136 v137 v138 v139 v140 v141 v142 v143 v144 v145 v146 v147 v148 v149 v150 v151 v152 v153 v154 v155 v156 v157 v158 v159 v160 v161 v162 v163 v164 v165 v166 v167 v168 v169 v170 v171 v172 v173 v174 v175 v176 v177 v178 v179 v180 v181 v182 v183 v184 v185 v186 v187 v188 v189 v190 v191 v192 v193 v194 v195 v196 v197 v198 v199 v200 v201 v202 v203 v204 v205 v206 v207 v208 v209 v210 v211 v212 v213 v214 v215 v216 v217 v218 v219 v220 v221 v222 v223 v224 v225 v226 v227 v228 v229 v230 v231 v232 v233 v234 v235 v236 v237 v238 v239 v240 v241 v242 v243 v244 v245 v246 v247 v248 v249 v250 v251 v252 v253 v254 v255 v256 v257 v258 v259 v260 v261 v262 v263 v264 v265 v266 v267 v268 v269 v270 v271 v272 v273 v274 v275 v276 v277 v278 v279 v280 v281 v282 v283 v284 v285 v286 v287 v288 v289 v290 v291 v292 v293 v294 v295 v296 v297 v298 v299 v300 v301 v302 v303 v304 v305 v306 v307 v308 v309 v310 v311 v312 v313 v314 v315 v316 v317 v318 v319 v320 v321 v322 v323 v324 v325 v326 v327 v328 v329 v330 v331 v332 v333 v334 v335 v336 v337 v338 v339 v340 v341 v342 v343 v344 v345 v346 v347 v348 v349 v350 v351 v352 v353 v354 v355 v356 v357 v358 v359 v360 v361 v362 v363 v364 v365 v366 v367 v368 v369 v370 v371 v372 v373 v374 v375 v376 v377 v378 v379 v380 v381 v382 v383 v384 v385 v386 v387 v388 v389 v390 v391 v392 v393 v394 v395 v396 v397 v398 v399 v400 v401 v402 v403 v404 v405 v406 v407 v408 v409 v410 v411 v412 v413 v414 v415 v416 v417 v418 v419 v420 v421 v422 v423 v424 v425 v426 v427 v428 v429 v430 v431 v432 v433 v434 v435 v436 v437 v438 v439 v440 v441 v442 v443 v444 v445 v446 v447 v448 v449 v450 v451 v452 v453 v454 v455 v456 v457 v458 v459 v460 v461 v462 v463 v464 v465 v466 v467 v468 v469 v470 v471 v472 v473 v474 v475 v476 v477 v478 v479 v480 v481 v482 v483 v484 v485 v486 v487 v488 v489 v490 v491 v492 v493 v494 v495 v496 v497 v498 v499 v500 v501 v502 v503 v504 v505 v506 v507 v508 v509 v510 v511 v512 v513 v514 v515 v516 v517 v518 v519 v520 v521 v522 v523 v524 v525 v526 v527 v528 v529 v530 v531 v532 v533 v534 v535 v536 v537 v538 v539 v540 v541 v542 v543 v544 v545 v546 v547 v548 v549 v550 v551 v552 v553 v554 v555 v556 v557 v558 v559 v560 v561 v562 v563 v564 v565 v566 v567 v568 v569 v570 v571 v572 v573 v574 v575 v576 v577 v578 v579 v580 v581 v582 v583 v584 v585 v586 v587 v588 v589 v590 v591 v592 v593 v594 v595 v596 v597 v598 v599 v600 v601 v602 v603 v604 v605 v606 v607 v608 v609 v610 v611 v612 v613 v614 v615 v616 v617 v618 v619 v620 v621 v622 v623 v624 v625 v626 v627 v628 v629 v630 v631 v632 v633 v634 v635 v636 v637 v638 v639 v640 v641 v642 v643 v644 v645 v646 v647 v648 v649 v650 v651 v652 v653 v654 v655 v656 v657 v658 v659 v660 v661 v662 v663 v664 v665 v666 v667 v668 v669 v670 v671 v672 v673 v674 v675 v676 v677 v678 v679 v680 v681 v682 v683 v684 v685 v686 v687 v688 v689 v690 v691 v692 v693 v694 v695 v696 v697 v698 v699 v700 v701 v702 v703 v704 v705 v706 v707 v708 v709 v710 v711 v712 v713 v714 v715 v716 v717 v718 v719 v720 v721 v722 v723 v724 v725 v726 v727 v728 v729 v730 v731 v732 v733 v734 v735 v736 v737 v738 v739 v740 v741 v742 v743 v744 v745 v746 v747 v748 v749 v750 v751 v752 v753 v754 v755 v756 v757 v758 v759 v760 v761 v762 v763 v764 v765 v766 v767 v768 v769 v770 v771 v772 v773 v774 v775 v776 v777 v778 v779 v780 v781 v782 v783 v784 v785 v786 v787 v788 v789 v790 v791 v792 v793 v794 v795 v796 v797 v798 v799 v800 v801 v802 v803 v804 v805 v806 v807 v808 v809 v810 v811 v812 v813 v814 v815 v816 v817 v818 v819 v820 v821 v822 v823 v824 v825 v826 v827 v828 v829 v830 v831 v832 v833 v834 v835 v836 v837 v838 v839 v840 v841 v842 v843 v844 v845 v846 v847 v848 v849 v850 v851 v852 v853 v854 v855 v856 v857 v858 v859 v860 v861 v862 v863 v864 v865 v866 v867 v868 v869 v870 v871 v872 v873 v874 v875 v876 v877 v878 v879 v880 v881 v882 v883 v884 v885 v886 v887 v888 v889 v890 v891 v892 v893 v894 v895 v896 v897 v898 v899"
+            },
+            {
+              "role": "assistant",
+              "content": "b0 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 b16 b17 b18 b19 b20 b21 b22 b23 b24 b25 b26 b27 b28 b29 b30 b31 b32 b33 b34 b35 b36 b37 b38 b39 b40 b41 b42 b43 b44 b45 b46 b47 b48 b49 b50 b51 b52 b53 b54 b55 b56 b57 b58 b59 b60 b61 b62 b63 b64 b65 b66 b67 b68 b69 b70 b71 b72 b73 b74 b75 b76 b77 b78 b79 b80 b81 b82 b83 b84 b85 b86 b87 b88 b89 b90 b91 b92 b93 b94 b95 b96 b97 b98 b99 b100 b101 b102 b103 b104 b105 b106 b107 b108 b109 b110 b111 b112 b113 b114 b115 b116 b117 b118 b119 b120 b121 b122 b123 b124 b125 b126 b127 b128 b129 b130 b131 b132 b133 b134 b135 b136 b137 b138 b139 b140 b141 b142 b143 b144 b145 b146 b147 b148 b149 b150 b151 b152 b153 b154 b155 b156 b157 b158 b159 b160 b161 b162 b163 b164 b165 b166 b167 b168 b169 b170 b171 b172 b173 b174 b175 b176 b177 b178 b179 b180 b181 b182 b183 b184 b185 b186 b187 b188 b189 b190 b191 b192 b193 b194 b195 b196 b197 b198 b199 b200 b201 b202 b203 b204 b205 b206 b207 b208 b209 b210 b211 b212 b213 b214 b215 b216 b217 b218 b219 b220 b221 b222 b223 b224 b225 b226 b227 b228 b229 b230 b231 b232 b233 b234 b235 b236 b237 b238 b239 b240 b241 b242 b243 b244 b245 b246 b247 b248 b249 b250 b251 b252 b253 b254 b255 b256 b257 b258 b259 b260 b261 b262 b263 b264 b265 b266 b267 b268 b269 b270 b271 b272 b273 b274 b275 b276 b277 b278 b279 b280 b281 b282 b283 b284 b285 b286 b287 b288 b289 b290 b291 b292 b293 b294 b295 b296 b297 b298 b299 b300 b301 b302 b303 b304 b305 b306 b307 b308 b309 b310 b311 b312 b313 b314 b315 b316 b317 b318 b319 b320 b321 b322 b323 b324 b325 b326 b327 b328 b329 b330 b331 b332 b333 b334 b335 b336 b337 b338 b339 b340 b341 b342 b343 b344 b345 b346 b347 b348 b349 b350 b351 b352 b353 b354 b355 b356 b357 b358 b359 b360 b361 b362 b363 b364 b365 b366 b367 b368 b369 b370 b371 b372 b373 b374 b375 b376 b377 b378 b379 b380 b381 b382 b383 b384 b385 b386 b387 b388 b389 b390 b391 b392 b393 b394 b395 b396 b397 b398 b399 b400 b401 b402 b403 b404 b405 b406 b407 b408 b409 b410 b411 b412 b413 b414 b415 b416 b417 b418 b419 b420 b421 b422 b423 b424 b425 b426 b427 b428 b429 b430 b431 b432 b433 b434 b435 b436 b437 b438 b439 b440 b441 b442 b443 b444 b445 b446 b447 b448 b449 b450 b451 b452 b453 b454 b455 b456 b457 b458 b459 b460 b461 b462 b463 b464 b465 b466 b467 b468 b469 b470 b471 b472 b473 b474 b475 b476 b477 b478 b479 b480 b481 b482 b483 b484 b485 b486 b487 b488 b489 b490 b491 b492 b493 b494 b495 b496 b497 b498 b499 b500 b501 b502 b503 b504 b505 b506 b507 b508 b509 b510 b511 b512 b513 b514 b515 b516 b517 b518 b519 b520 b521 b522 b523 b524 b525 b526 b527 b528 b529 b530 b531 b532 b533 b534 b535 b536 b537 b538 b539 b540 b541 b542 b543 b544 b545 b546 b547 b548 b549 b550 b551 b552 b553 b554 b555 b556 b557 b558 b559 b560 b561 b562 b563 b564 b565 b566 b567 b568 b569 b570 b571 b572 b573 b574 b575 b576 b577 b578 b579 b580 b581 b582 b583 b584 b585 b586 b587 b588 b589 b590 b591 b592 b593 b594 b595 b596 b597 b598 b599 b600 b601 b602 b603 b604 b605 b606 b607 b608 b609 b610 b611 b612 b613 b614 b615 b616 b617 b618 b619 b620 b621 b622 b623 b624 b625 b626 b627 b628 b629 b630 b631 b632 b633 b634 b635 b636 b637 b638 b639 b640 b641 b642 b643 b644 b645 b646 b647 b648 b649 b650 b651 b652 b653 b654 b655 b656 b657 b658 b659 b660 b661 b662 b663 b664 b665 b666 b667 b668 b669 b670 b671 b672 b673 b674 b675 b676 b677 b678 b679 b680 b681 b682 b683 b684 b685 b686 b687 b688 b689 b690 b691 b692 b693 b694 b695 b696 b697 b698 b699 b700 b701 b702 b703 b704 b705 b706 b707 b708 b709 b710 b711 b712 b713 b714 b715 b716 b717 b718 b719 b720 b721 b722 b723 b724 b725 b726 b727 b728 b729 b730 b731 b732 b733 b734 b735 b736 b737 b738 b739 b740 b741 b742 b743 b744 b745 b746 b747 b748 b749 b750 b751 b752 b753 b754 b755 b756 b757 b758 b759 b760 b761 b762 b763 b764 b765 b766 b767 b768 b769 b770 b771 b772 b773 b774 b775 b776 b777 b778 b779 b780 b781 b782 b783 b784 b785 b786 b787 b788 b789 b790 b791 b792 b793 b794 b795 b796 b797 b798 b799 b800 b801 b802 b803 b804 b805 b806 b807 b808 b809 b810 b811 b812 b813 b814 b815 b816 b817 b818 b819 b820 b821 b822 b823 b824 b825 b826 b827 b828 b829 b830 b831 b832 b833 b834 b835 b836 b837 b838 b839 b840 b841 b842 b843 b844 b845 b846 b847 b848 b849 b850 b851 b852 b853 b854 b855 b856 b857 b858 b859 b860 b861 b862 b863 b864 b865 b866 b867 b868 b869 b870 b871 b872 b873 b874 b875 b876 b877 b878 b879 b880 b881 b882 b883 b884 b885 b886 b887 b888 b889 b890 b891 b892 b893 b894 b895 b896 b897 b898 b899"
+            }
+          ],
+          "budgetTokens": 4000,
+          "boundaryTokens": 3000,
+          "reserveTokens": 0,
+          "contextWindow": 3000,
+          "sessionId": "sess_source",
+          "conversationThresholdTokens": null,
+          "sourceItself": false
+        }
+      ],
+      "outcome": {
+        "error": "inheritFrom: the full conversation needs 4408 tokens but custom-harness/harness-model allows 3000 before compaction"
+      },
+      "carried": [],
+      "title": "",
+      "inheritedFromSessionId": null
+    }
+  ],
+  "conversation": [
+    {
+      "name": "a committed user message and its reply",
+      "messages": [
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": "hi"
+        }
+      ],
+      "liveTurnMessages": [],
+      "hasUserConversationMessage": true,
+      "intentView": true
+    },
+    {
+      "name": "no committed rows, a user message in the turn",
+      "messages": [],
+      "liveTurnMessages": [
+        {
+          "role": "user",
+          "content": "typing"
+        }
+      ],
+      "hasUserConversationMessage": false,
+      "intentView": true
+    },
+    {
+      "name": "no rows anywhere",
+      "messages": [],
+      "liveTurnMessages": [],
+      "hasUserConversationMessage": false,
+      "intentView": false
+    },
+    {
+      "name": "a committed reply only",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": "hi"
+        }
+      ],
+      "liveTurnMessages": [],
+      "hasUserConversationMessage": false,
+      "intentView": true
+    },
+    {
+      "name": "a committed reply, a user message in the turn",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": "hi"
+        }
+      ],
+      "liveTurnMessages": [
+        {
+          "role": "user",
+          "content": "typing"
+        }
+      ],
+      "hasUserConversationMessage": false,
+      "intentView": true
+    },
+    {
+      "name": "a committed user message, an empty turn",
+      "messages": [
+        {
+          "role": "user",
+          "content": "hello"
+        }
+      ],
+      "liveTurnMessages": [],
+      "hasUserConversationMessage": true,
+      "intentView": true
+    }
+  ]
+}

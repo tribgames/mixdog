@@ -110,6 +110,10 @@ const tokenized = (value) => {
   return JSON.parse(text);
 };
 const steps = tokenized(result.steps);
+// The second session as the seed turn left it: the ids are tokens, the folder paths stay raw (the prompt's token count prices them).
+let storedText = JSON.stringify(result.stored);
+for (const [raw, token] of tokens.slice(0, 2)) storedText = storedText.replaceAll(JSON.stringify(raw).slice(1, -1), token);
+const stored = JSON.parse(storedText);
 
 const rel = 'benchmarks/rust-core/recorders/context-status-route/record.mjs';
 const finalOut = join(FIXTURES_ROOT, 'context-status-route');
@@ -121,6 +125,7 @@ writeJson(join(out, 'golden.json'), {
   route: { provider: PROVIDER, model: MODEL },
   seedPrompt: SEED_PROMPT,
   config: CONFIG,
+  stored,
   steps,
 });
 writeSetManifest(out, {

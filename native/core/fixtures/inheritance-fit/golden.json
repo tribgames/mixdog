@@ -5523,6 +5523,859 @@
       "tools": []
     }
   },
+  "sessions": {
+    "session_auto_off": {
+      "provider": "openai",
+      "model": "gpt-x",
+      "contextWindow": 32000,
+      "rawContextWindow": 32000,
+      "effectiveContextWindowPercent": 100,
+      "autoCompactTokenLimit": null,
+      "compactBoundaryTokens": 32000,
+      "compaction": {
+        "auto": false
+      },
+      "tools": [
+        {
+          "name": "tool_0",
+          "description": "Tool number 0 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_1",
+          "description": "Tool number 1 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_2",
+          "description": "Tool number 2 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_3",
+          "description": "Tool number 3 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_4",
+          "description": "Tool number 4 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_5",
+          "description": "Tool number 5 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "session_reserved": {
+      "provider": "openai",
+      "model": "gpt-x",
+      "contextWindow": 16000,
+      "rawContextWindow": 16000,
+      "effectiveContextWindowPercent": 100,
+      "autoCompactTokenLimit": null,
+      "compactBoundaryTokens": 16000,
+      "compaction": {
+        "auto": true,
+        "reservedTokens": 3000
+      },
+      "tools": [
+        {
+          "name": "tool_0",
+          "description": "Tool number 0 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_1",
+          "description": "Tool number 1 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_2",
+          "description": "Tool number 2 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_3",
+          "description": "Tool number 3 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_4",
+          "description": "Tool number 4 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_5",
+          "description": "Tool number 5 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "session_buffered": {
+      "provider": "anthropic",
+      "model": "claude-x",
+      "contextWindow": 32000,
+      "rawContextWindow": 32000,
+      "effectiveContextWindowPercent": 100,
+      "autoCompactTokenLimit": null,
+      "compactBoundaryTokens": 32000,
+      "compaction": {
+        "auto": true,
+        "bufferTokens": 4000
+      },
+      "tools": [
+        {
+          "name": "tool_0",
+          "description": "Tool number 0 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              },
+              "field4": {
+                "type": "string",
+                "description": "the 4th field of the call"
+              },
+              "field5": {
+                "type": "string",
+                "description": "the 5th field of the call"
+              },
+              "field6": {
+                "type": "string",
+                "description": "the 6th field of the call"
+              },
+              "field7": {
+                "type": "string",
+                "description": "the 7th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_1",
+          "description": "Tool number 1 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              },
+              "field4": {
+                "type": "string",
+                "description": "the 4th field of the call"
+              },
+              "field5": {
+                "type": "string",
+                "description": "the 5th field of the call"
+              },
+              "field6": {
+                "type": "string",
+                "description": "the 6th field of the call"
+              },
+              "field7": {
+                "type": "string",
+                "description": "the 7th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_2",
+          "description": "Tool number 2 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              },
+              "field4": {
+                "type": "string",
+                "description": "the 4th field of the call"
+              },
+              "field5": {
+                "type": "string",
+                "description": "the 5th field of the call"
+              },
+              "field6": {
+                "type": "string",
+                "description": "the 6th field of the call"
+              },
+              "field7": {
+                "type": "string",
+                "description": "the 7th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_3",
+          "description": "Tool number 3 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              },
+              "field4": {
+                "type": "string",
+                "description": "the 4th field of the call"
+              },
+              "field5": {
+                "type": "string",
+                "description": "the 5th field of the call"
+              },
+              "field6": {
+                "type": "string",
+                "description": "the 6th field of the call"
+              },
+              "field7": {
+                "type": "string",
+                "description": "the 7th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_4",
+          "description": "Tool number 4 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              },
+              "field4": {
+                "type": "string",
+                "description": "the 4th field of the call"
+              },
+              "field5": {
+                "type": "string",
+                "description": "the 5th field of the call"
+              },
+              "field6": {
+                "type": "string",
+                "description": "the 6th field of the call"
+              },
+              "field7": {
+                "type": "string",
+                "description": "the 7th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_5",
+          "description": "Tool number 5 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              },
+              "field4": {
+                "type": "string",
+                "description": "the 4th field of the call"
+              },
+              "field5": {
+                "type": "string",
+                "description": "the 5th field of the call"
+              },
+              "field6": {
+                "type": "string",
+                "description": "the 6th field of the call"
+              },
+              "field7": {
+                "type": "string",
+                "description": "the 7th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_6",
+          "description": "Tool number 6 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              },
+              "field4": {
+                "type": "string",
+                "description": "the 4th field of the call"
+              },
+              "field5": {
+                "type": "string",
+                "description": "the 5th field of the call"
+              },
+              "field6": {
+                "type": "string",
+                "description": "the 6th field of the call"
+              },
+              "field7": {
+                "type": "string",
+                "description": "the 7th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_7",
+          "description": "Tool number 7 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              },
+              "field4": {
+                "type": "string",
+                "description": "the 4th field of the call"
+              },
+              "field5": {
+                "type": "string",
+                "description": "the 5th field of the call"
+              },
+              "field6": {
+                "type": "string",
+                "description": "the 6th field of the call"
+              },
+              "field7": {
+                "type": "string",
+                "description": "the 7th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_8",
+          "description": "Tool number 8 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              },
+              "field4": {
+                "type": "string",
+                "description": "the 4th field of the call"
+              },
+              "field5": {
+                "type": "string",
+                "description": "the 5th field of the call"
+              },
+              "field6": {
+                "type": "string",
+                "description": "the 6th field of the call"
+              },
+              "field7": {
+                "type": "string",
+                "description": "the 7th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_9",
+          "description": "Tool number 9 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              },
+              "field4": {
+                "type": "string",
+                "description": "the 4th field of the call"
+              },
+              "field5": {
+                "type": "string",
+                "description": "the 5th field of the call"
+              },
+              "field6": {
+                "type": "string",
+                "description": "the 6th field of the call"
+              },
+              "field7": {
+                "type": "string",
+                "description": "the 7th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_10",
+          "description": "Tool number 10 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              },
+              "field4": {
+                "type": "string",
+                "description": "the 4th field of the call"
+              },
+              "field5": {
+                "type": "string",
+                "description": "the 5th field of the call"
+              },
+              "field6": {
+                "type": "string",
+                "description": "the 6th field of the call"
+              },
+              "field7": {
+                "type": "string",
+                "description": "the 7th field of the call"
+              }
+            }
+          }
+        },
+        {
+          "name": "tool_11",
+          "description": "Tool number 11 does one thing and reports how it went.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "field0": {
+                "type": "string",
+                "description": "the 0th field of the call"
+              },
+              "field1": {
+                "type": "string",
+                "description": "the 1th field of the call"
+              },
+              "field2": {
+                "type": "string",
+                "description": "the 2th field of the call"
+              },
+              "field3": {
+                "type": "string",
+                "description": "the 3th field of the call"
+              },
+              "field4": {
+                "type": "string",
+                "description": "the 4th field of the call"
+              },
+              "field5": {
+                "type": "string",
+                "description": "the 5th field of the call"
+              },
+              "field6": {
+                "type": "string",
+                "description": "the 6th field of the call"
+              },
+              "field7": {
+                "type": "string",
+                "description": "the 7th field of the call"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "session_installed": {
+      "provider": "openai",
+      "model": "gpt-x",
+      "contextWindow": 64000,
+      "rawContextWindow": 64000,
+      "effectiveContextWindowPercent": 100,
+      "autoCompactTokenLimit": null,
+      "compactBoundaryTokens": 64000,
+      "compaction": {
+        "auto": true,
+        "reservedTokens": 800,
+        "bufferTokens": 2000
+      },
+      "tools": []
+    }
+  },
   "conversations": {
     "empty": [],
     "system_only": [
@@ -6264,6 +7117,7 @@
   },
   "cases": [
     {
+      "kind": "route",
       "target": "anthropic_small",
       "conversation": "empty",
       "fit": {
@@ -6274,9 +7128,11 @@
         "percent": 0,
         "messages": 0
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "anthropic_small",
       "conversation": "system_only",
       "fit": {
@@ -6287,9 +7143,11 @@
         "percent": 0,
         "messages": 0
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "anthropic_small",
       "conversation": "short",
       "fit": {
@@ -6300,9 +7158,11 @@
         "percent": 1,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "anthropic_small",
       "conversation": "tools",
       "fit": {
@@ -6313,9 +7173,11 @@
         "percent": 11,
         "messages": 4
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "anthropic_small",
       "conversation": "medium",
       "fit": {
@@ -6326,9 +7188,11 @@
         "percent": 185,
         "messages": 60
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "anthropic_small",
       "conversation": "large",
       "fit": {
@@ -6339,9 +7203,11 @@
         "percent": 444,
         "messages": 100
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "anthropic_small",
       "conversation": "parts",
       "fit": {
@@ -6352,9 +7218,11 @@
         "percent": 2,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "anthropic_small",
       "conversation": "replay",
       "fit": {
@@ -6365,9 +7233,11 @@
         "percent": 6,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "anthropic_mid",
       "conversation": "empty",
       "fit": {
@@ -6378,9 +7248,11 @@
         "percent": 5,
         "messages": 0
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 5714
     },
     {
+      "kind": "route",
       "target": "anthropic_mid",
       "conversation": "system_only",
       "fit": {
@@ -6391,9 +7263,11 @@
         "percent": 5,
         "messages": 0
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 5714
     },
     {
+      "kind": "route",
       "target": "anthropic_mid",
       "conversation": "short",
       "fit": {
@@ -6404,9 +7278,11 @@
         "percent": 5,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 5714
     },
     {
+      "kind": "route",
       "target": "anthropic_mid",
       "conversation": "tools",
       "fit": {
@@ -6417,9 +7293,11 @@
         "percent": 7,
         "messages": 4
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 5714
     },
     {
+      "kind": "route",
       "target": "anthropic_mid",
       "conversation": "medium",
       "fit": {
@@ -6430,9 +7308,11 @@
         "percent": 51,
         "messages": 60
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 5714
     },
     {
+      "kind": "route",
       "target": "anthropic_mid",
       "conversation": "large",
       "fit": {
@@ -6443,9 +7323,11 @@
         "percent": 116,
         "messages": 100
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 5714
     },
     {
+      "kind": "route",
       "target": "anthropic_mid",
       "conversation": "parts",
       "fit": {
@@ -6456,9 +7338,11 @@
         "percent": 5,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 5714
     },
     {
+      "kind": "route",
       "target": "anthropic_mid",
       "conversation": "replay",
       "fit": {
@@ -6469,9 +7353,11 @@
         "percent": 6,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 5714
     },
     {
+      "kind": "route",
       "target": "gemini_mid",
       "conversation": "empty",
       "fit": {
@@ -6482,9 +7368,11 @@
         "percent": 12,
         "messages": 0
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 6956
     },
     {
+      "kind": "route",
       "target": "gemini_mid",
       "conversation": "system_only",
       "fit": {
@@ -6495,9 +7383,11 @@
         "percent": 12,
         "messages": 0
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 6956
     },
     {
+      "kind": "route",
       "target": "gemini_mid",
       "conversation": "short",
       "fit": {
@@ -6508,9 +7398,11 @@
         "percent": 12,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 6956
     },
     {
+      "kind": "route",
       "target": "gemini_mid",
       "conversation": "tools",
       "fit": {
@@ -6521,9 +7413,11 @@
         "percent": 14,
         "messages": 4
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 6956
     },
     {
+      "kind": "route",
       "target": "gemini_mid",
       "conversation": "medium",
       "fit": {
@@ -6534,9 +7428,11 @@
         "percent": 50,
         "messages": 60
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 6956
     },
     {
+      "kind": "route",
       "target": "gemini_mid",
       "conversation": "large",
       "fit": {
@@ -6547,9 +7443,11 @@
         "percent": 103,
         "messages": 100
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 6956
     },
     {
+      "kind": "route",
       "target": "gemini_mid",
       "conversation": "parts",
       "fit": {
@@ -6560,9 +7458,11 @@
         "percent": 12,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 6956
     },
     {
+      "kind": "route",
       "target": "gemini_mid",
       "conversation": "replay",
       "fit": {
@@ -6573,9 +7473,11 @@
         "percent": 13,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 6956
     },
     {
+      "kind": "route",
       "target": "openai_big",
       "conversation": "empty",
       "fit": {
@@ -6586,9 +7488,11 @@
         "percent": 5,
         "messages": 0
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 50000
     },
     {
+      "kind": "route",
       "target": "openai_big",
       "conversation": "system_only",
       "fit": {
@@ -6599,9 +7503,11 @@
         "percent": 5,
         "messages": 0
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 50000
     },
     {
+      "kind": "route",
       "target": "openai_big",
       "conversation": "short",
       "fit": {
@@ -6612,9 +7518,11 @@
         "percent": 5,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 50000
     },
     {
+      "kind": "route",
       "target": "openai_big",
       "conversation": "tools",
       "fit": {
@@ -6625,9 +7533,11 @@
         "percent": 6,
         "messages": 4
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 50000
     },
     {
+      "kind": "route",
       "target": "openai_big",
       "conversation": "medium",
       "fit": {
@@ -6638,9 +7548,11 @@
         "percent": 10,
         "messages": 60
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 50000
     },
     {
+      "kind": "route",
       "target": "openai_big",
       "conversation": "large",
       "fit": {
@@ -6651,9 +7563,11 @@
         "percent": 18,
         "messages": 100
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 50000
     },
     {
+      "kind": "route",
       "target": "openai_big",
       "conversation": "parts",
       "fit": {
@@ -6664,9 +7578,11 @@
         "percent": 5,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 50000
     },
     {
+      "kind": "route",
       "target": "openai_big",
       "conversation": "replay",
       "fit": {
@@ -6677,9 +7593,11 @@
         "percent": 5,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 50000
     },
     {
+      "kind": "route",
       "target": "openai_deferred",
       "conversation": "empty",
       "fit": {
@@ -6690,9 +7608,11 @@
         "percent": 10,
         "messages": 0
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "openai_deferred",
       "conversation": "system_only",
       "fit": {
@@ -6703,9 +7623,11 @@
         "percent": 10,
         "messages": 0
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "openai_deferred",
       "conversation": "short",
       "fit": {
@@ -6716,9 +7638,11 @@
         "percent": 10,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "openai_deferred",
       "conversation": "tools",
       "fit": {
@@ -6729,9 +7653,11 @@
         "percent": 14,
         "messages": 4
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "openai_deferred",
       "conversation": "medium",
       "fit": {
@@ -6742,9 +7668,11 @@
         "percent": 76,
         "messages": 60
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "openai_deferred",
       "conversation": "large",
       "fit": {
@@ -6755,9 +7683,11 @@
         "percent": 169,
         "messages": 100
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "openai_deferred",
       "conversation": "parts",
       "fit": {
@@ -6768,9 +7698,11 @@
         "percent": 11,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "openai_deferred",
       "conversation": "replay",
       "fit": {
@@ -6781,9 +7713,11 @@
         "percent": 12,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "openai_limit",
       "conversation": "empty",
       "fit": {
@@ -6794,9 +7728,11 @@
         "percent": 0,
         "messages": 0
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 16000
     },
     {
+      "kind": "route",
       "target": "openai_limit",
       "conversation": "system_only",
       "fit": {
@@ -6807,9 +7743,11 @@
         "percent": 0,
         "messages": 0
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 16000
     },
     {
+      "kind": "route",
       "target": "openai_limit",
       "conversation": "short",
       "fit": {
@@ -6820,9 +7758,11 @@
         "percent": 1,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 16000
     },
     {
+      "kind": "route",
       "target": "openai_limit",
       "conversation": "tools",
       "fit": {
@@ -6833,9 +7773,11 @@
         "percent": 4,
         "messages": 4
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 16000
     },
     {
+      "kind": "route",
       "target": "openai_limit",
       "conversation": "medium",
       "fit": {
@@ -6846,9 +7788,11 @@
         "percent": 53,
         "messages": 60
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 16000
     },
     {
+      "kind": "route",
       "target": "openai_limit",
       "conversation": "large",
       "fit": {
@@ -6859,9 +7803,11 @@
         "percent": 127,
         "messages": 100
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 16000
     },
     {
+      "kind": "route",
       "target": "openai_limit",
       "conversation": "parts",
       "fit": {
@@ -6872,9 +7818,11 @@
         "percent": 1,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 16000
     },
     {
+      "kind": "route",
       "target": "openai_limit",
       "conversation": "replay",
       "fit": {
@@ -6885,9 +7833,11 @@
         "percent": 2,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 16000
     },
     {
+      "kind": "route",
       "target": "openai_boundary",
       "conversation": "empty",
       "fit": {
@@ -6898,9 +7848,11 @@
         "percent": 0,
         "messages": 0
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 6000
     },
     {
+      "kind": "route",
       "target": "openai_boundary",
       "conversation": "system_only",
       "fit": {
@@ -6911,9 +7863,11 @@
         "percent": 0,
         "messages": 0
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 6000
     },
     {
+      "kind": "route",
       "target": "openai_boundary",
       "conversation": "short",
       "fit": {
@@ -6924,9 +7878,11 @@
         "percent": 1,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 6000
     },
     {
+      "kind": "route",
       "target": "openai_boundary",
       "conversation": "tools",
       "fit": {
@@ -6937,9 +7893,11 @@
         "percent": 3,
         "messages": 4
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 6000
     },
     {
+      "kind": "route",
       "target": "openai_boundary",
       "conversation": "medium",
       "fit": {
@@ -6950,9 +7908,11 @@
         "percent": 44,
         "messages": 60
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 6000
     },
     {
+      "kind": "route",
       "target": "openai_boundary",
       "conversation": "large",
       "fit": {
@@ -6963,9 +7923,11 @@
         "percent": 106,
         "messages": 100
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 6000
     },
     {
+      "kind": "route",
       "target": "openai_boundary",
       "conversation": "parts",
       "fit": {
@@ -6976,9 +7938,11 @@
         "percent": 1,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 6000
     },
     {
+      "kind": "route",
       "target": "openai_boundary",
       "conversation": "replay",
       "fit": {
@@ -6989,9 +7953,11 @@
         "percent": 2,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 6000
     },
     {
+      "kind": "route",
       "target": "openai_tiny_tools",
       "conversation": "empty",
       "fit": {
@@ -7002,9 +7968,11 @@
         "percent": 368,
         "messages": 0
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "openai_tiny_tools",
       "conversation": "system_only",
       "fit": {
@@ -7015,9 +7983,11 @@
         "percent": 368,
         "messages": 0
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "openai_tiny_tools",
       "conversation": "short",
       "fit": {
@@ -7028,9 +7998,11 @@
         "percent": 369,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "openai_tiny_tools",
       "conversation": "tools",
       "fit": {
@@ -7041,9 +8013,11 @@
         "percent": 384,
         "messages": 4
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "openai_tiny_tools",
       "conversation": "medium",
       "fit": {
@@ -7054,9 +8028,11 @@
         "percent": 631,
         "messages": 60
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "openai_tiny_tools",
       "conversation": "large",
       "fit": {
@@ -7067,9 +8043,11 @@
         "percent": 1002,
         "messages": 100
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "openai_tiny_tools",
       "conversation": "parts",
       "fit": {
@@ -7080,9 +8058,11 @@
         "percent": 371,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "openai_tiny_tools",
       "conversation": "replay",
       "fit": {
@@ -7093,9 +8073,11 @@
         "percent": 377,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "no_window",
       "conversation": "empty",
       "fit": {
@@ -7106,9 +8088,11 @@
         "percent": null,
         "messages": 0
       },
-      "compactable": false
+      "compactable": false,
+      "budgetTokens": null
     },
     {
+      "kind": "route",
       "target": "no_window",
       "conversation": "system_only",
       "fit": {
@@ -7119,9 +8103,11 @@
         "percent": null,
         "messages": 0
       },
-      "compactable": false
+      "compactable": false,
+      "budgetTokens": null
     },
     {
+      "kind": "route",
       "target": "no_window",
       "conversation": "short",
       "fit": {
@@ -7132,9 +8118,11 @@
         "percent": null,
         "messages": 2
       },
-      "compactable": false
+      "compactable": false,
+      "budgetTokens": null
     },
     {
+      "kind": "route",
       "target": "no_window",
       "conversation": "tools",
       "fit": {
@@ -7145,9 +8133,11 @@
         "percent": null,
         "messages": 4
       },
-      "compactable": false
+      "compactable": false,
+      "budgetTokens": null
     },
     {
+      "kind": "route",
       "target": "no_window",
       "conversation": "medium",
       "fit": {
@@ -7158,9 +8148,11 @@
         "percent": null,
         "messages": 60
       },
-      "compactable": false
+      "compactable": false,
+      "budgetTokens": null
     },
     {
+      "kind": "route",
       "target": "no_window",
       "conversation": "large",
       "fit": {
@@ -7171,9 +8163,11 @@
         "percent": null,
         "messages": 100
       },
-      "compactable": false
+      "compactable": false,
+      "budgetTokens": null
     },
     {
+      "kind": "route",
       "target": "no_window",
       "conversation": "parts",
       "fit": {
@@ -7184,9 +8178,11 @@
         "percent": null,
         "messages": 2
       },
-      "compactable": false
+      "compactable": false,
+      "budgetTokens": null
     },
     {
+      "kind": "route",
       "target": "no_window",
       "conversation": "replay",
       "fit": {
@@ -7197,9 +8193,11 @@
         "percent": null,
         "messages": 2
       },
-      "compactable": false
+      "compactable": false,
+      "budgetTokens": null
     },
     {
+      "kind": "route",
       "target": "legacy_limit_only",
       "conversation": "empty",
       "fit": {
@@ -7210,9 +8208,11 @@
         "percent": 0,
         "messages": 0
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "legacy_limit_only",
       "conversation": "system_only",
       "fit": {
@@ -7223,9 +8223,11 @@
         "percent": 0,
         "messages": 0
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "legacy_limit_only",
       "conversation": "short",
       "fit": {
@@ -7236,9 +8238,11 @@
         "percent": 1,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "legacy_limit_only",
       "conversation": "tools",
       "fit": {
@@ -7249,9 +8253,11 @@
         "percent": 6,
         "messages": 4
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "legacy_limit_only",
       "conversation": "medium",
       "fit": {
@@ -7262,9 +8268,11 @@
         "percent": 88,
         "messages": 60
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "legacy_limit_only",
       "conversation": "large",
       "fit": {
@@ -7275,9 +8283,11 @@
         "percent": 212,
         "messages": 100
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "legacy_limit_only",
       "conversation": "parts",
       "fit": {
@@ -7288,9 +8298,11 @@
         "percent": 1,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
     },
     {
+      "kind": "route",
       "target": "legacy_limit_only",
       "conversation": "replay",
       "fit": {
@@ -7301,7 +8313,488 @@
         "percent": 3,
         "messages": 2
       },
-      "compactable": true
+      "compactable": true,
+      "budgetTokens": 4000
+    },
+    {
+      "kind": "session",
+      "target": "session_auto_off",
+      "conversation": "empty",
+      "fit": {
+        "known": false,
+        "fits": true,
+        "used": 0,
+        "limit": 0,
+        "percent": null,
+        "messages": 0
+      },
+      "compactable": false,
+      "budgetTokens": null
+    },
+    {
+      "kind": "session",
+      "target": "session_auto_off",
+      "conversation": "system_only",
+      "fit": {
+        "known": false,
+        "fits": true,
+        "used": 0,
+        "limit": 0,
+        "percent": null,
+        "messages": 0
+      },
+      "compactable": false,
+      "budgetTokens": null
+    },
+    {
+      "kind": "session",
+      "target": "session_auto_off",
+      "conversation": "short",
+      "fit": {
+        "known": false,
+        "fits": true,
+        "used": 0,
+        "limit": 0,
+        "percent": null,
+        "messages": 2
+      },
+      "compactable": false,
+      "budgetTokens": null
+    },
+    {
+      "kind": "session",
+      "target": "session_auto_off",
+      "conversation": "tools",
+      "fit": {
+        "known": false,
+        "fits": true,
+        "used": 0,
+        "limit": 0,
+        "percent": null,
+        "messages": 4
+      },
+      "compactable": false,
+      "budgetTokens": null
+    },
+    {
+      "kind": "session",
+      "target": "session_auto_off",
+      "conversation": "medium",
+      "fit": {
+        "known": false,
+        "fits": true,
+        "used": 0,
+        "limit": 0,
+        "percent": null,
+        "messages": 60
+      },
+      "compactable": false,
+      "budgetTokens": null
+    },
+    {
+      "kind": "session",
+      "target": "session_auto_off",
+      "conversation": "large",
+      "fit": {
+        "known": false,
+        "fits": true,
+        "used": 0,
+        "limit": 0,
+        "percent": null,
+        "messages": 100
+      },
+      "compactable": false,
+      "budgetTokens": null
+    },
+    {
+      "kind": "session",
+      "target": "session_auto_off",
+      "conversation": "parts",
+      "fit": {
+        "known": false,
+        "fits": true,
+        "used": 0,
+        "limit": 0,
+        "percent": null,
+        "messages": 2
+      },
+      "compactable": false,
+      "budgetTokens": null
+    },
+    {
+      "kind": "session",
+      "target": "session_auto_off",
+      "conversation": "replay",
+      "fit": {
+        "known": false,
+        "fits": true,
+        "used": 0,
+        "limit": 0,
+        "percent": null,
+        "messages": 2
+      },
+      "compactable": false,
+      "budgetTokens": null
+    },
+    {
+      "kind": "session",
+      "target": "session_reserved",
+      "conversation": "empty",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 971,
+        "limit": 13000,
+        "percent": 8,
+        "messages": 0
+      },
+      "compactable": true,
+      "budgetTokens": 7000
+    },
+    {
+      "kind": "session",
+      "target": "session_reserved",
+      "conversation": "system_only",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 971,
+        "limit": 13000,
+        "percent": 8,
+        "messages": 0
+      },
+      "compactable": true,
+      "budgetTokens": 7000
+    },
+    {
+      "kind": "session",
+      "target": "session_reserved",
+      "conversation": "short",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 984,
+        "limit": 13000,
+        "percent": 8,
+        "messages": 2
+      },
+      "compactable": true,
+      "budgetTokens": 7000
+    },
+    {
+      "kind": "session",
+      "target": "session_reserved",
+      "conversation": "tools",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 1593,
+        "limit": 13000,
+        "percent": 13,
+        "messages": 4
+      },
+      "compactable": true,
+      "budgetTokens": 7000
+    },
+    {
+      "kind": "session",
+      "target": "session_reserved",
+      "conversation": "medium",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 11491,
+        "limit": 13000,
+        "percent": 89,
+        "messages": 60
+      },
+      "compactable": true,
+      "budgetTokens": 7000
+    },
+    {
+      "kind": "session",
+      "target": "session_reserved",
+      "conversation": "large",
+      "fit": {
+        "known": true,
+        "fits": false,
+        "used": 26321,
+        "limit": 13000,
+        "percent": 203,
+        "messages": 100
+      },
+      "compactable": true,
+      "budgetTokens": 7000
+    },
+    {
+      "kind": "session",
+      "target": "session_reserved",
+      "conversation": "parts",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 1068,
+        "limit": 13000,
+        "percent": 9,
+        "messages": 2
+      },
+      "compactable": true,
+      "budgetTokens": 7000
+    },
+    {
+      "kind": "session",
+      "target": "session_reserved",
+      "conversation": "replay",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 1304,
+        "limit": 13000,
+        "percent": 11,
+        "messages": 2
+      },
+      "compactable": true,
+      "budgetTokens": 7000
+    },
+    {
+      "kind": "session",
+      "target": "session_buffered",
+      "conversation": "empty",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 4441,
+        "limit": 32000,
+        "percent": 14,
+        "messages": 0
+      },
+      "compactable": true,
+      "budgetTokens": 5714
+    },
+    {
+      "kind": "session",
+      "target": "session_buffered",
+      "conversation": "system_only",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 4441,
+        "limit": 32000,
+        "percent": 14,
+        "messages": 0
+      },
+      "compactable": true,
+      "budgetTokens": 5714
+    },
+    {
+      "kind": "session",
+      "target": "session_buffered",
+      "conversation": "short",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 4459,
+        "limit": 32000,
+        "percent": 14,
+        "messages": 2
+      },
+      "compactable": true,
+      "budgetTokens": 5714
+    },
+    {
+      "kind": "session",
+      "target": "session_buffered",
+      "conversation": "tools",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 5312,
+        "limit": 32000,
+        "percent": 17,
+        "messages": 4
+      },
+      "compactable": true,
+      "budgetTokens": 5714
+    },
+    {
+      "kind": "session",
+      "target": "session_buffered",
+      "conversation": "medium",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 19169,
+        "limit": 32000,
+        "percent": 60,
+        "messages": 60
+      },
+      "compactable": true,
+      "budgetTokens": 5714
+    },
+    {
+      "kind": "session",
+      "target": "session_buffered",
+      "conversation": "large",
+      "fit": {
+        "known": true,
+        "fits": false,
+        "used": 39931,
+        "limit": 32000,
+        "percent": 125,
+        "messages": 100
+      },
+      "compactable": true,
+      "budgetTokens": 5714
+    },
+    {
+      "kind": "session",
+      "target": "session_buffered",
+      "conversation": "parts",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 4577,
+        "limit": 32000,
+        "percent": 15,
+        "messages": 2
+      },
+      "compactable": true,
+      "budgetTokens": 5714
+    },
+    {
+      "kind": "session",
+      "target": "session_buffered",
+      "conversation": "replay",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 4907,
+        "limit": 32000,
+        "percent": 16,
+        "messages": 2
+      },
+      "compactable": true,
+      "budgetTokens": 5714
+    },
+    {
+      "kind": "session",
+      "target": "session_installed",
+      "conversation": "empty",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 0,
+        "limit": 63200,
+        "percent": 0,
+        "messages": 0
+      },
+      "compactable": true,
+      "budgetTokens": 16800
+    },
+    {
+      "kind": "session",
+      "target": "session_installed",
+      "conversation": "system_only",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 0,
+        "limit": 63200,
+        "percent": 0,
+        "messages": 0
+      },
+      "compactable": true,
+      "budgetTokens": 16800
+    },
+    {
+      "kind": "session",
+      "target": "session_installed",
+      "conversation": "short",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 13,
+        "limit": 63200,
+        "percent": 1,
+        "messages": 2
+      },
+      "compactable": true,
+      "budgetTokens": 16800
+    },
+    {
+      "kind": "session",
+      "target": "session_installed",
+      "conversation": "tools",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 622,
+        "limit": 63200,
+        "percent": 1,
+        "messages": 4
+      },
+      "compactable": true,
+      "budgetTokens": 16800
+    },
+    {
+      "kind": "session",
+      "target": "session_installed",
+      "conversation": "medium",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 10520,
+        "limit": 63200,
+        "percent": 17,
+        "messages": 60
+      },
+      "compactable": true,
+      "budgetTokens": 16800
+    },
+    {
+      "kind": "session",
+      "target": "session_installed",
+      "conversation": "large",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 25350,
+        "limit": 63200,
+        "percent": 41,
+        "messages": 100
+      },
+      "compactable": true,
+      "budgetTokens": 16800
+    },
+    {
+      "kind": "session",
+      "target": "session_installed",
+      "conversation": "parts",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 97,
+        "limit": 63200,
+        "percent": 1,
+        "messages": 2
+      },
+      "compactable": true,
+      "budgetTokens": 16800
+    },
+    {
+      "kind": "session",
+      "target": "session_installed",
+      "conversation": "replay",
+      "fit": {
+        "known": true,
+        "fits": true,
+        "used": 333,
+        "limit": 63200,
+        "percent": 1,
+        "messages": 2
+      },
+      "compactable": true,
+      "budgetTokens": 16800
     }
   ]
 }
