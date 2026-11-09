@@ -207,7 +207,7 @@ export const METHOD_ARGS = Object.freeze({
   'thread/agentControl': { thread: true, args: ["args"] },
   'thread/askSide': { thread: true, args: ["question"] },
   'thread/cancelSide': { thread: true, args: ["targetThreadId"] },
-  'thread/clear': { thread: true, args: [] },
+  'thread/clear': { thread: true, args: ["rebuildPrompt"] },
   'thread/clearSessionChangeHistory': { thread: true, args: [] },
   'thread/contextStatus': { thread: true, args: ["options"] },
   'thread/getBranchMenu': { thread: true, args: [] },
