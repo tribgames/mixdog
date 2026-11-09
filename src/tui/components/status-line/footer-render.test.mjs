@@ -10,7 +10,7 @@ import { LIFECYCLE, SCENARIOS, T0 } from './footer-golden/scenarios.mjs';
 
 process.env.TZ = 'UTC';
 process.env.COLORTERM = 'truecolor';
-const { createCatalogWarmth } = await import('./catalog-warmth.mjs');
+const { createCatalogWarmth, listWithCatalogWarmth } = await import('./catalog-warmth.mjs');
 const { createFooterInputs } = await import('./footer-inputs.mjs');
 const { createFooterRenderer } = await import('./footer-render.mjs');
 
@@ -38,7 +38,6 @@ function writeScenarioFiles(scenario) {
 }
 
 const lifecycleGolden = JSON.parse(readFileSync(new URL('./footer-golden/node-lifecycle.golden.json', import.meta.url), 'utf8'));
-const { listWithCatalogWarmth } = await import('./catalog-warmth.mjs');
 
 for (const scenario of LIFECYCLE) {
   test(`warm lifecycle equals Node's: ${scenario.name}`, async (t) => {
