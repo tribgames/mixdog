@@ -10,16 +10,19 @@ const REFUSED = { kind: 'rpc', code: -32000, message: 'refused' };
 function rig(hold = false) {
   const calls: string[] = [];
   const held: Array<() => void> = [];
+  // Settles when the machine's sync is attaching a thread: its own signal (the first sync starts a timer turn after the connection).
+  let attaching = (): void => undefined;
+  const resuming = new Promise<void>((resolve) => (attaching = resolve));
   const listeners = new Set<(event: ClientEvent) => void>();
   const subscribers = new Set<(change: StoreChange) => void>();
   const client = {
     status: READY,
-    withSendScope: (_claim: unknown, run: () => unknown) => run(),
     on: (listener: (event: ClientEvent) => void) => (listeners.add(listener), () => listeners.delete(listener)),
     store: { subscribe: (fn: (change: StoreChange) => void) => (subscribers.add(fn), () => subscribers.delete(fn)) },
     subscribeApp: async () => void calls.push('app'),
     resumeThread: async (id: string) => {
       calls.push(`resume:${id}`);
+      attaching();
       if (hold) await new Promise<void>((resolve) => held.push(resolve));
     },
     unsubscribeThread: async (id: string) => void calls.push(`drop:${id}`),
@@ -42,7 +45,7 @@ function rig(hold = false) {
     probe: () => undefined,
     silentSince: () => false,
   });
-  return { calls, client, status, store, events, manager, held };
+  return { calls, client, status, store, events, manager, held, resuming };
 }
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 const settled = (promise: Promise<unknown>): Promise<'open' | 'shut'> => Promise.race([promise.then(() => 'open' as const), tick().then(() => 'shut' as const)]);
@@ -96,13 +99,12 @@ test('a refused re-attachment three times in a row recycles the connection and r
 });
 
 test('subscription events never open the gate: only the machine finishing a sync does', async () => {
-  const { store, events, manager, held } = rig(true);
+  const { store, events, manager, held, resuming } = rig(true);
   const gate = manager.synced();
   // Events of feeds restored (as a library would emit them) while the machine's own first sync is still attaching a thread.
   store({ type: 'subscription', feedId: 'app', state: 'restored' });
   store({ type: 'subscription', feedId: 't1', state: 'restored' });
-  // The machine's first sync starts one timer turn after the connection (phone-view.ts irstTurn); wait for it to be attaching.
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await resuming;
   assert.equal(await settled(gate), 'shut');
   assert.equal(events.synced, 0);
   for (const release of held) release();

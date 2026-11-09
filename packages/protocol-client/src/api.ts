@@ -220,14 +220,14 @@ export type ClientEvent =
 export interface CallOptions {
   /** Mutations only: reuse an existing op id (default: a fresh UUIDv7). */
   readonly opId?: OpId;
+  /** Receives the completion of this call's own request frame (the transport's `send(text, sent)`): it settles once the frame has left, and never if it was dropped first. Every method that writes a request takes it and forwards it, wherever the method waits before writing. */
+  readonly sent?: SentClaim;
 }
 
 /** Mutation params carry `opId`; the library assigns it, the caller may pin it through `CallOptions` or the params. */
 export type CallParams<P> = P extends { opId: infer O } ? Omit<P, 'opId'> & { opId?: O } : P;
 
 export interface ProtocolClient<S = Json> {
-  /** Runs `run` with `claim` open: the first request frame a client method invoked inside it writes is handed to `claim` (a call learns when its own frame left). */
-  withSendScope<T>(claim: SentClaim, run: () => T): T;
   readonly store: FoldStore<S>;
   /** Latest `initialize` result (replaced on every reconnect). */
   readonly server: InitializeResponse;
@@ -250,20 +250,20 @@ export interface ProtocolClient<S = Json> {
   sendBinary(data: Uint8Array): void;
 
   /** `thread/resume`. Registers the subscription for restore after reconnect, sending the folded position as `resumeFrom`. */
-  resumeThread(threadId: string, window: ResumeWindow): Promise<ThreadResumeResponse>;
+  resumeThread(threadId: string, window: ResumeWindow, options?: Pick<CallOptions, 'sent'>): Promise<ThreadResumeResponse>;
   /** `thread/unsubscribe`; drops the folded thread. Never stops work (X10). */
-  unsubscribeThread(threadId: string): Promise<void>;
+  unsubscribeThread(threadId: string, options?: Pick<CallOptions, 'sent'>): Promise<void>;
   /** `app/subscribe`, restored on reconnect with `resumeFrom`. */
-  subscribeApp(): Promise<void>;
+  subscribeApp(options?: Pick<CallOptions, 'sent'>): Promise<void>;
 
   pendingServerRequests(): readonly ServerRequest[];
   /** Answers a server request. Validity is the core's decision (`serverRequest/resolved` follows). Throws `connectionLost` when not ready. */
   respond(id: RequestId, answer: ServerRequestAnswer): void;
 
   /** Reads all pages of a blob (`blob/read`, page ≤ `server.limits.maxBlobPageBytes`). Rejects `blobNotFound`/`blobCorrupt` for this read only. */
-  readBlob(ref: BlobRef): Promise<Uint8Array>;
+  readBlob(ref: BlobRef, options?: Pick<CallOptions, 'sent'>): Promise<Uint8Array>;
   /** Uploads in raw chunks ≤ `server.limits.maxBlobPutChunkBytes` (`blob/put`, SPEC R1) and returns the ref to put into a request. */
-  putBlob(bytes: Uint8Array, mediaType: string): Promise<BlobRef>;
+  putBlob(bytes: Uint8Array, mediaType: string, options?: Pick<CallOptions, 'sent'>): Promise<BlobRef>;
 
   on(listener: (event: ClientEvent) => void): () => void;
   /** Closes the socket with 1000 and stops the ladder. Pending calls reject `clientClosed`. Idempotent. */

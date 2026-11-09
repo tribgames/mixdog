@@ -1,8 +1,8 @@
 // Which call a request frame belongs to. Node ties a call's deadline restart and silence probe to that call's own `sendApplicationFrame`
-// promise (remote-shim-calls.ts:258-273). The protocol client assigns the frame itself, so the call hands it a claim: a client method run
-// inside `withSendScope` passes the claim down with its request, and the connector gives the claim the promise of exactly that frame leaving.
-// A call that never sends registers nothing; no frame is ever claimed by a call other than the one whose method wrote it.
-import type { ProtocolClient, SentClaim } from '../../../packages/protocol-client/src/index.ts';
+// promise (remote-shim-calls.ts:258-273). Here the call's claim travels with its request as the `sent` option of the client method, down to the
+// `TransportWriter.send(text, sent)` of that exact frame, however long the method waits before writing (the connection, a digest). A call that
+// never sends registers nothing, and no frame is ever claimed by a call other than the one whose method wrote it.
+import type { SentClaim } from '../../../packages/protocol-client/src/index.ts';
 
 export type FrameClaim = SentClaim;
 
@@ -16,13 +16,29 @@ export const firstFrame = (claim: FrameClaim): FrameClaim => {
   };
 };
 
-/** The client with every method run under `claim`. */
-export function scopeClient<C extends Pick<ProtocolClient, 'withSendScope'>>(client: C, claim: FrameClaim): C {
+/** Where each client method that writes a request takes its options argument. */
+const OPTIONS_AT: Readonly<Record<string, number>> = {
+  call: 2,
+  resumeThread: 2,
+  unsubscribeThread: 1,
+  subscribeApp: 0,
+  readBlob: 1,
+  putBlob: 2,
+};
+
+/** The client for one call: every request-writing method gets that call's claim as its `sent` option. */
+export function scopeClient<C extends object>(client: C, claim: FrameClaim): C {
   return new Proxy(client, {
     get(target, key) {
       const value = Reflect.get(target, key, target) as unknown;
-      if (typeof value !== 'function' || key === 'withSendScope') return value;
-      return (...args: unknown[]) => target.withSendScope(claim, () => (value as (...rest: unknown[]) => unknown).apply(target, args));
+      const at = typeof key === 'string' ? OPTIONS_AT[key] : undefined;
+      if (typeof value !== 'function' || at === undefined) return value;
+      return (...args: unknown[]) => {
+        const rest = args.slice();
+        while (rest.length <= at) rest.push(undefined);
+        rest[at] = { ...(rest[at] as object | undefined), sent: claim };
+        return (value as (...a: unknown[]) => unknown).apply(target, rest);
+      };
     },
   });
 }

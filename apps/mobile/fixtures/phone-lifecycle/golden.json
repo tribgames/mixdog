@@ -4741,6 +4741,238 @@
         }
       }
     ],
+    "call-asked-while-down": [
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "log": [
+          "socket@0",
+          "request:readSettings@0",
+          "request:readHostDisplayPreferences@0",
+          "request:readActivityRailPins@0",
+          "request:viewerDevice@0",
+          "request:synchronizeViews@0",
+          "request:getSnapshot@0",
+          "request:listProjects@0",
+          "request:setRemoteLanes(empty)@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "asked-while-down",
+        "states": [
+          "connected",
+          "reconnecting"
+        ],
+        "banner": [
+          false,
+          true
+        ],
+        "offline": false,
+        "log": [
+          "socket@10000"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "notices": [
+          "connected"
+        ],
+        "calls": [],
+        "core": null
+      },
+      {
+        "name": "back",
+        "states": [
+          "reconnecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "log": [
+          "request:synchronizeViews@0",
+          "request:readSettings@0",
+          "request:setRemoteLanes(empty)@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 1,
+        "notices": [
+          "connected",
+          "reconnected"
+        ],
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "frame-left-on-the-new-connection",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "log": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "notices": [],
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "quiet-4999ms-after-send",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "log": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "notices": [],
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "silence-probe-5s-after-send",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "log": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "notices": [],
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "quiet-10s-after-send",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "log": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "notices": [],
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "deadline-probe-20s-after-send",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "log": [
+          "ping@10000"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "notices": [],
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "pending-24999ms-after-send",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "log": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "notices": [],
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "expired-25s-after-send",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "log": [
+          "settled:down:err(undefined)@1"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "notices": [],
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      }
+    ],
     "frame-in-flight-at-reconnect": [
       {
         "name": "connected",

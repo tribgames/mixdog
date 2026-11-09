@@ -693,6 +693,41 @@ export const SCENARIOS = {
     { op: 'advance', ms: 1 },
     { op: 'mark', name: 'b-expired-25s' },
   ],
+  // A call asked while the connection is down waits for the new one (and its view sync) before it is armed: its deadline and silence probe are
+  // timed from its own frame leaving on the new connection, not from when it was asked (Node: send() awaits connect() and the gate, then invoke()
+  // arms the deadline and the frame's own sendApplicationFrame restarts it, remote-shim-calls.ts:298-303, :239, :258-268). The read is held on the PC.
+  'call-asked-while-down': [
+    { op: 'boot', reads: true },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'advance', ms: 10000 },
+    { op: 'hold', name: 'readSettings' },
+    { op: 'random', value: 0 },
+    { op: 'drop', code: 1006 },
+    { op: 'advance', ms: 0 },
+    { op: 'read', name: 'readSettings', as: 'down' },
+    { op: 'advance', ms: 3000 },
+    { op: 'mark', name: 'asked-while-down' },
+    { op: 'accept' },
+    { op: 'check', name: 'back', expect: { foreground: true } },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'frame-left-on-the-new-connection' },
+    { op: 'advance', ms: 4999 },
+    { op: 'mark', name: 'quiet-4999ms-after-send' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'silence-probe-5s-after-send' },
+    { op: 'pong' },
+    { op: 'advance', ms: 5000 },
+    { op: 'mark', name: 'quiet-10s-after-send' },
+    { op: 'pong' },
+    { op: 'advance', ms: 10000 },
+    { op: 'mark', name: 'deadline-probe-20s-after-send' },
+    { op: 'pong' },
+    { op: 'advance', ms: 4999 },
+    { op: 'mark', name: 'pending-24999ms-after-send' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'expired-25s-after-send' },
+  ],
   // The socket ends while a call's frame is still being sealed: that call fails as interrupted, its frame finishes sealing on the dead leg, and a
   // call asked on the redialed connection is timed from its own frame leaving, not from anything the dead leg held (Node: each call awaits its own
   // sendApplicationFrame on its own socket, remote-shim-calls.ts:258-273).
