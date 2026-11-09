@@ -44,6 +44,7 @@ pub mod late_tool_surface;
 pub mod os_probe;
 pub mod control;
 pub mod daemon_log;
+pub mod desktop_defaults;
 pub mod discovery;
 pub mod domain_seams;
 pub mod js_runtime;

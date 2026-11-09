@@ -781,5 +781,47 @@
       ],
       "backupsAfterSecond": 1
     }
+  ],
+  "failures": [
+    {
+      "name": "backup-root-is-a-file",
+      "inputText": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false,\n    \"zoomFactor\": 1,\n    \"git\": {}\n  },\n  \"defaultsVersion\": 2\n}",
+      "afterCore": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false,\n    \"zoomFactor\": 1,\n    \"git\": {}\n  },\n  \"defaultsVersion\": 2\n}",
+      "error": {
+        "name": "Error",
+        "code": "EEXIST",
+        "message": "EEXIST: file already exists, mkdir '<data>/backups'"
+      },
+      "diagnosticLine": "{\"schemaVersion\":1,\"at\":\"2026-01-02T03:04:05.678Z\",\"event\":\"defaults-separation-failed\",\"pid\":4242,\"platform\":\"win32\",\"arch\":\"x64\",\"appVersion\":\"1.4.5\",\"packaged\":true,\"bootId\":\"boot\",\"message\":\"EEXIST: file already exists, mkdir '<data>/backups'\"}\n",
+      "afterFailure": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false,\n    \"zoomFactor\": 1,\n    \"git\": {}\n  },\n  \"defaultsVersion\": 2\n}",
+      "retried": true,
+      "afterRetry": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"runInBackground\": false,\n    \"defaultsSeparationVersion\": 1\n  },\n  \"defaultsVersion\": 2\n}\n",
+      "backupsAfterRetry": [
+        {
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"keepAwake\": true,\n    \"runInBackground\": false,\n    \"zoomFactor\": 1,\n    \"git\": {}\n  },\n  \"defaultsVersion\": 2\n}\n"
+        }
+      ]
+    },
+    {
+      "name": "backup-root-is-a-file-no-desktop-section",
+      "inputText": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  }\n}",
+      "afterCore": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  }\n}",
+      "error": {
+        "name": "Error",
+        "code": "EEXIST",
+        "message": "EEXIST: file already exists, mkdir '<data>/backups'"
+      },
+      "diagnosticLine": "{\"schemaVersion\":1,\"at\":\"2026-01-02T03:04:05.678Z\",\"event\":\"defaults-separation-failed\",\"pid\":4242,\"platform\":\"win32\",\"arch\":\"x64\",\"appVersion\":\"1.4.5\",\"packaged\":true,\"bootId\":\"boot\",\"message\":\"EEXIST: file already exists, mkdir '<data>/backups'\"}\n",
+      "afterFailure": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  }\n}",
+      "retried": true,
+      "afterRetry": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"desktop\": {\n    \"defaultsSeparationVersion\": 1\n  }\n}\n",
+      "backupsAfterRetry": [
+        {
+          "name": "defaults-separation-<iso>",
+          "text": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  }\n}\n"
+        }
+      ]
+    }
   ]
 }

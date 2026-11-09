@@ -131,7 +131,58 @@ for (const [index, item] of CASES.entries()) {
   });
 }
 
-writeJson(join(stage, 'twin.json'), { cases: results });
+// A separation that fails: the backup folder cannot be made (`<data>/backups` is a file). At app-ready the desktop's
+// `index.ts` catches it and writes `defaults-separation-failed` to its diagnostics log (`createDesktopDiagnostics`), then
+// goes on; nothing is saved, so the marker stays unset and the next start retries. The line is written by the real
+// diagnostics module with a fixed clock and context; a later start (the file removed) is recorded too.
+const { createDesktopDiagnostics } = await tsImport(pathToFileURL(join(tree, 'apps', 'desktop', 'src', 'main', 'desktop-diagnostics.ts')).href, import.meta.url);
+const FAILING = [
+  { name: 'backup-root-is-a-file', text: json(desktop({ keepAwake: true, runInBackground: false, zoomFactor: 1, git: {} }, { agent: { providers: { openai: { enabled: true } } } })) },
+  { name: 'backup-root-is-a-file-no-desktop-section', text: json({ defaultsVersion: 2, agent: { providers: { openai: { enabled: true } } } }) },
+];
+const portable = (text, data) => text.split(`${data}\\`).join('<data>/').split(`${data}/`).join('<data>/');
+const failures = [];
+for (const [index, item] of FAILING.entries()) {
+  const data = dir(`data-failing-${index}`);
+  process.env.MIXDOG_DATA_DIR = data;
+  const file = join(data, 'mixdog-config.json');
+  writeFileSync(file, item.text);
+  loadConfig({ secrets: false });
+  const afterCore = read(file);
+  writeFileSync(join(data, 'backups'), 'not a directory');
+  let thrown = null;
+  try {
+    await store.separateDefaults(data, new Date(Date.now() + 60_000));
+  } catch (error) {
+    thrown = error;
+  }
+  if (!thrown) throw new Error(`${item.name}: the separation did not fail`);
+  // What `index.ts` does with it.
+  const message = thrown instanceof Error ? thrown.message : String(thrown);
+  const logFile = join(data, 'logs', 'desktop-diagnostics.jsonl');
+  const log = createDesktopDiagnostics(logFile, { appVersion: '1.4.5', packaged: true, bootId: 'boot', platform: 'win32', arch: 'x64', pid: 4242 }, { now: () => new Date(Date.UTC(2026, 0, 2, 3, 4, 5, 678)) });
+  log.write('defaults-separation-failed', { message });
+  await log.flush();
+  const written = JSON.parse(read(logFile));
+  written.message = portable(written.message, data);
+  const line = `${JSON.stringify(written)}\n`;
+  const afterFailure = read(file);
+  rmSync(join(data, 'backups'));
+  const retried = await store.separateDefaults(data, new Date(Date.now() + 120_000));
+  failures.push({
+    name: item.name,
+    inputText: item.text,
+    afterCore,
+    error: { name: thrown.name, code: thrown.code ?? null, message: portable(message, data) },
+    diagnosticLine: line,
+    afterFailure,
+    retried,
+    afterRetry: read(file),
+    backupsAfterRetry: backupsOf(data).map(({ name, text }) => ({ name, text })),
+  });
+}
+
+writeJson(join(stage, 'twin.json'), { cases: results, failures });
 writeSetManifest(stage, {
   set: 'desktop-separation',
   recorder: 'benchmarks/rust-core/recorders/record-desktop-separation.mjs',
