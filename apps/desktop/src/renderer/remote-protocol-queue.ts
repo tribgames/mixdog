@@ -1,6 +1,9 @@
 // The phone's one call queue: Node's per-connection queue (main/remote-call-queue.ts at b6f10295a, ported whole - every lane, the write
-// barriers and the newest-wins search lane). Node ran EVERY call of a connection through it, so the adapters of all groups route through
-// `runQueued` and order against one another exactly as the calls did there (a file write, then `gitStatus`).
+// barriers and the newest-wins search lane). Node ran EVERY call of a connection through it. Here the router (remote-shim-protocol.ts)
+// sends every call of every adapter through `runQueued`, with no opt-in by an adapter, so calls of different groups order against one
+// another exactly as they did there (a file write, then a chat mutation, then `gitStatus`).
+import { DESKTOP_CAPABILITIES, DESKTOP_READ_CAPABILITIES } from '../shared/contract-capabilities';
+
 // Only explicitly read-only operations may overlap within the general lane.
 // Terminal lifecycle/input operations have their own ordered lane so unrelated
 // filesystem, voice, or session work cannot hold a keystroke behind it.
@@ -354,8 +357,73 @@ export function callQueueFor(connection: object): ReturnType<typeof createRemote
   return queue;
 }
 
-/** Runs `task` as Node's queue would run the call `method`; a search a newer query replaced before it started rejects with Node's text. */
-export function runQueued<T>(connection: object, method: string, task: () => Promise<T>, latest?: string): Promise<T> {
+/** Node's answer to a /btw side question its session's cancel (or a newer side question) overtook (remote-relay-client-calls.ts). */
+export const SIDE_QUESTION_CANCELED = 'Side question canceled.';
+
+const KNOWN_CAPABILITIES: ReadonlySet<string> = new Set(DESKTOP_CAPABILITIES);
+const READ_CAPABILITIES: ReadonlySet<string> = new Set(DESKTOP_READ_CAPABILITIES);
+
+/** Names the capabilities behind a capability call (remote-relay-client-calls.ts `callCapabilities`): only allow-listed names, never args. */
+function callCapabilities(method: string, params: unknown): string[] {
+  if (method !== 'invokeCapability' && method !== 'readCapabilities') return [];
+  const input = Array.isArray(params) ? params[0] : undefined;
+  const requests = Array.isArray(input) ? input : [input];
+  return requests.slice(0, 8).map((request) => {
+    const name = (request as { capability?: unknown } | null)?.capability;
+    return typeof name === 'string' && KNOWN_CAPABILITIES.has(name) ? name : 'unknown';
+  });
+}
+
+/** The per-minute call summary key: the method, plus its capability names (`remoteCallStatName`). */
+export function remoteCallStatName(method: string, params: unknown): string {
+  const capabilities = callCapabilities(method, params);
+  if (!capabilities.length) return method;
+  const name = `${method}:${capabilities.join('+')}`;
+  if (name === 'invokeCapability:getTurnReviewDiff') {
+    const args = (Array.isArray(params) ? (params[0] as { args?: unknown } | null)?.args : null) as unknown;
+    const options = Array.isArray(args) ? (args[0] as { known?: unknown } | null) : null;
+    if (typeof options?.known === 'string') return `${name}+tagged`;
+  }
+  return name;
+}
+
+/** The lane key of a call: its method, or for a capability call the capability name when that capability rides a slow-read, voice or
+ *  side-question lane (`remoteCallQueueKey`). */
+export function remoteCallQueueKey(method: string, statName: string): string {
+  if (statName.startsWith('invokeCapability:getTurnReviewDiff')) return 'invokeCapability:getTurnReviewDiff';
+  if (
+    statName === 'invokeCapability:getTurnChanges' ||
+    REVIEW_FILE_PATCH_CALLS.has(statName) ||
+    VOICE_CALLS.has(statName) ||
+    SIDE_QUESTION_CALLS.has(statName) ||
+    statName === SIDE_QUESTION_CANCEL_CALL
+  ) {
+    return statName;
+  }
+  if (method === 'invokeCapability' || method === 'readCapabilities') {
+    const capabilities = statName.slice(method.length + 1).split('+');
+    if (capabilities.every((name) => READ_CAPABILITIES.has(name))) {
+      return capabilities.some((name) => SLOW_READ_CAPABILITIES.has(name)) ? SLOW_CAPABILITY_READ_CALL : 'readCapabilities';
+    }
+  }
+  return method;
+}
+
+/** A file-name search's newest-wins scope: the same root and the same result shape (`searchLatestCall`). */
+function searchLatestKey(method: string, params: unknown[]): string | undefined {
+  if (method !== 'searchProjectFiles') return undefined;
+  const [root, , limit, includeIgnored, includeDirectories] = params;
+  return typeof root === 'string' ? JSON.stringify([root, limit ?? null, includeIgnored === true, includeDirectories === true]) : undefined;
+}
+
+/**
+ * The one entry of a phone connection's calls into its queue, as Node's dispatch was (`remote-relay-client-calls.ts`, `callQueue.run`):
+ * the router (remote-shim-protocol.ts) sends EVERY call of EVERY adapter through here, so a later chat mutation cannot overtake an
+ * unfinished file mutation. The call's lane, its newest-wins search scope and its side-question session are read off the call itself,
+ * as Node read them; `task` is the whole handler, its argument checks included, which run in the call's slot as Node's did.
+ * A search or side question a newer one replaced before it started rejects with Node's text.
+ */
+export function runQueued<T>(connection: object, method: string, params: unknown[], task: () => T | Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const run = async (): Promise<void> => {
       try {
@@ -364,7 +432,14 @@ export function runQueued<T>(connection: object, method: string, task: () => Pro
         reject(error);
       }
     };
-    const call = latest === undefined ? undefined : { latest, superseded: async () => reject(new Error(SEARCH_SUPERSEDED)) };
-    callQueueFor(connection).run(method, run, call).catch(reject);
+    const sideSessionId = (params[0] as { sessionId?: unknown } | null | undefined)?.sessionId;
+    const latest = searchLatestKey(method, params);
+    const call =
+      typeof sideSessionId === 'string' && sideSessionId
+        ? { sessionId: sideSessionId, superseded: async () => reject(new Error(SIDE_QUESTION_CANCELED)) }
+        : latest === undefined
+          ? undefined
+          : { latest, superseded: async () => reject(new Error(SEARCH_SUPERSEDED)) };
+    callQueueFor(connection).run(remoteCallQueueKey(method, remoteCallStatName(method, params)), run, call).catch(reject);
   });
 }

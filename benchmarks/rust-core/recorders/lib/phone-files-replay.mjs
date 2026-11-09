@@ -1,4 +1,4 @@
-// The replay of lib/phone-files-script.mjs: the phone's adapter (apps/desktop/src/renderer/remote-protocol-files.ts) against a freshly
+// The replay of lib/phone-files-script.mjs: the phone's router and adapter (apps/desktop/src/renderer/remote-protocol-files.ts) against a freshly
 // started, built mixdogd, every answer compared whole with what Node gave (apps/mobile/fixtures/phone-files/golden.json). A stand-in
 // window (a second connection that claims the host role) answers the OS trash, the snapshot and the local page as the script scripts it.
 //
@@ -142,6 +142,11 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
   }
   const client = await connect({ ...base, connector: phoneConnector });
   const host = { ctx: relay ? { browserId: PHONE_ID } : {}, client: () => client, declareLane() {} };
+  // The phone's own entry: every call goes through the router, which queues it (remote-protocol-queue.ts) as it does for every adapter.
+  // The router arms a per-call deadline on the page's window timers; the replay compares answers, so its window never fires one.
+  globalThis.window = { setTimeout: () => 0, clearTimeout() {} };
+  const { createProtocolRouter } = await here('apps/desktop/src/renderer/remote-shim-protocol.ts');
+  const router = createProtocolRouter([adapter], { host, started: async () => {}, synced: async () => {}, probe() {} });
   let window = null;
   let compared = 0;
 
@@ -152,7 +157,7 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
       window?.asked.splice(0);
       let frame;
       try {
-        const value = await adapter.calls[name](params, host);
+        const value = await router.call(name, params);
         frame = { ok: true, value: value === undefined ? null : clone(value) };
       } catch (error) {
         frame = { ok: false, error: error.message, ...(typeof error.code === 'string' && error.code ? { errorCode: error.code } : {}) };

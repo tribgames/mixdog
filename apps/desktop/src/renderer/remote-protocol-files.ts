@@ -3,7 +3,8 @@
 // (b6f10295a: remote-methods.ts `workspaceRemoteMethods` / `projectEntryRemoteMethods` / `editorRemoteMethods`,
 // remote-file-preview.ts, remote-local-page.ts): the same argument checks and texts (shared/remote-files-arguments.ts), the same
 // answer and the same failure, with the error's `code` Node put on the frame. The replay in apps/mobile compares them with the
-// recording. Every call runs through the connection's one call queue (remote-protocol-queue.ts), as Node's did.
+// recording. The connection's one call queue (remote-protocol-queue.ts) orders them, entered by the router (remote-shim-protocol.ts)
+// for every adapter alike, as Node's was: nothing here queues.
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
 import { requiredString } from '../shared/remote-arguments';
 import {
@@ -19,7 +20,6 @@ import {
   workspaceSearchOptions,
   workspaceTextWrites,
 } from '../shared/remote-files-arguments';
-import { runQueued } from './remote-protocol-queue';
 import type { NodeCall, PhoneProtocolAdapter, PhoneProtocolHost } from './remote-shim-protocol';
 
 type Client = ProtocolClient<SessionFold>;
@@ -69,20 +69,6 @@ function fileTarget(projectPath: unknown, relPath: unknown, accessToken: unknown
   return { root: requiredString(projectPath, 'projectPath'), rel: requiredString(relPath, 'relPath', 4_096) };
 }
 
-const lane = <T>(host: PhoneProtocolHost, name: string, work: () => Promise<T>, latest?: string): Promise<T> =>
-  runQueued(host.ctx, name, work, latest);
-
-/** A call whose arguments are checked on arrival (Node threw before anything queued) and whose work then runs in the queue. */
-const queued =
-  (name: string, run: (params: unknown[], host: PhoneProtocolHost) => () => Promise<unknown>): NodeCall =>
-  (params, host) => {
-    const work = run(params, host);
-    return lane(host, name, work);
-  };
-
-const one = (name: string, run: (params: unknown[], host: PhoneProtocolHost) => Promise<unknown>): NodeCall =>
-  queued(name, (params, host) => () => run(params, host));
-
 const void_ = async (promise: Promise<unknown>): Promise<null> => {
   await promise;
   return null;
@@ -96,12 +82,6 @@ async function grantedPlace(host: PhoneProtocolHost, target: Params): Promise<{ 
 }
 
 let nextSearch = 1;
-
-/** Node's "newest query wins" key (remote-relay-client-calls.ts `searchLatestCall`). */
-const searchKey = (params: unknown[]): string | undefined => {
-  const [root, , limit, includeIgnored, includeDirectories] = params;
-  return typeof root === 'string' ? JSON.stringify([root, limit ?? null, includeIgnored === true, includeDirectories === true]) : undefined;
-};
 
 async function searchFiles(host: PhoneProtocolHost, root: string, query: string, limit: number, ignored: boolean, directories: boolean): Promise<string[]> {
   const client: Client = host.client();
@@ -135,191 +115,183 @@ export const adapter: PhoneProtocolAdapter = {
   group: 'files',
   calls: {
     // ── the project list ──
-    listProjects: one('listProjects', async (_params, host) =>
+    listProjects: async (_params, host) =>
       ((await rpc(host, 'project/list', {})).projects as Array<{ name: string; path: string; alias: string | null }>).map(({ name, path, alias }) => ({
         name,
         path,
         alias,
-      }))
-    ),
+      })),
     addProject: ([projectPath], host) => {
       const path = requiredString(projectPath, 'projectPath');
-      return lane(host, 'addProject', () => void_(rpc(host, 'project/create', { path })));
+      return void_(rpc(host, 'project/create', { path }));
     },
     renameProject: ([projectPath, alias], host) => {
       const path = requiredString(projectPath, 'projectPath');
       const display = projectDisplayName(alias);
-      return lane(host, 'renameProject', () => void_(rpc(host, 'project/update', { path, alias: display })));
+      return void_(rpc(host, 'project/update', { path, alias: display }));
     },
     removeProject: ([projectPath], host) => {
       const path = requiredString(projectPath, 'projectPath');
-      return lane(host, 'removeProject', async () => {
+      return (async () => {
         // The core's delete is idempotent; Node's registry refuses a project that is not registered.
         const { removed } = (await rpc(host, 'project/delete', { path })) as { removed: boolean };
         if (!removed) throw Object.assign(new Error('Project is not available.'), { code: 'PROJECT_UNAVAILABLE' });
-      });
+      })();
     },
     listHostDirectories: ([path], host) => {
       const checked = hostDirectoryPath(path);
-      return lane(host, 'listHostDirectories', () => rpc(host, 'projectFs/browseDirs', { path: checked }));
+      return rpc(host, 'projectFs/browseDirs', { path: checked });
     },
     listProjectDir: ([projectPath, relDir], host) => {
       const root = requiredString(projectPath, 'projectPath');
-      return lane(host, 'listProjectDir', () => rpc(host, 'projectFs/listDir', { root, rel: typeof relDir === 'string' ? relDir : '' }));
+      return rpc(host, 'projectFs/listDir', { root, rel: typeof relDir === 'string' ? relDir : '' });
     },
     // ── files ──
     readProjectFile: ([projectPath, relPath, accessToken], host) => {
       const target = fileTarget(projectPath, relPath, accessToken);
-      return lane(host, 'readProjectFile', async () => {
-        // One answer carries at most 512 KiB, a file up to 10 MiB: the text comes a window at a time and is joined.
+      return (async () => {
+        // One answer carries at most 512 KiB, a file up to 10 MiB: the text comes a window at a time and is joined. The first window reads
+        // the file once and names that read (`readId`); the windows after it come from the same read, so the join is one version of the file.
         let answer = (await rpc(host, 'projectFs/readText', { ...target, authorized: true, maxChars: READ_WINDOW_CHARS })) as Params;
         let content = String(answer.content);
         while (typeof answer.nextChar === 'number') {
-          answer = (await rpc(host, 'projectFs/readText', { ...target, authorized: true, fromChar: answer.nextChar, maxChars: READ_WINDOW_CHARS })) as Params;
+          answer = (await rpc(host, 'projectFs/readText', {
+            ...target,
+            authorized: true,
+            readId: answer.readId,
+            fromChar: answer.nextChar,
+            maxChars: READ_WINDOW_CHARS,
+          })) as Params;
           content += String(answer.content);
         }
-        const { nextChar: _end, ...whole } = answer;
+        const { nextChar: _end, readId: _read, ...whole } = answer;
         return { ...whole, content };
-      });
+      })();
     },
     statProjectFile: ([projectPath, relPath, accessToken], host) => {
       const target = fileTarget(projectPath, relPath, accessToken);
-      return lane(host, 'statProjectFile', () => rpc(host, 'projectFs/stat', target));
+      return rpc(host, 'projectFs/stat', target);
     },
     writeProjectFile: ([projectPath, relPath, content, expectedContent, accessToken, encoding], host) => {
       const text = textFileContent(content, 'file content');
       const expected = textFileContent(expectedContent, 'expected file content');
       const fileEncoding = textFileEncoding(encoding);
       const target = fileTarget(projectPath, relPath, accessToken);
-      return lane(host, 'writeProjectFile', () =>
-        rpc(host, 'projectFs/writeText', { ...target, content: text, expectedContent: expected, ...(fileEncoding ? { encoding: fileEncoding } : {}) })
-      );
+      return rpc(host, 'projectFs/writeText', { ...target, content: text, expectedContent: expected, ...(fileEncoding ? { encoding: fileEncoding } : {}) });
     },
     createProjectEntry: ([projectPath, relDir, name, dir], host) => {
       const root = requiredString(projectPath, 'projectPath');
       const entryName = requiredString(name, 'name');
-      return lane(host, 'createProjectEntry', () =>
-        void_(rpc(host, 'projectFs/create', { root, relDir: typeof relDir === 'string' ? relDir : '', name: entryName, directory: dir === true }))
-      );
+      return void_(rpc(host, 'projectFs/create', { root, relDir: typeof relDir === 'string' ? relDir : '', name: entryName, directory: dir === true }));
     },
     renameProjectEntry: ([projectPath, relPath, newName], host) => {
       const root = requiredString(projectPath, 'projectPath');
       const rel = requiredString(relPath, 'relPath');
       const name = requiredString(newName, 'newName');
-      return lane(host, 'renameProjectEntry', () => void_(rpc(host, 'projectFs/rename', { root, rel, newName: name })));
+      return void_(rpc(host, 'projectFs/rename', { root, rel, newName: name }));
     },
     moveProjectEntry: ([projectPath, relPath, targetDirRel], host) => {
       const root = requiredString(projectPath, 'projectPath');
       const rel = requiredString(relPath, 'relPath');
-      return lane(host, 'moveProjectEntry', () =>
-        void_(rpc(host, 'projectFs/move', { root, rel, targetDirRel: typeof targetDirRel === 'string' ? targetDirRel : '' }))
-      );
+      return void_(rpc(host, 'projectFs/move', { root, rel, targetDirRel: typeof targetDirRel === 'string' ? targetDirRel : '' }));
     },
     copyProjectEntry: ([projectPath, relPath, targetDirRel], host) => {
       const root = requiredString(projectPath, 'projectPath');
       const rel = requiredString(relPath, 'relPath');
-      return lane(host, 'copyProjectEntry', () =>
-        rpc(host, 'projectFs/copy', { root, rel, targetDirRel: typeof targetDirRel === 'string' ? targetDirRel : '' })
-      );
+      return rpc(host, 'projectFs/copy', { root, rel, targetDirRel: typeof targetDirRel === 'string' ? targetDirRel : '' });
     },
     // The OS trash is the PC window's: the core confines the path, then asks the window.
     trashProjectEntry: ([projectPath, relPath], host) => {
       const root = requiredString(projectPath, 'projectPath');
       const rel = requiredString(relPath, 'relPath');
-      return lane(host, 'trashProjectEntry', () => void_(rpc(host, 'projectFs/trash', { root, rel, viaHost: true })));
+      return void_(rpc(host, 'projectFs/trash', { root, rel, viaHost: true }));
     },
     // ── the editor's own storage ──
     readEditorSettings: ([projectPath, relPath, workspaceFile], host) => {
       const root = requiredString(projectPath, 'projectPath');
       const workspace = typeof workspaceFile === 'string' && workspaceFile.trim() ? workspaceFile : undefined;
       const rel = requiredString(relPath, 'relPath', 4_096);
-      return lane(host, 'readEditorSettings', () =>
-        rpc(host, 'projectFs/readEditorSettings', { root, rel, ...(workspace === undefined ? {} : { workspaceFile: workspace }) })
-      );
+      return rpc(host, 'projectFs/readEditorSettings', { root, rel, ...(workspace === undefined ? {} : { workspaceFile: workspace }) });
     },
     readEditorBackup: ([projectPath, relPath, accessToken], host) => {
       const target = fileTarget(projectPath, relPath, accessToken);
-      return lane(host, 'readEditorBackup', async () => {
+      return (async () => {
         const { path } = await rpc(host, 'projectFs/entryPath', target);
         return rpc(host, 'projectFs/backup/read', { sourcePath: path });
-      });
+      })();
     },
     writeEditorBackup: ([projectPath, relPath, content, expectedContent, accessToken], host) => {
       const target = fileTarget(projectPath, relPath, accessToken);
       const text = textFileContent(content, 'file content');
       const expected = textFileContent(expectedContent, 'expected file content');
-      return lane(host, 'writeEditorBackup', async () => {
+      return (async () => {
         const { path } = await rpc(host, 'projectFs/entryPath', target);
         return rpc(host, 'projectFs/backup/write', { sourcePath: path, content: text, expectedContent: expected });
-      });
+      })();
     },
     deleteEditorBackup: ([projectPath, relPath, accessToken], host) => {
       const target = fileTarget(projectPath, relPath, accessToken);
-      return lane(host, 'deleteEditorBackup', async () => {
+      return (async () => {
         const { path } = await rpc(host, 'projectFs/entryPath', target);
         await rpc(host, 'projectFs/backup/delete', { sourcePath: path });
         return null;
-      });
+      })();
     },
     saveWorkspace: ([workspaceFile, rawFolders], host) => {
       const folders = workspaceFolders(rawFolders);
       if (!(typeof workspaceFile === 'string' && workspaceFile.trim())) {
         throw new Error('Choosing a workspace file is available in the desktop app only.');
       }
-      return lane(host, 'saveWorkspace', () => rpc(host, 'projectFs/workspaceFile/write', { workspaceFile, folders }));
+      return rpc(host, 'projectFs/workspaceFile/write', { workspaceFile, folders });
     },
     codeGraphQuery: ([projectPath, mode, symbol], host) => {
       if (mode !== 'find_symbol' && mode !== 'references' && mode !== 'symbols') throw new TypeError('mode is invalid.');
       const path = requiredString(projectPath, 'projectPath');
       const query = requiredString(symbol, 'symbol');
-      return lane(host, 'codeGraphQuery', () => rpc(host, 'project/codeGraph', { path, mode, query }));
+      return rpc(host, 'project/codeGraph', { path, mode, query });
     },
     // ── search ──
     searchWorkspaceText: ([projectPath, rawOptions], host) => {
       const root = requiredString(projectPath, 'projectPath');
       const options = workspaceSearchOptions(rawOptions);
-      return lane(host, 'searchWorkspaceText', () => rpc(host, 'projectFs/searchText', { root, options }));
+      return rpc(host, 'projectFs/searchText', { root, options });
     },
     replaceWorkspaceText: ([projectPath, rawOptions, replacement, relPaths], host) => {
       const root = requiredString(projectPath, 'projectPath');
       if (typeof replacement !== 'string' || replacement.length > 1_000_000) throw new TypeError('Replacement text is invalid.');
       const files = relPaths === undefined ? undefined : relativePaths(relPaths);
       const options = workspaceSearchOptions(rawOptions);
-      return lane(host, 'replaceWorkspaceText', () =>
-        rpc(host, 'projectFs/replaceText', { root, options, replacement, ...(files ? { relPaths: files } : {}) })
-      );
+      return rpc(host, 'projectFs/replaceText', { root, options, replacement, ...(files ? { relPaths: files } : {}) });
     },
     searchProjectFiles: (params, host) => {
       const [project, query, limit, includeIgnored, includeDirectories] = params;
       if (typeof query !== 'string' || query.length > 1_024) throw new TypeError('query is invalid.');
       const root = requiredString(project, 'projectIdOrWorkspaceId');
       const count = fileSearchLimit(limit);
-      return lane(host, 'searchProjectFiles', () => searchFiles(host, root, query, count, includeIgnored === true, includeDirectories === true), searchKey(params));
+      return searchFiles(host, root, query, count, includeIgnored === true, includeDirectories === true);
     },
     // ── the language servers ──
     lspDocument: ([rawInput], host) => {
       const input = lspDocumentInput(rawInput);
-      return lane(host, 'lspDocument', () => rpc(host, 'lsp/document', { projectPath: input.projectPath, root: input.projectPath, document: input }));
+      return rpc(host, 'lsp/document', { projectPath: input.projectPath, root: input.projectPath, document: input });
     },
     lspRequest: ([rawInput], host) => {
       const input = lspRequestInput(rawInput);
-      return lane(host, 'lspRequest', () =>
-        rpc(host, 'lsp/request', {
+      return rpc(host, 'lsp/request', {
           projectPath: input.projectPath,
           root: input.projectPath,
           request: { relPath: input.relPath, languageId: input.languageId, method: input.method, params: input.params },
-        })
-      );
+        });
     },
     lspApplyWorkspaceEdit: ([projectPath, rawWrites], host) => {
       const root = requiredString(projectPath, 'projectPath');
       const files = workspaceTextWrites(rawWrites);
-      return lane(host, 'lspApplyWorkspaceEdit', () => void_(rpc(host, 'projectFs/writeTextBatch', { root, files })));
+      return void_(rpc(host, 'projectFs/writeTextBatch', { root, files }));
     },
     // ── previews ──
     previewProjectFile: ([projectPath, relPath, accessToken], host) => {
       const target = fileTarget(projectPath, relPath, accessToken);
-      return lane(host, 'previewProjectFile', () => rpc(host, 'projectFs/previewFile', target));
+      return rpc(host, 'projectFs/previewFile', target);
     },
     previewProjectFileRange: ([projectPath, relPath, accessToken, offset, length], host) => {
       // Arguments are checked before any path work.
@@ -328,12 +300,12 @@ export const adapter: PhoneProtocolAdapter = {
         throw new TypeError('length is invalid.');
       }
       const target = fileTarget(projectPath, relPath, accessToken);
-      return lane(host, 'previewProjectFileRange', () => rpc(host, 'projectFs/previewRange', { ...target, offset, length }));
+      return rpc(host, 'projectFs/previewRange', { ...target, offset, length });
     },
     previewDocumentPages: ([projectPath, relPath, accessToken, options], host) => {
       const target = fileTarget(projectPath, relPath, accessToken);
       const request = options && typeof options === 'object' ? (options as { pages?: unknown; maxWidth?: unknown; password?: unknown }) : {};
-      return lane(host, 'previewDocumentPages', async () => {
+      return (async () => {
         // A one-file permission names a file outside every project: the conversion runs on that file's own folder.
         const place = target.accessToken === undefined ? { root: target.root, rel: target.rel } : await grantedPlace(host, target);
         return rpc(host, 'document/previewPages', {
@@ -343,15 +315,15 @@ export const adapter: PhoneProtocolAdapter = {
               ? { pages: request.pages, maxWidth: request.maxWidth }
               : { pages: request.pages, maxWidth: request.maxWidth, password: request.password },
         });
-      });
+      })();
     },
     captureFileSnapshot: ([projectPath, relPath, accessToken], host) => {
       const target = fileTarget(projectPath, relPath, accessToken);
-      return lane(host, 'captureFileSnapshot', () => rpc(host, 'projectFs/captureSnapshot', target));
+      return rpc(host, 'projectFs/captureSnapshot', target);
     },
     localPageUrl: ([projectPath, relPath, accessToken], host) => {
       const target = fileTarget(projectPath, relPath, accessToken);
-      return lane(host, 'localPageUrl', () => rpc(host, 'projectFs/localPageUrl', target));
+      return rpc(host, 'projectFs/localPageUrl', target);
     },
   },
 };

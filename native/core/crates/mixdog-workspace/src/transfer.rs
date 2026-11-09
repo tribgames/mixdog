@@ -31,6 +31,7 @@ use crate::inplace::open_authorized_ro;
 use crate::pathguard::absolute_local_path;
 use crate::pathguard::canonical;
 use crate::pathguard::guarded_entry_path;
+use crate::pathguard::project_entry_path;
 
 pub const RANGE_MAX_BYTES: u64 = 4 * 1024 * 1024;
 /// Raw bytes of one upload chunk at most (`SERVER_UPLOAD_CHUNK_BYTES`).
@@ -319,8 +320,11 @@ impl Transfers {
 
     /// A project file. The real path is verified from the open handle.
     pub fn begin_project_read(&self, owner: &str, root: &Path, rel: &str) -> WsResult<Opened> {
-        let path = guarded_entry_path(root, rel)?;
-        let opened = open_authorized_ro(&path, root)?;
+        // Node's `authorizeProjectFile` (file-downloads.ts:319-340): a path `projectEntryPathIn` refuses, or a file whose real place is outside
+        // the root, is one `FileDownloadError('outside-project', ...)`.
+        let outside = || WsError::denied("The file is outside the conversation's project.");
+        let path = project_entry_path(root, rel).map_err(|_| outside())?;
+        let opened = open_authorized_ro(&path, root).map_err(|error| if error.reason.code() == "MIXDOG_LOCAL_ACCESS_DENIED" { outside() } else { error })?;
         let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
         self.register(owner, opened.file, name, mime_type(&path), None)
     }
@@ -591,7 +595,7 @@ fn decode_chunk(encoded: &str) -> WsResult<Vec<u8>> {
 /// `serverFileReadRange(root, rel, offset, length)`: one stateless read of up to
 /// [`RANGE_MAX_BYTES`] at `offset`, as `{data, offset, size, mtimeMs}` (`data` base64).
 pub fn read_path_range(root: &Path, rel: &str, offset: u64, length: u64) -> WsResult<serde_json::Value> {
-    let file = File::open(guarded_entry_path(root, rel)?)?;
+    let file = File::open(project_entry_path(root, rel)?)?;
     let meta = file.metadata()?;
     if !meta.is_file() {
         return Err(WsError::invalid("Not a file."));
@@ -842,11 +846,21 @@ mod tests {
         t.sweep_idle();
         assert!(!part.exists(), "the abandoned upload's partial file is removed by the timer's sweep alone");
     }
+    /// Node's `authorizeProjectFile` refusal for `../x`, recorded by fixtures/desktop/transfer: its whole text.
+    #[test]
+    fn a_project_path_beyond_the_project_is_nodes_outside_project_refusal() {
+        let corpus: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/desktop/transfer/corpus.json")).unwrap();
+        let recorded = corpus["entries"].as_array().unwrap().iter().find(|entry| entry["op"] == "authorize(outside)").unwrap();
+        let (_d, root) = project();
+        let refused = Transfers::default().begin_project_read("o", &root, "../x").err().unwrap();
+        assert_eq!(refused.reason, Reason::PermissionDenied);
+        assert_eq!(refused.message, recorded["error"]["message"].as_str().unwrap());
+    }
+
     #[test]
     fn path_outside_is_refused_and_upload_commits_by_rename() {
         let (_d, root) = project();
         let t = Transfers::default();
-        assert!(t.begin_project_read("o", &root, "../x").is_err());
         let id = t.begin_write("o", &root, "in/up.txt", 5).unwrap();
         t.write_chunk("o", &id, Some(0), "aGU=").unwrap();
         // The last chunk again is acknowledged, not rewritten.

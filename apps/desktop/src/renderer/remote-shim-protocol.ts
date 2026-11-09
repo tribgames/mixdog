@@ -6,6 +6,7 @@ import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-
 import { armCallWatch } from './remote-shim-call-watch';
 import { firstFrame, scopeClient } from '../../../mobile/src/phone-send-scope';
 import { remoteConnectionInterruptedError } from './remote-connection-state';
+import { runQueued } from './remote-protocol-queue';
 import type { RemoteShimContext } from './remote-shim-state';
 
 /** What an adapter reaches the core through. */
@@ -146,7 +147,7 @@ export function createProtocolRouter(
           // the client the handler reaches hands that frame to this call's claim. A call that fails before sending claims nothing.
           const claim = firstFrame((sent) => void sent.then(watch.transmitted));
           const host: PhoneProtocolHost = { ...link.host, client: () => scopeClient(link.host.client(), claim) };
-          return handler(params, host);
+          return runQueued(link.host.ctx, method, params, () => handler(params, host));
         })().then(
           (value) => {
             settle();
@@ -198,12 +199,13 @@ export function createProtocolRouter(
       setTimeout(() => bootReads.clear(), BOOT_READ_WINDOW_MS);
     },
     fire(method: string, params: unknown[]): void {
+      // A call the page does not wait for is still one call of the connection's queue, as in Node. Node's fire() waits for the connection,
+      // not for the sync (remote-shim-calls.ts:354-359), and a failure is nobody's to hear.
       const handler = fires.get(method) ?? calls.get(method);
       if (!handler) throw new UnclaimedNodeMethodError(method);
-      // Node's fire(): it waits for the connection, not for the sync (remote-shim-calls.ts:354-359), and a failure is nobody's to hear.
       void link
         .started()
-        .then(() => handler(params, link.host))
+        .then(() => runQueued(link.host.ctx, method, params, () => handler(params, link.host)))
         .catch(() => undefined);
     },
     install(): void {

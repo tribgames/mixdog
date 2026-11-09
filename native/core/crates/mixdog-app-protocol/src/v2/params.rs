@@ -4329,6 +4329,10 @@ pub struct ProjectFsReadTextParams {
     pub from_char: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_chars: Option<u32>,
+    /// The `readId` the first window's answer carried: the windows after it are served from that one read of the file (the file is not
+    /// opened again), so a file replaced between two windows does not mix versions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_id: Option<String>,
 }
 
 /// Params of `projectFs/writeText`.

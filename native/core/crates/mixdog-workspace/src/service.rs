@@ -234,6 +234,8 @@ pub struct WorkspaceService {
     transfers: Arc<Transfers>,
     /// The file previews' media leases (`media-leases.ts`), served by the media lane through [`WorkspaceService::file_leases`].
     file_leases: Arc<crate::preview::FileLeases>,
+    /// The text reads answered a window at a time, each held as the one read of its file ([`crate::readwindow`]).
+    read_windows: crate::readwindow::ReadWindows,
     watcher: Arc<FolderWatcher>,
     router: Arc<Router>,
     watches: Mutex<HashMap<String, Owned>>,
@@ -314,6 +316,7 @@ impl WorkspaceService {
             paths: path_claims(),
             transfers: Arc::new(Transfers::default()),
             file_leases: Arc::default(),
+            read_windows: crate::readwindow::ReadWindows::default(),
             watcher,
             router,
             watches: Mutex::default(),
@@ -618,26 +621,25 @@ impl WorkspaceService {
                 value(json!(items))
             }
             "projectFs/readText" => {
+                // A connection carries at most 512 KiB per answer, a file up to 10 MiB: the reader asks for the text a window at a time
+                // (code points, so no character is split) and joins the pieces. The first window reads the file once; `readId` names that
+                // read, and the windows after it are served from it (readwindow.rs), so the pieces are one version of the file.
+                let max = req.params.get("maxChars").and_then(Value::as_u64).map(|max| max as usize);
+                if let (Some(max), Some(id)) = (max, req.params.get("readId").and_then(Value::as_str)) {
+                    let from = req.params.get("fromChar").and_then(Value::as_u64).unwrap_or(0) as usize;
+                    return value(self.read_windows.next(&Self::owner(req), id, from, max)?);
+                }
                 let (root, rel) = self.file_target(req, params).await?;
                 let authorized = opt_bool(params, "authorized");
                 let file = run_fallible(self.lanes.interactive, &cancel, move || {
                     if authorized { fsops::read_text_authorized(&root, &rel) } else { fsops::read_text(&root, &rel) }
                 })
                 .await?;
-                let mut answer = json!(file);
-                // A connection carries at most 512 KiB per answer, a file up to 10 MiB: the reader asks for the text a window at a time
-                // (code points, so no character is split) and joins the pieces; `nextChar` names where the next window starts.
-                if let Some(max) = req.params.get("maxChars").and_then(Value::as_u64) {
-                    let from = req.params.get("fromChar").and_then(Value::as_u64).unwrap_or(0) as usize;
-                    let content = answer["content"].as_str().unwrap_or_default();
-                    let total = content.chars().count();
-                    let piece: String = content.chars().skip(from).take(max as usize).collect();
-                    answer["content"] = json!(piece);
-                    if from + (max as usize) < total {
-                        answer["nextChar"] = json!(from + max as usize);
-                    }
-                }
-                value(answer)
+                let answer = json!(file);
+                value(match max {
+                    Some(max) => self.read_windows.begin(&Self::owner(req), answer, max),
+                    None => answer,
+                })
             }
             "projectFs/stat" => {
                 let (root, rel) = self.file_target(req, params).await?;
