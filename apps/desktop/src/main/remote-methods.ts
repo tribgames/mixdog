@@ -392,6 +392,14 @@ function gitDesktopOperations(invokeDesktopOperation: InvokeDesktopOperation): G
   ) as GitOperations;
 }
 
+/** An optional argument a remote page left out. The relay frame is JSON, and `remote-shim-api.ts` passes every
+ *  position (`[cwd, source]`), so an argument the app leaves out arrives here as `null`, not as a missing one.
+ *  The shared checks (requiredReviewSource, requiredGitDiscardMode, requiredGitIgnoreScope, ...) default only
+ *  `undefined` and still refuse `null` from the desktop window's IPC; at this boundary `null` is the omission. */
+function omitted(value: unknown): unknown {
+  return value ?? undefined;
+}
+
 /** The working tree and the index: what is changed, staged, committed, or
  *  shelved in this checkout. */
 function gitWorkingTreeRemoteMethods(
@@ -431,7 +439,7 @@ function gitWorkingTreeRemoteMethods(
     gitStage: ([cwd, paths]) => git.gitStage(requiredRepositoryCwd(cwd), requiredGitPaths(paths)),
     gitUnstage: ([cwd, paths]) => git.gitUnstage(requiredRepositoryCwd(cwd), requiredGitPaths(paths)),
     gitIgnore: ([cwd, path, scope]) =>
-      git.gitIgnore(requiredRepositoryCwd(cwd), requiredGitPath(path), requiredGitIgnoreScope(scope)),
+      git.gitIgnore(requiredRepositoryCwd(cwd), requiredGitPath(path), requiredGitIgnoreScope(omitted(scope))),
     gitCommit: ([cwd, message]) =>
       git.gitCommit(requiredRepositoryCwd(cwd), requiredString(message, 'commit message', 20_000)),
     gitCommitPaths: ([cwd, message, paths]) =>
@@ -447,18 +455,22 @@ function gitWorkingTreeRemoteMethods(
         requiredRepositoryCwd(cwd),
         requiredGitPath(path),
         untracked === true,
-        requiredGitDiscardMode(mode)
+        requiredGitDiscardMode(omitted(mode))
       ),
-    gitReview: ([cwd, source]) => git.gitReview(requiredRepositoryCwd(cwd), requiredReviewSource(source)),
+    gitReview: ([cwd, source]) => git.gitReview(requiredRepositoryCwd(cwd), requiredReviewSource(omitted(source))),
     gitReviewDiff: ([cwd, path, untracked, source]) =>
       git.gitReviewDiff(
         requiredRepositoryCwd(cwd),
         requiredGitPath(path),
         untracked === true,
-        requiredReviewSource(source)
+        requiredReviewSource(omitted(source))
       ),
     gitReviewDiffs: ([cwd, files, source]) =>
-      git.gitReviewDiffs(requiredRepositoryCwd(cwd), requiredReviewDiffFiles(files), requiredReviewSource(source)),
+      git.gitReviewDiffs(
+        requiredRepositoryCwd(cwd),
+        requiredReviewDiffFiles(files),
+        requiredReviewSource(omitted(source))
+      ),
     gitStash: ([cwd, message]) => git.gitStash(requiredRepositoryCwd(cwd), requiredGitOptionalMessage(message)),
     gitStashPop: ([cwd]) => git.gitStashPop(requiredRepositoryCwd(cwd)),
     gitStashList: ([cwd]) => invokeDesktopOperation('gitStashList', [requiredRepositoryCwd(cwd)]),
@@ -786,7 +798,7 @@ function editorRemoteMethods(deps: {
       if (typeof replacement !== 'string' || replacement.length > 1_000_000) {
         throw new TypeError('Replacement text is invalid.');
       }
-      const files = relPaths === undefined ? undefined : requiredGitPaths(relPaths);
+      const files = omitted(relPaths) === undefined ? undefined : requiredGitPaths(relPaths);
       return invokeDesktopOperation('replaceWorkspaceTextIn', [
         root,
         requiredWorkspaceSearchOptions(rawOptions),
@@ -979,7 +991,7 @@ function hostCapabilityRemoteMethods(
       return host.searchProjectFiles(
         requiredString(projectIdOrWorkspaceId, 'projectIdOrWorkspaceId'),
         query,
-        requiredFileSearchLimit(limit),
+        requiredFileSearchLimit(omitted(limit)),
         includeIgnored === true,
         includeDirectories === true
       );
