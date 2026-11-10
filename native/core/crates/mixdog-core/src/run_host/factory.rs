@@ -1691,16 +1691,15 @@ mod tests {
             let (handle, op, thread, prompt) = (handle.clone(), op.to_owned(), id.clone(), prompt.to_owned());
             let ended = &ended;
             async move {
+                // The settle writes the acknowledgement of what the turn carried, then the run's end record, then the
+                // turn's coverage stamp (`actor.rs` settle; Node: `commitAskTurn` acknowledges, `ask-turn-settle.mjs:148-164`,
+                // before the turn is published). The header a client reads follows only once each is acked, and the store
+                // already holds the end record before that, so the end record alone does not say the header is settled:
+                // the coverage stamp, the last of them, does.
+                let covered = || handle.header_snapshot().get("turnCoverage").cloned();
+                let before = covered();
                 handle.request(request("turn/start", json!({ "threadId": thread, "opId": op, "input": { "prompt": prompt } }), &op)).await.expect("turn/start");
-                loop {
-                    let stepped = handle.stepped().notified();
-                    tokio::pin!(stepped);
-                    stepped.as_mut().enable();
-                    if ended() >= want {
-                        break;
-                    }
-                    stepped.await;
-                }
+                eventually_on!(&[handle.stepped()], || (ended() >= want && covered() != before).then_some(())).await;
             }
         };
         let header = || async { threads.header(&id).await.expect("header") };
