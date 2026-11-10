@@ -40,6 +40,7 @@ use serde_json::json;
 use super::relay_buffer::RelayBuffer;
 use super::relay_buffer::RelayFrame;
 use crate::manager::LocalProcessManager;
+use crate::terminal::PumpPoint;
 use crate::terminal::REPLAY_BUFFER_LIMIT;
 use crate::terminal::ReplayBuffer;
 
@@ -191,7 +192,7 @@ struct Entry {
     after_mark: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     /// Told the bytes of output the pump has taken, after each output event went through the relay buffer (`u64::MAX` when it ends):
     /// a terminal tab's activity changes wait for it (`TerminalTabs::relay_order`).
-    taken: OnceLock<Arc<dyn Fn(u64) + Send + Sync>>,
+    taken: OnceLock<Arc<dyn Fn(PumpPoint) + Send + Sync>>,
 }
 
 /// A call's hold on its tab's feed: until it is dropped, the pump publishes no output past the hold's offset, no relay flush and no exit.
@@ -350,7 +351,7 @@ impl ProcessFeeds {
     pub(crate) fn open_terminal(
         self: &Arc<Self>,
         handle: &str,
-        order: impl FnOnce() -> Option<Arc<dyn Fn(u64) + Send + Sync>>,
+        order: impl FnOnce() -> Option<Arc<dyn Fn(PumpPoint) + Send + Sync>>,
     ) -> Option<FeedHold> {
         let _ = self.feed(handle, true);
         let entry = self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(handle).cloned()?;
@@ -480,6 +481,11 @@ impl ProcessFeeds {
                 _ => None,
             };
             Self::unheld(entry, end).await;
+            // No hold keeps this output back any more: a change that waits for the pump to reach it (a shell's end before its exit
+            // line) goes before it enters the relay buffer.
+            if let (Some(_), Some(tell)) = (end, entry.taken.get()) {
+                tell(PumpPoint::Reaching(taken));
+            }
             let state = if entry.text { json!({ "text": screen.read() }) } else { json!({}) };
             let Some(event) = next else {
                 relay_out(relay.flush(tokio::time::Instant::now()), &state);
@@ -502,7 +508,7 @@ impl ProcessFeeds {
                     }
                     taken += bytes.len() as u64;
                     if let Some(tell) = entry.taken.get() {
-                        tell(taken);
+                        tell(PumpPoint::Taken(taken));
                     }
                 }
                 Some(ProcessEvent::Exited { exit, .. }) => {
@@ -535,7 +541,7 @@ impl ProcessFeeds {
         entry.finished.store(true, Ordering::Release);
         // Nothing more is taken: whatever still waits for it goes.
         if let Some(tell) = entry.taken.get() {
-            tell(u64::MAX);
+            tell(PumpPoint::Taken(u64::MAX));
         }
         if let Some(hook) = self.on_exit.get() {
             hook(entry.handle.as_str());

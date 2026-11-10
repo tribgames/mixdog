@@ -309,12 +309,28 @@ struct TabState {
 /// taken the output admitted before it, and then goes. Every waiting change is thus for output already in the feed, which the pump
 /// reads whether or not the producer is paused. `emitted` and `taken` are both the feed's absolute output offset (the pump starts
 /// counting at its first event's offset).
+///
+/// The shell's end is the one change that waits for the pump to reach its exit line rather than for output to be taken: Node ran its
+/// exit handler (terminal-manager.ts:378-384) on its own event, never inside a call such as a claim's resize-and-announce
+/// (terminal-manager.ts:485-488), so the end followed whatever that call published, and the exit line followed the end. The pump reaches
+/// the exit line only once a claim's hold lets it (the line is an event of its own, after the hold's cut), so the end goes then.
 #[derive(Default)]
 struct RelayOrder {
     /// The feed's output offset the pump has taken up to.
     taken: u64,
     /// Changes waiting, each with the output it follows.
     waiting: VecDeque<(u64, Option<ActivityState>)>,
+    /// The shell's end, with the offset where its exit line starts.
+    end: Option<(u64, Option<ActivityState>)>,
+}
+
+/// Where the relay feed's pump is, as it tells a terminal tab (see [`RelayOrder`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PumpPoint {
+    /// About to put the output event starting at this offset into the relay buffer (no hold keeps it back any more).
+    Reaching(u64),
+    /// Has put the output up to this offset into the relay buffer (`u64::MAX`: the pump ended).
+    Taken(u64),
 }
 
 struct Tab {
@@ -385,21 +401,40 @@ impl Tab {
         state.exited = true;
         state.output_paused = false;
         let change = state.activity.exit();
-        self.publish_after_output(&mut state, change);
+        let emitted = state.emitted;
+        match (change, state.order.as_mut()) {
+            (Some(activity), Some(order)) => order.end = Some((emitted, activity)),
+            (change, _) => self.publish_after_output(&mut state, change),
+        }
         state.buffer.append(&line);
         Tab::emitted(&mut state, line.len());
         line.into_bytes()
     }
 
-    /// The relay feed's pump has taken `taken` bytes of output: the changes that follow no more than that go.
-    fn taken(&self, taken: u64) {
+    /// Where the relay feed's pump is: the changes that follow no more output than it has taken go, and the shell's end once the pump
+    /// reaches its exit line (or ends).
+    fn pumped(&self, at: PumpPoint) {
         let mut state = self.lock();
         let Some(order) = state.order.as_mut() else { return };
+        let (taken, reached) = match at {
+            PumpPoint::Reaching(offset) => (order.taken.max(offset), offset),
+            PumpPoint::Taken(taken) => (taken, if taken == u64::MAX { u64::MAX } else { 0 }),
+        };
         order.taken = taken;
         while order.waiting.front().is_some_and(|(after, _)| *after <= taken) {
             let (_, activity) = order.waiting.pop_front().expect("a waiting change");
             self.events.activity(&self.id, activity);
         }
+        if order.waiting.is_empty() && order.end.is_some_and(|(line, _)| line <= reached) {
+            let (_, activity) = order.end.take().expect("the end waits");
+            self.events.activity(&self.id, activity);
+        }
+    }
+
+    /// The pump has taken `taken` bytes of output (tests name it so).
+    #[cfg(test)]
+    fn taken(&self, taken: u64) {
+        self.pumped(PumpPoint::Taken(taken));
     }
 
     /// Applies the tab's current size to its PTY. Called without the state lock.
@@ -1286,10 +1321,10 @@ impl TerminalTabs {
 
     /// Orders the activity changes of the live tab `id` after its output on the relay feed (see [`RelayOrder`]): returns what the feed's
     /// pump calls with the bytes of output it has taken so far (`u64::MAX` when it ends). Called by whoever starts that pump, once.
-    pub fn relay_order(&self, id: &str) -> Option<Arc<dyn Fn(u64) + Send + Sync>> {
+    pub fn relay_order(&self, id: &str) -> Option<Arc<dyn Fn(PumpPoint) + Send + Sync>> {
         let tab = self.live(id)?;
         tab.lock().order = Some(RelayOrder::default());
-        Some(Arc::new(move |taken| tab.taken(taken)))
+        Some(Arc::new(move |at| tab.pumped(at)))
     }
 
     /// Who owns this PTY's size right now, if anyone.
@@ -1660,8 +1695,34 @@ mod lock_order {
         let line = tab.exited(&ProcessExit { status: ExitStatus::Code(0), killed: None });
         assert_eq!(seen(), vec![Some(ActivityState::Idle)], "the tab's end waits for the output written before the exit");
         tab.taken(prompt + last);
-        assert_eq!(seen(), vec![Some(ActivityState::Idle), None], "the tab's end goes once that output is taken, before the exit line");
+        assert_eq!(seen(), vec![Some(ActivityState::Idle)], "the tab's end waits for the pump to reach the exit line, not only for the output before it");
+        tab.pumped(PumpPoint::Reaching(prompt + last));
+        assert_eq!(seen(), vec![Some(ActivityState::Idle), None], "the tab's end goes when the pump reaches the exit line, before the line");
         assert_eq!(tab.lock().emitted, prompt + last + line.len() as u64, "the exit line is the last output");
+    }
+
+    /// C1: a claim's resize blocks after its hold is in; the shell exits with all its earlier output taken; the end must not go before
+    /// the owner's announcement (Node ran no exit handler inside its resize-and-announce call, terminal-manager.ts:485-488). It waits for
+    /// the pump to reach the exit line, which the claim's hold keeps back until the announcement.
+    #[test]
+    fn a_shells_end_during_a_claim_waits_for_the_pump_to_reach_the_exit_line() {
+        let events = Arc::new(Recorded(Mutex::new(Vec::new())));
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let tab = relay_tab(Arc::clone(&events) as Arc<dyn TerminalEvents>, manager, "term_claimed_end");
+        let seen = || events.0.lock().unwrap().clone();
+        let mut filter = TabFilter::new(Arc::clone(&tab));
+        let prompt = filter.filter(b"PS> \x1b]697;P\x07").len() as u64;
+        filter.admitted();
+        tab.taken(prompt);
+        assert_eq!(seen(), vec![Some(ActivityState::Idle)]);
+        // The claim's hold is in and its resize blocks: the shell exits now, everything before it already taken.
+        let _line = tab.exited(&ProcessExit { status: ExitStatus::Code(0), killed: None });
+        assert_eq!(seen(), vec![Some(ActivityState::Idle)], "the shell's end went while the claim's hold kept the exit line back");
+        // The announcement is out and the hold ends: the pump reaches the exit line.
+        tab.pumped(PumpPoint::Reaching(prompt));
+        assert_eq!(seen(), vec![Some(ActivityState::Idle), None]);
+        tab.pumped(PumpPoint::Taken(u64::MAX));
+        assert_eq!(seen().len(), 2, "the end goes once");
     }
 
     /// What the reader took from the pseudo-terminal and the pump, one log in order.
@@ -1730,10 +1791,12 @@ mod lock_order {
         );
         let (tab, logged) = (Arc::clone(tab), Arc::clone(logged));
         let held = feeds.open_terminal(&tab.id.clone(), move || {
-            Some(Arc::new(move |taken: u64| {
-                logged.push(Seen::Taken(taken));
-                tab.taken(taken);
-            }) as Arc<dyn Fn(u64) + Send + Sync>)
+            Some(Arc::new(move |at: PumpPoint| {
+                if let PumpPoint::Taken(taken) = at {
+                    logged.push(Seen::Taken(taken));
+                }
+                tab.pumped(at);
+            }) as Arc<dyn Fn(PumpPoint) + Send + Sync>)
         });
         drop(held);
     }
