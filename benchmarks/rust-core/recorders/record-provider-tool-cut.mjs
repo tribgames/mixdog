@@ -42,7 +42,15 @@ const server = http.createServer((req, res) => {
     res.end(body);
   });
 });
-await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+// One deadline per awaited thing, and a message naming it.
+const withDeadline = (promise, label) => {
+  let timer;
+  const expired = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label}: not done after 30000 ms`)), 30_000);
+  });
+  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
+};
+await withDeadline(new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve)), 'the local server listening');
 const dispatched = [];
 let error = null;
 try {
@@ -58,7 +66,7 @@ try {
   };
 } finally {
   server.closeAllConnections();
-  await new Promise((resolve) => server.close(resolve));
+  await withDeadline(new Promise((resolve) => server.close(resolve)), 'the local server closing');
 }
 if (!error) throw new Error('the adapter accepted a cut stream');
 
