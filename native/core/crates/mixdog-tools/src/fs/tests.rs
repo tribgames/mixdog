@@ -214,13 +214,17 @@ async fn replay_fs_search(scenario: &str) {
         std::fs::create_dir_all(ws.join(rel).parent().unwrap()).unwrap();
         std::fs::write(ws.join(rel), text.as_str().unwrap()).unwrap();
     }
+    for (rel, target) in fixture["junctions"].as_object().cloned().unwrap_or_default() {
+        // mklink reads `/` as a switch: the target is built segment by segment.
+        let target = target.as_str().unwrap().split('/').fold(ws.clone(), |path, segment| path.join(segment));
+        assert!(link_dir(&ws.join(&rel), &target), "junction {rel}");
+    }
     for rel in files.keys() {
         set_mtime(&ws.join(rel), at(mtimes.get(rel).and_then(|v| v.as_str()).unwrap_or("2026-01-02T03:04:05Z")));
     }
     for (rel, iso) in mtimes.iter().filter(|(rel, _)| !files.contains_key(*rel)) {
         set_mtime(&ws.join(rel), at(iso.as_str().unwrap()));
     }
-    assert!(fixture.get("junctions").is_none(), "junction scenarios are not replayed here");
     let mut ctx = context_seeded(
         &AbsPath::new(&ws).unwrap(),
         Arc::new(mixdog_workspace::localfs::LocalFileService::new()),
@@ -259,6 +263,13 @@ async fn replay_fs_search(scenario: &str) {
 #[tokio::test]
 async fn list_answers_a_glob_shaped_path_as_node_does() {
     replay_fs_search("list-glob-path").await;
+}
+
+/// gaps-tools item 5: an absolute glob pattern walks from its own static prefix; one that finds
+/// nothing is expanded straight off the filesystem, through the junction the walk does not follow.
+#[tokio::test]
+async fn glob_answers_absolute_patterns_as_node_does() {
+    replay_fs_search("glob-absolute").await;
 }
 
 struct NoRoots;

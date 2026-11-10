@@ -4,6 +4,8 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::time::Duration;
+use std::time::Instant;
 use std::time::UNIX_EPOCH;
 
 use async_trait::async_trait;
@@ -147,11 +149,13 @@ fn compile_globs(patterns: &[String]) -> Result<(GlobSet, GlobSet, bool), ToolEr
             None => (false, raw.as_str()),
         };
         let mut p = body.trim().replace('\\', "/");
+        // A leading `/` anchors the glob at the walk root, as rg reads it.
+        let anchored = p.starts_with('/');
         p = p.trim_start_matches("./").trim_start_matches('/').to_owned();
         if p.ends_with('/') {
             p.push_str("**");
         }
-        if !p.contains('/') {
+        if !anchored && !p.contains('/') {
             p = format!("**/{p}");
         }
         let glob: Glob = GlobBuilder::new(&p)
@@ -225,6 +229,124 @@ async fn require_dir(ctx: &ToolContext, raw: &str, abs: &AbsPath) -> Result<Opti
     }
 }
 
+/// Node's `isAbsolute` of a glob pattern: on Windows a rooted `/x` counts too.
+fn is_absolute_pattern(pattern: &str) -> bool {
+    pattern.starts_with('/') || Path::new(pattern).is_absolute()
+}
+
+const EXPAND_DEADLINE: Duration = Duration::from_millis(1_500);
+const EXPAND_CANDIDATE_CAP: usize = 200;
+
+/// Node `segmentMatcher`: one path segment's matcher; `None` for `**` or an unclosed class or brace.
+fn segment_matcher(segment: &str) -> Option<regex::Regex> {
+    if segment.contains("**") {
+        return None;
+    }
+    let mut source = String::new();
+    let mut rest = segment;
+    while let Some(ch) = rest.chars().next() {
+        rest = &rest[ch.len_utf8()..];
+        match ch {
+            '*' => source.push_str("[^/]*"),
+            '?' => source.push_str("[^/]"),
+            '[' => {
+                let end = rest.find(']')?;
+                let inner: String = rest[..end]
+                    .chars()
+                    .map(|c| if matches!(c, '\\' | '[' | '&' | '~') { format!("\\{c}") } else { c.to_string() })
+                    .collect();
+                source.push_str(&format!("[{inner}]"));
+                rest = &rest[end + 1..];
+            }
+            '{' => {
+                let end = rest.find('}')?;
+                let alternatives: Vec<String> = rest[..end].split(',').map(regex::escape).collect();
+                source.push_str(&format!("(?:{})", alternatives.join("|")));
+                rest = &rest[end + 1..];
+            }
+            other => source.push_str(&regex::escape(&other.to_string())),
+        }
+    }
+    let flags = if cfg!(windows) { "(?i)" } else { "" };
+    regex::Regex::new(&format!("{flags}^{source}$")).ok()
+}
+
+/// Node `expandAbsoluteGlob`: the pattern descended segment by segment (one listing per surviving
+/// directory, at most 200 candidates, 1.5 s), its matches that are files or directories; `None`
+/// when the pattern is not absolute, has no magic, or uses a construct this does not expand.
+async fn expand_absolute_glob(ctx: &ToolContext, pattern: &str, limit: usize) -> Option<Vec<String>> {
+    let raw = pattern.replace('\\', "/");
+    if !is_absolute_pattern(&raw) || !has_glob_magic(&raw) {
+        return None;
+    }
+    let stop = Instant::now() + EXPAND_DEADLINE;
+    let root_len = if raw.starts_with('/') { 1 } else { raw.find('/')? + 1 };
+    let segments: Vec<&str> = raw[root_len..].split('/').filter(|s| !s.is_empty()).collect();
+    if segments.is_empty() {
+        return None;
+    }
+    let mut current = vec![resolve_path(&ctx.cwd, &raw[..root_len]).ok()?];
+    for segment in segments {
+        if Instant::now() >= stop {
+            return None;
+        }
+        if !has_glob_magic(segment) {
+            current = current.iter().filter_map(|dir| AbsPath::new(dir.as_path().join(segment))).collect();
+            continue;
+        }
+        let matcher = segment_matcher(segment)?;
+        let mut next = Vec::new();
+        for dir in &current {
+            if next.len() >= EXPAND_CANDIDATE_CAP || Instant::now() >= stop {
+                break;
+            }
+            let Ok(entries) = ctx.files.list_dir(ctx.io.interactive, dir.clone()).await else { continue };
+            for entry in entries {
+                let Some(name) = entry.path.as_path().file_name() else { continue };
+                if !matcher.is_match(&name.to_string_lossy()) {
+                    continue;
+                }
+                next.push(entry.path);
+                if next.len() >= EXPAND_CANDIDATE_CAP {
+                    break;
+                }
+            }
+        }
+        current = next;
+        if current.is_empty() {
+            return Some(Vec::new());
+        }
+    }
+    let mut found = Vec::new();
+    for candidate in current {
+        if found.len() >= limit || Instant::now() >= stop {
+            break;
+        }
+        if let Ok(stat) = ctx.files.stat(ctx.io.interactive, candidate.clone()).await
+            && matches!(stat.kind, EntryKind::File | EntryKind::Dir)
+        {
+            found.push(fwd(candidate.as_path()));
+        }
+    }
+    Some(found)
+}
+
+/// Node `expandAbsoluteGlobs`: every absolute pattern expanded, deduplicated, in order.
+async fn expand_absolute_globs(ctx: &ToolContext, patterns: &[String], limit: usize) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for pattern in patterns {
+        if out.len() >= limit {
+            break;
+        }
+        for found in expand_absolute_glob(ctx, pattern, limit).await.unwrap_or_default() {
+            if !out.contains(&found) {
+                out.push(found);
+            }
+        }
+    }
+    out
+}
+
 // ---------------------------------------------------------------------------
 // glob
 
@@ -253,7 +375,11 @@ impl Tool for GlobTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let patterns = arg_strings(&args, "pattern");
+        // rg reads `/` only; Node turns a Windows `\` into one (`canonicalizeGlobSlashes`).
+        let patterns: Vec<String> = arg_strings(&args, "pattern")
+            .into_iter()
+            .map(|p| if cfg!(windows) { p.replace('\\', "/") } else { p })
+            .collect();
         let raw = arg_str(&args, "path").unwrap_or(".");
         let natural = arg_str(&args, "sort") == Some("natural");
         let limit = match arg_u64(&args, "limit") {
@@ -263,14 +389,54 @@ impl Tool for GlobTool {
         };
         let offset = arg_u64(&args, "offset").unwrap_or(0) as usize;
         let root = resolve_path(&ctx.cwd, raw)?;
-        if let Some(missing) = require_dir(ctx, raw, &root).await? {
-            return Ok(text_output(missing));
+        // Node `buildGlobPatternGroups`: an absolute pattern is walked from its own static prefix,
+        // anchored there; the others from `path`.
+        let (absolute, relative): (Vec<String>, Vec<String>) =
+            patterns.iter().cloned().partition(|p| is_absolute_pattern(p));
+        let mut groups: Vec<(AbsPath, Vec<String>)> = Vec::new();
+        if !relative.is_empty() || absolute.is_empty() {
+            if let Some(missing) = require_dir(ctx, raw, &root).await? {
+                return Ok(text_output(missing));
+            }
+            groups.push((root.clone(), relative));
+        }
+        for pattern in &absolute {
+            let (base, rest) = extract_glob_base_directory(pattern);
+            let group_root = match base {
+                Some(base) => resolve_path(&ctx.cwd, &base)?,
+                None => root.clone(),
+            };
+            let rest = format!("/{rest}");
+            match groups.iter_mut().find(|(r, _)| *r == group_root) {
+                Some((_, rels)) if rels.contains(&rest) => {}
+                Some((_, rels)) => rels.push(rest),
+                None => groups.push((group_root, vec![rest])),
+            }
         }
         // A bounded page is ranked over every match, as Node's windowed top-K pass counts them all;
         // an unbounded listing keeps at most GLOB_ACCUM_CAP matches and says so (Node's full rg listing).
         let cap = (limit == usize::MAX).then_some(GLOB_ACCUM_CAP);
-        let (mut files, complete, capped) =
-            glob_files(ctx, &root, &patterns, arg_bool(&args, "include_noise"), cap).await?;
+        let include_noise = arg_bool(&args, "include_noise");
+        let (mut files, mut complete, mut capped) = (Vec::new(), true, false);
+        let mut errors = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for (group_root, rels) in &groups {
+            if let Some(missing) = require_dir(ctx, &fwd(group_root.as_path()), group_root).await? {
+                errors.push(missing.trim_start_matches("Error: ").to_owned());
+                continue;
+            }
+            let (found, done, cut) = glob_files(ctx, group_root, rels, include_noise, cap).await?;
+            complete &= done;
+            capped |= cut;
+            files.extend(found.into_iter().filter(|f| seen.insert(f.0.clone())));
+        }
+        if let Some(cap) = cap.filter(|cap| files.len() > *cap) {
+            files.truncate(cap);
+            capped = true;
+        }
+        if files.is_empty() && !errors.is_empty() {
+            return Ok(text_output(format!("Error: {}", errors.join(" | "))));
+        }
         if natural {
             files.sort_by(|a, b| a.0.cmp(&b.0));
         } else {
@@ -306,7 +472,37 @@ impl Tool for GlobTool {
             ));
         }
         if lines.is_empty() {
-            text = if complete { "(no files found)" } else { "(no files found yet)" }.to_owned();
+            let shown_patterns = if patterns.len() == 1 {
+                serde_json::to_string(&patterns[0])
+            } else {
+                serde_json::to_string(&patterns)
+            }
+            .unwrap_or_default();
+            let base_label = fwd(Path::new(raw));
+            if total > 0 && offset >= total {
+                text = format!("(no entries after offset={offset}; total={total}) pattern={shown_patterns} path={base_label}");
+            } else {
+                // The walk never follows a directory link; an absolute pattern that found nothing is
+                // expanded straight off the filesystem before the miss is declared (Node `directAbsoluteMatches`).
+                if errors.is_empty() {
+                    let want = if limit == usize::MAX { 50 } else { offset.saturating_add(limit) };
+                    let direct = expand_absolute_globs(ctx, &patterns, want).await;
+                    let shown: Vec<String> = direct.into_iter().skip(offset).take(limit).collect();
+                    if !shown.is_empty() {
+                        return Ok(text_output(shown.join("\n")));
+                    }
+                }
+                let base = match ctx.files.stat(ctx.io.interactive, root.clone()).await {
+                    Ok(s) if s.kind == EntryKind::Dir => "path exists (dir)",
+                    Ok(_) => "path exists (file)",
+                    Err(_) => "path does not exist (ENOENT)",
+                };
+                let empty = if complete { "(no files found)" } else { "(no files found yet)" };
+                text = format!("{empty} pattern={shown_patterns} path={base_label}; {base_label}: {base}");
+            }
+        }
+        if !errors.is_empty() {
+            text.push_str(&format!("\n... [warning] {}", errors.join(" | ")));
         }
         if capped {
             text.push_str(&format!(

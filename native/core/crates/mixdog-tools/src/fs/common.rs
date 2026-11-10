@@ -292,6 +292,21 @@ pub(crate) fn has_glob_magic(s: &str) -> bool {
     s.contains(['*', '?', '[', '{'])
 }
 
+/// Node `extractGlobBaseDirectory`: the directory written before the first wildcard (none when the
+/// pattern starts in its first segment) and the rest of the pattern, without leading slashes.
+pub(crate) fn extract_glob_base_directory(pattern: &str) -> (Option<String>, String) {
+    let wild = pattern.find(['*', '?', '[', '{']).unwrap_or(pattern.len());
+    let Some(sep) = pattern[..wild].rfind(['/', '\\']) else {
+        return (None, pattern.to_owned());
+    };
+    let mut base = pattern[..sep].to_owned();
+    if cfg!(windows) && base.len() == 2 && base.as_bytes()[0].is_ascii_alphabetic() && base.as_bytes()[1] == b':' {
+        base.push('\\');
+    }
+    let rest = pattern[sep + 1..].trim_start_matches('/').to_owned();
+    ((!base.is_empty()).then_some(base), rest)
+}
+
 /// Directory entry order of `list`: case-insensitive, lowercase first on ties.
 pub(crate) fn compare_names(a: &str, b: &str) -> Ordering {
     a.to_lowercase()

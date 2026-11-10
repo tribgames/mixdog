@@ -261,21 +261,6 @@ const MAX_BRACE_VARIANTS: usize = 256;
 const MAX_PATTERN_LENGTH: usize = 1024;
 const MAX_REGEX_BODY_LENGTH: usize = 16_384;
 
-/// Node `extractGlobBaseDirectory`: the directory written before the first wildcard (none when the
-/// pattern starts in its first segment) and the rest as the name pattern.
-fn split_glob_base(pattern: &str) -> (Option<String>, String) {
-    let wild = pattern.find(['*', '?', '[', '{']).unwrap_or(pattern.len());
-    let Some(sep) = pattern[..wild].rfind(['/', '\\']) else {
-        return (None, pattern.to_owned());
-    };
-    let mut base = pattern[..sep].to_owned();
-    if cfg!(windows) && base.len() == 2 && base.as_bytes()[0].is_ascii_alphabetic() && base.as_bytes()[1] == b':' {
-        base.push('\\');
-    }
-    let rest = pattern[sep + 1..].trim_start_matches('/').to_owned();
-    ((!base.is_empty()).then_some(base), rest)
-}
-
 /// Node `expandBraces`: the first innermost `{a,b}` expanded, recursively.
 fn expand_braces(pattern: &str, out: &mut Vec<String>, prefix: &str) -> Result<(), String> {
     let open = pattern.char_indices().find(|&(i, c)| {
@@ -390,7 +375,7 @@ struct GlobRow {
 /// (`--files --directories --no-ignore`, the noise-tree excludes, `--iglob` of the rest), filtered by
 /// the compiled glob, newest first.
 async fn glob_path_list(ctx: &ToolContext, raw: &str, hidden: bool, offset: usize, limit: usize) -> ToolOutcome {
-    let (base, name_pattern) = split_glob_base(raw);
+    let (base, name_pattern) = extract_glob_base_directory(raw);
     let input = base.unwrap_or_else(|| ".".to_owned());
     let has_path = name_pattern.contains(['/', '\\']);
     let compiled = compile_simple_glob(&name_pattern).and_then(|whole| {

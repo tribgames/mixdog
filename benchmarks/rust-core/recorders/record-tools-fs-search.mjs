@@ -27,6 +27,36 @@ const FIXED = '2026-01-02T03:04:05Z';
 // time), the folder the calls run in (`cwd`, under the workspace), unrecorded `warmup` calls and the calls, in order. `<ROOT>` in an input is the workspace
 // path, written with forward slashes.
 const SCENARIOS = [
+  // gaps-tools item 5: absolute glob patterns walk from their static prefix (lib/glob-static-prefix.mjs); a miss is expanded
+  // straight off the filesystem (lib/absolute-glob-expand.mjs), which reaches through the junction the walker never follows.
+  {
+    name: 'glob-absolute',
+    files: {
+      'app/main.ts': 'm\n',
+      'app/util.ts': 'u\n',
+      'lib/a.ts': 'a\n',
+      'lib/b.js': 'b\n',
+      'lib/deep/c.ts': 'c\n',
+      'deep/inner/x.ts': 'x\n',
+    },
+    junctions: { jn: 'deep/inner' },
+    mtimes: { 'app/main.ts': '2026-01-05T00:00:00Z', 'lib/a.ts': '2026-01-04T00:00:00Z', 'lib/deep/c.ts': '2026-01-03T00:00:00Z' },
+    cwd: 'app',
+    warmup: [{ tool: 'glob', input: { pattern: '*.none' } }],
+    calls: [
+      { tool: 'glob', input: { pattern: '<ROOT>/lib/*.ts' } },
+      { tool: 'glob', input: { pattern: '<ROOT>/lib/**/*.ts' } },
+      { tool: 'glob', input: { pattern: '<ROOT>/app/*.ts' } },
+      { tool: 'glob', input: { pattern: ['*.ts', '<ROOT>/lib/**/*.ts'] } },
+      { tool: 'glob', input: { pattern: '<ROOT>/lib/**/*.ts', head_limit: 1 } },
+      { tool: 'glob', input: { pattern: '<ROOT>/lib/a.ts' } },
+      { tool: 'glob', input: { pattern: '<ROOT>/*/x.ts' } },
+      { tool: 'glob', input: { pattern: '<ROOT>/j*/x.ts' } },
+      { tool: 'glob', input: { pattern: '<ROOT>/lib/*.zz' } },
+      { tool: 'glob', input: { pattern: '<ROOT>/lib/*.ts', sort: 'natural' } },
+      { tool: 'glob', input: { pattern: '<ROOT>/lib/*.ts', head_limit: 1, offset: 5 } },
+    ],
+  },
   // gaps-tools item 12: a glob-shaped `list` path is answered as a name search (list-tool.mjs -> executeFindFilesTool).
   {
     name: 'list-glob-path',
