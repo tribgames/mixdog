@@ -45,11 +45,14 @@ const FRESH = /sess_desktop_[0-9a-f]{64}/g;
 export function numberFresh(c, value) {
   const keep = derived(c.id);
   const seen = [];
-  return JSON.parse(stableStringify(value, 0).replace(FRESH, (address) => {
+  const numbered = JSON.parse(stableStringify(value, 0).replace(FRESH, (address) => {
     if (address === keep) return address;
     if (!seen.includes(address)) seen.push(address);
     return `<fresh:${seen.indexOf(address) + 1}>`;
   }));
+  // `stored` is a set of ids: in sorted order once numbered (by raw id, its order would follow the random addresses).
+  for (const step of Array.isArray(numbered) ? numbered : []) if (Array.isArray(step?.stored)) step.stored.sort();
+  return numbered;
 }
 
 export const COMPARISON = {
@@ -58,9 +61,19 @@ export const COMPARISON = {
     'recorded[].reply.snapshot':
       "the session snapshot Node's answer carries (session-host-lifecycle.ts:922,951); its workflow and orchestration mode are recorded as `settings`. The core's answer carries no snapshot (its session state travels on the subscription's feed)",
   },
-  translated: {},
+  translated: {
+    'recorded[0].reply (a held case)':
+      "the interrupted request's answer: Node's is the app's own client's rejection of its pending call when the quit disposes it (desktop-service-client.ts:1065-1080 `rejectPending`, `Mixdog desktop service client is disposed.`); no daemon answers it. Both sides are `{ok: false, unanswered: true}` when no answer reached the caller before its connection closed (the core's answer after that is the protocol client's own rejection)",
+    'recorded[].reply': "an answer through the desktop's service lane (service-route.ts: `thread/start`), the core's translated as the new-task-dedupe replay's (`thread.id` is `sessionId`, `accepted: true`, less its `coreNotCompared` paths); a rejection is its message and every own field of the error",
+    'recorded[].listed': "the ids the app lists while the attempt is held: Node's `listSessions` (host), the core's `thread/list`",
+    'recorded[].stop': "Node's `stopInTreeDaemon` outcome `{stopped, request}`; the core's is its exit after `mixdogd ctl stop --when-idle --reason userStop` (the stop request that does not wait for a new task, as Node's `/stop {force:true}`), the replay failing when it does not exit",
+    'recorded[].stored': "the sessions stored after the step, by id: Node's `<data>/sessions/<id>.log.jsonl`, the core's `<data>/sessions/<id>` that `thread/items/list` reads",
+    'recorded[].settings': "the workflow and orchestration mode of the accepted task: Node's from the answer's snapshot (`workflow`, `orchestrationMode`), the core's from the thread's `thread/workflow/updated` section after its first turn",
+    'recorded[].receipts': 'the files of `<userdata>/new-task-receipts`, by name, byte for byte (latin1)',
+  },
   normalised: {
     'fresh session address': 'numbered `<fresh:N>` by first appearance in the case on both sides',
+    'recorded[].stored': 'a set of ids, sorted once the addresses are numbered (sorted by raw id its order would follow the random addresses)',
     'key order': 'objects without regard to key order; arrays in order',
   },
 };

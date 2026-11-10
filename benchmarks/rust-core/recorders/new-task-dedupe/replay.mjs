@@ -54,7 +54,7 @@ function descendants(pid) {
 /** The core's database after the core: still running, or killed with a core that was ended at a gate (the core's own quit stops it). A killed postmaster leaves its pid file
  *  and is recovered by the next start only after a fsync of the whole data directory, which does not end within the core's 30 s start deadline here: the recovery is done
  *  here (a start with a long wait, then a stop), as a machine's reboot would do it before the core starts. */
-function databaseEnded(dataDir) {
+export function databaseEnded(dataDir) {
   const pidFile = join(dataDir, 'pgdata', 'postmaster.pid');
   if (!existsSync(pidFile)) return;
   const bin = join(dataDir, 'runtime', readdirSync(join(dataDir, 'runtime')).find((name) => name.startsWith('runtime-pg')), 'bin', 'pg_ctl.exe');
@@ -79,7 +79,7 @@ function databaseEnded(dataDir) {
   if (stopped.status !== 0) throw new Error(`stopping the core's database failed: pg_ctl stop exited ${stopped.status}`);
 }
 /** The port of the core's database, which the core keeps in its data directory and takes again at its next start. */
-const databasePort = (dataDir) => {
+export const databasePort = (dataDir) => {
   try {
     return Number(readFileSync(join(dataDir, 'pgdata', 'postmaster.pid'), 'utf8').split('\n')[3]);
   } catch {
@@ -88,7 +88,7 @@ const databasePort = (dataDir) => {
 };
 
 /** Other runs on this PC start databases on the ports above the ones held for the replay; while a core is down its database port is held here, so the next start finds it free. */
-async function holdPort(port) {
+export async function holdPort(port) {
   const server = net.createServer();
   await new Promise((resolve, reject) => {
     server.once('error', (error) => reject(new Error(`the stopped core's database port ${port} is not free: ${error.message}`)));
@@ -98,30 +98,11 @@ async function holdPort(port) {
 }
 
 /** The core is stopped as its own quit stops it, and ended with its database; the returned function frees the database's port for the next start. */
-async function stopCore(exe, core) {
+export async function stopCore(exe, core) {
   const port = databasePort(core.dataDir);
   const exited = exitWithin(core.child, 120_000, 'the core asked to stop');
   try {
     runSync('mixdogd ctl stop', exe, ['ctl', 'stop', '--when-idle', '--reason', 'userStop'], 60_000, { env: core.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-    await exited;
-  } catch (error) {
-    await killTree(core.child).catch((ending) => {
-      error.message += `\nand ending it failed: ${ending.message}`;
-    });
-    throw error;
-  }
-  databaseEnded(core.dataDir);
-  return port ? holdPort(port) : () => {};
-}
-/** The core quit with work in flight, as the app's quit stops it: the wind-down is asked for (`--when-idle`), which reports the drain and
- *  its confirmation token while the held request keeps it busy, then confirmed (`--abort` with that token); the core ends with its database. */
-async function quitCore(exe, core) {
-  const port = databasePort(core.dataDir);
-  const exited = exitWithin(core.child, 120_000, 'the core asked to quit');
-  const ctl = (args) => runSync(`mixdogd ctl stop ${args.join(' ')}`, exe, ['ctl', 'stop', ...args, '--reason', 'quit'], 60_000, { env: core.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  try {
-    const asked = ctl(['--when-idle']);
-    if (asked.status !== 0) throw new Error(`mixdogd ctl stop --when-idle failed (exit ${asked.status}): ${asked.stdout}${asked.stderr}`);
     await exited;
   } catch (error) {
     await killTree(core.child).catch((ending) => {
@@ -218,7 +199,7 @@ async function untilExists(root, file, ms) {
     watcher.close();
   }
 }
-const receiptsOf = (dataDir) => {
+export const receiptsOf = (dataDir) => {
   const dir = join(dataDir, 'userdata', 'new-task-receipts');
   try {
     return Object.fromEntries(readdirSync(dir).sort().map((name) => [name, readFileSync(join(dir, name)).toString('latin1')]));
@@ -235,8 +216,7 @@ async function replayScenario({ exe, scenario, numberFresh }) {
   const cores = [];
   const connections = [];
   const own = async (env, fresh = false) => {
-    // The world lives inside this checkout: git looks no higher than the worlds' folder, so a task's folder is no repository, as Node's is.
-    const started = await startCore(exe, coreRoot, null, fresh, { GIT_CEILING_DIRECTORIES: WORLDS, ...env });
+    const started = await startCore(exe, coreRoot, null, fresh, env);
     cores.push(started);
     return started;
   };
@@ -280,14 +260,6 @@ async function replayScenario({ exe, scenario, numberFresh }) {
         core = await own({});
         session = await connect(core);
         answer = { crashed: step.at };
-      } else if (step.op === 'quit') {
-        session.client.close?.();
-        (await stopCore(exe, core))();
-        core = await own({ MIXDOG_NEW_TASK_QUIT_AT: step.at });
-        await quitAtGate({ exe, core, connect, step });
-        core = await own({});
-        session = await connect(core);
-        answer = { quit: step.at };
       } else if (step.op === 'restart') {
         session.client.close?.();
         (await stopCore(exe, core))();
@@ -349,64 +321,6 @@ async function endAtGate({ core, connect, step, survivors }) {
   databaseEnded(core.dataDir);
 }
 
-/** The quit step on a core started with its hold (MIXDOG_NEW_TASK_QUIT_AT): the step's request is sent, the core says on stderr that the
- *  attempt is held inside the call `at`, and the core is then quit with the call in flight (`quitCore`).
- *  One deadline, armed before the request is sent, covers the hold. The call must end unanswered: nobody receives a quit's reply. */
-async function quitAtGate({ exe, core, connect, step }) {
-  const at = step.at;
-  const marker = `new-task held at ${at}`;
-  let timer;
-  let onData;
-  let onExit;
-  const held = new Promise((resolve, reject) => {
-    let seen = '';
-    onData = (chunk) => {
-      seen += chunk;
-      if (seen.includes(marker)) resolve();
-    };
-    onExit = (code) => reject(new Error(`the core exited ${code} before its attempt was held at ${at}`));
-    timer = setTimeout(() => reject(new Error(`the core's attempt was not held at ${at} within 60 s`)), 60_000);
-    core.child.stderr.on('data', onData);
-    core.child.once('exit', onExit);
-  });
-  let answer = null;
-  let lost;
-  let connection;
-  try {
-    connection = await Promise.race([connect(core), held.then(() => new Promise(() => {}))]);
-    lost = reply(connection.lane, step).then(
-      (got) => (answer = got),
-      (error) => (answer = { failed: error.message }),
-    );
-    await held;
-  } finally {
-    clearTimeout(timer);
-    core.child.stderr.off('data', onData);
-    core.child.off('exit', onExit);
-  }
-  if (answer?.ok) throw new Error(`the core answered a request held at ${at}: ${JSON.stringify(answer)}`);
-  // The quit detaches the callers first (index.ts:1662-1664), then stops the core.
-  connection.client.close?.();
-  let said = '';
-  const hear = (chunk) => (said += chunk);
-  core.child.stderr.on('data', hear);
-  try {
-    (await quitCore(exe, core))();
-  } catch (error) {
-    let log = '';
-    try {
-      log = readFileSync(join(core.dataDir, 'daemon.log'), 'utf8');
-    } catch {}
-    error.message += `\nthe core's stderr since the hold:\n${said.slice(-6000)}\nits daemon.log:\n${log.slice(-8000)}`;
-    throw error;
-  } finally {
-    core.child.stderr.off('data', hear);
-  }
-  // The connection dropped with the core: the call ends without an answer (a rejection of the dropped transport, never an answer).
-  await lost;
-  if (answer?.ok) throw new Error(`the core answered the request held at ${at} at its quit: ${JSON.stringify(answer)}`);
-}
-
 /** Removes `path` (dot-separated) from `value`, applying to every element of an array on the way (a `together` step's replies). */
 const without = (value, [key, ...rest]) => {
   if (Array.isArray(value)) return value.forEach((element) => without(element, [key, ...rest]));
@@ -441,7 +355,7 @@ const coreSide = (got) => got.map((step) => ({ ...step, reply: Array.isArray(ste
 
 /** The core's memory database takes the first free port from 55432 and keeps it in its data directory; other runs on this PC start and end their own databases on those ports, so a
  *  restart over the same data directory could find its port taken or another one free. The ports the product scans first are held here for the whole replay, so the core's port is above them and stays. */
-async function holdPorts() {
+export async function holdPorts() {
   const held = [];
   for (let port = 55432; port <= 55600; port += 1) {
     const server = net.createServer();

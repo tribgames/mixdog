@@ -600,6 +600,8 @@ async fn core_state(rig: &Rig, directory: &SessionDirectory, id: &str, names: &m
             other => panic!("thread/items/list of {address}: {:?}", other.map(|_| ())),
         }
     }
+    // A set of ids, sorted once named (cases.mjs `numberFresh`).
+    stored.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
     (receipt, Value::Array(stored))
 }
 

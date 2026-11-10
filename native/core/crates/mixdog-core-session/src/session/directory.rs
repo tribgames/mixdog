@@ -68,6 +68,8 @@ const SHARDS: usize = 64;
 
 /// `INGEST_DEADLINE_MS` (`memory-ingest.mjs:4`): how long shutdown waits for the ingests.
 const SHUTDOWN_INGEST_DEADLINE: std::time::Duration = std::time::Duration::from_millis(2500);
+/// `SHUTDOWN_BUDGET_MS` (`daemon.mjs:254`, the forced exit at `:288-291`): how long shutdown waits for the new-task attempts it cut.
+const NEW_TASK_SHUTDOWN_BOUND: std::time::Duration = std::time::Duration::from_millis(15_000);
 
 type Loaded = Result<Arc<SessionHandle>, CoreError>;
 
@@ -716,8 +718,9 @@ impl SessionDirectory {
     pub async fn shutdown_for(&self, reason: &str) {
         // The new-task attempts in flight are cut first, as a process ending leaves them, before the directory refuses their
         // next step (a refusal would mark their receipts refused).
-        // Under the directory's own stop bound: a receipt write stalled on durability cannot hold the rest of the teardown.
-        if let Err(overrun) = self.inner.deps.new_tasks.shutdown(SHUTDOWN_INGEST_DEADLINE).await {
+        // Under Node's shutdown budget, within which its session service stop awaits the call a cut attempt awaits and the attempt
+        // then ends: a call or receipt write that outlives it cannot hold the rest of the teardown.
+        if let Err(overrun) = self.inner.deps.new_tasks.shutdown(NEW_TASK_SHUTDOWN_BOUND).await {
             tracing::error!(%overrun, "the new-task receipts did not shut down in time");
         }
         self.begin_close();

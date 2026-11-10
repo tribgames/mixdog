@@ -6,7 +6,7 @@
 //            [--only <scenario name>]      (cwd: apps/desktop, whose node_modules holds tsx: the replay loads the desktop's TypeScript client)
 //
 // Every scenario runs in a folder of its own under D:\mixdog-build\tmp\new-task-dedupe (removed when the scenario is done). A step list is
-// run in legs: a crash step ends its leg's process at the gate it names (a quit step, once the app has quit) and the next step starts a new process over the same data
+// run in legs: a crash step ends its leg's process at the gate it names and the next step starts a new process over the same data
 // directory. The recording is written twice over (two full runs): the values that differ between the two runs are the random ones
 // (`freshSessionId`, new-task-requests.ts:85), and they are the only values the comparison replaces (by order of appearance).
 import { spawnSync } from 'node:child_process';
@@ -45,9 +45,8 @@ const legs = (steps) => {
   let current = [];
   steps.forEach((step, index) => {
     current.push({ step, index });
-    // A crash or a quit ends its process; the next step starts a new one over the same data directory.
-    if (step.op === 'crash' || step.op === 'quit') {
-      out.push({ steps: current, ...(step.op === 'crash' ? { crash: { at: step.at } } : {}) });
+    if (step.op === 'crash') {
+      out.push({ steps: current, crash: { at: step.at } });
       current = [];
     }
   });
