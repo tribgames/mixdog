@@ -379,6 +379,31 @@
       }
     },
     {
+      "name": "search-regex-real-replacement-query",
+      "plaintext": "7b226964223a313030302c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a2261efbfbd222c227265676578223a747275657d5d7d",
+      "answer": {
+        "ok": true,
+        "value": {
+          "files": [
+            {
+              "relPath": "replaced.txt",
+              "matches": [
+                {
+                  "line": 1,
+                  "column": 1,
+                  "endColumn": 3,
+                  "preview": "a�b",
+                  "matchText": "a�"
+                }
+              ]
+            }
+          ],
+          "matchCount": 1,
+          "limitHit": false
+        }
+      }
+    },
+    {
       "name": "key-lone",
       "plaintext": "7b226964223a33332c226d6574686f64223a22736561726368576f726b737061636554657874222c22706172616d73223a5b22443a5c5c6d6978646f672d6275696c645c5c746d705c5c696e626f756e642d6c6f6e652d737572726f676174652d776f726c645c5c70726f6a656374222c7b227175657279223a2278222c225c7564383364223a747275657d5d7d",
       "answer": {

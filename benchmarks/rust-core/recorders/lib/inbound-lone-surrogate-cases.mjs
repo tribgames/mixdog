@@ -85,8 +85,15 @@ export const STEPS = [
     name: 'search-regex-lone-query',
     call: 'searchWorkspaceText',
     params: [P, { query: `a${LOW}`, regex: true }],
-    accepted: 'decisions.md "frame-lone-surrogate": a regex query holding a lone surrogate reads it as U+FFFD',
+    // The one answer accepted in place of Node's: Node's own answer to the same query with a real U+FFFD (the step below).
+    accepted: {
+      decision: 'decisions.md "frame-lone-surrogate": a regex query holding a lone surrogate reads it as U+FFFD',
+      standIn: 'search-regex-real-replacement-query',
+    },
   },
+  // The stand-in of the step above, on the folder that step searched: a search writes nothing, and nothing runs between the two. Its
+  // own frame id keeps the frames of the later steps the bytes they were recorded with.
+  { name: 'search-regex-real-replacement-query', call: 'searchWorkspaceText', params: [P, { query: 'a\ufffd', regex: true }], id: 1000 },
   // ── in a key ──
   { name: 'key-lone', call: 'searchWorkspaceText', params: [P, { query: 'x', [HIGH]: true }] },
   // ── invalid UTF-8 and a BOM inside the sealed frame (Node decodes with a non-fatal TextDecoder, remote-e2ee.ts:9, :692) ──

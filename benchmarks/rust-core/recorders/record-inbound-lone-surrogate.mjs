@@ -177,7 +177,7 @@ let frameId = 0;
 const steps = [];
 for (const step of STEPS) {
   if (ONLY && step.name !== ONLY && step.name !== 'register-project') continue;
-  const id = step.raw === undefined ? ++frameId : null;
+  const id = step.raw === undefined ? (step.id ?? ++frameId) : null;
   const text = step.raw ?? JSON.stringify({ id, method: step.call, params: step.params });
   const token = frame(text);
   const sealed = await phone.channel.encryptJson(token);
@@ -223,6 +223,14 @@ writeSetManifest(stage, {
     nodeVersion: process.version,
     recorderFiles: RECORDER_FILES.map((path) => ({ path: `benchmarks/rust-core/recorders/${path}`, sha256: sha256(readFileSync(join(HERE, path))) })),
     inputs: Object.fromEntries(steps.map((step) => [step.name, step.plaintext])),
+    // A step whose answer differs from Node's under a decision: the core's answer is compared whole with Node's own answer to the
+    // stand-in step instead; any other answer fails the replay.
+    accepted: STEPS.filter((step) => step.accepted).map((step) => ({
+      step: step.name,
+      nodeAnswered: steps.find((recorded) => recorded.name === step.name).answer,
+      comparedWith: `Node's recorded answer to ${step.accepted.standIn}, whole`,
+      decision: step.accepted.decision,
+    })),
   },
 });
 commitStage(stage, SET);
