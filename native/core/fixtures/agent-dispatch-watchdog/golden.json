@@ -80,12 +80,387 @@
         61000,
         62000
       ],
+      "afterStops": [
+        {},
+        {
+          "A": {
+            "evaluated": 1,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 2,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 3,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 4,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 5,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 6,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 7,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 8,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 9,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 10,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 11,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 12,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 13,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 14,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 15,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 16,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 17,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 18,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 19,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 20,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 21,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 22,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 23,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 24,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 25,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 26,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 27,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 28,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 29,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 30,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 31,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 32,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 33,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 34,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 35,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 36,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 37,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 38,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 39,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 40,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 41,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 42,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 43,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 44,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 45,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 46,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 47,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 48,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 49,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 50,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 51,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 52,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 53,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 54,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 55,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 56,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 57,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 58,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 59,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 60,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 61,
+            "aborted": true
+          }
+        },
+        {
+          "A": {
+            "evaluated": 61,
+            "aborted": true
+          }
+        }
+      ],
       "dogs": {
         "A": {
           "armedAt": 0,
           "armed": true,
           "intervals": 1,
-          "sweeps": [
+          "callbacks": [
             1000,
             2000,
             3000,
@@ -149,6 +524,69 @@
             61000,
             62000
           ],
+          "evaluations": [
+            1000,
+            2000,
+            3000,
+            4000,
+            5000,
+            6000,
+            7000,
+            8000,
+            9000,
+            10000,
+            11000,
+            12000,
+            13000,
+            14000,
+            15000,
+            16000,
+            17000,
+            18000,
+            19000,
+            20000,
+            21000,
+            22000,
+            23000,
+            24000,
+            25000,
+            26000,
+            27000,
+            28000,
+            29000,
+            30000,
+            31000,
+            32000,
+            33000,
+            34000,
+            35000,
+            36000,
+            37000,
+            38000,
+            39000,
+            40000,
+            41000,
+            42000,
+            43000,
+            44000,
+            45000,
+            46000,
+            47000,
+            48000,
+            49000,
+            50000,
+            51000,
+            52000,
+            53000,
+            54000,
+            55000,
+            56000,
+            57000,
+            58000,
+            59000,
+            60000,
+            61000
+          ],
           "abortedAt": 61000,
           "message": "agent task stale (60000ms without stream/tool progress)"
         }
@@ -170,12 +608,44 @@
         2000,
         3000
       ],
+      "afterStops": [
+        {},
+        {
+          "A": {
+            "evaluated": 0,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 1,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 2,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 3,
+            "aborted": false
+          }
+        }
+      ],
       "dogs": {
         "A": {
           "armedAt": 0,
           "armed": true,
           "intervals": 1,
-          "sweeps": [
+          "callbacks": [
+            1000,
+            2000,
+            3000
+          ],
+          "evaluations": [
             1000,
             2000,
             3000
@@ -207,12 +677,76 @@
         2400,
         3000
       ],
+      "afterStops": [
+        {},
+        {
+          "A": {
+            "evaluated": 0,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 1,
+            "aborted": false
+          },
+          "B": {
+            "evaluated": 0,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 1,
+            "aborted": false
+          },
+          "B": {
+            "evaluated": 1,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 2,
+            "aborted": false
+          },
+          "B": {
+            "evaluated": 1,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 2,
+            "aborted": false
+          },
+          "B": {
+            "evaluated": 2,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 3,
+            "aborted": false
+          },
+          "B": {
+            "evaluated": 2,
+            "aborted": false
+          }
+        }
+      ],
       "dogs": {
         "A": {
           "armedAt": 0,
           "armed": true,
           "intervals": 1,
-          "sweeps": [
+          "callbacks": [
+            1000,
+            2000,
+            3000
+          ],
+          "evaluations": [
             1000,
             2000,
             3000
@@ -224,7 +758,11 @@
           "armedAt": 400,
           "armed": true,
           "intervals": 1,
-          "sweeps": [
+          "callbacks": [
+            1400,
+            2400
+          ],
+          "evaluations": [
             1400,
             2400
           ],
@@ -343,12 +881,573 @@
         91000,
         92000
       ],
+      "afterStops": [
+        {},
+        {
+          "A": {
+            "evaluated": 1,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 2,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 3,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 4,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 5,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 6,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 7,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 8,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 9,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 10,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 11,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 12,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 13,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 14,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 15,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 16,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 17,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 18,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 19,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 20,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 21,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 22,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 23,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 24,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 25,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 26,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 27,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 28,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 29,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 30,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 30,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 31,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 32,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 33,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 34,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 35,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 36,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 37,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 38,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 39,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 40,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 41,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 42,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 43,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 44,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 45,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 46,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 47,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 48,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 49,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 50,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 51,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 52,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 53,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 54,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 55,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 56,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 57,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 58,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 59,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 60,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 61,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 62,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 63,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 64,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 65,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 66,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 67,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 68,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 69,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 70,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 71,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 72,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 73,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 74,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 75,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 76,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 77,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 78,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 79,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 80,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 81,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 82,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 83,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 84,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 85,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 86,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 87,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 88,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 89,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 90,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 91,
+            "aborted": true
+          }
+        },
+        {
+          "A": {
+            "evaluated": 91,
+            "aborted": true
+          }
+        }
+      ],
       "dogs": {
         "A": {
           "armedAt": 0,
           "armed": true,
           "intervals": 1,
-          "sweeps": [
+          "callbacks": [
             1000,
             2000,
             3000,
@@ -442,6 +1541,99 @@
             91000,
             92000
           ],
+          "evaluations": [
+            1000,
+            2000,
+            3000,
+            4000,
+            5000,
+            6000,
+            7000,
+            8000,
+            9000,
+            10000,
+            11000,
+            12000,
+            13000,
+            14000,
+            15000,
+            16000,
+            17000,
+            18000,
+            19000,
+            20000,
+            21000,
+            22000,
+            23000,
+            24000,
+            25000,
+            26000,
+            27000,
+            28000,
+            29000,
+            30000,
+            31000,
+            32000,
+            33000,
+            34000,
+            35000,
+            36000,
+            37000,
+            38000,
+            39000,
+            40000,
+            41000,
+            42000,
+            43000,
+            44000,
+            45000,
+            46000,
+            47000,
+            48000,
+            49000,
+            50000,
+            51000,
+            52000,
+            53000,
+            54000,
+            55000,
+            56000,
+            57000,
+            58000,
+            59000,
+            60000,
+            61000,
+            62000,
+            63000,
+            64000,
+            65000,
+            66000,
+            67000,
+            68000,
+            69000,
+            70000,
+            71000,
+            72000,
+            73000,
+            74000,
+            75000,
+            76000,
+            77000,
+            78000,
+            79000,
+            80000,
+            81000,
+            82000,
+            83000,
+            84000,
+            85000,
+            86000,
+            87000,
+            88000,
+            89000,
+            90000,
+            91000
+          ],
           "abortedAt": 91000,
           "message": "agent task stale (60000ms without stream/tool progress)"
         }
@@ -466,12 +1658,28 @@
         1000,
         5000
       ],
+      "afterStops": [
+        {},
+        {
+          "A": {
+            "evaluated": 0,
+            "aborted": false
+          }
+        },
+        {
+          "A": {
+            "evaluated": 0,
+            "aborted": false
+          }
+        }
+      ],
       "dogs": {
         "A": {
           "armedAt": 0,
           "armed": false,
           "intervals": 0,
-          "sweeps": [],
+          "callbacks": [],
+          "evaluations": [],
           "abortedAt": null,
           "message": null
         }

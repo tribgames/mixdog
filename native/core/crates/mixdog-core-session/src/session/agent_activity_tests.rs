@@ -49,6 +49,8 @@ async fn a_loaded_thread_publishes_its_agent_status_after_one_settle_beat() {
     let rig = Rig::new();
     let directory = SessionDirectory::new(rig.deps());
     let quiet = start_thread(&directory).await;
+    // The settle beat passes only by this advance.
+    tokio::time::advance(super::actor::STATUS_SETTLE).await;
     eventually_on!(&[&rig.agents.read], || (reads(&rig) == 1).then_some(())).await;
     tokio::time::sleep(Duration::from_millis(10)).await;
     assert!(published(&rig, &quiet.id).is_empty(), "empty lists are Node's initial state: no change");
@@ -56,6 +58,7 @@ async fn a_loaded_thread_publishes_its_agent_status_after_one_settle_beat() {
     set_status(&rig, agents("review"));
     let started = tokio::time::Instant::now();
     let busy = start_thread(&directory).await;
+    tokio::time::advance(super::actor::STATUS_SETTLE).await;
     eventually_on!(&[&rig.feeds.published], || (published(&rig, &busy.id).len() == 1).then_some(())).await;
     assert!(tokio::time::Instant::now() - started >= super::actor::STATUS_SETTLE, "not before the settle beat");
     assert_eq!(published(&rig, &busy.id), vec![serde_json::to_value(agents("review")).unwrap()]);
@@ -68,6 +71,7 @@ async fn a_job_change_republishes_the_owners_agent_status_only_when_it_changed()
     let rig = Rig::new();
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
+    tokio::time::advance(super::actor::STATUS_SETTLE).await;
     // The load's own pass (empty lists, nothing published).
     eventually_on!(&[&rig.agents.read], || (reads(&rig) == 1).then_some(())).await;
 
@@ -96,6 +100,7 @@ async fn a_thread_that_is_not_loaded_hears_nothing() {
     let rig = Rig::new();
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
+    tokio::time::advance(super::actor::STATUS_SETTLE).await;
     eventually_on!(&[&rig.agents.read], || (reads(&rig) == 1).then_some(())).await;
     directory.agent_activity("never-loaded");
     directory.agent_activity("");

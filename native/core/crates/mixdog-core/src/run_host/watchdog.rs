@@ -198,12 +198,14 @@ mod tests {
 
     /// Node's `startDispatchWatchdog` (`agent-dispatch/watchdog.mjs`, `b6f10295a`; its only caller is a dispatch, `agent-dispatch.mjs:148`,
     /// so a session restored at boot has none) makes its own `setInterval(…, 1000)` as it arms, and judges each sweep by the
-    /// session's progress snapshot (`:22-23`). Node's timers and clock mocked gave these sweep times (relative to the timeline's
+    /// session's progress snapshot (`:22-23`); its interval goes on firing after the abort until `stop()`, but those callbacks return
+    /// at the aborted check (`:20`) before reading the snapshot, and Rust ends its timer at the abort (nothing visible). Node's timers
+    /// and clock mocked, with the snapshot read instrumented, gave these evaluation times (relative to the timeline's
     /// start), abort moments and sentences, for a silent run, a run whose first poll comes late, a dispatch armed while another
     /// runs, a run that progressed after a sweep found nothing, and a policy with no deadline (`record-agent-dispatch-watchdog.mjs`).
     /// The replay arms each run at its recorded instant, moves the clock only by the explicit advance to each recorded stop (nothing
     /// runs between an arming and the next advance, so a sweep task's first poll comes after the clock has moved), and every run's
-    /// sweeps must come when Node's did, and its abort when and with what Node's was.
+    /// evaluations must be the whole sequence Node's were, and its abort when and with what Node's was.
     #[tokio::test(start_paused = true)]
     async fn the_sweeps_come_when_nodes_come_counted_from_each_arming() {
         let _held = HeldClock::hold();
@@ -220,22 +222,22 @@ mod tests {
             let ints = |value: &Value| -> Vec<i64> { value.as_array().unwrap().iter().map(|at| at.as_i64().unwrap()).collect() };
             let mut running: Vec<Replayed> = Vec::new();
             let mut now = 0;
-            for stop in ints(&scenario["stops"]) {
+            for (at_stop, stop) in ints(&scenario["stops"]).into_iter().enumerate() {
                 if stop > now {
                     tokio::time::advance(Duration::from_millis((stop - now) as u64)).await;
                     now = stop;
                 }
-                // Every armed run has run the sweeps Node's did by now, up to the one that aborted its run (after which its task has ended).
+                // Every armed run has made the evaluations Node's had made by now (the recording's count after the timers due at this
+                // stop), and is aborted when Node's was; Node's callbacks that returned at the aborted check evaluated nothing.
                 let pairs: Vec<(&Watchdog, &Cancel)> = running.iter().filter_map(|run| run.watchdog.as_ref().map(|dog| (dog, &run.signal))).collect();
                 for run in &running {
-                    let recorded = node(&run.name);
-                    let aborted_at = recorded["abortedAt"].as_i64();
-                    let due = ints(&recorded["sweeps"]).iter().filter(|at| **at <= stop && aborted_at.is_none_or(|aborted| **at <= aborted)).count() as u64;
+                    let after = &scenario["afterStops"][at_stop][&run.name];
+                    let due = after["evaluated"].as_u64().unwrap_or(0);
                     if run.watchdog.is_some() {
                         reached(Duration::from_millis(stop as u64), due, &run.sweeps, &pairs).await;
                     }
-                    assert_eq!(run.sweeps.seen(), due, "{name}/{}: the sweeps by {stop} ms", run.name);
-                    assert_eq!(run.signal.is_aborted(), aborted_at.is_some_and(|aborted| aborted <= stop), "{name}/{}: aborted by {stop} ms", run.name);
+                    assert_eq!(run.sweeps.seen(), due, "{name}/{}: the evaluations by {stop} ms", run.name);
+                    assert_eq!(run.signal.is_aborted(), after["aborted"].as_bool().unwrap_or(false), "{name}/{}: aborted by {stop} ms", run.name);
                 }
                 // Then what happens at this instant: armings and progress, after the timers due at it.
                 for arm in scenario["arms"].as_array().unwrap().iter().filter(|arm| arm["at"].as_i64() == Some(stop)) {
@@ -262,8 +264,7 @@ mod tests {
             for run in &running {
                 let recorded = node(&run.name);
                 assert_eq!(run.armed_at, recorded["armedAt"].as_i64().unwrap());
-                let sweeps = ints(&recorded["sweeps"]);
-                assert_eq!(run.sweeps.times(), sweeps[..run.sweeps.seen() as usize], "{name}/{}: when the sweeps ran", run.name);
+                assert_eq!(run.sweeps.times(), ints(&recorded["evaluations"]), "{name}/{}: when the evaluations ran", run.name);
                 if recorded["abortedAt"].as_i64().is_some() {
                     assert_eq!(run.signal.reason(), recorded["message"].as_str().unwrap(), "{name}/{}: the abort sentence", run.name);
                 }

@@ -2,8 +2,9 @@
 // Golden twin of the dispatch watchdog's timing, run on real Node with its timers and clock mocked:
 // `startDispatchWatchdog` (agent-dispatch/watchdog.mjs) makes its `setInterval(…, 1000)` synchronously as it
 // arms, so every sweep is a whole number of seconds after arming, however the run is scheduled, and a run silent since
-// arming is aborted at the first sweep past its idle budget. Recorded: when each sweep runs relative to arming
-// (the callback's `Date.now()`), and when a silent run's signal is aborted, with its message.
+// arming is aborted at the first sweep past its idle budget. Recorded per dog: when each interval callback ran
+// (`Date.now()`), which of them evaluated the progress snapshot (instrumented at the snapshot's store read; a callback after
+// the abort returns before it), and when the run was aborted, with its message.
 //
 //   node benchmarks/rust-core/recorders/record-agent-dispatch-watchdog.mjs [--tree <dir>]
 //
@@ -33,7 +34,14 @@ mock.timers.enable({ apis: ['setInterval', 'Date'], now: T0 });
 // scenario's start) as the callback begins, and the abort moment as the callback ends with the run's signal aborted.
 let origin = T0;
 let arming = null;
+let watched = null;
+let read = false;
 const dogs = new Map();
+const mapGet = Map.prototype.get;
+Map.prototype.get = function (key) {
+  if (watched !== null && key === watched) read = true;
+  return mapGet.call(this, key);
+};
 const mockedSetInterval = globalThis.setInterval;
 globalThis.setInterval = (callback, ms, ...rest) => {
   if (ms !== 1000 || arming === null) return mockedSetInterval(callback, ms, ...rest);
@@ -43,8 +51,18 @@ globalThis.setInterval = (callback, ms, ...rest) => {
     (...a) => {
       const record = dogs.get(tag);
       const at = Date.now() - origin;
-      record.sweeps.push(at);
-      const result = callback(...a);
+      record.callbacks.push(at);
+      // The snapshot read is `_runtimeState.get(sessionId)` (session/manager/runtime-liveness.mjs, getSessionProgressSnapshot): a
+      // callback that returns at the aborted check (watchdog.mjs:20) never reaches it, and that is what is recorded, not inferred.
+      watched = record.sessionId;
+      read = false;
+      let result;
+      try {
+        result = callback(...a);
+      } finally {
+        watched = null;
+      }
+      if (read) record.evaluations.push(at);
       if (record.abortedAt === null && record.handle.signal?.aborted) record.abortedAt = at;
       return result;
     },
@@ -68,14 +86,18 @@ function record(name, { arms, progress = [], stops }) {
   ].sort((a, b) => a.at - b.at);
   const times = [...new Set([...stops, ...events.map((e) => e.at)])].sort((a, b) => a - b);
   let now = 0;
+  // After the timers due at each instant (before that instant's events): per dog, how many evaluations had run and whether its
+  // run was aborted.
+  const afterStops = [];
   for (const at of times) {
     mock.timers.tick(at - now);
     now = at;
+    afterStops.push(Object.fromEntries([...dogs].map(([dog, record]) => [dog, { evaluated: record.evaluations.length, aborted: record.handle.signal?.aborted === true }])));
     for (const event of events.filter((e) => e.at === at)) {
       const sessionId = `sess_dispatch_watchdog_${name}_${event.dog}`;
       if (event.kind === 'arm') {
         updateSessionStage(sessionId, 'streaming');
-        dogs.set(event.dog, { armedAt: at, armed: null, intervals: 0, sweeps: [], abortedAt: null, message: null, handle: null });
+        dogs.set(event.dog, { sessionId, armedAt: at, armed: null, intervals: 0, callbacks: [], evaluations: [], abortedAt: null, message: null, handle: null });
         arming = event.dog;
         const handle = startDispatchWatchdog({ agent: 'worker', sessionId, policy: event.policy ?? policy });
         arming = null;
@@ -94,12 +116,13 @@ function record(name, { arms, progress = [], stops }) {
       armedAt: record.armedAt,
       armed: record.armed,
       intervals: record.intervals,
-      sweeps: record.sweeps,
+      callbacks: record.callbacks,
+      evaluations: record.evaluations,
       abortedAt: record.abortedAt,
       message: record.abortedAt === null ? null : String(reason?.message ?? reason),
     };
   }
-  return { name, arms, progress, stops: times, dogs: out };
+  return { name, arms, progress, stops: times, afterStops, dogs: out };
 }
 
 const every = (step, until) => Array.from({ length: until / step }, (_, i) => (i + 1) * step);
@@ -123,7 +146,7 @@ writeSetManifest(stage, { set: 'agent-dispatch-watchdog', recorder, command: `no
 commitStage(stage, finalDir);
 console.log(
   scenarios
-    .flatMap((s) => Object.entries(s.dogs).map(([dog, d]) => `${s.name}/${dog}: armed ${d.armed} at ${d.armedAt}, intervals ${d.intervals}, sweeps ${d.sweeps.length} (first ${d.sweeps[0]}), aborted at ${d.abortedAt}`))
+    .flatMap((s) => Object.entries(s.dogs).map(([dog, d]) => `${s.name}/${dog}: armed ${d.armed} at ${d.armedAt}, intervals ${d.intervals}, callbacks ${d.callbacks.length}, evaluations ${d.evaluations.length} (first ${d.evaluations[0]}), aborted at ${d.abortedAt}`))
     .join('\n')
 );
 process.exit(0);
