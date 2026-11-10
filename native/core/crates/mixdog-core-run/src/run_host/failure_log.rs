@@ -42,8 +42,9 @@ pub struct FailureWriter {
     clock: Arc<dyn Clock>,
     /// The 1000 ms timer is armed (the first row of a batch arms it; a flush does not need it).
     armed: AtomicBool,
-    /// One flush at a time, in the order they were asked for: the rows of a later chunk never overtake an earlier one.
-    turn: tokio::sync::Mutex<()>,
+    /// One flush at a time, held by the lane job from taking its chunk to writing it: the rows of a later chunk never overtake an
+    /// earlier one.
+    turn: Arc<Mutex<()>>,
     /// `warnAgentOnce`: each warning key is written to stderr once.
     warned: Mutex<HashSet<String>>,
     /// Test-only: told the kind of each record once its rows are in the queue (`with_appended`).
@@ -92,7 +93,7 @@ impl FailureWriter {
             io,
             clock,
             armed: AtomicBool::new(false),
-            turn: tokio::sync::Mutex::new(()),
+            turn: Arc::default(),
             warned: Mutex::new(HashSet::new()),
             #[cfg(feature = "test-support")]
             appended: None,
@@ -185,9 +186,16 @@ impl FailureWriter {
 
     /// Writes what is queued (the timer, a full batch, and the exit hook all come here).
     pub async fn flush(&self) {
-        let _turn = self.turn.lock().await;
-        let (trace, now) = (Arc::clone(&self.trace), self.clock.now_ms());
-        let Ok(job) = self.io.durability.submit_wait(&CancellationToken::new(), move |_lane| trace.flush(now)).await else {
+        let (trace, clock, turn) = (Arc::clone(&self.trace), Arc::clone(&self.clock), Arc::clone(&self.turn));
+        let Ok(job) = self
+            .io
+            .durability
+            .submit_wait(&CancellationToken::new(), move |_lane| {
+                let _turn = turn.lock().unwrap_or_else(PoisonError::into_inner);
+                trace.flush(clock.now_ms())
+            })
+            .await
+        else {
             return;
         };
         let Ok(warnings) = job.await else {
