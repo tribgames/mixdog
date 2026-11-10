@@ -8,6 +8,17 @@
       "sha256": "dd3d3018b6c4124c5fd86c57608701c42de53a641c1cdc70d5eaced6665ea07f"
     }
   ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "1f65dbb615d53376c103b20d0df7a53b7ba1bfed8100be99716da900dfc58c66"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/tool-definitions.mjs",
+      "sha256": "5e533f7ce0b9fb9750ea998cbe7399e4790a86dcb982cd93c711744c3a9236a7"
+    }
+  ],
+  "nodeVersion": "v24.22.1",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -26,6 +37,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tool-resolution.mjs",
+  "recorderSha256": "a789dfaebdd412a469be56d5dc1d9dba9c2de2dd74802b806c24a777dc5a1b36",
   "set": "tool-resolution",
   "totalBytes": 167761
 }

@@ -36,12 +36,20 @@ const cases = [
   { name: 'a-whole-timeout-cut-inside-a-wait', timeoutMs: 300, mtimeMs: T },
   { name: 'a-fractional-timeout-cut-inside-a-wait', timeoutMs: 300.25, mtimeMs: T },
   { name: 'a-fractional-timeout-cut-inside-the-second-wait', timeoutMs: 60.5, mtimeMs: T },
+  // The process clock a fraction past a millisecond: `Date.now()` is its whole milliseconds, and the age is that minus
+  // the file's fractional time (file-lock.mjs:159). Read at the clock's T + 1 + fraction.
+  { name: 'clock-0.9-past-a-millisecond-age-99.8', timeoutMs: 1, mtimeMs: T + 1 - 99.8, clockFractionMs: 0.9 },
+  { name: 'clock-0.3-past-a-millisecond-age-99.4', timeoutMs: 1, mtimeMs: T + 1 - 99.4, clockFractionMs: 0.3 },
+  // The stale threshold read on `Date.now()` (file-lock.mjs:290): at the last attempt (T + 1) 0.5 ms short of the stale
+  // age by `Date.now()`, 0.2 ms past it by the process clock, so it is not reclaimed.
+  { name: 'stale-threshold-on-date-now-not-the-fractional-clock', timeoutMs: 1, staleMs: 1000, mtimeMs: T - 1000 + 1.5, clockFractionMs: 0.7 },
 ];
 
 const runDir = fs.mkdtempSync(join(tmpdir(), 'shared-file-lock-'));
 process.chdir(runDir);
+// The process clock, a fraction kept; `Date.now()` is its whole milliseconds as Node's is.
 let virtualNow = T;
-Date.now = () => virtualNow;
+Date.now = () => Math.floor(virtualNow);
 Math.random = () => 0.5;
 let sleeps = [];
 const realSetImmediate = setImmediate;
@@ -61,16 +69,20 @@ for (const [i, spec] of cases.entries()) {
   fs.writeFileSync(lockPath, '');
   fs.utimesSync(lockPath, spec.mtimeMs / 1000, spec.mtimeMs / 1000);
   const mtimeNs = fs.statSync(lockPath, { bigint: true }).mtimeNs;
-  virtualNow = T;
+  const clockFractionMs = spec.clockFractionMs ?? 0;
+  virtualNow = T + clockFractionMs;
   sleeps = [];
   let outcome;
   try {
-    await withFileLock(lockPath, () => 'entered', { timeoutMs: spec.timeoutMs });
+    await withFileLock(lockPath, () => 'entered', { timeoutMs: spec.timeoutMs, ...(spec.staleMs === undefined ? {} : { staleMs: spec.staleMs }) });
     outcome = { entered: true };
   } catch (error) {
     outcome = { message: error.message, code: error.code ?? null };
   }
-  recorded.push({ name: spec.name, lockPath, timeoutMs: spec.timeoutMs, mtimeNs: String(mtimeNs), sleeps, atMs: virtualNow - T, outcome });
+  recorded.push({
+    name: spec.name, lockPath, timeoutMs: spec.timeoutMs, staleMs: spec.staleMs ?? null, clockFractionMs, mtimeNs: String(mtimeNs),
+    sleeps, atMs: Date.now() - T, outcome,
+  });
   console.log(`${spec.name}: ${JSON.stringify(sleeps)} -> ${outcome.message ?? 'entered'}`);
 }
 process.chdir(tmpdir());

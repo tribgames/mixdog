@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2542,
+      "bytes": 4209,
       "path": "node-recorded.json",
-      "sha256": "802ec66e8b8c8a748557353fac34afe5fed250fd665b6ec6e98f67860fdc8b1d"
+      "sha256": "06c6d487ac8d69f13d61314c5666e11fc62eba41a78c7eb83b46725e938529ab"
     }
   ],
   "product": {
@@ -26,7 +26,7 @@
     "version": "1.4.5"
   },
   "recorder": "native/core/crates/mixdog-statefile/src/lock_record.mjs",
-  "recorderSha256": "0a8b209131736d1d87457be937d3d86be3e02f6164c4c59f27029d826028d004",
+  "recorderSha256": "366a97d99e6caa80df65362846392f4ba48c0286c5fca97a799a22db9c8385f8",
   "runtime": {
     "electron": "43.8.4",
     "node": "v24.22.1"
@@ -35,5 +35,5 @@
     "benchmarks/rust-core/recorders/lib/common.mjs": "1f65dbb615d53376c103b20d0df7a53b7ba1bfed8100be99716da900dfc58c66"
   },
   "set": "shared-file-lock",
-  "totalBytes": 2542
+  "totalBytes": 4209
 }

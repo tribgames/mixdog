@@ -18,7 +18,7 @@ const sandbox = mkdtempSync(join(tmpdir(), 'tool-resolution-'));
 for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) process.env[key] = sandbox;
 process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 process.env.TZ = 'UTC';
-const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, exactProductIdentity, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, recordingProvenance, resolveTree, exactProductIdentity, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
 const { writeJsonCompact } = await import('./lib/tool-definitions.mjs');
 const tree = resolveTree(parseArgs());
@@ -221,6 +221,8 @@ add('worker, feature gates off, bridge route', { kind: 'worker', provider: 'xai'
   };
   const shape = ({ kind = 'lead', provider, model, mode = 'full', agent = null, schemaAllowedTools = null, callerDisallowed = [], featureDenied = [], toolProfile = 'interactive' }) =>
     json({ kind, provider, model, mode, agent, schemaAllowedTools, callerDisallowed, featureDenied, toolProfile });
+  // Which inputs were already recorded, to record each once: a membership question about inputs (the key keeps
+  // every array in its order), not a comparison of Node's output; `cases` stays in recording order.
   const recorded = new Set(cases.map((c) => shape(c.input)));
   const addNew = (name, input) => {
     if (!recorded.has(shape(input))) {
@@ -261,6 +263,12 @@ await writeJsonCompact(tree, join(stage, 'golden.json'), {
   definitions,
   cases,
 });
-writeSetManifest(stage, { set: 'tool-resolution', recorder, command: `node ${recorder} --tree <tree>`, identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146') });
+writeSetManifest(stage, {
+  set: 'tool-resolution',
+  recorder,
+  command: `node ${recorder} --tree <tree>`,
+  identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146'),
+  extra: recordingProvenance(recorder, ['benchmarks/rust-core/recorders/lib/common.mjs', 'benchmarks/rust-core/recorders/lib/tool-definitions.mjs']),
+});
 commitStage(stage, finalDir);
 console.log(`tool resolution: ${cases.length} cases, ${Object.keys(definitions).length} definitions`);

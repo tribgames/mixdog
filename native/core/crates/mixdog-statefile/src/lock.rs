@@ -534,6 +534,8 @@ pub(crate) fn locked_on<P: WriteProof, R>(
     opts: &LockOpts,
     body: impl FnOnce() -> R,
 ) -> Result<R, LockError> {
+    // `Date.now()`: the clock in whole milliseconds, read before any subtraction from a file's fractional time.
+    let date_now = || clock.now_ns().div_euclid(1_000_000) * 1_000_000;
     if HELD.with(|held| held.borrow().contains(lock)) {
         return Ok(body());
     }
@@ -542,18 +544,18 @@ pub(crate) fn locked_on<P: WriteProof, R>(
         mixdog_fsio::create_dir_all(proof, dir)?;
     }
     let Some(_turn) = take_turn(&line_of(lock), timeout.is_zero()) else {
-        return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(proof, lock, clock.now_ns()) });
+        return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(proof, lock, date_now()) });
     };
     // The budget is for the file: it starts at the front of the line (`acquireLock` runs after
     // `lockQueue` hands over), not when the request joins it.
-    let deadline = clock.now_ns() + timeout.as_nanos() as i128;
+    let deadline = date_now() + timeout.as_nanos() as i128;
     let owner = LockOwner::process();
     let mut attempt = 0;
-    while try_take(proof, lock, opts, &owner, Access::Inherit, clock.now_ns())? == Attempt::Held {
+    while try_take(proof, lock, opts, &owner, Access::Inherit, date_now())? == Attempt::Held {
         if timeout.is_zero() {
-            return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(proof, lock, clock.now_ns()) });
+            return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(proof, lock, date_now()) });
         }
-        let now = clock.now_ns();
+        let now = date_now();
         if now >= deadline {
             return Err(LockError::Timeout { path: lock.to_owned(), timeout, holder: describe_holder(proof, lock, now) });
         }
@@ -565,7 +567,7 @@ pub(crate) fn locked_on<P: WriteProof, R>(
         let _release = Release(proof, lock);
         body()
     };
-    sweep_staged(proof, lock, clock.now_ns());
+    sweep_staged(proof, lock, date_now());
     Ok(result)
 }
 
