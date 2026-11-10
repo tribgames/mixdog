@@ -178,17 +178,20 @@ pub fn commit_hash(value: &str) -> Result<&str, ScmFailure> {
     Ok(hash)
 }
 
-/// `requiredGitRevision`: `HEAD`, `:0`, or a commit hash with an optional `^`.
-pub fn revision(value: &str) -> Result<&str, ScmFailure> {
+/// `requiredGitRevision`: `HEAD`, `:0`, or a commit hash with an optional `^`. The answer is built from the checked hash, as
+/// Node builds it (the hash is trimmed again before its `^`).
+pub fn revision(value: &str) -> Result<String, ScmFailure> {
     let rev = js_trim(value);
     if rev.is_empty() || utf16_len(rev) > 128 {
         return Err(refused("A git revision is required."));
     }
     if rev == "HEAD" || rev == ":0" {
-        return Ok(rev);
+        return Ok(rev.to_owned());
     }
-    commit_hash(rev.strip_suffix('^').unwrap_or(rev))?;
-    Ok(rev)
+    Ok(match rev.strip_suffix('^') {
+        Some(hash) => format!("{}^", commit_hash(hash)?),
+        None => commit_hash(rev)?.to_owned(),
+    })
 }
 
 /// `requiredGitResetMode`.

@@ -114,8 +114,13 @@ impl ThreadWorktrees for Cwds {
     }
 }
 
-pub(crate) fn service(log: Log) -> ScmHandle {
-    let scm = Scm::new(TestProcesses::shared(), mixdog_rt::testing::tokens().maintenance_io, std::env::temp_dir().join(format!("mixdog-scm-review-{}", std::process::id())));
+fn service(log: Log) -> ScmHandle {
+    service_over(TestProcesses::shared(), log)
+}
+
+/// The service with `processes` as the only way it can start a program.
+pub(crate) fn service_over(processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager>, log: Log) -> ScmHandle {
+    let scm = Scm::new(processes, mixdog_rt::testing::tokens().maintenance_io, std::env::temp_dir().join(format!("mixdog-scm-review-{}", std::process::id())));
     ScmHandle(ScmService::new(
         scm,
         Arc::new(MockScopedFeeds::new(MockLimits::default())),
