@@ -503,7 +503,7 @@ mod tests {
     #[tokio::test]
     async fn a_room_reset_archives_the_log_and_empties_a_member_keeping_nothing() {
         let clears = Arc::new(Clears::default());
-        let host = SessionRoomHost::new(Arc::new(Catalog), clears.clone(), Arc::new(|| {}));
+        let host = SessionRoomHost::new(Arc::new(Catalog), clears.clone(), Arc::new(|| Box::pin(async { Ok(()) })));
         let archived = host.start_over("room_log").await.unwrap().expect("the log had a conversation to keep");
         assert!(archived.starts_with("sess_"));
         assert_eq!(clears.0.lock().unwrap()[0], ("room_log".to_owned(), archived.clone()));

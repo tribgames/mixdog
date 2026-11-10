@@ -445,7 +445,9 @@ mod tests {
         async fn delete_sessions(&self, _: &[String]) -> usize {
             0
         }
-        async fn republish_catalog(&self) {}
+        async fn republish_catalog(&self) -> Result<(), RoomError> {
+            Ok(())
+        }
         async fn start_over(&self, id: &str) -> Result<Option<String>, RoomError> {
             self.calls.lock().unwrap().push(("startOver".into(), id.into()));
             match &self.start_over {
@@ -583,6 +585,12 @@ mod tests {
             self.began.store(true, std::sync::atomic::Ordering::SeqCst);
             let open = self.open.lock().unwrap().take();
             open.expect("one publish").await.expect("the test opens the gate")
+        }
+        async fn start_over(&self, _: &str) -> Result<Option<String>, RoomError> {
+            Ok(None)
+        }
+        async fn reset_member(&self, _: &str) -> Result<(), RoomError> {
+            Ok(())
         }
     }
 
