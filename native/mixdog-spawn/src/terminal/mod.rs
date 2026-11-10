@@ -733,7 +733,10 @@ impl Claims {
     }
 }
 
-/// Input a tab's queue was full for (see [`TerminalTabs::write`]).
+/// Input a tab's queue was full for (see [`TerminalTabs::write`]). One per connection at most: the notification that made it pauses its
+/// connection's reader until it is written, so what a connection can leave here is one message, bounded by the transport's frame limit.
+/// Node had no bound (node-pty queues whatever `pty.write` is given, so a phone typing faster than the shell reads grew the desktop's
+/// memory without end); here the queue's capacity and that one paused message are the most a connection holds.
 pub struct PendingInput {
     manager: LocalProcessManager,
     handle: ProcessHandle,
@@ -1348,12 +1351,11 @@ impl TerminalTabs {
 
     pub fn dispose_all(&self) {
         self.disposed.store(true, Ordering::Release);
-        let tabs = self.all_tabs();
-        self.table().clear();
-        for tab in tabs {
-            let _gate = self.claims.gate(&tab.id);
-            self.dispose_tab(&tab);
+        // Each tab goes as a single dispose does, its removal under its gate, so no claim or owner read sees it half gone.
+        for tab in self.all_tabs() {
+            self.dispose(&tab.id);
         }
+        self.table().clear();
     }
 }
 

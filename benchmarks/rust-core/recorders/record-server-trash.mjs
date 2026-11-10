@@ -8,6 +8,7 @@
 //   node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-server-trash.mjs --tree <git archive of b6f10295a with node_modules>
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
@@ -21,6 +22,8 @@ const tree = resolveTree(parseArgs());
 const base = mkdtempSync(join(realpathSync(tmpdir()), 'trash-'));
 const root = join(base, 'proj');
 const trash = join(base, 'data', 'Trash');
+// The trash of a data folder that is a file (the unavailable case).
+const blocked = join(base, 'not-a-folder', 'data', 'Trash');
 mkdirSync(join(root, 'sub'), { recursive: true });
 process.env.XDG_DATA_HOME = join(base, 'data');
 
@@ -35,7 +38,7 @@ const ops = createServerFileOperations({ userDataPath: join(base, 'user-data'), 
 // Each folder as is and as a JSON string body (an answer is tokenized in its JSON text).
 const inJson = (text) => JSON.stringify(text).slice(1, -1);
 const token = (text) =>
-  [[encodeURI(root), '{rootUri}'], [inJson(trash), '{trash}'], [trash, '{trash}'], [inJson(root), '{root}'], [root, '{root}']].reduce((out, [folder, name]) => out.replaceAll(folder, name), text);
+  [[inJson(blocked), '{blockedTrash}'], [encodeURI(root), '{rootUri}'], [inJson(trash), '{trash}'], [trash, '{trash}'], [inJson(root), '{root}'], [root, '{root}']].reduce((out, [folder, name]) => out.replaceAll(folder, name), text);
 const run = async (args) => {
   try {
     return { result: JSON.parse(token(JSON.stringify(await ops.invoke('serverTrashEntry', args)))) };
@@ -63,6 +66,27 @@ writeFileSync(join(root, 'sub', 'inner.txt'), 'x');
 steps.push({ op: 'delete', rel: 'sub', answer: await run([root, 'sub', true]) });
 steps.push({ op: 'delete', rel: '', answer: await run([root, '', true]) });
 steps.push({ op: 'trash', rel: 'missing.txt', at: instant, answer: await run([root, 'missing.txt', false]), info: null });
+// A trash that cannot be made (its data folder is a file): unavailable, and a move to it is refused with TRASH_UNAVAILABLE.
+writeFileSync(join(base, 'not-a-folder'), '');
+process.env.XDG_DATA_HOME = join(base, 'not-a-folder', 'data');
+writeFileSync(join(root, 'kept.txt'), 'kept');
+steps.push({ op: 'info', home: 'blocked', answer: JSON.parse(token(JSON.stringify(await ops.invoke('serverTrashInfo', [root])))) });
+steps.push({ op: 'trash', home: 'blocked', rel: 'kept.txt', at: instant, answer: await run([root, 'kept.txt', false]), info: null });
+process.env.XDG_DATA_HOME = join(base, 'data');
+// A permanent delete of a folder whose child another process holds open without delete sharing: the failure names the call and the
+// child (`node:internal/fs/rimraf`). The holder says `held` once the file is open and is ended after the step.
+mkdirSync(join(root, 'locked'));
+writeFileSync(join(root, 'locked', 'child.txt'), 'held');
+const holder = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+  `$f=[IO.File]::Open('${join(root, 'locked', 'child.txt')}','Open','Read','None'); 'held'; [Console]::In.ReadLine() | Out-Null; $f.Close()`], { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true });
+await new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error('the holder did not open the child within 60000 ms')), 60_000);
+  holder.stdout.setEncoding('utf8').on('data', (text) => text.includes('held') && (clearTimeout(timer), resolve()));
+  holder.once('exit', (code) => (clearTimeout(timer), reject(new Error(`the holder exited (${code}) before it held the child`))));
+});
+steps.push({ op: 'delete', held: 'locked/child.txt', rel: 'locked', answer: await run([root, 'locked', true]) });
+holder.stdin.end('\n');
+await new Promise((resolve) => holder.once('exit', resolve));
 
 const out = stageSet(FIXTURES);
 writeJson(join(out, 'golden.json'), {

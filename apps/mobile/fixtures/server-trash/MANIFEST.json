@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 3013,
+      "bytes": 3736,
       "path": "golden.json",
-      "sha256": "a5b10203ff6553de79af39acbd384ce8ee09b85b6648e670db8f9d9693f3da99"
+      "sha256": "c4d7479c70f138a332c36df238fe600072a31a5bf85a5afb13e9994371395698"
     }
   ],
   "product": {
@@ -27,7 +27,7 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-server-trash.mjs",
   "set": "server-trash",
-  "steps": 10,
-  "totalBytes": 3013,
+  "steps": 13,
+  "totalBytes": 3736,
   "zone": "America/New_York"
 }

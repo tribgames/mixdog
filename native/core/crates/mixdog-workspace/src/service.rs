@@ -482,11 +482,16 @@ impl WorkspaceService {
     }
 
     fn unwatch(&self, id: &str) {
+        self.forget_watch(id);
+        self.watcher.unwatch(id);
+    }
+
+    /// The watch's routing and feed, without the OS watch.
+    fn forget_watch(&self, id: &str) {
         self.router.fs.lock().expect("fs watches").remove(id);
         if let Some(owned) = self.watches.lock().expect("watches").remove(id) {
             owned.publisher.close();
         }
-        self.watcher.unwatch(id);
     }
 
     fn map_error(&self, req: &CoreRequest, error: WsError) -> CoreError {
@@ -858,7 +863,14 @@ impl WorkspaceService {
                 let id = s(params, "watchId")?;
                 let owned = self.watches.lock().expect("watches").get(id).is_some_and(|w| w.connection == Self::owner(req));
                 if owned {
-                    self.unwatch(id);
+                    self.forget_watch(id);
+                    // Ending the OS watch closes its handle, which a path that does not answer can hold: on the lane, not here.
+                    let (watcher, watch_id) = (self.watcher.clone(), id.to_owned());
+                    run_fallible(self.lanes.interactive, &cancel, move || {
+                        watcher.unwatch(&watch_id);
+                        Ok(())
+                    })
+                    .await?;
                 }
                 value(json!({}))
             }

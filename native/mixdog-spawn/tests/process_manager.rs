@@ -17,6 +17,7 @@ use mixdog_core_api::domain::process::ProcessEvent;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::process::ProcessQueue;
 use mixdog_core_api::domain::process::PtySize;
+use mixdog_core_api::domain::process::SpawnRequest;
 use mixdog_spawn::ProcessConfig;
 use mixdog_spawn::tasks::TaskOutcome;
 use mixdog_spawn::tasks::TaskStatus;
@@ -558,4 +559,21 @@ async fn one_processes_exit_never_waits_for_anothers_output() {
     assert!(t.elapsed() < Duration::from_secs(4), "quick processes waited {:?}", t.elapsed());
     assert!(m.info(&slow).unwrap().exit.is_none(), "the slow process is still running");
     m.kill(&slow).unwrap();
+}
+
+/// Input larger than the whole input queue is written in pieces, in order, instead of being refused for its size (Node's `pty.write`
+/// takes any length): `sort` reads 64 lines through a queue of 16 bytes and prints them all.
+#[tokio::test(flavor = "multi_thread")]
+async fn input_larger_than_the_queue_is_written_in_pieces() {
+    let m = manager_with(ProcessConfig { input_queue_bytes: 16, ..ProcessConfig::default() });
+    let h = handle("big-input");
+    m.spawn(SpawnRequest { stdin_piped: true, ..request(&h, CommandSpec::Argv { program: "sort".into(), args: vec![] }) }).await.unwrap();
+    let lines: Vec<String> = (0..64).map(|n| format!("line {n:02}")).collect();
+    let text = lines.iter().map(|line| format!("{line}\n")).collect::<String>();
+    assert!(text.len() > 16 * 4);
+    tokio::time::timeout(WAIT, m.write_input_wait(&h, text.into_bytes())).await.expect("the input was written within the deadline").unwrap();
+    m.close_stdin(&h).unwrap();
+    let (output, _) = collect(&m, &h).await;
+    let got: Vec<String> = String::from_utf8_lossy(&output).lines().map(str::to_owned).collect();
+    assert_eq!(got, lines);
 }

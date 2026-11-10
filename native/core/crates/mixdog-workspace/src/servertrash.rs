@@ -95,6 +95,68 @@ fn encode_uri(text: &str) -> String {
     out
 }
 
+/// Node's `rm(target, { recursive: true })` (`node:internal/fs/rimraf`, Node 22.20, no retries): the same calls in the same order, so a
+/// failure names the call and the path that failed (`unlink '<child>'`, `rmdir '<dir>'`, `scandir '<dir>'`). A link is removed, never
+/// what it points at; a path that is already gone is no failure.
+fn rimraf(path: &Path) -> WsResult<()> {
+    use crate::nodeerr::code_of;
+    let meta = match std::fs::symlink_metadata(path) {
+        Err(error) if code_of(&error) == "ENOENT" => return Ok(()),
+        Err(error) if cfg!(windows) && code_of(&error) == "EPERM" => return fix_win_eperm(path, io_error(&error, "lstat", path)),
+        other => other.ok(),
+    };
+    if meta.is_some_and(|meta| meta.is_dir()) {
+        return rimraf_dir(path, None);
+    }
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if code_of(&error) == "ENOENT" => Ok(()),
+        Err(error) if code_of(&error) == "EISDIR" => rimraf_dir(path, Some(io_error(&error, "unlink", path))),
+        Err(error) if code_of(&error) == "EPERM" => {
+            let original = io_error(&error, "unlink", path);
+            if cfg!(windows) { fix_win_eperm(path, original) } else { rimraf_dir(path, Some(original)) }
+        }
+        Err(error) => Err(io_error(&error, "unlink", path)),
+    }
+}
+
+/// `fixWinEPERM`: clear the read-only attribute (`chmod 0o666`) and try once more; what fails then is the original error, or the unlink.
+fn fix_win_eperm(path: &Path, original: WsError) -> WsResult<()> {
+    use crate::nodeerr::code_of;
+    let writable = std::fs::metadata(path).and_then(|meta| {
+        let mut permissions = meta.permissions();
+        #[allow(clippy::permissions_set_readonly_false, reason = "Node's chmod 0o666")]
+        permissions.set_readonly(false);
+        std::fs::set_permissions(path, permissions)
+    });
+    if let Err(error) = writable {
+        return if code_of(&error) == "ENOENT" { Ok(()) } else { Err(original) };
+    }
+    match std::fs::metadata(path) {
+        Err(error) => if code_of(&error) == "ENOENT" { Ok(()) } else { Err(original) },
+        Ok(meta) if meta.is_dir() => rimraf_dir(path, Some(original)),
+        Ok(_) => std::fs::remove_file(path).map_err(|error| io_error(&error, "unlink", path)),
+    }
+}
+
+/// `_rmdir`, then `_rmchildren` when the folder is not empty.
+fn rimraf_dir(path: &Path, original: Option<WsError>) -> WsResult<()> {
+    use crate::nodeerr::code_of;
+    match std::fs::remove_dir(path) {
+        Ok(()) => Ok(()),
+        Err(error) if matches!(code_of(&error), "ENOTEMPTY" | "EEXIST" | "EPERM") => {
+            let children = std::fs::read_dir(path).map_err(|error| io_error(&error, "scandir", path))?;
+            for child in children {
+                let child = child.map_err(|error| io_error(&error, "scandir", path))?;
+                rimraf(&child.path())?;
+            }
+            std::fs::remove_dir(path).map_err(|error| io_error(&error, "rmdir", path))
+        }
+        Err(error) if code_of(&error) == "ENOTDIR" => Err(original.unwrap_or_else(|| io_error(&error, "rmdir", path))),
+        Err(error) => Err(io_error(&error, "rmdir", path)),
+    }
+}
+
 pub fn entry(root: &Path, rel: &str, permanent: bool) -> WsResult<Value> {
     let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
     entry_in(&trash_home(), root, rel, permanent, now_ms)
@@ -108,9 +170,7 @@ pub fn entry_in(home: &Path, root: &Path, rel: &str, permanent: bool, now_ms: i6
     }
     std::fs::metadata(&target).map_err(|error| io_error(&error, "stat", &target))?;
     if permanent {
-        // Node's `rm(target, { recursive: true })`: a link is removed, never what it points at.
-        let removed = if std::fs::symlink_metadata(&target)?.is_dir() { std::fs::remove_dir_all(&target) } else { std::fs::remove_file(&target) };
-        removed.map_err(|error| io_error(&error, "rm", &target))?;
+        rimraf(&target)?;
         return Ok(json!({ "mode": "deleted" }));
     }
     if info_in(home, root)["available"] != Value::Bool(true) {
@@ -146,6 +206,8 @@ mod tests {
 
     /// Node's server trash, step by step (apps/mobile/fixtures/server-trash/golden.json, recorded from b6f10295a with XDG_DATA_HOME and TZ
     /// set): the answers, the `.trashinfo` each trash wrote (encodeURI'd path, local-time date), and the refusals.
+    /// The recording is of a Windows host (its paths, and a child held open without delete sharing), so it is replayed there.
+    #[cfg(windows)]
     #[test]
     fn the_server_trash_answers_and_writes_what_node_did() {
         let golden: Value = serde_json::from_str(include_str!("../../../../../apps/mobile/fixtures/server-trash/golden.json")).unwrap();
@@ -154,6 +216,9 @@ mod tests {
         let base = std::fs::canonicalize(base.path()).unwrap();
         let base = PathBuf::from(base.to_string_lossy().trim_start_matches(r"\\?\"));
         let (root, home) = (base.join("proj"), base.join("data").join("Trash"));
+        // The data folder of the unavailable case is a file.
+        std::fs::write(base.join("not-a-folder"), "").unwrap();
+        let blocked = base.join("not-a-folder").join("data").join("Trash");
         std::fs::create_dir_all(root.join("sub")).unwrap();
         let text = |path: &Path| path.to_string_lossy().into_owned();
         let fill = |template: &str| template.replace("{rootUri}", &encode_uri(&text(&root))).replace("{trash}", &text(&home)).replace("{root}", &text(&root));
@@ -163,26 +228,40 @@ mod tests {
             quoted[1..quoted.len() - 1].to_owned()
         };
         let fill_value = |value: &Value| -> Value {
-            let json = serde_json::to_string(value).unwrap().replace("{trash}", &in_json(&home)).replace("{root}", &in_json(&root));
+            let json = serde_json::to_string(value)
+                .unwrap()
+                .replace("{blockedTrash}", &in_json(&blocked))
+                .replace("{trash}", &in_json(&home))
+                .replace("{root}", &in_json(&root));
             serde_json::from_str(&json).unwrap()
         };
         mixdog_js::time::with_local_zone(zone, || {
             let mut trashed_again = std::collections::HashMap::<String, u32>::new();
             for (at, step) in golden["steps"].as_array().unwrap().iter().enumerate() {
                 let rel = step["rel"].as_str().unwrap_or_default();
+                let trash_home = if step["home"] == "blocked" { &blocked } else { &home };
+                // The child Node's run held open from another process, held here without delete sharing for the step.
+                let mut _held = None;
                 let got: Result<Value, WsError> = match step["op"].as_str().unwrap() {
-                    "info" => Ok(info_in(&home, &root)),
+                    "info" => Ok(info_in(trash_home, &root)),
                     "trash" => {
                         if rel != "missing.txt" {
                             std::fs::write(root.join(rel), rel).unwrap();
                         }
-                        entry_in(&home, &root, rel, false, step["at"].as_i64().unwrap())
+                        entry_in(trash_home, &root, rel, false, step["at"].as_i64().unwrap())
                     }
                     "delete" => {
                         if rel == "sub" {
                             std::fs::write(root.join("sub").join("inner.txt"), "x").unwrap();
                         }
-                        entry_in(&home, &root, rel, true, 0)
+                        if let Some(held) = step["held"].as_str() {
+                            use std::os::windows::fs::OpenOptionsExt;
+                            let child = root.join(held.replace('/', "\\"));
+                            std::fs::create_dir_all(child.parent().unwrap()).unwrap();
+                            std::fs::write(&child, "held").unwrap();
+                            _held = Some(std::fs::OpenOptions::new().read(true).share_mode(0).open(&child).unwrap());
+                        }
+                        entry_in(trash_home, &root, rel, true, 0)
                     }
                     other => panic!("unknown step {other}"),
                 };

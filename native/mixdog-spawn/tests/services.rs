@@ -412,6 +412,25 @@ async fn a_dispose_is_answered_after_the_activity_it_ended_is_published() {
     tokio::time::timeout(EVENT_DEADLINE, reply).await.expect("the dispose was never answered after the tab's end was published").unwrap();
     assert!(keys().is_empty(), "the tab's end was not published before the reply: {:?}", keys());
 }
+/// The dispose's hold on the tab's feed (the killed shell's last output and exit line wait behind the answer, golden.json trace.order) is
+/// handed to the request's `after_answer`, which the server releases once it has queued the answer: when the call returns, the hold still
+/// stands, and it ends with the release.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dispose_keeps_its_feed_hold_until_the_answer_is_queued() {
+    let manager = manager();
+    let feeds = ProcessFeeds::new(manager.clone(), scoped());
+    let publisher = Arc::new(SectionLog::default());
+    let service = TerminalService::new(manager, feeds, publisher, TerminalServiceConfig::default());
+    let cwd = temp_dir().as_path().to_string_lossy().into_owned();
+    service.call(request("terminal/ensure", json!({ "tabId": "term_hold", "options": { "cwd": cwd } }), 1)).await.unwrap();
+    let dispose = request("terminal/dispose", json!({ "tabId": "term_hold" }), 1);
+    let after = dispose.ctx.after_answer.clone();
+    service.call(dispose).await.unwrap();
+    assert_eq!(format!("{after:?}"), "AfterAnswer(1)", "the feed hold outlives the call until the answer is queued");
+    after.release();
+    assert_eq!(format!("{after:?}"), "AfterAnswer(0)");
+}
+
 /// Node's `termActivity` walked its tab map, so the tabs came in creation order, not sorted by id.
 #[tokio::test(flavor = "multi_thread")]
 async fn terminal_activity_lists_tabs_in_creation_order() {

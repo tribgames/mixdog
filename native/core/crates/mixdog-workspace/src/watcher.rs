@@ -125,11 +125,18 @@ fn watch_failure(error: &notify::Error, path: &Path) -> WsError {
             return crate::nodeerr::io_error(&open, "watch", path);
         }
     }
-    match &error.kind {
+    let failure = match &error.kind {
         notify::ErrorKind::Io(io) => crate::nodeerr::io_error(io, "watch", path),
         notify::ErrorKind::PathNotFound => crate::nodeerr::io_error(&std::io::ErrorKind::NotFound.into(), "watch", path),
+        // The inotify watch limit: libuv's ENOSPC.
+        notify::ErrorKind::MaxFilesWatch => WsError::coded("ENOSPC", String::new()),
         _ => WsError::new(Reason::Io, format!("Cannot watch {}: {error}", path.display())),
+    };
+    // Node names the watch limit in words of its own (`node:internal/fs/watchers` FSWatcher.prototype[kFSWatchStart], Node 22.20).
+    if failure.reason == Reason::Coded("ENOSPC") {
+        return WsError::coded("ENOSPC", format!("ENOSPC: System limit for number of file watchers reached, watch '{}'", path.display()));
     }
+    failure
 }
 
 fn classify(kind: &EventKind) -> ChangeKind {
@@ -351,6 +358,16 @@ fn run(rx: Receiver<Message>, state: Arc<Mutex<State>>, sink: Arc<dyn ChangeSink
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The watcher limit (inotify's `max_user_watches`) is answered as Node words it: libuv's ENOSPC with Node's own text in place of
+    /// "no space left on device" (`node:internal/fs/watchers` FSWatcher.prototype[kFSWatchStart], Node 22.20).
+    #[test]
+    fn a_watch_over_the_watcher_limit_says_what_node_says() {
+        let dir = tempfile::tempdir().unwrap();
+        let error = watch_failure(&notify::Error::new(notify::ErrorKind::MaxFilesWatch), dir.path());
+        assert_eq!(error.reason, Reason::Coded("ENOSPC"));
+        assert_eq!(error.message, format!("ENOSPC: System limit for number of file watchers reached, watch '{}'", dir.path().display()));
+    }
     use std::sync::mpsc;
 
     struct Collect(Mutex<mpsc::Sender<(String, Vec<String>, ChangeKind)>>);
