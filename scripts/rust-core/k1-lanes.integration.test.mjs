@@ -5,9 +5,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { runTree } from './lib/process-tree.mjs';
-import { BACKEND_INSTALLERS, LANES, installersIn, isInstalledBy, selectedTests } from './k1-lanes.mjs';
+import { BACKEND_INSTALLERS, LANES, installersIn, isInstalledBy, lanesFixtures, selectedTests } from './k1-lanes.mjs';
 
 const LANES_CLI = fileURLToPath(new URL('./k1-lanes.mjs', import.meta.url));
 const runCli = (...args) => runTree(process.execPath, [LANES_CLI, ...args], { label: 'k1-lanes ', deadlineMs: 3_600_000 });
@@ -53,3 +54,9 @@ for (const pkg of [...new Set(BACKEND_INSTALLERS.map(PACKAGE_OF))]) {
     }
   });
 }
+// The files k1-lanes.test.mjs runs on are what cargo produces: a fresh run is compared with each, byte for byte.
+test('recorded/ equals a fresh cargo run (regenerate with record-lanes-fixtures.mjs)', { timeout: 3_600_000 }, async () => {
+  for (const [name, fresh] of Object.entries(await lanesFixtures({ deadlineMs: 3_600_000 }))) {
+    assert.equal(readFileSync(new URL(`./recorded/${name}`, import.meta.url), 'utf8'), fresh, `recorded/${name} differs from cargo's output`);
+  }
+});

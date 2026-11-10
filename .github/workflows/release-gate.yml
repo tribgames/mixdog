@@ -897,7 +897,7 @@ jobs:
           cargo build --release --locked --manifest-path native/core/Cargo.toml -p mixdog-cli --bin mixdogd
           node scripts/rust-core/smoke-mixdogd.mjs --mixdogd native/core/target/release/mixdogd
       - name: Check that a stop past its deadline ends the core it started, and the smoke's verdicts
-        # One file at a time: two cores started together fail in pg_ctl (the memory stack's Postgres). The two files fail, not skip, when MIXDOGD_BIN is unset (MIXDOG_TESTS_WITHOUT_CORE=1 is the only skip, and no lane sets it).
+        # One file at a time: a core starts its Postgres at boot and picks the first free port from 55432 by binding and releasing it (memory/pg/cluster.rs free_port), so two cores booting together can pick the same port and one fails in pg_ctl. A core only ever connects to the port in its own data directory's postmaster.pid, never to another Postgres. Re-check the flag once the branch that defers Postgres to first memory use (rs-boot-time) is in. The two files fail, not skip, when MIXDOGD_BIN is unset (MIXDOG_TESTS_WITHOUT_CORE=1 is the only skip, and no lane sets it).
         env:
           MIXDOGD_BIN: native/core/target/release/mixdogd
         run: node --test --test-concurrency=1 scripts/rust-core/core-session.test.mjs scripts/rust-core/smoke-mixdogd.test.mjs

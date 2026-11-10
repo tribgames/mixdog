@@ -1,6 +1,5 @@
-// Test support: identify a process by its pid together with its start time, read when it was first seen, and prove a tree
-// gone by a structured query bounded by a deadline. Nothing here ends a process by a pid alone: a pid can be reused once its
-// process has exited, so a kill compares the start time first.
+// Test support: read-only process queries. A process is identified by its pid together with the start time read when it was
+// first seen, and nothing here signals a number: ending a process is the tree helper's work, on a handle it owns.
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { helperPath } from './process-tree.mjs';
@@ -46,44 +45,62 @@ export function startTimeOfSync(pid) {
     throw new Error(`process query failed: ${error.stderr?.trim() || error.message}`);
   }
 }
-/** Ends the process only while it is still the one first seen (same pid and start time); true when it was ended. */
-export async function endIfSame({ pid, start }) {
-  if (start === null) return false;
-  if (WINDOWS) {
-    return (await powershell(`${WIN_FIND(pid)}; if ([string]$p.StartTime.ToFileTimeUtc() -ne '${start}') { exit 0 }; $p.Kill(); if (-not $p.WaitForExit(30000)) { throw 'pid ${pid} did not exit within 30 s' }; 'ended'`, 60_000)) === 'ended';
-  }
-  if ((await startTimeOf(pid)) !== start) return false;
-  process.kill(pid, 'SIGKILL');
-  return true;
-}
-
-/** The pids carrying the tree mark (POSIX; the helper reads the same environment mark it ends by). */
-export async function treeMembers(mark) {
-  const { stdout } = await run(helperPath(), ['--members', mark], { timeout: 60_000 });
-  return stdout.split(/\r?\n/).filter(Boolean).map(Number);
-}
-
 /**
- * Rejects unless every member recorded when first seen is gone within `deadlineMs`. Windows: the exit of each recorded
- * process (a pid that now has another start time is gone too). POSIX: the mark sweep finds nothing, queried until it does.
- * @param {{ mark: string, members: { pid: number, start: string|null }[] }} tree
+ * Rejects unless every recorded process is gone within `deadlineMs`. A process is identified by pid together with the start
+ * time read when it was first seen, so a pid that now belongs to another process counts as gone. Windows: waits on the
+ * recorded process's own exit. POSIX: one query after the tree helper exited (it signals the group before it exits); a
+ * zombie is dead. Nothing here ends anything.
+ * @param {{ pid: number, start: string|null }[]} members
  */
-export async function assertTreeGone({ mark, members }, deadlineMs = 30_000) {
+export async function assertTreeGone(members, deadlineMs = 30_000) {
   const stop = Date.now() + deadlineMs;
-  if (WINDOWS) {
-    for (const { pid, start } of members) {
-      if (start === null) continue;
+  for (const { pid, start } of members) {
+    if (start === null) continue;
+    if (WINDOWS) {
       const left = Math.max(1, stop - Date.now());
       const answer = await powershell(`${WIN_FIND(pid)}; if ([string]$p.StartTime.ToFileTimeUtc() -ne '${start}') { exit 0 }; if ($p.WaitForExit(${left})) { exit 0 } else { 'running' }`, left + 30_000);
       if (answer === 'running') throw new Error(`pid ${pid} (start ${start}) is still running ${deadlineMs}ms after its tree was ended`);
+      continue;
     }
-    return;
+    const { stdout } = await run('ps', ['-o', 'stat=,lstart=', '-p', String(pid)]).catch((error) => {
+      if (error.code === 1) return { stdout: '' };
+      throw new Error(`process query failed: ${error.stderr?.trim() || error.message}`);
+    });
+    const row = stdout.trim();
+    if (row && !row.startsWith('Z') && row.slice(row.indexOf(' ')).trim() === start) throw new Error(`pid ${pid} (start ${start}) is still running after its tree was ended`);
   }
-  let left = await treeMembers(mark);
-  while (left.length && Date.now() < stop) left = await treeMembers(mark);
-  if (left.length) throw new Error(`processes marked ${mark} are still running ${deadlineMs}ms after their tree was ended: pid ${left.join(', ')}`);
 }
 
+/** The processes whose executable path (Windows) or command line (POSIX) lies inside `dir`: a read, nothing is signalled. */
+export async function processesInside(dir) {
+  if (WINDOWS) {
+    const wql = `${dir.replace(/[\\/]+$/, '')}\\`.replaceAll('\\', '\\\\').replaceAll("'", "\\'").replaceAll('%', '[%]').replaceAll('_', '[_]');
+    const stdout = await powershell(`Get-CimInstance Win32_Process -Filter "ExecutablePath LIKE '${wql.replaceAll('"', '""')}%'" | ForEach-Object { "$($_.ProcessId)\`t$($_.ExecutablePath)" }`, 60_000);
+    return stdout.split(/\r?\n/).filter(Boolean).map((line) => ({ pid: Number(line.split('\t')[0]), what: line.split('\t')[1] }));
+  }
+  const { stdout } = await run('ps', ['-A', '-ww', '-o', 'pid=,args='], { timeout: 60_000 });
+  return stdout.split('\n').map((line) => line.trim().match(/^(\d+) (.*)$/)).filter((m) => m && m[2].includes(dir)).map((m) => ({ pid: Number(m[1]), what: m[2] }));
+}
+
+/**
+ * A run's own directory must hold no running process once its core is stopped (what escaped the tree's group is the core's
+ * Postgres, which the core's own shutdown ends). Anything found is ended through the helper, which verifies it inside `dir`
+ * on the handle it terminates (never macOS: reported only) and then fails the run naming every one found.
+ */
+export async function assertNothingInside(dir) {
+  const found = await processesInside(dir);
+  if (!found.length) return;
+  const notes = [];
+  for (const { pid, what } of found) {
+    try {
+      await run(helperPath(), ['--end-inside', dir, String(pid)], { timeout: 60_000, windowsHide: true });
+      notes.push(`pid ${pid} (${what}) was left running and has been ended`);
+    } catch (error) {
+      notes.push(`pid ${pid} (${what}) is left running and was not ended (${error.code === 4 ? 'no verified handle on this system' : String(error.stderr).trim() || error.message})`);
+    }
+  }
+  throw new Error(`processes of the run outlived it inside ${dir}: ${notes.join('; ')}`);
+}
 /** The pids of the processes running the executable at `path`. */
 export async function pidsOfExecutable(path) {
   if (WINDOWS) {

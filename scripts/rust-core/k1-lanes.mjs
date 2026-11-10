@@ -80,6 +80,35 @@ export async function selectedTests(lane, filter = null, { pkg = LANES[lane].pkg
   return selected;
 }
 
+/**
+ * The files of `recorded/` as cargo produces them now, in the form they are stored: the lib test target of mixdog-tools
+ * (`cargo test -p mixdog-tools --locked --no-run --message-format=json`, its compiler-artifact message) and what its binary
+ * lists for `fs::tests`. Machine-specific paths become repository-relative ones and the executable a placeholder.
+ * `recorded/manifest.json` names each file's command; record-lanes-fixtures.mjs writes them, k1-lanes.integration.test.mjs
+ * compares them with a fresh run and fails on a difference.
+ * @returns {Promise<Record<string, string>>} file name -> content
+ */
+export async function lanesFixtures(options = {}) {
+  const build = await runChild('cargo', ['test', '-p', 'mixdog-tools', '--locked', '--no-run', '--message-format=json'], { label: 'recorded fixtures build', ...options });
+  if (build.status !== 0) throw new Error(`cargo test --no-run failed for the recorded fixtures\n${build.stderr}`);
+  const binary = testBinariesOf(build.stdout).find((message) => message.target.name === 'mixdog_tools' && message.target.kind.includes('lib'));
+  if (!binary) throw new Error('the build has no lib test binary of mixdog_tools');
+  const listed = await runChild(binary.executable, ['--list', 'fs::tests'], { label: 'recorded fixtures list', cwd: dirname(binary.manifest_path), ...options });
+  if (listed.status !== 0) throw new Error(`mixdog_tools --list fs::tests failed\n${listed.stderr}`);
+  const srcPath = relative(binary.target.src_path);
+  const artifact = {
+    reason: binary.reason,
+    package: binary.package_id.replace(/^.*#/, ''),
+    manifest_path: relative(binary.manifest_path),
+    target: { kind: binary.target.kind, name: binary.target.name, src_path: srcPath },
+    profile: { test: binary.profile.test },
+    executable: '<test binary>',
+  };
+  return {
+    'lanes_build_messages.jsonl': `${JSON.stringify(artifact)}\n`,
+    'lanes_list_fs_tests.json': `${JSON.stringify({ mixdog_tools: { src_path: srcPath, list: listed.stdout } }, null, 1)}\n`,
+  };
+}
 // Test files that install an executor backend of their own (`mixdog_rt::install` / `exec::boot` / `boot_executors`): the
 // backend is once per process, so such a test only passes in a process of its own (nextest, or one invocation per
 // test). A lane whose filter selects one of them next to any other test must run under nextest; k1-lanes.test.mjs

@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { assertTreeGone, endIfSame } from '../../scripts/rust-core/lib/process-probe.mjs';
+import { assertTreeGone } from '../../scripts/rust-core/lib/process-probe.mjs';
 import { runTree, spawnTree } from '../../scripts/rust-core/lib/process-tree.mjs';
 
 const PROBE = fileURLToPath(new URL('../../scripts/rust-core/lib/process-probe.mjs', import.meta.url));
@@ -150,19 +150,17 @@ test('at the deadline the exec and everything it started are gone, on a real pro
     const preload = join(dir, 'hang.cjs').replaceAll('\\', '/');
     writeFileSync(
       preload,
-      `delete process.env.NODE_OPTIONS;\nconst { startTimeOfSync } = require(${JSON.stringify(PROBE)});\nconst gc = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', detached: true });\nrequire('node:fs').writeFileSync(${JSON.stringify(join(dir, 'pids.json').replaceAll('\\', '/'))}, JSON.stringify([process.pid, gc.pid].map((pid) => ({ pid, start: startTimeOfSync(pid) }))));\nAtomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);\n`,
+      `delete process.env.NODE_OPTIONS;\nconst { startTimeOfSync } = require(${JSON.stringify(PROBE)});\nconst gc = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', detached: process.platform === 'win32' });\nrequire('node:fs').writeFileSync(${JSON.stringify(join(dir, 'pids.json').replaceAll('\\', '/'))}, JSON.stringify([process.pid, gc.pid].map((pid) => ({ pid, start: startTimeOfSync(pid) }))));\nAtomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);\n`,
     );
     process.env.NODE_OPTIONS = `--require "${preload}"`;
-    let mark;
-    await assert.rejects(execInputTokens({ bin: process.execPath, provider: 'x', model: 'm', text: 't', cwd: dir, deadlineMs: 30_000, spawnImpl: (...args) => { const child = spawnTree(...args); mark = child.treeMark; return child; } }), /did not finish within 30000ms and was ended/);
+    await assert.rejects(execInputTokens({ bin: process.execPath, provider: 'x', model: 'm', text: 't', cwd: dir, deadlineMs: 30_000, spawnImpl: spawnTree }), /did not finish within 30000ms and was ended/);
     const members = JSON.parse(readFileSync(join(dir, 'pids.json'), 'utf8'));
     assert.equal(members.length, 2);
-    await assertTreeGone({ mark, members });
+    await assertTreeGone(members);
   } finally {
     if (previous === undefined) delete process.env.NODE_OPTIONS;
     else process.env.NODE_OPTIONS = previous;
-    // What the test started is ended on every path, a failed assertion included: each recorded process only while it is still the one first seen.
-    if (existsSync(join(dir, 'pids.json'))) for (const record of JSON.parse(readFileSync(join(dir, 'pids.json'), 'utf8'))) await endIfSame(record);
+    // Nothing to end here: the tree belongs to the helper (job object / process group), which ended it with the run.
     rmSync(dir, { recursive: true, force: true });
   }
 });
