@@ -6,11 +6,12 @@
 //   record:  node benchmarks/rust-core/recorders/record-new-task-quit.mjs --tree <exact export of b6f10295a with node_modules> [--only <case>]
 //   replay:  node --import tsx ../../benchmarks/rust-core/recorders/record-new-task-quit.mjs --tree <same> --replay <mixdogd.exe built with --features crash-gates> [--only <case>]
 //            (cwd: apps/desktop)
-import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { FIXTURES_ROOT, REPO_ROOT, exactProductIdentity, parseArgs, resolveTree, stableStringify, writeSetManifest, writeText } from './lib/common.mjs';
+import { withJob } from './lib/process-job.mjs';
+import { recordingScripts } from './lib/recording-scripts.mjs';
 import { CASES, COMPARISON, caseRoot, numberFresh } from './new-task-quit/cases.mjs';
 
 const COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
@@ -40,54 +41,52 @@ async function inGroups(tasks) {
   return results;
 }
 
-/** Every process whose command line names `folder`, ended (a case's daemon, supervisor and git, if any outlived the case). */
-function endLeftovers(folder) {
-  const script = `$f = '${folder.replaceAll("'", "''")}'.ToLower(); $left = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.ToLower().Contains($f) -and $_.ProcessId -ne $PID }); foreach ($p in $left) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }; if ($left.Count) { Wait-Process -Id ($left.ProcessId) -Timeout 60 -ErrorAction SilentlyContinue }; $left | ForEach-Object { "$($_.ProcessId) $($_.Name)" }`;
-  return execFileSync('powershell', ['-NoProfile', '-Command', script], { encoding: 'utf8', timeout: 120_000 }).trim();
-}
-
 /** The service the daemon loads (`daemon.cjs`), built from the export by the app's own build script, and the `git` the daemons run first. */
-function prepare(run) {
+async function prepare(run) {
   const root = join(WORK, run);
   rmSync(root, { recursive: true, force: true });
   mkdirSync(join(root, 'bin'), { recursive: true });
   const serviceModule = join(root, 'svc', 'out', 'main', 'daemon.cjs');
-  execFileSync(process.execPath, [join(tree, 'apps', 'desktop', 'scripts', 'build-daemon.mjs'), `--outfile=${serviceModule}`], { cwd: join(tree, 'apps', 'desktop'), stdio: 'pipe', timeout: 600_000 });
   const shim = join(root, 'bin', 'git.exe');
   const source = join(here, 'new-task-quit', 'git-shim.cs');
-  execFileSync('powershell.exe', ['-NoProfile', '-Command', `Add-Type -TypeDefinition ([IO.File]::ReadAllText('${source}')) -OutputAssembly '${shim}' -OutputType ConsoleApplication`], { stdio: 'pipe', timeout: 300_000 });
+  await withJob(`${run}: prepare`, async (job) => {
+    const steps = [
+      ['build-daemon.mjs', process.execPath, [join(tree, 'apps', 'desktop', 'scripts', 'build-daemon.mjs'), `--outfile=${serviceModule}`], 600_000],
+      ['the git shim\'s compile', 'powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Add-Type -TypeDefinition ([IO.File]::ReadAllText('${source}')) -OutputAssembly '${shim}' -OutputType ConsoleApplication`], 300_000],
+    ];
+    for (const [what, command, args, ms] of steps) {
+      const done = await job.run(`${run}: ${what}`, command, args, { cwd: join(tree, 'apps', 'desktop'), ms });
+      if (done.timedOut || done.code !== 0) throw new Error(`${run}: ${what} ${done.timedOut ? `did not finish within ${ms} ms` : `exited ${done.code}`}:\n${done.stderr}${done.stdout}`);
+      if (done.left) throw new Error(`${run}: ${what} left ${done.left} process(es) running (ended)`);
+    }
+  });
   if (!existsSync(shim)) throw new Error(`the git shim was not compiled to ${shim}`);
   return { root, serviceModule, shimDir: join(root, 'bin'), service: sha256(readFileSync(serviceModule)) };
 }
 
-/** One case in its own process; a case that does not end within 240 s is ended with what it started. */
-function recordCase(prepared, c) {
+/** One case in its own process and job: a case that does not end within 240 s is ended with everything it started, and a case that left
+ *  a process running (its daemon, supervisor, git, database) fails. */
+async function recordCase(prepared, c) {
   // The same folder on every run and in the replay: the task's project path is part of the request (and of its receipt's signature).
   const root = caseRoot(c);
   const out = join(prepared.root, `${c.name}.json`);
   const spec = { ...c, root, shimDir: prepared.shimDir, supervisor: SUPERVISOR, serviceModule: prepared.serviceModule };
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['--import', 'tsx', join(here, 'new-task-quit', 'world.mjs'), tree, JSON.stringify(spec), out], { cwd: join(tree, 'apps', 'desktop'), stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
-    let stderr = '';
-    child.stderr.on('data', (chunk) => (stderr += chunk));
-    const timer = setTimeout(() => child.kill(), 240_000);
-    child.once('exit', (code) => {
-      clearTimeout(timer);
-      const left = endLeftovers(root);
-      let result = null;
-      try {
-        result = JSON.parse(readFileSync(out, 'utf8'));
-      } catch {}
-      if (code !== 0 || !result || result.failure) return reject(new Error(`${c.name}: exit ${code}${left ? `, left running: ${left}` : ''}\n${result?.failure ?? ''}\n${stderr.slice(-4000)}`));
-      if (left) return reject(new Error(`${c.name}: processes outlived the case: ${left}`));
-      rmSync(root, { recursive: true, force: true });
-      resolve(result.recorded.steps);
-    });
-  });
+  const done = await withJob(c.name, (job) =>
+    job.run(c.name, process.execPath, ['--import', 'tsx', join(here, 'new-task-quit', 'world.mjs'), tree, JSON.stringify(spec), out], { cwd: join(tree, 'apps', 'desktop'), ms: 240_000 }),
+  );
+  let result = null;
+  try {
+    result = JSON.parse(readFileSync(out, 'utf8'));
+  } catch {}
+  if (done.timedOut) throw new Error(`${c.name}: not done within 240 s (ended with the ${done.left} process(es) of its job)\n${done.stderr.slice(-4000)}`);
+  if (done.code !== 0 || !result || result.failure) throw new Error(`${c.name}: exit ${done.code}\n${result?.failure ?? ''}\n${done.stderr.slice(-4000)}`);
+  if (done.left) throw new Error(`${c.name}: ${done.left} process(es) outlived the case (ended with its job)`);
+  rmSync(root, { recursive: true, force: true });
+  return result.recorded.steps;
 }
 
 const recordAll = async (run) => {
-  const prepared = prepare(run);
+  const prepared = await prepare(run);
   const started = Date.now();
   const steps = await inGroups(chosen.map((c) => () => recordCase(prepared, c)));
   console.log(`${run}: ${chosen.length} cases in ${Math.round((Date.now() - started) / 1000)} s`);
@@ -132,6 +131,9 @@ if (!args.get('replay')) {
           notHeld: 'create, setWorkflow and setOrchestrationMode wait on nothing outside the daemon (cases.mjs): a quit there is the kill at that point',
         },
         comparison: COMPARISON,
+        recording: recordingScripts(['benchmarks/rust-core/recorders/record-new-task-quit.mjs', 'benchmarks/rust-core/recorders/new-task-quit/world.mjs', 'benchmarks/rust-core/recorders/new-task-quit/git-shim.cs']),
+        processes:
+          "each case runs in a Windows job of its own (lib/process-job.mjs): every process it starts is ended with it, and a case that leaves one running fails; the daemon's memory runtime is not started (MIXDOG_DAEMON_SKIP_MEMORY=1, daemon.mjs:215-218): no recorded step reaches memory",
       },
     });
   }

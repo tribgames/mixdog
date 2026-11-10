@@ -79,7 +79,7 @@ function prepareWorld(c, provider) {
   rmSync(root, { recursive: true, force: true });
   const project = join(root, 'ws', 'proj');
   mkdirSync(project, { recursive: true });
-  const git = (...args) => execFileSync(REAL_GIT, args, { cwd: project, env: { ...process.env, GIT_CEILING_DIRECTORIES: join(root, 'ws'), GIT_AUTHOR_NAME: 'rec', GIT_AUTHOR_EMAIL: 'rec@example.invalid', GIT_COMMITTER_NAME: 'rec', GIT_COMMITTER_EMAIL: 'rec@example.invalid', GIT_AUTHOR_DATE: '2026-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2026-01-01T00:00:00Z' }, stdio: 'pipe' });
+  const git = (...args) => execFileSync(REAL_GIT, args, { cwd: project, env: { ...process.env, GIT_CEILING_DIRECTORIES: join(root, 'ws'), GIT_AUTHOR_NAME: 'rec', GIT_AUTHOR_EMAIL: 'rec@example.invalid', GIT_COMMITTER_NAME: 'rec', GIT_COMMITTER_EMAIL: 'rec@example.invalid', GIT_AUTHOR_DATE: '2026-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2026-01-01T00:00:00Z' }, stdio: 'pipe', windowsHide: true, timeout: 60_000 });
   git('init', '-q', '-b', 'main');
   writeFileSync(join(project, 'README.md'), 'project\n');
   git('add', 'README.md');
