@@ -1,8 +1,10 @@
 // The phone's terminal and folder-watch script. One list of ops, played against Node's remote methods (the recorder) and against the
 // phone's protocol adapter over a real mixdogd (the replay); `play` returns the trace both must produce.
 //
-// A trace holds what the page can tell apart: each call's answer or its error text, and, per push kind, the events its listeners got,
-// in order. Pushes of different kinds race each other on a real shell, so each kind keeps its own list; every wait is on an event the
+// A trace is one ordered list for the phone's connection: each call's answer or its error text, each push the page's listeners got
+// (activity, size owner, folder, run) and each fire, lane switch and screen checkpoint, in the order the page saw them. Node publishes a
+// disposed tab's activity end, forwards it, and only then answers the dispose; an event that moves across an answer is a different trace.
+// Three Node recordings agreed on the whole order, so nothing is compared as an unordered group. Every wait is on an event the
 // product itself produces (`until`), never on a clock.
 //
 // Terminal text is compared as the screen the user sees (lib/phone-screen.mjs: the rows' text and attributes and the cursor, as xterm.js
@@ -282,7 +284,10 @@ const onScreen = (text, { after, prompt }) => {
  *         { activity: [], sizeOwner: [], folder: [], run: [], output: { [tabId]: string } }.
  */
 export async function play(script, driver) {
-  const steps = [];
+  // The one ordered trace of the phone connection: each call's answer, each lane's push (`record`, called by the driver as the page's
+  // listener gets it) and each fire, lane switch and snapshot, in the order the page saw them.
+  const { order } = driver.events();
+  const steps = order;
   const matches = (list, wanted) => list.filter((event) => JSON.stringify(event) === JSON.stringify(wanted)).length;
   for (const op of script.ops) {
     if (op.op === 'call') {
@@ -293,8 +298,9 @@ export async function play(script, driver) {
         steps.push({ call: op.name, params: op.params, error: error instanceof Error ? error.message : String(error) });
       }
     } else if (op.op === 'fire') {
-      driver.fire(op.name, op.params, op.from);
+      // The fire is the page's act, so it precedes the pushes it causes (Node's handler publishes inside the call).
       steps.push({ fire: op.name });
+      driver.fire(op.name, op.params, op.from);
     } else if (op.op === 'clock') {
       driver.clock();
     } else if (op.op === 'advance') {
@@ -314,18 +320,23 @@ export async function play(script, driver) {
     } else if (op.op === 'until') {
       const what =
         op.kind === 'screen' ? `the screen of ${op.tab} to show ${JSON.stringify(op)}` : `${op.count ?? 1} x ${op.kind} event ${JSON.stringify(op.event)}`;
-      await driver.waitFor(
-        (events) => (op.kind === 'screen' ? onScreen(events.output[op.tab] ?? '', op) : matches(events[op.kind], op.event) >= (op.count ?? 1)),
-        what
-      );
+      // A screen wait is a checkpoint of the trace: the screen the output drew at the moment the wait held.
+      let reached = null;
+      await driver.waitFor((events) => {
+        if (op.kind !== 'screen') return matches(events[op.kind], op.event) >= (op.count ?? 1);
+        const output = events.output[op.tab] ?? '';
+        if (!onScreen(output, op)) return false;
+        reached = screenOf(output);
+        return true;
+      }, what);
+      if (op.kind === 'screen') steps.push({ screen: op.tab, after: op.after, view: reached });
     }
   }
-  const events = driver.events();
-  return {
-    steps,
-    activity: events.activity,
-    sizeOwner: events.sizeOwner,
-    folder: events.folder,
-    run: events.run,
-  };
+  return { order: steps };
+}
+
+/** A push as the page's listener got it: kept by kind (what `until` reads) and in the connection's one order. */
+export function record(events, kind, event) {
+  events[kind].push(event);
+  events.order.push({ push: kind, event });
 }

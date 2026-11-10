@@ -17,10 +17,11 @@ async function trace({ replay, output }) {
       { op: 'snap', name: 's', tabs: ['t'] },
     ],
   };
+  const order = [];
   const driver = {
     call: async () => ({ id: 't', replay, sizeOwner: { cols: 1, rows: 1, own: true } }),
     waitFor: async () => {},
-    events: () => ({ activity: [], sizeOwner: [], folder: [], run: [], output: { t: output } }),
+    events: () => ({ activity: [], sizeOwner: [], folder: [], run: [], order, output: { t: output } }),
   };
   return JSON.parse(JSON.stringify(await play(script, driver)));
 }

@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import WebSocket from 'ws';
 import { DEADLINE_MS, bounded, openClockSocket, stopCore } from './remote-protocol-terminal-deadlines.mjs';
 import { createPhoneWorld, protocolDialect } from '../../../../benchmarks/rust-core/recorders/lib/phone-world.mjs';
-import { play, sizeClaimScript, terminalScript } from '../../../../benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs';
+import { play, record, sizeClaimScript, terminalScript } from '../../../../benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs';
 
 // The world replaces the timers with a virtual clock; this scenario's own deadline (a guard that fails a wait that never ends) is real.
 const realSetTimeout = globalThis.setTimeout;
@@ -118,7 +118,7 @@ async function main() {
   };
   const world = await createPhoneWorld({ tree: decodeURIComponent(repo.pathname.slice(1)), dialect, paired: true, registration: 200 });
 
-  const events = { activity: [], sizeOwner: [], folder: [], run: [], output: {} };
+  const events = { activity: [], sizeOwner: [], folder: [], run: [], order: [], output: {} };
   const watchers = new Set();
   const changed = () => {
     for (const check of [...watchers]) check();
@@ -141,22 +141,22 @@ async function main() {
   await world.waitFor((e) => e.ev === 'socket');
   await world.accept();
 
-  const push = (list) => (event) => {
-    list.push(event);
+  const push = (kind) => (event) => {
+    record(events, kind, event);
     changed();
   };
   const off = [];
-  off.push(api.subscribeTermSizeOwner(push(events.sizeOwner)));
-  off.push(api.onTerminalRunRequested(push(events.run)));
+  off.push(api.subscribeTermSizeOwner(push('sizeOwner')));
+  off.push(api.onTerminalRunRequested(push('run')));
   const lanes = {
     terminal: () => [
       api.subscribeTermData((event) => {
         events.output[event.id] = (events.output[event.id] ?? '') + event.data;
         changed();
       }),
-      api.subscribeTermActivity(push(events.activity)),
+      api.subscribeTermActivity(push('activity')),
     ],
-    files: () => [api.subscribeFolderChanges(push(events.folder))],
+    files: () => [api.subscribeFolderChanges(push('folder'))],
   };
   const held = new Map();
 

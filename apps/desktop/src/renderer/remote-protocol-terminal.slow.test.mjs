@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { compareTraces } from './remote-protocol-terminal-compare.mjs';
 
 const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-terminal/golden.json', import.meta.url), 'utf8')).trace;
 const runner = fileURLToPath(new URL('./remote-protocol-terminal.scenario.mjs', import.meta.url));
@@ -16,10 +17,5 @@ test('phone terminal adapter replays the Node recording over a real core', () =>
   const at = child.stdout.lastIndexOf('@@TRACE@@');
   assert.ok(child.status === 0 && at >= 0, `scenario failed (${child.status}):\n${child.stdout.slice(-1500)}\n${child.stderr.slice(-3000)}`);
   const got = JSON.parse(child.stdout.slice(at + '@@TRACE@@'.length));
-  assert.deepEqual(
-    got.steps.map((s) => s.call ?? s.fire),
-    golden.steps.map((s) => s.call ?? s.fire)
-  );
-  golden.steps.forEach((expected, i) => assert.deepEqual(got.steps[i], expected, `step ${i}`));
-  assert.deepEqual(got, golden);
+  compareTraces(got, golden);
 });
