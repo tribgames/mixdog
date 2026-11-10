@@ -192,6 +192,11 @@ impl Real {
     }
 }
 impl Real {
+    /// After ready: a data directory that already holds a PostgreSQL cluster starts it off the request path (Node's `startPostgresInBackground`).
+    pub fn open_memory_in_background(&self) {
+        self.memory.open_in_background();
+    }
+
     /// Mixy's heartbeat on its timers (daemon.mjs:1212, `startMixyHeartbeat`: first check after `FIRST_TICK`, then every `TICK`). Idempotent: a second call starts nothing.
     pub fn start_heartbeat(&self) {
         self.heartbeat_run.get_or_init(|| mixdog_services::bots::beat::start_mixy_heartbeat(self.heartbeat.clone(), mixdog_services::bots::beat::FIRST_TICK, mixdog_services::bots::beat::TICK));
@@ -1427,24 +1432,27 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             .map_err(|e| ComposeError::CatalogIndex(e.to_string()))?
     };
     // The bundled PostgreSQL runtime (downloaded first when the active one is missing or damaged, `ensureRuntime`), then the memory stack.
+    // Node installs the runtime inside the memory start (`supervisor.mjs:484`), which runs at the first memory use and never at daemon boot: so the install is handed to the
+    // stack as what it runs when the database is first opened, not awaited here (a fresh profile downloads about 22 MB and runs `initdb`).
     let pg_runtime = {
         use mixdog_services::memory::pg::runtime_install as pg;
-        pg::ensure_runtime(
-            &pg::InstallOptions {
-                data_dir: b.data_dir.clone(),
-                manifest: pg::Manifest::bundled().map_err(|e| ComposeError::MemoryRuntime(e.to_string()))?,
-                platform: pg::Platform::current(),
-                release_repositories: pg::repositories_env(|name| (b.env)(name)),
-                durability: b.tokens.durability_io,
-                bulk: b.tokens.cpu_bulk,
-                now: now_ms.clone(),
-                progress: None,
-            },
-            &b.cancel,
-        )
-        .await
-        .map_err(|e| ComposeError::MemoryRuntime(e.to_string()))?
-        .runtime_dir
+        let (data_dir, release_repositories, durability, bulk, now) = (b.data_dir.clone(), pg::repositories_env(|name| (b.env)(name)), b.tokens.durability_io, b.tokens.cpu_bulk, now_ms.clone());
+        mixdog_services::memory::boot::PgRuntimeSource::Install(Arc::new(move |cancel| {
+            let (data_dir, release_repositories, now) = (data_dir.clone(), release_repositories.clone(), now.clone());
+            Box::pin(async move {
+                let options = pg::InstallOptions {
+                    data_dir,
+                    manifest: pg::Manifest::bundled().map_err(|e| mixdog_services::memory::error::MemoryError::Runtime(e.to_string()))?,
+                    platform: pg::Platform::current(),
+                    release_repositories,
+                    durability,
+                    bulk,
+                    now,
+                    progress: None,
+                };
+                pg::ensure_runtime(&options, &cancel).await.map(|installed| installed.runtime_dir).map_err(|e| mixdog_services::memory::error::MemoryError::Runtime(e.to_string()))
+            })
+        }))
     };
     let store_threads = Arc::new(mixdog_core_session::session::StoreThreads::new(
         &b.data_dir,
@@ -1488,7 +1496,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     .await
     .map_err(|e| ComposeError::MemoryRuntime(e.to_string()))?;
     // Every later failure of this composition stops the stack, PostgreSQL last (`memoryRuntime.stop`, `daemon.mjs:377,383`); a composed core stops it in its own stop step.
-    let memory = Arc::new(memory);
     b.acquired.on_release("memory", {
         let (memory, log) = (memory.clone(), b.log.clone());
         async move {

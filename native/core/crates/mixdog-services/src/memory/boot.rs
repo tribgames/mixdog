@@ -12,6 +12,8 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
+use futures::future::BoxFuture;
+
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_js::to_number;
 use mixdog_rt::{DurabilityIo, LaneToken, MaintenanceIo, TaskClass};
@@ -53,8 +55,8 @@ const STOP_SECONDS: u64 = 15;
 /// What memory start reads from the host.
 pub struct MemoryBoot {
     pub data_dir: PathBuf,
-    /// The bundled PostgreSQL runtime (`bin/`, `lib/`, `share/`).
-    pub pg_runtime: PathBuf,
+    /// The bundled PostgreSQL runtime (`bin/`, `lib/`, `share/`), or what installs it at the first use.
+    pub pg_runtime: PgRuntimeSource,
     /// `None` where onnxruntime ships no binding: recall runs on its text lanes.
     pub embedder: Option<Arc<EmbeddingProvider>>,
     /// The main config's `embedding.provider`; part of the stored model identity.
@@ -162,9 +164,38 @@ pub(crate) async fn resolve_dims(data_dir: &Path, lane: DurabilityIo, identity: 
     Ok(dims)
 }
 
-/// A started memory runtime.
-pub struct MemoryStack {
+/// Where the PostgreSQL runtime comes from: an unpacked directory, or an install that runs when the database is first needed
+/// (Node's `ensureRuntime`, `supervisor.mjs:484`, runs inside the memory start, never at daemon boot).
+pub enum PgRuntimeSource {
+    Dir(PathBuf),
+    Install(Arc<dyn Fn(CancellationToken) -> BoxFuture<'static, Result<PathBuf>> + Send + Sync>),
+}
+
+/// What an opening produced: the running cluster and the two schemas' open handles.
+struct Opened {
     cluster: PgCluster,
+    memory_db: Db,
+    search_db: Db,
+}
+
+/// A memory runtime. Like Node's (`registerMemoryRuntimeLazy`, `daemon.mjs:202`) it costs nothing at construction:
+/// the runtime download, `initdb`, the postmaster, the schemas and the background work (transcript watcher, cycles,
+/// reindex, backfill) start at the first use of the database, or when [`MemoryStack::open_in_background`] finds a cluster already on disk.
+pub struct MemoryStack {
+    me: std::sync::Weak<MemoryStack>,
+    data_dir: PathBuf,
+    source: PgRuntimeSource,
+    identity: Value,
+    model_id: String,
+    embedder: Option<Arc<EmbeddingProvider>>,
+    lane: DurabilityIo,
+    processes: Processes,
+    /// Ends the opening in progress; cancelled by `stop`, and a child of the host's token.
+    cancel: CancellationToken,
+    opened: tokio::sync::OnceCell<Opened>,
+    stopped: std::sync::atomic::AtomicBool,
+    launched: std::sync::atomic::AtomicBool,
+    background: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     flags: RuntimeFlags,
     memory_db: Db,
     search_db: Db,
@@ -175,14 +206,17 @@ pub struct MemoryStack {
     embed_flush: Arc<RawEmbedFlush>,
     reindex: Arc<Reindex>,
     transcripts: Arc<TranscriptIngest>,
-    watcher: Option<TranscriptWatcher>,
+    watch: std::sync::Mutex<Option<TranscriptWatch>>,
+    watcher: std::sync::Mutex<Option<TranscriptWatcher>>,
     cycles: Option<CycleScheduler>,
+    backfill_boot: std::sync::Mutex<Option<BackfillBoot>>,
     backfill: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     backfill_cancel: CancellationToken,
 }
 
 impl MemoryStack {
-    pub async fn start(boot: MemoryBoot) -> Result<Self> {
+    /// Builds the stack over deferred database handles; nothing here touches PostgreSQL or the network.
+    pub async fn start(boot: MemoryBoot) -> Result<Arc<Self>> {
         let MemoryBoot { data_dir, pg_runtime, embedder, embedding_provider, flags, progress, sensitive, lane, maintenance, transcripts: watch, cycles, backfill, processes, cancel } = boot;
         let (model_id, dtype) = match &embedder {
             Some(provider) => (provider.model_id().to_owned(), provider.dtype().map(str::to_owned)),
@@ -190,72 +224,47 @@ impl MemoryStack {
         };
         let identity = config::identity(embedding_provider.as_deref(), &model_id, dtype.as_deref());
         let runtime = embedder.clone().map(|provider| MemoryRuntime::new(provider, flags, progress));
-        let dims = resolve_dims(&data_dir, lane, &identity, &model_id, runtime.as_deref()).await?;
-
-        let cluster = PgCluster::ensure(PgRuntime::new(pg_runtime), data_dir.join("pgdata"), DEFAULT_PORT, lane, processes, &cancel).await?;
-        // The postmaster is up: a failure from here to the end of the stack's construction stops it (Node's boot error goes through `shutdown`, whose memory stop ends
-        // PostgreSQL, `daemon.mjs:1347,377,383`), as `stop` does: a secondary process leaves the shared one running.
-        let (memory_db, search_db, search) = release_on_failure(
-            async {
-                let memory_db = Db::open(&cluster, Schema::Memory).await?;
-                ensure_memory_schema(&memory_db, dims, &identity).await?;
-                // Root vectors made under the older root text are replaced by the paced sweep below;
-                // an existing sweep keeps its progress.
-                start_root_embed_sweep(&memory_db).await?;
-                let search_db = Db::open(&cluster, Schema::SessionSearch).await?;
-                let search = SessionSearchIngest::new(SessionSearchDb::open(search_db.clone()).await?, sensitive.clone());
-                Ok::<_, MemoryError>((memory_db, search_db, search))
-            },
-            async {
-                if !flags.secondary {
-                    if let Err(error) = cluster.stop(Duration::from_secs(STOP_SECONDS)).await {
-                        tracing::warn!(error = %error.message(), "[pg-process] stopping PostgreSQL after a failed memory start");
-                    }
-                }
-            },
-        )
-        .await?;
-
-        let query: Option<Arc<dyn QueryEmbedder>> = embedder.clone().map(|provider| provider as Arc<dyn QueryEmbedder>);
-        let recall = Recall::new(RecallDeps {
-            db: memory_db.clone(),
-            clock: Arc::new(|| Clock { now_ms: chrono::Utc::now().timestamp_millis(), zone: mixdog_js::time::local_zone() }),
-            embedder: query,
-            session_cwd: None,
-            lane,
-            estimate_tokens: Arc::new(mixdog_js::token_estimate::estimate_tokens),
-            trace: None,
-        });
-        // One flusher per database, as Node keeps one cache state, prune clock and in-flight flush
-        // per db handle: session ingest, the reindex and the memory cycles share it.
-        let embed_flush = Arc::new(RawEmbedFlush::new(memory_db.clone(), embedder.clone()));
-        let ingest = SessionIngest::new(memory_db.clone(), embed_flush.clone(), None, system_now(), lane);
-        let memory = Arc::new(LocalMemory::new(memory_db.clone(), data_dir.clone(), recall, ingest, lane));
-
-        // First boot migrates existing core data; later boots reconcile a crash between a
-        // committed mutation and its file refresh. Not part of readiness.
-        let refresh = memory.clone();
-        mixdog_rt::spawn("services.memory.snapshot-boot", TaskClass::Work, async move {
-            refresh.refresh_snapshot("boot-migration").await;
-        });
-
-        // `_initStore`: the persisted transcript positions load once the store is open; then
-        // `_initRuntime` starts the transcript watcher (not in secondary mode: the primary
-        // ingests) before the reindex.
-        let transcripts = TranscriptIngest::new(memory_db.clone(), TranscriptIo { maintenance, durability: lane }, system_now());
-        transcripts.load_transcript_offsets().await;
-        let watcher = match watch {
-            Some(watch) if !flags.secondary => {
-                Some(start_transcript_watcher(watch.projects_root, transcripts.clone(), watch.folders, &watch.sink, watch.timer).await)
-            }
-            _ => None,
-        };
-        // The 60 s cycle tick starts unless this is a secondary process or the host left the
-        // cycles out (`MIXDOG_MEMORY_DISABLE_CYCLES`); the tick itself re-reads `cycles_enabled`
-        // (the recap switch), so recap can be turned on later.
-        let cycles = match cycles {
-            Some(cycles) if !flags.secondary => {
-                let scheduler = CycleScheduler::new(SchedulerDeps {
+        Ok(Arc::new_cyclic(|me: &std::sync::Weak<MemoryStack>| {
+            let deferred = |schema: Schema| {
+                let me = me.clone();
+                Db::deferred(
+                    schema,
+                    Arc::new(move || {
+                        let me = me.clone();
+                        Box::pin(async move {
+                            let stack = me.upgrade().ok_or_else(|| MemoryError::Runtime("the memory runtime is gone".to_owned()))?;
+                            let opened = stack.opened().await?;
+                            Ok(match schema {
+                                Schema::Memory => opened.memory_db.opened_pool(),
+                                Schema::SessionSearch => opened.search_db.opened_pool(),
+                            })
+                        })
+                    }),
+                )
+            };
+            let (memory_db, search_db) = (deferred(Schema::Memory), deferred(Schema::SessionSearch));
+            let search = SessionSearchIngest::new(SessionSearchDb::over(search_db.clone()), sensitive.clone());
+            let query: Option<Arc<dyn QueryEmbedder>> = embedder.clone().map(|provider| provider as Arc<dyn QueryEmbedder>);
+            let recall = Recall::new(RecallDeps {
+                db: memory_db.clone(),
+                clock: Arc::new(|| Clock { now_ms: chrono::Utc::now().timestamp_millis(), zone: mixdog_js::time::local_zone() }),
+                embedder: query,
+                session_cwd: None,
+                lane,
+                estimate_tokens: Arc::new(mixdog_js::token_estimate::estimate_tokens),
+                trace: None,
+            });
+            // One flusher per database, as Node keeps one cache state, prune clock and in-flight flush
+            // per db handle: session ingest, the reindex and the memory cycles share it.
+            let embed_flush = Arc::new(RawEmbedFlush::new(memory_db.clone(), embedder.clone()));
+            let ingest = SessionIngest::new(memory_db.clone(), embed_flush.clone(), None, system_now(), lane);
+            let memory = Arc::new(LocalMemory::new(memory_db.clone(), data_dir.clone(), recall, ingest, lane));
+            let transcripts = TranscriptIngest::new(memory_db.clone(), TranscriptIo { maintenance, durability: lane }, system_now());
+            // The 60 s cycle tick starts unless this is a secondary process or the host left the
+            // cycles out (`MIXDOG_MEMORY_DISABLE_CYCLES`); the tick itself re-reads `cycles_enabled`
+            // (the recap switch), so recap can be turned on later.
+            let cycles = match cycles {
+                Some(cycles) if !flags.secondary => Some(CycleScheduler::new(SchedulerDeps {
                     db: memory_db.clone(),
                     llm: cycles.llm,
                     embeddings: Arc::new(FlushEmbeddings(embed_flush.clone())),
@@ -264,16 +273,111 @@ impl MemoryStack {
                     lane: maintenance,
                     now: system_now(),
                     timer: cycles.timer,
-                });
-                scheduler.start_cycles().await;
-                Some(scheduler)
+                })),
+                _ => None,
+            };
+            Self {
+                me: me.clone(),
+                data_dir,
+                source: pg_runtime,
+                identity,
+                model_id,
+                embedder,
+                lane,
+                processes,
+                cancel: cancel.child_token(),
+                opened: tokio::sync::OnceCell::new(),
+                stopped: std::sync::atomic::AtomicBool::new(false),
+                launched: std::sync::atomic::AtomicBool::new(false),
+                background: std::sync::Mutex::new(None),
+                flags,
+                memory_db,
+                search_db,
+                memory,
+                search,
+                sensitive,
+                runtime,
+                embed_flush,
+                reindex: Reindex::new(),
+                transcripts,
+                watch: std::sync::Mutex::new(watch),
+                watcher: std::sync::Mutex::new(None),
+                cycles,
+                backfill_boot: std::sync::Mutex::new(backfill),
+                backfill: std::sync::Mutex::new(None),
+                backfill_cancel: CancellationToken::new(),
             }
-            _ => None,
+        }))
+    }
+
+    /// The opened database, opening it first when nobody has: the first use pays for the runtime install, `initdb`
+    /// and the postmaster. A failed opening is retried by the next use (Node's lazy singleton).
+    async fn opened(&self) -> Result<&Opened> {
+        let opened = self.opened.get_or_try_init(|| self.open()).await?;
+        if !self.launched.swap(true, std::sync::atomic::Ordering::SeqCst) && !self.stopped.load(std::sync::atomic::Ordering::SeqCst) {
+            if let Some(me) = self.me.upgrade() {
+                *self.background.lock().expect("background") = Some(mixdog_rt::spawn("services.memory.runtime-start", TaskClass::Work, async move { me.run_background().await }));
+            }
+        }
+        Ok(opened)
+    }
+
+    async fn open(&self) -> Result<Opened> {
+        if self.stopped.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(MemoryError::Runtime("the memory runtime is stopped".to_owned()));
+        }
+        let runtime_dir = match &self.source {
+            PgRuntimeSource::Dir(dir) => dir.clone(),
+            PgRuntimeSource::Install(install) => install(self.cancel.clone()).await?,
         };
-        let backfill_cancel = CancellationToken::new();
-        let backfill = backfill.map(|backfill| {
-            let (search, stop) = (search.clone(), backfill_cancel.clone());
-            mixdog_rt::spawn("services.memory.session-search-backfill", TaskClass::Work, async move {
+        let dims = resolve_dims(&self.data_dir, self.lane, &self.identity, &self.model_id, self.runtime.as_deref()).await?;
+        let cluster = PgCluster::ensure(PgRuntime::new(runtime_dir), self.data_dir.join("pgdata"), DEFAULT_PORT, self.lane, self.processes.clone(), &self.cancel).await?;
+        // The postmaster is up: a failure from here to the end of the opening stops it (Node's boot error goes through `shutdown`, whose memory stop ends
+        // PostgreSQL, `daemon.mjs:1347,377,383`), as `stop` does: a secondary process leaves the shared one running.
+        let (memory_db, search_db) = release_on_failure(
+            async {
+                let memory_db = Db::open(&cluster, Schema::Memory).await?;
+                ensure_memory_schema(&memory_db, dims, &self.identity).await?;
+                // Root vectors made under the older root text are replaced by the paced sweep;
+                // an existing sweep keeps its progress.
+                start_root_embed_sweep(&memory_db).await?;
+                let search_db = Db::open(&cluster, Schema::SessionSearch).await?;
+                SessionSearchDb::open(search_db.clone()).await?;
+                Ok::<_, MemoryError>((memory_db, search_db))
+            },
+            async {
+                if !self.flags.secondary {
+                    if let Err(error) = cluster.stop(Duration::from_secs(STOP_SECONDS)).await {
+                        tracing::warn!(error = %error.message(), "[pg-process] stopping PostgreSQL after a failed memory start");
+                    }
+                }
+            },
+        )
+        .await?;
+        Ok(Opened { cluster, memory_db, search_db })
+    }
+
+    /// What follows an opening (`_initStore`, `_initRuntime`): the snapshot refresh, the persisted transcript
+    /// positions, the transcript watcher (not in secondary mode: the primary ingests), the cycles, the backfill, the reindex.
+    async fn run_background(self: Arc<Self>) {
+        // First boot migrates existing core data; later boots reconcile a crash between a committed mutation and its file refresh.
+        let refresh = self.memory.clone();
+        mixdog_rt::spawn("services.memory.snapshot-boot", TaskClass::Work, async move {
+            refresh.refresh_snapshot("boot-migration").await;
+        });
+        self.transcripts.load_transcript_offsets().await;
+        let watch = self.watch.lock().expect("watch").take();
+        if let Some(watch) = watch.filter(|_| !self.flags.secondary) {
+            let started = start_transcript_watcher(watch.projects_root, self.transcripts.clone(), watch.folders, &watch.sink, watch.timer).await;
+            *self.watcher.lock().expect("watcher") = Some(started);
+        }
+        if let Some(cycles) = &self.cycles {
+            cycles.start_cycles().await;
+        }
+        let backfill = self.backfill_boot.lock().expect("backfill").take();
+        if let Some(backfill) = backfill {
+            let (search, stop) = (self.search.clone(), self.backfill_cancel.clone());
+            *self.backfill.lock().expect("backfill") = Some(mixdog_rt::spawn("services.memory.session-search-backfill", TaskClass::Work, async move {
                 tokio::select! {
                     () = stop.cancelled() => return,
                     () = wait(backfill.timer.as_ref(), BACKFILL_DELAY) => {}
@@ -281,14 +385,24 @@ impl MemoryStack {
                 if let Err(error) = search.backfill(backfill.stored.as_ref()).await {
                     tracing::warn!("session-search backfill failed: {}", error.message());
                 }
-            })
-        });
-        let reindex = Reindex::new();
-        if embedder.is_some() {
-            reindex.start(embed_flush.clone(), flags.secondary);
+            }));
         }
+        if self.embedder.is_some() {
+            self.reindex.start(self.embed_flush.clone(), self.flags.secondary);
+        }
+    }
 
-        Ok(Self { cluster, flags, memory_db, search_db, memory, search, sensitive, runtime, embed_flush, reindex, transcripts, watcher, cycles, backfill: std::sync::Mutex::new(backfill), backfill_cancel })
+    /// After the daemon is ready (`startPostgresInBackground`, `daemon.mjs:881`): a data directory that already holds a
+    /// cluster opens it off the request path; one with none starts nothing, so a fresh profile downloads and initialises nothing at boot.
+    pub fn open_in_background(self: &Arc<Self>) {
+        let stack = self.clone();
+        mixdog_rt::spawn("services.memory.open-existing", TaskClass::Work, async move {
+            if matches!(fsio::exists(stack.lane, &stack.data_dir.join("pgdata").join("PG_VERSION")).await, Ok(true))
+                && let Err(error) = stack.opened().await
+            {
+                tracing::warn!(error = %error.message(), "postgres background start failed");
+            }
+        });
     }
 
     /// The cycle scheduler (`awaitCycle1Run`, `startCycle1Run`, the health ledger); `None` in a
@@ -350,9 +464,23 @@ impl MemoryStack {
         self.memory.data_dir().to_owned()
     }
 
+    /// Whether an opening has completed (the postmaster of this stack is up).
+    pub fn is_open(&self) -> bool {
+        self.opened.initialized()
+    }
+
     /// `_stopRuntime`: background installs end, the pools drain, then the postmaster stops
-    /// (a secondary process leaves the shared one running).
+    /// (a secondary process leaves the shared one running). A stack nobody used has nothing to stop.
     pub async fn stop(&self) -> Result<()> {
+        self.stopped.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.cancel.cancel();
+        // An opening in flight is joined (it was cancelled, so it ends at once or has just finished); when there is none this initialiser fails and leaves the cell empty.
+        let opened = self.opened.get_or_try_init(|| async { Err::<Opened, _>(MemoryError::Runtime("the memory runtime is stopped".to_owned())) }).await.ok();
+        let background = self.background.lock().expect("background").take();
+        if let Some(background) = background {
+            background.abort();
+            let _ = background.await;
+        }
         // `_stopBackgroundWork`: the watcher stops arming, the reindex ends, then the ingests
         // still running finish and the offsets are written before the pools drain.
         // The backfill is a low-priority one-shot: it ends with the stack.
@@ -366,11 +494,12 @@ impl MemoryStack {
         if let Some(cycles) = &self.cycles {
             cycles.shutdown().await;
         }
-        if let Some(watcher) = &self.watcher {
+        let watcher = self.watcher.lock().expect("watcher").take();
+        if let Some(watcher) = &watcher {
             watcher.stop();
         }
         self.reindex.stop().await;
-        if let Some(watcher) = &self.watcher {
+        if let Some(watcher) = &watcher {
             if let Err(error) = watcher.finished().await {
                 tracing::warn!(%error, "[transcript-watch] shutdown");
             }
@@ -384,9 +513,9 @@ impl MemoryStack {
         }
         self.memory_db.close();
         self.search_db.close();
-        if self.flags.secondary {
-            return Ok(());
+        match opened {
+            Some(opened) if !self.flags.secondary => opened.cluster.stop(Duration::from_secs(STOP_SECONDS)).await,
+            _ => Ok(()),
         }
-        self.cluster.stop(Duration::from_secs(STOP_SECONDS)).await
     }
 }
