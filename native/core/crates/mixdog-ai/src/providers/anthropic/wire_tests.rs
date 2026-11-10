@@ -172,14 +172,6 @@ pub(crate) fn seen_of_sent(request: &WireRequest) -> Seen {
     Seen { method: request.method.clone(), url: request.url.clone(), content_encoding: content_encoding(&headers), compressed, headers, body }
 }
 
-/// The headers as a list of pairs with duplicates kept. Their order is not compared yet (a pending user decision shared
-/// with the OpenAI wire work), so both sides are put in one order first.
-pub(crate) fn header_pairs(headers: &[(String, String)]) -> Vec<(String, String)> {
-    let mut pairs = headers.to_vec();
-    pairs.sort();
-    pairs
-}
-
 /// The first path at which two parsed bodies differ.
 fn first_difference(want: &Value, got: &Value, path: &str) -> Option<String> {
     match (want, got) {
@@ -210,7 +202,9 @@ pub(crate) fn mismatch(want: &Seen, got: &Seen) -> Option<String> {
     if want.method != got.method || want.url != got.url {
         what.push(format!("request line: Node {} {} / Rust {} {}", want.method, want.url, got.method, got.url));
     }
-    let (node_headers, rust_headers) = (header_pairs(&want.headers), header_pairs(&got.headers));
+    // In the order the provider hands them to its client, duplicates kept; the spelling of the names, and what the
+    // client adds, is the socket-level check's (`mixdog-core` `wire_parity_tests`).
+    let (node_headers, rust_headers) = (&want.headers, &got.headers);
     if node_headers != rust_headers {
         what.push(format!("headers: Node {node_headers:?} / Rust {rust_headers:?}"));
     }
