@@ -44,7 +44,7 @@ mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test"
 regex = { workspace = true }
 tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
-mixdog-core-base = { workspace = true }
+mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "process"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
