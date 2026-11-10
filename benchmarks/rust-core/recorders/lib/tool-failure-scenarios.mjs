@@ -6,8 +6,9 @@
 // session is made to refuse a call, `abortWhenFile` ends the turn once the tool has created that file in the
 // workspace.
 export const MODEL = 'fake-model';
-// `fx-mcp.mjs` is the stdio MCP server the `full` scenarios connect: no SDK, four tools (`fail` answers an `isError` result, `boom` a
-// JSON-RPC error, `ok` a success, `big` a success whose text is `Error: ` and 100,000 more characters), so Node's client and the
+// `fx-mcp.mjs` is the stdio MCP server the `full` scenarios connect: no SDK, six tools (`fail` answers an `isError` result, `boom` a
+// JSON-RPC error, `ok` a success, `big` a success whose text is `Error: ` and 100,000 more characters, `errimg` an `isError` result
+// with a 1x1 PNG, `textimg` a success whose text reads `Error: drawn` with the same PNG), so Node's client and the
 // core's speak to the same bytes. `boom`'s code is an internal error
 // (-32603): Node takes -32000 and -32001 for the SDK's own closed-connection and timeout codes and reconnects the server before it
 // answers (`isMcpServerResponseError`, mcp/client.mjs:917-925, and the reconnect at :542-600), which the core does not do; that gap
@@ -15,7 +16,8 @@ export const MODEL = 'fake-model';
 const MCP_SERVER = `
 let buffered = '';
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\\n');
-const TOOLS = ['fail', 'boom', 'ok', 'big'].map((name) => ({ name, description: name, inputSchema: { type: 'object', properties: {} } }));
+const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+const TOOLS = ['fail', 'boom', 'ok', 'big', 'errimg', 'textimg'].map((name) => ({ name, description: name, inputSchema: { type: 'object', properties: {} } }));
 process.stdin.on('data', (chunk) => {
   buffered += chunk;
   let at;
@@ -31,6 +33,8 @@ process.stdin.on('data', (chunk) => {
     else if (message.method === 'tools/call' && message.params.name === 'fail') reply({ content: [{ type: 'text', text: 'it broke' }], isError: true });
     else if (message.method === 'tools/call' && message.params.name === 'boom') send({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: 'server exploded' } });
     else if (message.method === 'tools/call' && message.params.name === 'big') reply({ content: [{ type: 'text', text: 'Error: ' + 'x'.repeat(100000) }] });
+    else if (message.method === 'tools/call' && message.params.name === 'errimg') reply({ content: [{ type: 'text', text: 'it broke with a picture' }, { type: 'image', data: PNG, mimeType: 'image/png' }], isError: true });
+    else if (message.method === 'tools/call' && message.params.name === 'textimg') reply({ content: [{ type: 'text', text: 'Error: drawn' }, { type: 'image', data: PNG, mimeType: 'image/png' }] });
     else if (message.method === 'tools/call') reply({ content: [{ type: 'text', text: 'fine' }] });
     else send({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'no such method' } });
   }
@@ -161,6 +165,14 @@ export function scenarios(workspace) {
       name: 'a returned error that is offloaded',
       full: true,
       replies: [{ text: 'go', calls: [{ id: 'o1', name: 'mcp__fx__big', args: {} }] }, DONE],
+    },
+    {
+      // Results that carry an image: an `isError` result with a picture, and a success whose text reads as an error, with a picture.
+      // Node's client keeps both structured (mcp/client.mjs:904-917), and a structured return is not classified (execute-call.mjs
+      // classifyToolReturn -> classifyResultKind on a non-string, result-classification.mjs:75).
+      name: 'MCP results that carry an image',
+      full: true,
+      replies: [{ text: 'go', calls: [{ id: 'i1', name: 'mcp__fx__errimg', args: {} }, { id: 'i2', name: 'mcp__fx__textimg', args: {} }] }, DONE],
     },
   ];
 }
