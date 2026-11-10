@@ -1,5 +1,6 @@
 //! One allowlist for the desktop, the agent's `github` tool and the mutation classifier:
-//! which actions exist, which fields each takes, and the validation of every field.
+//! which actions exist, which fields each takes, and the validation of every field. Each refusal is the
+//! plain `TypeError` text of Node's `validateGithubRequest` (src/runtime/github/contract.mjs:110-193), in its order.
 
 use serde_json::Map;
 use serde_json::Value;
@@ -92,7 +93,7 @@ impl GithubRequest {
     }
 
     pub fn number(&self, key: &str) -> Option<u64> {
-        self.fields.get(key).and_then(Value::as_u64)
+        self.fields.get(key).and_then(safe_integer)
     }
 
     pub fn flag(&self, key: &str) -> Option<bool> {
@@ -108,36 +109,37 @@ impl GithubRequest {
     }
 }
 
-fn type_error(path: &str, expected: impl Into<String>) -> ScmFailure {
-    ScmFailure::Invalid {
-        path: path.to_owned(),
-        expected: expected.into(),
-    }
+fn type_error(text: impl Into<String>) -> ScmFailure {
+    ScmFailure::git(text)
 }
 
+/// A JSON number that is a safe integer (`Number.isSafeInteger`): `1.0` is one, `"1"` is not.
+fn safe_integer(value: &Value) -> Option<u64> {
+    let number = value.as_f64()?;
+    // A negative integer is a safe integer too; no caller takes one, so it is no answer here (and `-0` is 0).
+    (number.fract() == 0.0 && (0.0..=MAX_SAFE as f64).contains(&number)).then_some(number as u64)
+}
+
+/// `githubText`.
 pub fn github_text(value: &Value, name: &str, maximum: usize, empty: bool) -> Result<(), ScmFailure> {
     let ok = value.as_str().is_some_and(|text| {
-        (empty || !text.trim().is_empty())
-            && text.encode_utf16().count() <= maximum
+        (empty || !mixdog_js::js_trim(text).is_empty())
+            && mixdog_js::utf16_len(text) <= maximum
             && !text.contains('\0')
     });
     if ok {
         Ok(())
     } else {
-        Err(type_error(
-            name,
-            format!(
-                "{} string of at most {maximum} characters",
-                if empty { "a" } else { "a non-empty" }
-            ),
-        ))
+        Err(type_error(format!("{name} must be {} string of at most {maximum} characters.", if empty { "a" } else { "a non-empty" })))
     }
 }
 
+/// `githubNumber`: a safe integer from 1 to `maximum` (Node's default maximum is the largest safe integer).
 pub fn github_number(value: &Value, name: &str, maximum: u64) -> Result<u64, ScmFailure> {
-    match value.as_u64() {
-        Some(number) if (1..=maximum.min(MAX_SAFE)).contains(&number) => Ok(number),
-        _ => Err(type_error(name, format!("a positive integer no greater than {maximum}"))),
+    let maximum = maximum.min(MAX_SAFE);
+    match safe_integer(value) {
+        Some(number) if (1..=maximum).contains(&number) => Ok(number),
+        _ => Err(type_error(format!("{name} must be a positive integer no greater than {maximum}."))),
     }
 }
 
@@ -162,7 +164,7 @@ pub fn github_repository(value: &str) -> Result<(), ScmFailure> {
     if valid {
         Ok(())
     } else {
-        Err(type_error("repo", "an explicit owner/name, not a URL or command"))
+        Err(type_error("repo must be an explicit owner/name, not a URL or command."))
     }
 }
 
@@ -191,40 +193,27 @@ fn is_name(value: &str, first: impl Fn(char) -> bool, rest: impl Fn(char) -> boo
 
 /// Checks `input` against the allowlist; the result carries exactly the fields given.
 pub fn validate(input: &Value) -> Result<GithubRequest, ScmFailure> {
-    let object = input
-        .as_object()
-        .ok_or_else(|| type_error("action", "a supported GitHub action"))?;
-    let def = object
-        .get("action")
-        .and_then(Value::as_str)
-        .and_then(definition)
-        .ok_or_else(|| type_error("action", "a supported GitHub action"))?;
-    if let Some(unknown) = object
-        .keys()
-        .find(|key| !matches!(key.as_str(), "action" | "repo" | "hostname") && !def.fields.contains(&key.as_str()))
-    {
-        return Err(type_error(unknown, format!("a field GitHub {} supports", def.name)));
+    let unsupported = || type_error("A supported GitHub action is required.");
+    let object = input.as_object().ok_or_else(unsupported)?;
+    let def = object.get("action").and_then(Value::as_str).and_then(definition).ok_or_else(unsupported)?;
+    if object.keys().any(|key| !matches!(key.as_str(), "action" | "repo" | "hostname") && !def.fields.contains(&key.as_str())) {
+        return Err(type_error(format!("Unsupported field for GitHub {}.", def.name)));
     }
     for key in def.required {
-        match object.get(*key) {
-            None | Some(Value::Null) => {
-                return Err(type_error(key, format!("present for {}", def.name)));
-            }
-            Some(Value::String(text)) if text.is_empty() => {
-                return Err(type_error(key, format!("present for {}", def.name)));
-            }
-            _ => {}
+        if matches!(object.get(*key), None | Some(Value::Null)) || object.get(*key).and_then(Value::as_str) == Some("") {
+            return Err(type_error(format!("{key} is required for {}.", def.name)));
         }
     }
     if let Some(value) = object.get("destination") {
         github_text(value, "destination", 1000, false)?;
     }
     if let Some(repo) = object.get("repo") {
+        // Anything but a string is no repository (an empty name fails the same rule).
         github_repository(repo.as_str().unwrap_or(""))?;
     }
     if let Some(host) = object.get("hostname") {
         if !host.as_str().is_some_and(valid_hostname) {
-            return Err(type_error("hostname", "a GitHub or GitHub Enterprise DNS name"));
+            return Err(type_error("hostname must be a GitHub or GitHub Enterprise DNS name."));
         }
     }
     for key in ["number", "id", "page", "limit"] {
@@ -234,7 +223,7 @@ pub fn validate(input: &Value) -> Result<GithubRequest, ScmFailure> {
     }
     for key in ["draft", "prerelease", "failed", "all"] {
         if object.get(key).is_some_and(|value| !value.is_boolean()) {
-            return Err(type_error(key, "boolean"));
+            return Err(type_error(format!("{key} must be boolean.")));
         }
     }
     for key in ["body", "description", "title"] {
@@ -249,7 +238,7 @@ pub fn validate(input: &Value) -> Result<GithubRequest, ScmFailure> {
     for key in ["labels", "assignees"] {
         if let Some(value) = object.get(key) {
             let Some(items) = value.as_array().filter(|items| items.len() <= 50) else {
-                return Err(type_error(key, "an array with at most 50 entries"));
+                return Err(type_error(format!("{key} must be an array with at most 50 entries.")));
             };
             for item in items {
                 github_text(item, key, 100, false)?;
@@ -258,30 +247,29 @@ pub fn validate(input: &Value) -> Result<GithubRequest, ScmFailure> {
     }
     if let Some(state) = object.get("state") {
         if !matches!(state.as_str(), Some("open" | "closed" | "all")) {
-            return Err(type_error("state", "open, closed or all"));
+            return Err(type_error("Invalid state."));
         }
     }
     if let Some(visibility) = object.get("visibility") {
         if !matches!(visibility.as_str(), Some("private" | "public")) {
-            return Err(type_error("visibility", "private or public"));
+            return Err(type_error("Invalid visibility."));
         }
     }
     if let Some(method) = object.get("method") {
         if !matches!(method.as_str(), Some("merge" | "squash" | "rebase")) {
-            return Err(type_error("method", "a merge method"));
+            return Err(type_error("Invalid merge method."));
         }
     }
     if let Some(event) = object.get("event") {
         if !matches!(event.as_str(), Some("COMMENT" | "APPROVE" | "REQUEST_CHANGES")) {
-            return Err(type_error("event", "a review event"));
+            return Err(type_error("Invalid review event."));
         }
     }
     if let Some(sha) = object.get("sha") {
-        let ok = sha
-            .as_str()
-            .is_some_and(|sha| sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_hexdigit()));
-        if !ok {
-            return Err(type_error("sha", "a full commit hash"));
+        // `/^[a-f0-9]{40}$/i.test(sha)` reads the value as a string.
+        let sha = mixdog_js::value_to_string(sha);
+        if !(sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_hexdigit())) {
+            return Err(type_error("sha must be a full commit hash."));
         }
     }
     for key in ["owner", "organization"] {
@@ -290,7 +278,7 @@ pub fn validate(input: &Value) -> Result<GithubRequest, ScmFailure> {
                 is_name(name, |c| c.is_ascii_alphanumeric(), |c| c.is_ascii_alphanumeric() || c == '-', 100)
             });
             if !ok {
-                return Err(type_error(key, "a valid account name"));
+                return Err(type_error(format!("Invalid {key}.")));
             }
         }
     }
@@ -299,13 +287,13 @@ pub fn validate(input: &Value) -> Result<GithubRequest, ScmFailure> {
             github_text(value, key, 512, false)?;
             let text = value.as_str().unwrap_or("");
             if text.starts_with('-') || text.contains(['\r', '\n']) {
-                return Err(type_error(key, "a value that is not an option or a multi-line text"));
+                return Err(type_error(format!("Invalid {key}.")));
             }
         }
     }
     if let Some(inputs) = object.get("inputs") {
         let Some(map) = inputs.as_object().filter(|map| map.len() <= 25) else {
-            return Err(type_error("inputs", "at most 25 named values"));
+            return Err(type_error("inputs must contain at most 25 named values."));
         };
         for (key, value) in map {
             let name_ok = is_name(
@@ -315,7 +303,7 @@ pub fn validate(input: &Value) -> Result<GithubRequest, ScmFailure> {
                 100,
             );
             if !name_ok {
-                return Err(type_error("inputs", "valid workflow input names"));
+                return Err(type_error("Invalid workflow input name."));
             }
             github_text(value, "workflow input", 10_000, true)?;
         }

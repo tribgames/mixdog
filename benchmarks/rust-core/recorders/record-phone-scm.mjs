@@ -39,6 +39,16 @@ const args = parseArgs();
 // what happens is compared in full with the recording (fixtures/phone-scm/golden.json) instead of being recorded. The core spawns
 // its own tools: they are the executables of lib/scripted-tool.rs on its PATH, answered by the same script as Node's.
 const REPLAY = args.get('replay') ?? null;
+// `--only <group>`: record or replay one group of cases and stop. A recording of one group is written to `--out <file>`, never to
+// the fixture (the full run is what the fixture holds); a replay of one group compares that group's cases of the fixture.
+const GROUPS = {
+  // Every argument check of Node's host for the phone's source-control calls (the cases named `input-*` and `refused-*`).
+  input: (name) => /^(input|refused)-/.test(name),
+};
+const ONLY = args.get('only') ?? null;
+if (ONLY !== null && !GROUPS[ONLY]) throw new Error(`--only takes one of ${Object.keys(GROUPS).join(', ')}, not ${ONLY}`);
+const ONLY_OUT = args.get('out') ?? null;
+if (ONLY !== null && !REPLAY && !ONLY_OUT) throw new Error('--only records into --out <file>, never into the fixture');
 const tree = resolveTree(args);
 const identity = exactProductIdentity(tree, REF);
 const script = JSON.parse(readFileSync(join(FIXTURES, 'gh-script.json'), 'utf8'));
@@ -667,24 +677,27 @@ function replayCall(call, params) {
 }
 
 async function finishReplay() {
-  // Every sign-in terminal child, in the order started: its program, directory, environment and how it ended.
+  // Every sign-in terminal child, in the order started: its program, directory, environment and how it ended. A one-group
+  // replay starts none and compares none.
   const begun = new Map();
   for (const event of replay.wire.events) {
     if (event.event === 'begin' && event.pty) begun.set(event.seq, { argv: event.args, cwd: event.cwd, env: coreEnvDelta(event), ended: null });
     else if (event.event === 'done' && begun.has(event.seq)) begun.get(event.seq).ended = event.result;
   }
-  if (!isDeepStrictEqual([...begun.values()], replay.golden.ptyEnds)) replay.differences.push({ name: 'sign-in terminal children (program, directory, environment, end)', node: replay.golden.ptyEnds, core: [...begun.values()] });
+  if (ONLY === null && !isDeepStrictEqual([...begun.values()], replay.golden.ptyEnds)) replay.differences.push({ name: 'sign-in terminal children (program, directory, environment, end)', node: replay.golden.ptyEnds, core: [...begun.values()] });
   replay.client.close?.();
   const exited = new Promise((resolve) => replay.core.once('exit', resolve));
   endTree(replay.core.pid);
   await withDeadline(exited, 'the core did not exit after taskkill');
   rmSync(WORK, { recursive: true, force: true });
   const cases = replay.compared.filter((name) => name !== 'ordering');
-  console.log(`phone-scm replay over ${REPLAY}: ${cases.length} cases and the ordering scenario compared (${replay.compared.includes('ordering') ? 'replayed' : 'NOT replayed'}), ${replay.differences.length} differ, ${replay.byName.size - cases.length} of the recording not replayed`);
+  const expected = [...replay.byName.keys()].filter((name) => ONLY === null || GROUPS[ONLY](name));
+  const unreplayed = expected.filter((name) => !cases.includes(name));
+  const ordering = ONLY !== null ? 'not part of this group' : replay.compared.includes('ordering') ? 'replayed' : 'NOT replayed';
+  console.log(`phone-scm replay over ${REPLAY}${ONLY === null ? '' : ` (group ${ONLY})`}: ${cases.length} cases and the ordering scenario compared (${ordering}), ${replay.differences.length} differ, ${unreplayed.length} of the recording not replayed${unreplayed.length ? `: ${unreplayed.join(', ')}` : ''}`);
   for (const difference of replay.differences) console.log(`DIFF ${difference.name}\n  node: ${JSON.stringify(difference.node)}\n  core: ${JSON.stringify(difference.core)}`);
   // A difference, a recorded case that was not replayed, or a tree that could not be ended (`endTree` set the code) fails the run.
-  const unreplayed = replay.byName.size - cases.length;
-  process.exit(replay.differences.length || unreplayed || process.exitCode ? 1 : 0);
+  process.exit(replay.differences.length || unreplayed.length || (ONLY === null && !replay.compared.includes('ordering')) || process.exitCode ? 1 : 0);
 }
 // A login flow's id is `ghlogin_<pid>_<n>` in both products. Node's recording pins its pid (4242); the core's is its own process's,
 // so the core's answer is read with that pid as the recording's. Nothing else is rewritten.
@@ -916,9 +929,11 @@ async function replayOrdering(scenario, heldWrite) {
 
 /**
  * One phone call through the relay's frame executor (the recording) or the phone's adapter to the core (the replay). `during`, when
- * given, runs while the call is still going, with the list the call's clock steps are added to.
+ * given, runs while the call is still going, with the list the call's clock steps are added to. `text`, when given, is the params'
+ * own JSON text, sent as it is (a number spelled `1.0` or `1e0`, which `JSON.stringify` would print as `1`); the case keeps it as
+ * `paramsText` beside the params Node parsed from it.
  */
-async function rec(name, call, params, note, during) {
+async function rec(name, call, params, note, during, text) {
   if (replay) {
     const recorded = replay.byName.get(name);
     assert.ok(recorded, `${name} is not in the recording`);
@@ -993,8 +1008,9 @@ async function rec(name, call, params, note, during) {
   processes.length = 0;
   const steps = [...pendingClock];
   pendingClock.length = 0;
-  const wire = JSON.parse(JSON.stringify(params));
-  const answered = executeRemoteFrame(methods, JSON.stringify({ id: 1, method: call, params }));
+  const wire = text === undefined ? JSON.parse(JSON.stringify(params)) : JSON.parse(text);
+  const frameText = text === undefined ? JSON.stringify({ id: 1, method: call, params }) : `{"id":1,"method":${JSON.stringify(call)},"params":${text}}`;
+  const answered = executeRemoteFrame(methods, frameText);
   if (during) await during(steps);
   const frame = await withDeadline(answered, `the call ${name} never answered`);
   await drainGit();
@@ -1004,6 +1020,7 @@ async function rec(name, call, params, note, during) {
     name,
     call,
     params: wire,
+    ...(text === undefined ? {} : { paramsText: text }),
     ...(note ? { note } : {}),
     frame: answer,
     ops: clone(trace),
@@ -1026,6 +1043,282 @@ function takeCompeting() {
   rmSync(AFTER_OUT, { force: true });
   return { code: Number(code), stderr: stderr.join('\n') };
 }
+// ═══ 0. the argument checks of Node's host (remote-methods.ts:396-587 over ipc-validation.ts and git-contract.mjs) ═══
+// The phone's page applies the same checks (the replay), and the core applies them for a caller that skips the page
+// (mixdog-scm src/input.rs, whose test sends each of these cases to the core as the request the page would have made of it and
+// compares its refusal, or the arguments it acts on, with Node's). A repository of their own, so no other case depends on them.
+const INPUT = join(WORK, 'input');
+mkdirSync(INPUT, { recursive: true });
+git(INPUT, 'init', '-q', '-b', 'main');
+for (const n of [1, 2, 3]) {
+  write(INPUT, 'f.txt', `f${n}\n`);
+  git(INPUT, 'add', '.');
+  git(INPUT, 'commit', '-q', '-m', `input ${n}`);
+}
+const INPUT_HEAD = git(INPUT, 'rev-parse', 'HEAD').trim();
+/** Records under Node's JSON text as given (a lone surrogate cannot be read by the core's JSON at all, mixdog-scm input.rs):
+ *  what Node answered and the operation it invoked, kept as their JSON text so every reader of the fixture can parse it. */
+const limits = [];
+async function recordLimit(name, call, text, note) {
+  trace.length = 0;
+  processes.length = 0;
+  const frame = await withDeadline(executeRemoteFrame(methods, `{"id":1,"method":${JSON.stringify(call)},"params":${text}}`), `the call ${name} never answered`);
+  await drainGit();
+  const { id: _id, ...answer } = frame;
+  limits.push({ name, call, paramsText: text, note, recordedText: JSON.stringify({ frame: answer, ops: trace, processes }) });
+}
+async function recordInputChecks() {
+  const I = INPUT;
+  const H = INPUT_HEAD;
+  // ── each argument alone given a JSON value of another type (a number where a string, a list or an object is taken, a string
+  //    where a list, an object or a flag is taken); Node coerces some (a flag is `=== true`), so those calls act ──
+  const wrongType = [
+    ['gitStatus', [I, {}], [[0, 7]]],
+    ['gitDiff', [I, 'f.txt', false, false, false], [[0, 7], [1, 7], [2, 'yes'], [3, 'yes'], [4, 'yes']]],
+    ['gitApplyPatch', [I, 'f.txt', 'x', false], [[0, 7], [1, 7], [2, 7], [3, 'yes']]],
+    ['gitStage', [I, ['f.txt']], [[0, 7], [1, 'f.txt']]],
+    ['gitUnstage', [I, ['f.txt']], [[0, 7], [1, 'f.txt']]],
+    ['gitIgnore', [I, 'f.txt', 'file'], [[0, 7], [1, 7], [2, 7]]],
+    ['gitCommit', [I, 'm'], [[0, 7], [1, 7]]],
+    ['gitCommitPaths', [I, 'm', ['f.txt']], [[0, 7], [1, 7], [2, 'f.txt']]],
+    ['gitAmend', [I, 'm'], [[0, 7], [1, 7]]],
+    ['gitUndoLastCommit', [I], [[0, 7]]],
+    ['gitRevert', [I, 'f.txt', false, 'all'], [[0, 7], [1, 7], [2, 'yes'], [3, 7]]],
+    ['gitReview', [I, 'branch'], [[0, 7], [1, 7]]],
+    ['gitReviewDiff', [I, 'f.txt', false, 'uncommitted'], [[0, 7], [1, 7], [2, 'yes'], [3, 7]]],
+    ['gitReviewDiffs', [I, [{ path: 'f.txt' }], 'uncommitted'], [[0, 7], [1, 'f.txt'], [2, 7]]],
+    ['gitStash', [I, 'm'], [[0, 7], [1, 7]]],
+    ['gitStashPop', [I], [[0, 7]]],
+    ['gitStashList', [I], [[0, 7]]],
+    ['gitStashApply', [I, 'stash@{0}'], [[0, 7], [1, 7]]],
+    ['gitStashDrop', [I, 'stash@{0}'], [[0, 7], [1, 7]]],
+    ['gitBranches', [I], [[0, 7]]],
+    ['gitRenameBranch', [I, 'a', 'b'], [[0, 7], [1, 7], [2, 7]]],
+    ['gitDeleteBranch', [I, 'a'], [[0, 7], [1, 7]]],
+    ['gitCreateTag', [I, 'v', H], [[0, 7], [1, 7], [2, 7]]],
+    ['gitDeleteTag', [I, 'v'], [[0, 7], [1, 7]]],
+    ['gitPush', [I], [[0, 7]]],
+    ['gitFetch', [I], [[0, 7]]],
+    ['gitPull', [I], [[0, 7]]],
+    ['gitSync', [I], [[0, 7]]],
+    ['gitContinue', [I], [[0, 7]]],
+    ['gitAbortOperation', [I], [[0, 7]]],
+    ['gitLog', [I, '', 0, 40], [[0, 7], [1, 7], [2, {}], [3, {}]]],
+    ['gitShow', [I, H], [[0, 7], [1, 7]]],
+    ['gitShowDiff', [I, H, 'f.txt'], [[0, 7], [1, 7], [2, 7]]],
+    ['gitRequestContext', [I, { paths: [] }], [[0, 7], [1, 'x']]],
+    ['gitShowFile', [I, 'HEAD', 'f.txt'], [[0, 7], [1, 7], [2, 7]]],
+    ['gitResetToCommit', [I, H, 'soft', false], [[0, 7], [1, 7], [2, 7], [3, 'yes']]],
+    ['gitRevertCommit', [I, H], [[0, 7], [1, 7]]],
+    ['gitCherryPickCommit', [I, H], [[0, 7], [1, 7]]],
+    ['setGitGlobalConfig', ['user.name', 'v'], [[0, 7], [1, 7]]],
+    ['githubRequest', [I, { action: 'pr.list', repo: 'octo/demo' }], [[0, 7], [1, 'x']]],
+    ['ghPrList', [I], [[0, 7]]],
+    ['ghPrDefaultBranch', [I], [[0, 7]]],
+    ['ghPrView', [I, 12], [[0, 7]]],
+    ['ghPrDiff', [I, 12], [[0, 7]]],
+    ['ghPrCheckout', [I, 12], [[0, 7]]],
+    ['ghPrCreate', [I, { base: 'main', head: 'x', title: 't' }], [[0, 7]]],
+    ['ghPrMerge', [I, 12, 'merge'], [[0, 7]]],
+    ['githubCliLoginStatus', ['ghlogin_unknown'], [[0, 7]]],
+    ['githubCliLoginCancel', ['ghlogin_unknown'], [[0, 7]]],
+    ['githubCliLoginOpenBrowser', ['ghlogin_unknown'], [[0, 7]]],
+  ];
+  for (const [call, valid, wrongs] of wrongType) {
+    for (const [index, value] of wrongs) {
+      const params = clone(valid);
+      params[index] = value;
+      await rec(`input-wrong-type-${call}-${index}`, call, params);
+    }
+  }
+  // An entry of the review's file list of another type, a path of another type, an entry that is a list, a flag Node coerces.
+  await rec('input-wrong-type-gitReviewDiffs-entry', 'gitReviewDiffs', [I, [7]]);
+  await rec('input-wrong-type-gitReviewDiffs-entry-path', 'gitReviewDiffs', [I, [{ path: 7 }]]);
+  await rec('input-wrong-type-gitReviewDiffs-entry-list', 'gitReviewDiffs', [I, [['f.txt']]]);
+  await rec('input-wrong-type-gitReviewDiffs-entry-untracked', 'gitReviewDiffs', [I, [{ path: 'f.txt', untracked: 'yes' }], 'uncommitted']);
+  await rec('input-wrong-type-gitRequestContext-paths', 'gitRequestContext', [I, { paths: 'x' }]);
+  await rec('input-wrong-type-gitRequestContext-base', 'gitRequestContext', [I, { paths: [], base: 7 }]);
+  await rec('input-wrong-type-gitRequestContext-list', 'gitRequestContext', [I, ['f.txt']]);
+  // ── two invalid arguments: the first one Node's call evaluated answers (gitApplyPatch's direction and setGitGlobalConfig's value
+  //    come first, remote-methods.ts:417-419, :529-532) ──
+  const twoInvalid = [
+    ['gitDiff', ['repo', 7]],
+    ['gitApplyPatch', ['repo', 7, 7, false]],
+    ['gitApplyPatch-direction', 'gitApplyPatch', ['repo', 'f.txt', '', 'yes']],
+    ['gitStage', ['repo', 'f.txt']],
+    ['gitUnstage', ['repo', 'f.txt']],
+    ['gitIgnore', [I, '../x', 7]],
+    ['gitCommit', ['repo', 7]],
+    ['gitCommitPaths', [I, ' ', 'f.txt']],
+    ['gitAmend', ['repo', 7]],
+    ['gitRevert', [I, '../x', false, 7]],
+    ['gitReview', ['repo', 7]],
+    ['gitReviewDiff', [I, '../x', false, 7]],
+    ['gitReviewDiffs', [I, [{ path: '../x' }], 7]],
+    ['gitStash', ['repo', 7]],
+    ['gitStashApply', ['repo', 7]],
+    ['gitStashDrop', ['repo', 7]],
+    ['gitRenameBranch', [I, '-x', 7]],
+    ['gitDeleteBranch', ['repo', 7]],
+    ['gitCreateTag', [I, ' ', 7]],
+    ['gitDeleteTag', ['repo', 7]],
+    ['gitLog', [I, 'q'.repeat(201), {}, {}]],
+    ['gitLog-offset', 'gitLog', [I, '', -1, {}]],
+    ['gitShow', ['repo', 7]],
+    ['gitShowDiff', [I, 'zz', 7]],
+    ['gitRequestContext', [I, { paths: ['../x'], base: 7 }]],
+    ['gitShowFile', [I, 'main', 7]],
+    ['gitResetToCommit', [I, 'zz', 7]],
+    ['gitRevertCommit', ['repo', 7]],
+    ['gitCherryPickCommit', ['repo', 7]],
+    ['setGitGlobalConfig', [7, 7]],
+    ['setGitGlobalConfig-value-first', 'setGitGlobalConfig', ['core.editor', 7]],
+    ['githubRequest', ['repo', 'x']],
+  ];
+  for (const entry of twoInvalid) {
+    const [label, call, params] = entry.length === 3 ? entry : [entry[0], entry[0], entry[1]];
+    await rec(`input-two-invalid-${label}`, call, params);
+  }
+  // ── an explicit null where Node takes a missing argument as the default and refuses null; the missing ones beside them ──
+  await rec('input-null-gitRevert-mode', 'gitRevert', [I, 'f.txt', false, null]);
+  await rec('input-missing-gitRevert-mode', 'gitRevert', [I, 'f.txt', false]);
+  await rec('input-null-gitIgnore-scope', 'gitIgnore', [I, 'f.txt', null]);
+  await rec('input-null-gitReview-source', 'gitReview', [I, null]);
+  await rec('input-missing-gitReview-source', 'gitReview', [I]);
+  await rec('input-null-gitReviewDiff-source', 'gitReviewDiff', [I, 'f.txt', false, null]);
+  await rec('input-missing-gitReviewDiff-source', 'gitReviewDiff', [I, 'f.txt', false]);
+  await rec('input-null-gitReviewDiffs-source', 'gitReviewDiffs', [I, [{ path: 'f.txt' }], null]);
+  await rec('input-missing-gitReviewDiffs-source', 'gitReviewDiffs', [I, [{ path: 'f.txt' }]]);
+  await rec('input-null-gitRequestContext-base', 'gitRequestContext', [I, { paths: [], base: null }]);
+  await rec('input-missing-gitRequestContext-base', 'gitRequestContext', [I, { paths: [] }]);
+  await rec('input-null-gitLog-arguments', 'gitLog', [I, null, null, null]);
+  // ── numbers: `Number(value)`, then the integer and range checks ──
+  const numbers = [
+    ['offset-string', '"1"', '40'],
+    ['offset-true', 'true', '40'],
+    ['offset-list', '[1]', '40'],
+    ['offset-false', 'false', '40'],
+    ['offset-empty', '""', '40'],
+    ['offset-space', '" "', '40'],
+    ['offset-empty-list', '[]', '40'],
+    ['offset-hex', '"0x1"', '40'],
+    ['offset-decimal-point', '1.0', '40'],
+    ['offset-exponent', '1e0', '40'],
+    ['offset-minus-zero', '-0', '40'],
+    ['limit-string', '0', '"2"'],
+    ['limit-true', '0', 'true'],
+    ['limit-list', '0', '[2]'],
+    ['limit-hex', '0', '"0x10"'],
+    ['limit-decimal-point', '0', '2.0'],
+    ['limit-exponent', '0', '2e0'],
+    ['offset-fraction', '1.5', '40'],
+    ['offset-word', '"abc"', '40'],
+    ['offset-object', '{}', '40'],
+    ['offset-two-items', '[1,2]', '40'],
+    ['offset-past-the-limit-string', '"1e7"', '40'],
+    ['offset-infinity', '"Infinity"', '40'],
+    ['limit-zero-string', '0', '"0"'],
+    ['limit-empty-list', '0', '[]'],
+    ['limit-false', '0', 'false'],
+    ['limit-empty', '0', '""'],
+    ['limit-fraction', '0', '2.5'],
+  ];
+  for (const [label, skip, limit] of numbers) {
+    const text = `[${JSON.stringify(I)},"",${skip},${limit}]`;
+    await rec(`input-number-gitLog-${label}`, 'gitLog', JSON.parse(text), undefined, undefined, text);
+  }
+  // ── the global config key: one of three exact strings ──
+  for (const [label, key] of [['number', 7], ['null', null], ['padded', ' user.name '], ['upper-case', 'USER.NAME'], ['unknown', 'core.editor']]) {
+    await rec(`input-config-key-${label}`, 'setGitGlobalConfig', [key, 'v']);
+  }
+  // ── the directory: a string, trimmed of JavaScript white space, absolute by Windows' rule. A directory that passes is followed
+  //    by a path that does not, so no call acts; the text says which of the two was refused ──
+  const spellings = [
+    ['drive-relative', 'C:foo'],
+    ['drive-only', 'C:'],
+    ['backslash-rooted', '\\foo'],
+    ['slash-rooted', '/foo'],
+    ['unc', '\\\\host\\share'],
+    ['unc-slashes', '//host/share'],
+    ['verbatim', '\\\\?\\C:\\x'],
+    ['relative', 'foo'],
+    ['dot-relative', './foo'],
+    ['spaces-around', '  /foo  '],
+    ['tab-and-newline', '\t/foo\n'],
+    ['no-break-space', '\u00a0/foo'],
+    ['byte-order-mark', '\ufeff/foo'],
+    ['next-line', '\u0085/foo'],
+    ['line-separator', '\u2028/foo'],
+    ['blank', '   '],
+    ['empty', ''],
+    ['null', null],
+  ];
+  for (const [label, cwd] of spellings) await rec(`input-cwd-${label}`, 'gitDiff', [cwd, '../x']);
+  await rec('input-cwd-trimmed-and-acted-on', 'gitStatus', [`  ${I}\t`]);
+  // ── the flow id of a sign-in: a string of at most 200 units, trimmed ──
+  for (const [label, flowId] of [['blank', ' '], ['long', 'x'.repeat(201)], ['null', null], ['padded-unknown', ' ghlogin_unknown ']]) {
+    await rec(`input-flow-id-${label}`, 'githubCliLoginStatus', [flowId]);
+  }
+  // ── the GitHub request is checked before the Git & GitHub gate (which is shut here) ──
+  await rec('input-githubRequest-unknown-action-gate-off', 'githubRequest', [I, { action: 'repo.delete' }]);
+  await rec('input-githubRequest-relative-cwd-gate-off', 'githubRequest', ['repo', { action: 'pr.list', repo: 'octo/demo' }]);
+  // ── what the reviews found earlier (arguments Node's host refuses before it acts) ──
+  const refused = [
+    ['gitReviewDiff-path-climbs-out', 'gitReviewDiff', [I, '../outside.txt', true]],
+    ['gitReviewDiffs-path-climbs-out', 'gitReviewDiffs', [I, [{ path: 'sub\\..\\..\\outside.txt', untracked: true }]]],
+    ['gitReviewDiffs-entry-not-an-object', 'gitReviewDiffs', [I, ['f.txt']]],
+    ['gitDiff-absolute-path', 'gitDiff', [I, 'C:\\outside\\x.txt', false, false, true]],
+    ['gitDiff-path-with-nul', 'gitDiff', [I, 'f\0.txt', false, false, false]],
+    ['gitStage-no-paths', 'gitStage', [I, []]],
+    ['gitStage-path-climbs-out', 'gitStage', [I, ['a/../../b.txt']]],
+    ['gitUnstage-absolute-path', 'gitUnstage', [I, ['/etc/passwd']]],
+    ['gitCommitPaths-path-climbs-out', 'gitCommitPaths', [I, 'message', ['..']]],
+    ['gitCommit-blank-message', 'gitCommit', [I, '   ']],
+    ['gitRevert-path-climbs-out', 'gitRevert', [I, '../outside.txt', true, 'all']],
+    ['gitRevert-unknown-mode', 'gitRevert', [I, 'f.txt', false, 'everything']],
+    ['gitApplyPatch-empty-patch', 'gitApplyPatch', [I, 'f.txt', '']],
+    ['gitIgnore-unknown-scope', 'gitIgnore', [I, 'f.txt', 'folder']],
+    ['gitIgnore-path-climbs-out', 'gitIgnore', [I, '../x', 'file']],
+    ['gitRenameBranch-option-as-name', 'gitRenameBranch', [I, 'main', '-D']],
+    ['gitDeleteBranch-option-as-name', 'gitDeleteBranch', [I, '--force']],
+    ['gitDeleteBranch-two-lines', 'gitDeleteBranch', [I, 'a\nb']],
+    ['gitCreateTag-blank-tag', 'gitCreateTag', [I, ' ', H]],
+    ['gitCreateTag-not-a-hash', 'gitCreateTag', [I, 'v1', 'HEAD']],
+    ['gitShow-not-a-hash', 'gitShow', [I, 'main']],
+    ['gitShowDiff-not-a-hash', 'gitShowDiff', [I, 'zzzz', 'f.txt']],
+    ['gitShowDiff-path-climbs-out', 'gitShowDiff', [I, H, '../x']],
+    ['gitShowFile-not-a-revision', 'gitShowFile', [I, 'HEAD~1', 'f.txt']],
+    ['gitShowFile-blank-revision', 'gitShowFile', [I, ' ', 'f.txt']],
+    ['gitResetToCommit-unknown-mode', 'gitResetToCommit', [I, H, 'keep']],
+    ['gitRevertCommit-not-a-hash', 'gitRevertCommit', [I, '--no-edit']],
+    ['gitCherryPickCommit-not-a-hash', 'gitCherryPickCommit', [I, 'abc']],
+    ['gitLog-long-query', 'gitLog', [I, 'q'.repeat(201)]],
+    ['gitLog-offset-over-the-limit', 'gitLog', [I, '', 1_000_001]],
+    ['gitLog-limit-over-the-limit', 'gitLog', [I, '', 0, 101]],
+    ['gitLog-limit-zero', 'gitLog', [I, '', 0, 0]],
+    ['gitReview-unknown-source', 'gitReview', [I, 'staged']],
+    ['gitStash-message-with-nul', 'gitStash', [I, 'wip\0']],
+    ['gitAmend-long-message', 'gitAmend', [I, 'm'.repeat(20_001)]],
+    ['gitStashApply-long-ref', 'gitStashApply', [I, 's'.repeat(65)]],
+    ['gitStashDrop-blank-ref', 'gitStashDrop', [I, '']],
+    ['gitRequestContext-path-climbs-out', 'gitRequestContext', [I, { paths: ['../x'] }]],
+    ['gitRequestContext-option-as-base', 'gitRequestContext', [I, { paths: [], base: '-x' }]],
+    ['setGitGlobalConfig-long-value', 'setGitGlobalConfig', ['user.name', 'v'.repeat(501)]],
+  ];
+  for (const [name, call, params] of refused) await rec(`refused-${name}`, call, params);
+  // ── a lone surrogate in a string: Node's string checks take it; the core cannot decode it into a string at all ──
+  if (!replay) await recordLimit('lone-surrogate-gitLog-query', 'gitLog', `[${JSON.stringify(I)},"\\ud800"]`, 'A JSON string escape of a lone surrogate (\\ud800) is a string to Node, which checks it as any other and acts on it; the core decodes JSON into Rust strings, which cannot hold it, so a request carrying one is refused before any check runs. This is a limit of the whole core, not of these calls.');
+}
+await recordInputChecks();
+if (ONLY !== null) {
+  if (replay) await finishReplay();
+  writeJson(ONLY_OUT, { group: ONLY, realGit: realGitVersion, cases, limits });
+  await withDeadline(operations.dispose(), "Node's desktop operations never finished disposing");
+  scripted.restore();
+  console.log(`phone-scm --only ${ONLY}: ${cases.length} cases written to ${ONLY_OUT}`);
+  process.exit(0);
+}
+
 // ═══ 1. status and diff ═══
 write(R, 'a.txt', 'one\nTWO\nthree\nfour\nfive\n');
 write(R, 'src/b.mjs', 'export const b = 2;\n');
@@ -1346,6 +1639,8 @@ const first = await flowOf(0);
 first.print('! First copy your one-time code: ABCD-1234\nPress Enter to open github.com in your browser...\n');
 await settled(flowId, (state) => state?.code);
 await rec('githubCliLoginStatus-code', 'githubCliLoginStatus', [flowId]);
+// The flow id is trimmed before it is looked up (requiredString, remote-methods.ts:571-572).
+await rec('githubCliLoginStatus-padded-flow-id', 'githubCliLoginStatus', [` ${flowId}\t`]);
 first.print('Open https://github.com/login/device in your browser\n');
 await settled(flowId, (state) => state?.url);
 await rec('githubCliLoginOpenBrowser', 'githubCliLoginOpenBrowser', [flowId, { openBrowser: false }]);
@@ -1530,55 +1825,6 @@ git(FAILING, 'commit', '-q', '-m', 'first');
   git(FAILING, 'checkout', '--', 'f.txt');
   rmSync(join(FAILING, 'g.txt'), { force: true });
 }
-{
-  // ═══ arguments Node's host refuses before it acts (remote-methods.ts over ipc-validation.ts and git-contract.mjs): no git runs ═══
-  // The phone's page refuses the same (the replay), and the core refuses them for a caller that skips the page
-  // (mixdog-scm src/input.rs, whose test reads these answers by name).
-  const head = git(FAILING, 'rev-parse', 'HEAD').trim();
-  const refused = [
-    ['gitReviewDiff-path-climbs-out', 'gitReviewDiff', [FAILING, '../outside.txt', true]],
-    ['gitReviewDiffs-path-climbs-out', 'gitReviewDiffs', [FAILING, [{ path: 'sub\\..\\..\\outside.txt', untracked: true }]]],
-    ['gitReviewDiffs-entry-not-an-object', 'gitReviewDiffs', [FAILING, ['f.txt']]],
-    ['gitDiff-absolute-path', 'gitDiff', [FAILING, 'C:\\outside\\x.txt', false, false, true]],
-    ['gitDiff-path-with-nul', 'gitDiff', [FAILING, 'f\0.txt', false, false, false]],
-    ['gitStage-no-paths', 'gitStage', [FAILING, []]],
-    ['gitStage-path-climbs-out', 'gitStage', [FAILING, ['a/../../b.txt']]],
-    ['gitUnstage-absolute-path', 'gitUnstage', [FAILING, ['/etc/passwd']]],
-    ['gitCommitPaths-path-climbs-out', 'gitCommitPaths', [FAILING, 'message', ['..']]],
-    ['gitCommit-blank-message', 'gitCommit', [FAILING, '   ']],
-    ['gitRevert-path-climbs-out', 'gitRevert', [FAILING, '../outside.txt', true, 'all']],
-    ['gitRevert-unknown-mode', 'gitRevert', [FAILING, 'f.txt', false, 'everything']],
-    ['gitApplyPatch-empty-patch', 'gitApplyPatch', [FAILING, 'f.txt', '']],
-    ['gitIgnore-unknown-scope', 'gitIgnore', [FAILING, 'f.txt', 'folder']],
-    ['gitIgnore-path-climbs-out', 'gitIgnore', [FAILING, '../x', 'file']],
-    ['gitRenameBranch-option-as-name', 'gitRenameBranch', [FAILING, 'main', '-D']],
-    ['gitDeleteBranch-option-as-name', 'gitDeleteBranch', [FAILING, '--force']],
-    ['gitDeleteBranch-two-lines', 'gitDeleteBranch', [FAILING, 'a\nb']],
-    ['gitCreateTag-blank-tag', 'gitCreateTag', [FAILING, ' ', head]],
-    ['gitCreateTag-not-a-hash', 'gitCreateTag', [FAILING, 'v1', 'HEAD']],
-    ['gitShow-not-a-hash', 'gitShow', [FAILING, 'main']],
-    ['gitShowDiff-not-a-hash', 'gitShowDiff', [FAILING, 'zzzz', 'f.txt']],
-    ['gitShowDiff-path-climbs-out', 'gitShowDiff', [FAILING, head, '../x']],
-    ['gitShowFile-not-a-revision', 'gitShowFile', [FAILING, 'HEAD~1', 'f.txt']],
-    ['gitShowFile-blank-revision', 'gitShowFile', [FAILING, ' ', 'f.txt']],
-    ['gitResetToCommit-unknown-mode', 'gitResetToCommit', [FAILING, head, 'keep']],
-    ['gitRevertCommit-not-a-hash', 'gitRevertCommit', [FAILING, '--no-edit']],
-    ['gitCherryPickCommit-not-a-hash', 'gitCherryPickCommit', [FAILING, 'abc']],
-    ['gitLog-long-query', 'gitLog', [FAILING, 'q'.repeat(201)]],
-    ['gitLog-offset-over-the-limit', 'gitLog', [FAILING, '', 1_000_001]],
-    ['gitLog-limit-over-the-limit', 'gitLog', [FAILING, '', 0, 101]],
-    ['gitLog-limit-zero', 'gitLog', [FAILING, '', 0, 0]],
-    ['gitReview-unknown-source', 'gitReview', [FAILING, 'staged']],
-    ['gitStash-message-with-nul', 'gitStash', [FAILING, 'wip\0']],
-    ['gitAmend-long-message', 'gitAmend', [FAILING, 'm'.repeat(20_001)]],
-    ['gitStashApply-long-ref', 'gitStashApply', [FAILING, 's'.repeat(65)]],
-    ['gitStashDrop-blank-ref', 'gitStashDrop', [FAILING, '']],
-    ['gitRequestContext-path-climbs-out', 'gitRequestContext', [FAILING, { paths: ['../x'] }]],
-    ['gitRequestContext-option-as-base', 'gitRequestContext', [FAILING, { paths: [], base: '-x' }]],
-    ['setGitGlobalConfig-long-value', 'setGitGlobalConfig', ['user.name', 'v'.repeat(501)]],
-  ];
-  for (const [name, call, params] of refused) await rec(`refused-${name}`, call, params);
-}
 // A repository whose only commit has no parent to go back to.
 await rec('gitUndoLastCommit-only-commit', 'gitUndoLastCommit', [FAILING]);
 const BIG = join(WORK, 'big');
@@ -1707,6 +1953,8 @@ writeJson(join(stage, 'golden.json'), {
     [['windows', win32], ['unix', posix]].map(([family, rules]) => [family, PATH_SPELLINGS.map((spelling) => ({ spelling, absolute: rules.isAbsolute(spelling), trimmedAbsolute: rules.isAbsolute(spelling.trim()) }))]),
   ),
   cases,
+  // Calls the core cannot be compared on, each recorded from Node and kept as JSON text (`recordedText`): see the manifest's notes.
+  limits,
   ptyEnds,
   ordering,
 });
@@ -1726,6 +1974,18 @@ writeSetManifest(stage, {
       git: 'runChild on the calling thread. The daemon runs the same runChild in its process-runner worker pool (desktop-service.ts:1049-1053, process-runner.mjs:19-37, four threads): the same limits and errors; the spawns of one thread queue, which this recording does not reproduce',
       featureGit: 'MIXDOG_FEATURE_GIT is unset, as in the product: no production code sets it (read at builtin-features.mjs:70,219)',
       clock: 'Date.now, new Date() and the run-limit timeouts are virtual; every other timer of the code under test is real and is printed, by delay, at the end of a recording',
+    },
+    notes: {
+      loneSurrogate:
+        'A JSON string holding an escaped lone surrogate ("\\ud800") is a string to Node: its string checks take it and the call acts on it (golden.json limits[lone-surrogate-gitLog-query]). The core decodes a request into Rust strings, which cannot hold one, so it refuses such a request before any check runs. This is a limit of the whole core, not of the source-control calls; the case is not replayed.',
+      posixCwd:
+        'The directory rule is the platform\'s path.isAbsolute (git-contract.mjs:3), and so is the core\'s (mixdog-scm input.rs is_absolute): on POSIX only a leading "/" is absolute, so a backslash-rooted, a drive (C:\\x) or a UNC spelling is refused there where Windows (this recording) takes it. The trim is JavaScript\'s on both platforms.',
+      reviewWithoutFiles:
+        'The core request of the phone\'s gitReviewDiff and gitReviewDiffs is one method (review/diff/get, scope repo, patch true): one with neither `path` nor `files` cannot say which call it stands for, and is checked as gitReviewDiff. A request that names either is checked as its own call; the page always names one.',
+      loginOptions:
+        'githubCliLoginOpenBrowser\'s second argument (optionalGithubLoginOptions) has no core param: the page checks it and leaves it out (scm-operation-route.ts), so no core request carries it.',
+      githubStatusRefresh:
+        'githubCliStatus took no arguments over the relay (remote-methods.ts:562); the core ignores `refresh` on a relay connection and honours it for the desktop\'s own calls.',
     },
     // The stand-in's rules are input to both products, not recorded answers: say so, and what each imitates.
     syntheticInput: {

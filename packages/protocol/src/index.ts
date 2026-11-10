@@ -1057,27 +1057,27 @@ export type FsWatchParams = { watchId: WatchId, path: string, recursive: boolean
 /**
  * Params of `git/abortOperation`.
  */
-export type GitAbortOperationParams = { opId: OpId, cwd: string, };
+export type GitAbortOperationParams = { opId: OpId, cwd: JsonValue, };
 
 /**
  * Params of `git/amend`.
  */
-export type GitAmendParams = { opId: OpId, cwd: string, message?: string, };
+export type GitAmendParams = { opId: OpId, cwd: JsonValue, message?: JsonValue, };
 
 /**
  * Params of `git/applyPatch`.
  */
-export type GitApplyPatchParams = { opId: OpId, cwd: string, path: string, patch: string, reverse?: boolean, };
+export type GitApplyPatchParams = { opId: OpId, cwd: JsonValue, path: JsonValue, patch: JsonValue, reverse?: JsonValue, };
 
 /**
  * Params of `git/branches`.
  */
-export type GitBranchesParams = { cwd: string, };
+export type GitBranchesParams = { cwd: JsonValue, };
 
 /**
  * Params of `git/cherryPickCommit`.
  */
-export type GitCherryPickCommitParams = { opId: OpId, cwd: string, value: string, };
+export type GitCherryPickCommitParams = { opId: OpId, cwd: JsonValue, value: JsonValue, };
 
 /**
  * Params of `git/cli/install`.
@@ -1087,12 +1087,12 @@ export type GitCliInstallParams = { opId: OpId, };
 /**
  * Params of `git/cliStatus`.
  */
-export type GitCliStatusParams = { refresh?: boolean, };
+export type GitCliStatusParams = { refresh?: JsonValue, };
 
 /**
  * Params of `git/commit`.
  */
-export type GitCommitParams = { opId: OpId, cwd: string, message: string, };
+export type GitCommitParams = { opId: OpId, cwd: JsonValue, message: JsonValue, };
 
 /**
  * Input of `git/commitPaths` (`gitCommitPaths(cwd, message, paths)`).
@@ -1101,51 +1101,51 @@ export type GitCommitPathsInput = {
 /**
  * 1–20 000 characters.
  */
-message: string,
+message: JsonValue,
 /**
  * Repository-relative, 1–500 paths.
  */
-paths: Array<string>, };
+paths: JsonValue, };
 
 /**
  * Params of `git/commitPaths`.
  */
-export type GitCommitPathsParams = { opId: OpId, cwd: string, input: GitCommitPathsInput, };
+export type GitCommitPathsParams = { opId: OpId, cwd: JsonValue, input: GitCommitPathsInput, };
 
 /**
  * Params of `git/continue`.
  */
-export type GitContinueParams = { opId: OpId, cwd: string, };
+export type GitContinueParams = { opId: OpId, cwd: JsonValue, };
 
 /**
  * Params of `git/createTag`.
  */
-export type GitCreateTagParams = { opId: OpId, cwd: string, value: string, at: string, };
+export type GitCreateTagParams = { opId: OpId, cwd: JsonValue, value: JsonValue, at: JsonValue, };
 
 /**
  * Input of `git/deleteBranch` (`gitDeleteBranch(cwd, branch)`): a local branch.
  */
-export type GitDeleteBranchInput = { branch: string, };
+export type GitDeleteBranchInput = { branch: JsonValue, };
 
 /**
  * Params of `git/deleteBranch`.
  */
-export type GitDeleteBranchParams = { opId: OpId, cwd: string, input: GitDeleteBranchInput, };
+export type GitDeleteBranchParams = { opId: OpId, cwd: JsonValue, input: GitDeleteBranchInput, };
 
 /**
  * Params of `git/deleteTag`.
  */
-export type GitDeleteTagParams = { opId: OpId, cwd: string, value: string, };
+export type GitDeleteTagParams = { opId: OpId, cwd: JsonValue, value: JsonValue, };
 
 /**
  * Params of `git/diff`.
  */
-export type GitDiffParams = { cwd: string, path: string, staged: boolean, worktreeOnly?: boolean, untracked?: boolean, };
+export type GitDiffParams = { cwd: JsonValue, path: JsonValue, staged: JsonValue, worktreeOnly?: JsonValue, untracked?: JsonValue, };
 
 /**
  * Params of `git/fetch`.
  */
-export type GitFetchParams = { opId: OpId, cwd: string, };
+export type GitFetchParams = { opId: OpId, cwd: JsonValue, };
 
 /**
  * Params of `git/globalConfig/read`.
@@ -1155,132 +1155,127 @@ export type GitGlobalConfigReadParams = Record<string, never>;
 /**
  * Params of `git/globalConfig/write`.
  */
-export type GitGlobalConfigWriteParams = { opId: OpId, key: string, value: string, };
+export type GitGlobalConfigWriteParams = { opId: OpId, key: JsonValue, value: JsonValue, };
 
 /**
  * Params of `git/ignore`.
  */
-export type GitIgnoreParams = { opId: OpId, cwd: string, path: string, scope?: string, };
+export type GitIgnoreParams = { opId: OpId, cwd: JsonValue, path: JsonValue, scope?: JsonValue, };
 
 /**
  * Params of `git/log`.
  */
-export type GitLogParams = { cwd: string, query?: string, skip?: number, limit?: number, };
+export type GitLogParams = { cwd: JsonValue, query?: JsonValue, skip?: JsonValue, limit?: JsonValue, };
 
 /**
  * Params of `git/pull`.
  */
-export type GitPullParams = { opId: OpId, cwd: string, };
+export type GitPullParams = { opId: OpId, cwd: JsonValue, };
 
 /**
  * Params of `git/push`.
  */
-export type GitPushParams = { opId: OpId, cwd: string, };
+export type GitPushParams = { opId: OpId, cwd: JsonValue, };
 
 /**
  * Input of `git/renameBranch` (`gitRenameBranch(cwd, branch, nextBranch)`).
  */
-export type GitRenameBranchInput = { branch: string, nextBranch: string, };
+export type GitRenameBranchInput = { branch: JsonValue, nextBranch: JsonValue, };
 
 /**
  * Params of `git/renameBranch`.
  */
-export type GitRenameBranchParams = { opId: OpId, cwd: string, input: GitRenameBranchInput, };
-
-/**
- * Input of `git/requestContext` (`requiredGitRequestContextInput`): the listed
- * repository-relative files (0–500, may be empty) and an optional base branch.
- */
-export type GitRequestContextInput = { paths: Array<string>,
-/**
- * Absent or empty: no base branch.
- */
-base?: string, };
+export type GitRenameBranchParams = { opId: OpId, cwd: JsonValue, input: GitRenameBranchInput, };
 
 /**
  * Params of `git/requestContext`.
  */
-export type GitRequestContextParams = { cwd: string, input: GitRequestContextInput, };
+export type GitRequestContextParams = { cwd: JsonValue,
+/**
+ * `{paths, base?}` (`requiredGitRequestContextInput`): the listed repository-relative files (0–500, may be empty) and
+ * an optional base branch.
+ */
+input: JsonValue, };
 
 /**
  * Params of `git/resetToCommit`.
  */
-export type GitResetToCommitParams = { opId: OpId, cwd: string, value: string, mode: string, confirmedDirty?: boolean, };
+export type GitResetToCommitParams = { opId: OpId, cwd: JsonValue, value: JsonValue, mode: JsonValue, confirmedDirty?: JsonValue, };
 
 /**
  * Params of `git/revertCommit`.
  */
-export type GitRevertCommitParams = { opId: OpId, cwd: string, value: string, };
+export type GitRevertCommitParams = { opId: OpId, cwd: JsonValue, value: JsonValue, };
 
 /**
  * Params of `git/revertFile`.
  */
-export type GitRevertFileParams = { opId: OpId, cwd: string, path: string, untracked: boolean, mode?: string, };
+export type GitRevertFileParams = { opId: OpId, cwd: JsonValue, path: JsonValue, untracked: JsonValue, mode?: JsonValue, };
 
 /**
  * Params of `git/showDiff`.
  */
-export type GitShowDiffParams = { cwd: string, hash: string, path: string, };
+export type GitShowDiffParams = { cwd: JsonValue, hash: JsonValue, path: JsonValue, };
 
 /**
  * Params of `git/showFile`.
  */
-export type GitShowFileParams = { cwd: string, rev: string, path: string, };
+export type GitShowFileParams = { cwd: JsonValue, rev: JsonValue, path: JsonValue, };
 
 /**
  * Params of `git/show`.
  */
-export type GitShowParams = { cwd: string, hash: string, };
+export type GitShowParams = { cwd: JsonValue, hash: JsonValue, };
 
 /**
  * Params of `git/stage`.
  */
-export type GitStageParams = { opId: OpId, cwd: string, paths: Array<string>, };
+export type GitStageParams = { opId: OpId, cwd: JsonValue, paths: JsonValue, };
 
 /**
  * Params of `git/stashApply`.
  */
-export type GitStashApplyParams = { opId: OpId, cwd: string, ref: string, };
+export type GitStashApplyParams = { opId: OpId, cwd: JsonValue, ref: JsonValue, };
 
 /**
  * Params of `git/stashDrop`.
  */
-export type GitStashDropParams = { opId: OpId, cwd: string, ref: string, };
+export type GitStashDropParams = { opId: OpId, cwd: JsonValue, ref: JsonValue, };
 
 /**
  * Params of `git/stashList`.
  */
-export type GitStashListParams = { cwd: string, };
+export type GitStashListParams = { cwd: JsonValue, };
 
 /**
  * Params of `git/stash`.
  */
-export type GitStashParams = { opId: OpId, cwd: string, message?: string, };
+export type GitStashParams = { opId: OpId, cwd: JsonValue, message?: JsonValue, };
 
 /**
  * Params of `git/stashPop`.
  */
-export type GitStashPopParams = { opId: OpId, cwd: string, };
+export type GitStashPopParams = { opId: OpId, cwd: JsonValue, };
 
 /**
  * Params of `git/status`.
  */
-export type GitStatusParams = { cwd: string, reuseLineStats?: boolean, skipLineStats?: boolean, };
+export type GitStatusParams = { cwd: JsonValue, reuseLineStats?: JsonValue, skipLineStats?: JsonValue, };
 
 /**
  * Params of `git/sync`.
  */
-export type GitSyncParams = { opId: OpId, cwd: string, };
+export type GitSyncParams = { opId: OpId, cwd: JsonValue, };
 
 /**
  * Params of `git/undoLastCommit`.
  */
-export type GitUndoLastCommitParams = { opId: OpId, cwd: string, };
+export type GitUndoLastCommitParams = { opId: OpId, cwd: JsonValue, };
 
 /**
  * Params of `git/unstage`.
  */
-export type GitUnstageParams = { opId: OpId, cwd: string, paths: Array<string>, };
+export type GitUnstageParams = { opId: OpId, cwd: JsonValue, paths: JsonValue, };
 
 /**
  * Params of `git/unwatch`.
@@ -1305,22 +1300,22 @@ export type GithubInstallParams = { opId: OpId, };
 /**
  * Params of `github/login/cancel`.
  */
-export type GithubLoginCancelParams = { opId: OpId, flowId: LoginFlowId, };
+export type GithubLoginCancelParams = { opId: OpId, flowId: JsonValue, };
 
 /**
  * Params of `github/login/openBrowser`.
  */
-export type GithubLoginOpenBrowserParams = { opId: OpId, flowId: LoginFlowId, };
+export type GithubLoginOpenBrowserParams = { opId: OpId, flowId: JsonValue, };
 
 /**
  * Params of `github/login/start`.
  */
-export type GithubLoginStartParams = { opId: OpId, openBrowser?: boolean, };
+export type GithubLoginStartParams = { opId: OpId, openBrowser?: JsonValue, };
 
 /**
  * Params of `github/login/status`.
  */
-export type GithubLoginStatusParams = { flowId: LoginFlowId, };
+export type GithubLoginStatusParams = { flowId: JsonValue, };
 
 /**
  * Params of `github/logout`.
@@ -1330,42 +1325,42 @@ export type GithubLogoutParams = { opId: OpId, };
 /**
  * Params of `github/pr/checkout`.
  */
-export type GithubPrCheckoutParams = { opId: OpId, cwd: string, value: JsonValue, };
+export type GithubPrCheckoutParams = { opId: OpId, cwd: JsonValue, value: JsonValue, };
 
 /**
  * Params of `github/pr/create`.
  */
-export type GithubPrCreateParams = { opId: OpId, cwd: string, value: JsonValue, };
+export type GithubPrCreateParams = { opId: OpId, cwd: JsonValue, value: JsonValue, };
 
 /**
  * Params of `github/pr/defaultBranch`.
  */
-export type GithubPrDefaultBranchParams = { cwd: string, };
+export type GithubPrDefaultBranchParams = { cwd: JsonValue, };
 
 /**
  * Params of `github/pr/diff`.
  */
-export type GithubPrDiffParams = { cwd: string, value: JsonValue, };
+export type GithubPrDiffParams = { cwd: JsonValue, value: JsonValue, };
 
 /**
  * Params of `github/pr/list`.
  */
-export type GithubPrListParams = { cwd: string, };
+export type GithubPrListParams = { cwd: JsonValue, };
 
 /**
  * Params of `github/pr/merge`.
  */
-export type GithubPrMergeParams = { opId: OpId, cwd: string, value: JsonValue, method: JsonValue, };
+export type GithubPrMergeParams = { opId: OpId, cwd: JsonValue, value: JsonValue, method: JsonValue, };
 
 /**
  * Params of `github/pr/view`.
  */
-export type GithubPrViewParams = { cwd: string, value: JsonValue, };
+export type GithubPrViewParams = { cwd: JsonValue, value: JsonValue, };
 
 /**
  * Params of `github/request`.
  */
-export type GithubRequestParams = { opId: OpId, cwd: string, input: JsonValue, };
+export type GithubRequestParams = { opId: OpId, cwd: JsonValue, input: JsonValue, };
 
 /**
  * Params of `github/star`.
@@ -1380,7 +1375,7 @@ export type GithubStarStatusParams = Record<string, never>;
 /**
  * Params of `github/status`.
  */
-export type GithubStatusParams = { refresh?: boolean, };
+export type GithubStatusParams = { refresh?: JsonValue, };
 
 export type GpuVendor = "NVIDIA" | "Apple";
 
@@ -3292,21 +3287,23 @@ export type ResumeWindow = { lastItems: number, } | { lastTurns: number, } | { n
  */
 export type ReviewDiffGetParams = { scope: ReviewScope, threadId?: ThreadId,
 /**
- * Repository working directory for `repo`.
+ * Repository working directory for `repo`. This and the other arguments of a repository review (`path`, `files`,
+ * `untracked`, `source`) are the raw values of the phone's `gitReview*` call: the owner checks them as Node's host
+ * did (params.rs, the source-control calls).
  */
-cwd?: string, checkpointId?: string,
+cwd?: JsonValue, checkpointId?: string,
 /**
  * One file's patch.
  */
-path?: string, oldPath?: string,
+path?: JsonValue, oldPath?: string,
 /**
  * Several files' patches (today's `gitReviewDiffs`).
  */
-files?: Array<JsonValue>, untracked?: boolean,
+files?: JsonValue, untracked?: JsonValue,
 /**
  * `branch` | `worktree` | … (today's `GitReviewSource`).
  */
-source?: string,
+source?: JsonValue,
 /**
  * Include patches (today's `patch: true`).
  */

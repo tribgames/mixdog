@@ -259,6 +259,15 @@ pub enum SerializationScope {
     ChannelClient,
 }
 
+/// The root a repository-scoped request is keyed by: its `cwd` as given. The `cwd` is the raw argument (the owner checks it
+/// as Node's host did), so a value that is no string is keyed by its JSON text; the owner refuses it.
+pub fn repo_root(cwd: &mixdog_protocol::JsonValue) -> String {
+    match cwd {
+        mixdog_protocol::JsonValue::String(root) => root.clone(),
+        other => other.to_string(),
+    }
+}
+
 /// Owner scope of an op record: `thread:<id>` or a domain name (P §9.2).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum OpScope {
@@ -573,7 +582,7 @@ macro_rules! __scope_expr {
     };
     ($p:ident, repo($field:ident)) => {
         Some($crate::common::SerializationScope::Repo {
-            root: $p.$field.to_string(),
+            root: $crate::common::repo_root(&$p.$field),
         })
     };
     ($p:ident, channel_call) => {

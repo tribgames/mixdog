@@ -3620,14 +3620,13 @@
       "description": "Params of `git/abortOperation`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         }
       },
       "required": [
-        "cwd",
         "opId"
       ],
       "type": "object"
@@ -3636,20 +3635,14 @@
       "description": "Params of `git/amend`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
-        "message": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
+        "message": true,
         "opId": {
           "type": "string"
         }
       },
       "required": [
-        "cwd",
         "opId"
       ],
       "type": "object"
@@ -3658,29 +3651,21 @@
       "description": "Params of `git/applyPatch`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         },
         "patch": {
-          "type": "string"
+          "default": null
         },
         "path": {
-          "type": "string"
+          "default": null
         },
-        "reverse": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        }
+        "reverse": true
       },
       "required": [
-        "cwd",
-        "opId",
-        "patch",
-        "path"
+        "opId"
       ],
       "type": "object"
     },
@@ -3688,31 +3673,26 @@
       "description": "Params of `git/branches`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         }
       },
-      "required": [
-        "cwd"
-      ],
       "type": "object"
     },
     "GitCherryPickCommitParams": {
       "description": "Params of `git/cherryPickCommit`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         },
         "value": {
-          "type": "string"
+          "default": null
         }
       },
       "required": [
-        "cwd",
-        "opId",
-        "value"
+        "opId"
       ],
       "type": "object"
     },
@@ -3731,12 +3711,7 @@
     "GitCliStatusParams": {
       "description": "Params of `git/cliStatus`.",
       "properties": {
-        "refresh": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        }
+        "refresh": true
       },
       "type": "object"
     },
@@ -3744,18 +3719,16 @@
       "description": "Params of `git/commit`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "message": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         }
       },
       "required": [
-        "cwd",
-        "message",
         "opId"
       ],
       "type": "object"
@@ -3764,28 +3737,21 @@
       "description": "Input of `git/commitPaths` (`gitCommitPaths(cwd, message, paths)`).",
       "properties": {
         "message": {
-          "description": "1–20 000 characters.",
-          "type": "string"
+          "default": null,
+          "description": "1–20 000 characters."
         },
         "paths": {
-          "description": "Repository-relative, 1–500 paths.",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
+          "default": null,
+          "description": "Repository-relative, 1–500 paths."
         }
       },
-      "required": [
-        "message",
-        "paths"
-      ],
       "type": "object"
     },
     "GitCommitPathsParams": {
       "description": "Params of `git/commitPaths`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "input": {
           "$ref": "#/definitions/GitCommitPathsInput"
@@ -3795,7 +3761,6 @@
         }
       },
       "required": [
-        "cwd",
         "input",
         "opId"
       ],
@@ -3805,14 +3770,13 @@
       "description": "Params of `git/continue`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         }
       },
       "required": [
-        "cwd",
         "opId"
       ],
       "type": "object"
@@ -3821,23 +3785,20 @@
       "description": "Params of `git/createTag`.",
       "properties": {
         "at": {
-          "type": "string"
+          "default": null
         },
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         },
         "value": {
-          "type": "string"
+          "default": null
         }
       },
       "required": [
-        "at",
-        "cwd",
-        "opId",
-        "value"
+        "opId"
       ],
       "type": "object"
     },
@@ -3845,19 +3806,16 @@
       "description": "Input of `git/deleteBranch` (`gitDeleteBranch(cwd, branch)`): a local branch.",
       "properties": {
         "branch": {
-          "type": "string"
+          "default": null
         }
       },
-      "required": [
-        "branch"
-      ],
       "type": "object"
     },
     "GitDeleteBranchParams": {
       "description": "Params of `git/deleteBranch`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "input": {
           "$ref": "#/definitions/GitDeleteBranchInput"
@@ -3867,7 +3825,6 @@
         }
       },
       "required": [
-        "cwd",
         "input",
         "opId"
       ],
@@ -3877,19 +3834,17 @@
       "description": "Params of `git/deleteTag`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         },
         "value": {
-          "type": "string"
+          "default": null
         }
       },
       "required": [
-        "cwd",
-        "opId",
-        "value"
+        "opId"
       ],
       "type": "object"
     },
@@ -3897,46 +3852,30 @@
       "description": "Params of `git/diff`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "path": {
-          "type": "string"
+          "default": null
         },
         "staged": {
-          "type": "boolean"
+          "default": null
         },
-        "untracked": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "worktreeOnly": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        }
+        "untracked": true,
+        "worktreeOnly": true
       },
-      "required": [
-        "cwd",
-        "path",
-        "staged"
-      ],
       "type": "object"
     },
     "GitFetchParams": {
       "description": "Params of `git/fetch`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         }
       },
       "required": [
-        "cwd",
         "opId"
       ],
       "type": "object"
@@ -3950,19 +3889,17 @@
       "description": "Params of `git/globalConfig/write`.",
       "properties": {
         "key": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         },
         "value": {
-          "type": "string"
+          "default": null
         }
       },
       "required": [
-        "key",
-        "opId",
-        "value"
+        "opId"
       ],
       "type": "object"
     },
@@ -3970,25 +3907,18 @@
       "description": "Params of `git/ignore`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         },
         "path": {
-          "type": "string"
+          "default": null
         },
-        "scope": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
+        "scope": true
       },
       "required": [
-        "cwd",
-        "opId",
-        "path"
+        "opId"
       ],
       "type": "object"
     },
@@ -3996,48 +3926,25 @@
       "description": "Params of `git/log`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
-        "limit": {
-          "format": "uint32",
-          "minimum": 0.0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "query": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "skip": {
-          "format": "uint32",
-          "minimum": 0.0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        }
+        "limit": true,
+        "query": true,
+        "skip": true
       },
-      "required": [
-        "cwd"
-      ],
       "type": "object"
     },
     "GitPullParams": {
       "description": "Params of `git/pull`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         }
       },
       "required": [
-        "cwd",
         "opId"
       ],
       "type": "object"
@@ -4046,14 +3953,13 @@
       "description": "Params of `git/push`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         }
       },
       "required": [
-        "cwd",
         "opId"
       ],
       "type": "object"
@@ -4062,23 +3968,19 @@
       "description": "Input of `git/renameBranch` (`gitRenameBranch(cwd, branch, nextBranch)`).",
       "properties": {
         "branch": {
-          "type": "string"
+          "default": null
         },
         "nextBranch": {
-          "type": "string"
+          "default": null
         }
       },
-      "required": [
-        "branch",
-        "nextBranch"
-      ],
       "type": "object"
     },
     "GitRenameBranchParams": {
       "description": "Params of `git/renameBranch`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "input": {
           "$ref": "#/definitions/GitRenameBranchInput"
@@ -4088,31 +3990,8 @@
         }
       },
       "required": [
-        "cwd",
         "input",
         "opId"
-      ],
-      "type": "object"
-    },
-    "GitRequestContextInput": {
-      "description": "Input of `git/requestContext` (`requiredGitRequestContextInput`): the listed repository-relative files (0–500, may be empty) and an optional base branch.",
-      "properties": {
-        "base": {
-          "description": "Absent or empty: no base branch.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "paths": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "paths"
       ],
       "type": "object"
     },
@@ -4120,45 +3999,34 @@
       "description": "Params of `git/requestContext`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "input": {
-          "$ref": "#/definitions/GitRequestContextInput"
+          "default": null,
+          "description": "`{paths, base?}` (`requiredGitRequestContextInput`): the listed repository-relative files (0–500, may be empty) and an optional base branch."
         }
       },
-      "required": [
-        "cwd",
-        "input"
-      ],
       "type": "object"
     },
     "GitResetToCommitParams": {
       "description": "Params of `git/resetToCommit`.",
       "properties": {
-        "confirmedDirty": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
+        "confirmedDirty": true,
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "mode": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         },
         "value": {
-          "type": "string"
+          "default": null
         }
       },
       "required": [
-        "cwd",
-        "mode",
-        "opId",
-        "value"
+        "opId"
       ],
       "type": "object"
     },
@@ -4166,19 +4034,17 @@
       "description": "Params of `git/revertCommit`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         },
         "value": {
-          "type": "string"
+          "default": null
         }
       },
       "required": [
-        "cwd",
-        "opId",
-        "value"
+        "opId"
       ],
       "type": "object"
     },
@@ -4186,29 +4052,21 @@
       "description": "Params of `git/revertFile`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
-        "mode": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
+        "mode": true,
         "opId": {
           "type": "string"
         },
         "path": {
-          "type": "string"
+          "default": null
         },
         "untracked": {
-          "type": "boolean"
+          "default": null
         }
       },
       "required": [
-        "cwd",
-        "opId",
-        "path",
-        "untracked"
+        "opId"
       ],
       "type": "object"
     },
@@ -4216,78 +4074,59 @@
       "description": "Params of `git/showDiff`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "hash": {
-          "type": "string"
+          "default": null
         },
         "path": {
-          "type": "string"
+          "default": null
         }
       },
-      "required": [
-        "cwd",
-        "hash",
-        "path"
-      ],
       "type": "object"
     },
     "GitShowFileParams": {
       "description": "Params of `git/showFile`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "path": {
-          "type": "string"
+          "default": null
         },
         "rev": {
-          "type": "string"
+          "default": null
         }
       },
-      "required": [
-        "cwd",
-        "path",
-        "rev"
-      ],
       "type": "object"
     },
     "GitShowParams": {
       "description": "Params of `git/show`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "hash": {
-          "type": "string"
+          "default": null
         }
       },
-      "required": [
-        "cwd",
-        "hash"
-      ],
       "type": "object"
     },
     "GitStageParams": {
       "description": "Params of `git/stage`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         },
         "paths": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
+          "default": null
         }
       },
       "required": [
-        "cwd",
-        "opId",
-        "paths"
+        "opId"
       ],
       "type": "object"
     },
@@ -4295,19 +4134,17 @@
       "description": "Params of `git/stashApply`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         },
         "ref": {
-          "type": "string"
+          "default": null
         }
       },
       "required": [
-        "cwd",
-        "opId",
-        "ref"
+        "opId"
       ],
       "type": "object"
     },
@@ -4315,19 +4152,17 @@
       "description": "Params of `git/stashDrop`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         },
         "ref": {
-          "type": "string"
+          "default": null
         }
       },
       "required": [
-        "cwd",
-        "opId",
-        "ref"
+        "opId"
       ],
       "type": "object"
     },
@@ -4335,32 +4170,23 @@
       "description": "Params of `git/stashList`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         }
       },
-      "required": [
-        "cwd"
-      ],
       "type": "object"
     },
     "GitStashParams": {
       "description": "Params of `git/stash`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
-        "message": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
+        "message": true,
         "opId": {
           "type": "string"
         }
       },
       "required": [
-        "cwd",
         "opId"
       ],
       "type": "object"
@@ -4369,14 +4195,13 @@
       "description": "Params of `git/stashPop`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         }
       },
       "required": [
-        "cwd",
         "opId"
       ],
       "type": "object"
@@ -4385,38 +4210,24 @@
       "description": "Params of `git/status`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
-        "reuseLineStats": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "skipLineStats": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        }
+        "reuseLineStats": true,
+        "skipLineStats": true
       },
-      "required": [
-        "cwd"
-      ],
       "type": "object"
     },
     "GitSyncParams": {
       "description": "Params of `git/sync`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         }
       },
       "required": [
-        "cwd",
         "opId"
       ],
       "type": "object"
@@ -4425,14 +4236,13 @@
       "description": "Params of `git/undoLastCommit`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         }
       },
       "required": [
-        "cwd",
         "opId"
       ],
       "type": "object"
@@ -4441,22 +4251,17 @@
       "description": "Params of `git/unstage`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         },
         "paths": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
+          "default": null
         }
       },
       "required": [
-        "cwd",
-        "opId",
-        "paths"
+        "opId"
       ],
       "type": "object"
     },
@@ -4504,14 +4309,13 @@
       "description": "Params of `github/login/cancel`.",
       "properties": {
         "flowId": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         }
       },
       "required": [
-        "flowId",
         "opId"
       ],
       "type": "object"
@@ -4520,14 +4324,13 @@
       "description": "Params of `github/login/openBrowser`.",
       "properties": {
         "flowId": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
         }
       },
       "required": [
-        "flowId",
         "opId"
       ],
       "type": "object"
@@ -4538,12 +4341,7 @@
         "opId": {
           "type": "string"
         },
-        "openBrowser": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        }
+        "openBrowser": true
       },
       "required": [
         "opId"
@@ -4554,12 +4352,9 @@
       "description": "Params of `github/login/status`.",
       "properties": {
         "flowId": {
-          "type": "string"
+          "default": null
         }
       },
-      "required": [
-        "flowId"
-      ],
       "type": "object"
     },
     "GithubLogoutParams": {
@@ -4578,7 +4373,7 @@
       "description": "Params of `github/pr/checkout`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
@@ -4586,7 +4381,6 @@
         "value": true
       },
       "required": [
-        "cwd",
         "opId",
         "value"
       ],
@@ -4596,7 +4390,7 @@
       "description": "Params of `github/pr/create`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "opId": {
           "type": "string"
@@ -4604,7 +4398,6 @@
         "value": true
       },
       "required": [
-        "cwd",
         "opId",
         "value"
       ],
@@ -4614,24 +4407,20 @@
       "description": "Params of `github/pr/defaultBranch`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         }
       },
-      "required": [
-        "cwd"
-      ],
       "type": "object"
     },
     "GithubPrDiffParams": {
       "description": "Params of `github/pr/diff`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "value": true
       },
       "required": [
-        "cwd",
         "value"
       ],
       "type": "object"
@@ -4640,19 +4429,16 @@
       "description": "Params of `github/pr/list`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         }
       },
-      "required": [
-        "cwd"
-      ],
       "type": "object"
     },
     "GithubPrMergeParams": {
       "description": "Params of `github/pr/merge`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "method": true,
         "opId": {
@@ -4661,7 +4447,6 @@
         "value": true
       },
       "required": [
-        "cwd",
         "method",
         "opId",
         "value"
@@ -4672,12 +4457,11 @@
       "description": "Params of `github/pr/view`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "value": true
       },
       "required": [
-        "cwd",
         "value"
       ],
       "type": "object"
@@ -4686,7 +4470,7 @@
       "description": "Params of `github/request`.",
       "properties": {
         "cwd": {
-          "type": "string"
+          "default": null
         },
         "input": true,
         "opId": {
@@ -4694,7 +4478,6 @@
         }
       },
       "required": [
-        "cwd",
         "input",
         "opId"
       ],
@@ -4719,12 +4502,7 @@
     "GithubStatusParams": {
       "description": "Params of `github/status`.",
       "properties": {
-        "refresh": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        }
+        "refresh": true
       },
       "type": "object"
     },
@@ -12291,19 +12069,10 @@
           ]
         },
         "cwd": {
-          "description": "Repository working directory for `repo`.",
-          "type": [
-            "string",
-            "null"
-          ]
+          "description": "Repository working directory for `repo`. This and the other arguments of a repository review (`path`, `files`, `untracked`, `source`) are the raw values of the phone's `gitReview*` call: the owner checks them as Node's host did (params.rs, the source-control calls)."
         },
         "files": {
-          "description": "Several files' patches (today's `gitReviewDiffs`).",
-          "items": true,
-          "type": [
-            "array",
-            "null"
-          ]
+          "description": "Several files' patches (today's `gitReviewDiffs`)."
         },
         "known": {
           "description": "The client's review key; an unchanged review answers `{unchanged:true}`.",
@@ -12326,21 +12095,13 @@
           ]
         },
         "path": {
-          "description": "One file's patch.",
-          "type": [
-            "string",
-            "null"
-          ]
+          "description": "One file's patch."
         },
         "scope": {
           "$ref": "#/definitions/ReviewScope"
         },
         "source": {
-          "description": "`branch` | `worktree` | … (today's `GitReviewSource`).",
-          "type": [
-            "string",
-            "null"
-          ]
+          "description": "`branch` | `worktree` | … (today's `GitReviewSource`)."
         },
         "summary": {
           "description": "Leave the patch text out of a turn review (today's `getTurnReviewDiff {summary: true}`).",
@@ -12355,12 +12116,7 @@
             "null"
           ]
         },
-        "untracked": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        }
+        "untracked": true
       },
       "required": [
         "scope"
