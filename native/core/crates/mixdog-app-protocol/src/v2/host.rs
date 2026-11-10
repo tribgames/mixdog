@@ -588,16 +588,14 @@ pub struct BrowserStreamAckParams {
     pub seq: f64,
 }
 
-/// The `browser/frame` push (Node's `browserRemoteFrame` event): one frame of a session the phone streams
-/// (`DesktopRemoteBrowserStreamFrame`: `sessionId`, `seq`, `documentId`, the page facts and, unless withheld, `image`
-/// `{mimeType, data}` as base64). At most one is unacknowledged per subscription; the newest frame goes next, after the
-/// phone's `browser/streamAck` or 1.5 s.
+/// The `browser/frame` push (Node's `browserRemoteFrame` event): its params are Node's payload itself, one frame of a session the
+/// phone streams (`DesktopRemoteBrowserStreamFrame`: `frameId`, `sessionId`, `seq`, `documentId`, the page facts and, unless
+/// withheld, `image` `{mimeType, data}` as base64), field for field and in the order Node's relay built it. At most one is
+/// unacknowledged per subscription; the newest frame goes next, after the phone's `browser/streamAck` or 1.5 s.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
-#[serde(rename_all = "camelCase")]
-pub struct BrowserFrameParams {
-    pub frame: JsonValue,
-}
+#[serde(transparent)]
+pub struct BrowserFrameParams(pub JsonValue);
 
 /// `host/browser/frame` (host → core notification, Node's `browserRemoteFrame` desktop operation): a frame of a viewed
 /// session (`DesktopRemoteBrowserStreamFrame`) without its picture bytes. When `frame.image` is present (`{mimeType:

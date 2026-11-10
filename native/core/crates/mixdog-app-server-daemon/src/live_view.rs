@@ -95,6 +95,9 @@ const SESSION_PREFIX: &str = "browser:";
 /// Whether a connection may see this PC's screens.
 pub trait ScreenAccess: Send + Sync {
     fn allowed(&self, connection: ConnectionId) -> bool;
+    /// Whether a connection may still be sent pictures of a browser session it streams: its peer is attached and its device was not
+    /// unpaired while it was connected. Asked at every send, so an unpair whose drop was missed still sends nothing.
+    fn view_allowed(&self, connection: ConnectionId) -> bool;
 }
 
 /// Node's rule (`screen-access-publisher.ts` `allowed`; "pairing is the approval"): a connection is allowed exactly
@@ -105,17 +108,27 @@ pub struct PairedScreenAccess {
     /// Whether the connection is revoked for the screen for its lifetime (live at an unpair, or admitted while one was in force):
     /// the peer keeps its credential, and so everything but the screen.
     revoked: Arc<dyn Fn(ConnectionId) -> bool + Send + Sync>,
+    /// Whether the relay peer behind the connection is attached (Node's client registry still holds it with its channel).
+    attached: Arc<dyn Fn(ConnectionId) -> bool + Send + Sync>,
 }
 
 impl PairedScreenAccess {
-    pub fn new(credential: Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync>, revoked: Arc<dyn Fn(ConnectionId) -> bool + Send + Sync>) -> Self {
-        Self { credential, revoked }
+    pub fn new(
+        credential: Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync>,
+        revoked: Arc<dyn Fn(ConnectionId) -> bool + Send + Sync>,
+        attached: Arc<dyn Fn(ConnectionId) -> bool + Send + Sync>,
+    ) -> Self {
+        Self { credential, revoked, attached }
     }
 }
 
 impl ScreenAccess for PairedScreenAccess {
     fn allowed(&self, connection: ConnectionId) -> bool {
         (self.credential)(connection).is_some() && !(self.revoked)(connection)
+    }
+
+    fn view_allowed(&self, connection: ConnectionId) -> bool {
+        (self.attached)(connection) && !(self.revoked)(connection)
     }
 }
 
@@ -382,8 +395,13 @@ impl StreamsDeps for StreamsAdapter {
 
     fn send(&self, client: &str, frame: Value) {
         let (Some(inner), Some(connection)) = (self.0.upgrade(), client_connection(client)) else { return };
+        // As Node's `sendEncryptedFrame` (`remote-relay-delivery.ts:90-93`) a phone that left gets nothing; and nor does one whose
+        // device was unpaired, even when the unpair's drop of its subscriptions was missed.
+        if lock(&inner.state).closed.contains(&connection.0) || !inner.access.view_allowed(connection) {
+            return;
+        }
         // Node's push is droppable and its failure ignored.
-        if let Err(error) = inner.notifier.notify(connection, Method("browser/frame"), json!({ "frame": frame })) {
+        if let Err(error) = inner.notifier.notify(connection, Method("browser/frame"), frame) {
             tracing::debug!(?error, client, "a browser/frame push was not delivered");
         }
     }
@@ -764,6 +782,19 @@ impl DomainService for LiveViewService {
     }
 }
 
+impl LiveViewService {
+    /// The device behind `connection` was unpaired: the connection's browser streams end now, their frames in flight and resends
+    /// with them, and so its WebRTC views (`on_drop`). Node's unpair asks this of its streams (`remote-relay.ts:619`, `dropClient`).
+    pub fn unpaired(&self, connection: ConnectionId) {
+        self.inner.streams().drop_client(&connection.0.to_string());
+    }
+
+    /// The relay closed: every phone's browser stream ends (`remote-relay.ts:658`, `browserStreams.dispose()`).
+    pub fn relay_closed(&self) {
+        self.inner.streams().dispose();
+    }
+}
+
 impl ConnectionOwner for LiveViewService {
     /// Node keeps a departed phone's subscriptions until the next frame of their session finds it gone, or they lapse
     /// (`isLive`, `remote-relay.ts:361`); its screen `ready`s still resolving are cancelled now.
@@ -992,7 +1023,7 @@ mod tests {
         let (push_tx, mut pushes) = mpsc::unbounded_channel();
         let peers = Arc::new(Scripted::default());
         let media = HostMedia::new(1 << 20);
-        let service = LiveViewService::with_peers(desktop.clone(), Arc::new(Phones(push_tx)), media.clone(), runtime(dir), peers.clone(), Arc::new(PairedScreenAccess::new(Arc::new(|_| None), Arc::new(|_| false))));
+        let service = LiveViewService::with_peers(desktop.clone(), Arc::new(Phones(push_tx)), media.clone(), runtime(dir), peers.clone(), Arc::new(PairedScreenAccess::new(Arc::new(|_| None), Arc::new(|_| false), Arc::new(|_| true))));
         let session = "sess_1";
         for connection in [1, 2] {
             service.call(request(connection, "browser/stream", json!({ "sessionId": session, "on": true, "request": stream_options() }))).await.unwrap();

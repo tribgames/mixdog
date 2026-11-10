@@ -393,12 +393,12 @@ order: number, };
 export type BrowserCommandParams = { action: string, input?: JsonValue, };
 
 /**
- * The `browser/frame` push (Node's `browserRemoteFrame` event): one frame of a session the phone streams
- * (`DesktopRemoteBrowserStreamFrame`: `sessionId`, `seq`, `documentId`, the page facts and, unless withheld, `image`
- * `{mimeType, data}` as base64). At most one is unacknowledged per subscription; the newest frame goes next, after the
- * phone's `browser/streamAck` or 1.5 s.
+ * The `browser/frame` push (Node's `browserRemoteFrame` event): its params are Node's payload itself, one frame of a session the
+ * phone streams (`DesktopRemoteBrowserStreamFrame`: `frameId`, `sessionId`, `seq`, `documentId`, the page facts and, unless
+ * withheld, `image` `{mimeType, data}` as base64), field for field and in the order Node's relay built it. At most one is
+ * unacknowledged per subscription; the newest frame goes next, after the phone's `browser/streamAck` or 1.5 s.
  */
-export type BrowserFrameParams = { frame: JsonValue, };
+export type BrowserFrameParams = JsonValue;
 
 /**
  * `browser/streamAck` (phone → core notification, Node's `browserRemoteStreamAck([sessionId, seq])`): the phone painted the

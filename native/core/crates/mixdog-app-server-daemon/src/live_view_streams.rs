@@ -8,10 +8,15 @@
 //! The options a phone sends are checked as `normalizeRemoteBrowserStreamOptions` (`shared/remote-browser.ts:60-98`) and the
 //! session id as `requiredSessionId` (`desktop-state.ts:58-65`) check them, with their texts.
 //!
-//! Every effect on the world (a push to a phone, a request to the desktop, a dropped subscription) is taken in Node's order and run
-//! once the state is released: a dropped subscription's effects may come back into this state (the WebRTC relay gives the JPEG back).
+//! Every effect on the world (a push to a phone, a request to the desktop, a dropped subscription) is queued in the state's outbox
+//! by the same locked step that changed the state, and delivered once the state is released, one at a time and in the outbox's
+//! order, by whichever caller finds no delivery running. Node changes the state and calls out in one synchronous step
+//! (`remote-browser-streams.ts:114-128`), so no effect ever leaves after one of a later change; the outbox keeps that order across
+//! threads. A delivered effect may come back into this state (a dropped subscription's WebRTC view gives the JPEG back): what it
+//! queues goes out after it.
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
@@ -207,6 +212,10 @@ struct State {
     /// The latest frame per session, so a phone joining a static page gets one.
     latest: HashMap<String, Value>,
     tokens: u64,
+    /// The effects of the state's changes, in the order they were made, not yet delivered.
+    outbox: VecDeque<Effect>,
+    /// A caller is delivering the outbox: others leave their effects to it.
+    delivering: bool,
 }
 
 impl State {
@@ -230,6 +239,10 @@ pub struct BrowserStreams {
     deps: Arc<dyn StreamsDeps>,
     clock: Arc<dyn Clock>,
     state: Mutex<State>,
+    /// Test-only: runs where a step has released the state with its effects queued, before it delivers them, so a test can hold
+    /// one step there while another runs.
+    #[cfg(test)]
+    pub(crate) released: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 fn largest(subscriptions: &[(String, Subscription)]) -> Value {
@@ -255,15 +268,54 @@ fn largest(subscriptions: &[(String, Subscription)]) -> Value {
 
 impl BrowserStreams {
     pub fn new(deps: Arc<dyn StreamsDeps>, clock: Arc<dyn Clock>) -> Arc<Self> {
-        Arc::new_cyclic(|me| Self { me: me.clone(), deps, clock, state: Mutex::default() })
+        Arc::new_cyclic(|me| Self {
+            me: me.clone(),
+            deps,
+            clock,
+            state: Mutex::default(),
+            #[cfg(test)]
+            released: Mutex::default(),
+        })
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn run(&self, effects: Vec<Effect>) {
-        for effect in effects {
+    /// Ends a step: its effects join the outbox under the lock that made its change, then the outbox is delivered.
+    fn commit(&self, mut state: MutexGuard<'_, State>, effects: Vec<Effect>) {
+        state.outbox.extend(effects);
+        drop(state);
+        #[cfg(test)]
+        {
+            let hook = self.released.lock().unwrap_or_else(PoisonError::into_inner).clone();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
+        self.deliver();
+    }
+
+    /// Delivers the outbox in order unless a delivery is already running, which then delivers what was queued here.
+    fn deliver(&self) {
+        {
+            let mut state = self.lock();
+            if state.delivering {
+                return;
+            }
+            state.delivering = true;
+        }
+        loop {
+            let effect = {
+                let mut state = self.lock();
+                match state.outbox.pop_front() {
+                    Some(effect) => effect,
+                    None => {
+                        state.delivering = false;
+                        return;
+                    }
+                }
+            };
             match effect {
                 Effect::Send(client, frame) => self.deps.send(&client, frame),
                 Effect::Request(session, options) => self.deps.request(&session, options),
@@ -342,28 +394,24 @@ impl BrowserStreams {
 
     fn retried(&self, session: &str, client: &str, token: u64) {
         let mut effects = Vec::new();
-        {
-            let mut state = self.lock();
-            let Some(subscription) = state.subscription(session, client) else { return };
-            if subscription.retry.map(|(held, _)| held) != Some(token) {
-                return;
-            }
-            subscription.retry = None;
-            self.flush(&mut state, session, client, &mut effects);
+        let mut state = self.lock();
+        let Some(subscription) = state.subscription(session, client) else { return };
+        if subscription.retry.map(|(held, _)| held) != Some(token) {
+            return;
         }
-        self.run(effects);
+        subscription.retry = None;
+        self.flush(&mut state, session, client, &mut effects);
+        self.commit(state, effects);
     }
 
     fn lapsed(&self, session: &str, client: &str, token: u64) {
         let mut effects = Vec::new();
-        {
-            let mut state = self.lock();
-            if state.subscription(session, client).map(|subscription| subscription.expiry.0) != Some(token) {
-                return;
-            }
-            self.drop_subscription(&mut state, session, client, &mut effects);
+        let mut state = self.lock();
+        if state.subscription(session, client).map(|subscription| subscription.expiry.0) != Some(token) {
+            return;
         }
-        self.run(effects);
+        self.drop_subscription(&mut state, session, client, &mut effects);
+        self.commit(state, effects);
     }
 
     fn arm_expiry(&self, state: &mut State, session: &str, client: &str) {
@@ -400,8 +448,8 @@ impl BrowserStreams {
     /// Start or renew a phone's subscription.
     pub fn subscribe(&self, client: &str, session: &str, options: StreamOptions) {
         let mut effects = Vec::new();
+        let mut state = self.lock();
         {
-            let mut state = self.lock();
             if state.subscriptions(session).is_none() {
                 state.sessions.push((session.to_owned(), Vec::new()));
             }
@@ -457,14 +505,41 @@ impl BrowserStreams {
                 self.flush(&mut state, session, client, &mut effects);
             }
         }
-        self.run(effects);
+        self.commit(state, effects);
     }
 
     /// Stop a phone's subscription.
     pub fn unsubscribe(&self, client: &str, session: &str) {
         let mut effects = Vec::new();
-        self.drop_subscription(&mut self.lock(), session, client, &mut effects);
-        self.run(effects);
+        let mut state = self.lock();
+        self.drop_subscription(&mut state, session, client, &mut effects);
+        self.commit(state, effects);
+    }
+
+    /// The phone lost its right to the view (its device was unpaired): every subscription it holds ends now, its frame in flight and
+    /// its resend with it (Node's `dropClient`, `remote-browser-streams.ts:258-260`).
+    pub fn drop_client(&self, client: &str) {
+        let mut effects = Vec::new();
+        let mut state = self.lock();
+        let sessions: Vec<String> = state.sessions.iter().map(|(session, _)| session.clone()).collect();
+        for session in sessions {
+            self.drop_subscription(&mut state, &session, client, &mut effects);
+        }
+        self.commit(state, effects);
+    }
+
+    /// The relay closed: every subscription ends (Node's `dispose`, `remote-browser-streams.ts:261-265`).
+    pub fn dispose(&self) {
+        let mut effects = Vec::new();
+        let mut state = self.lock();
+        let held: Vec<(String, Vec<String>)> =
+            state.sessions.iter().map(|(session, subscriptions)| (session.clone(), subscriptions.iter().map(|(client, _)| client.clone()).collect())).collect();
+        for (session, clients) in held {
+            for client in clients {
+                self.drop_subscription(&mut state, &session, &client, &mut effects);
+            }
+        }
+        self.commit(state, effects);
     }
 
     /// Whether the phone holds a live subscription to the session.
@@ -485,64 +560,57 @@ impl BrowserStreams {
     /// Withhold (false) or resume (true) a phone's images; resuming sends the newest picture at once.
     pub fn set_images(&self, client: &str, session: &str, enabled: bool) {
         let mut effects = Vec::new();
-        {
-            let mut state = self.lock();
-            let cached = state.latest.get(session).cloned();
-            let Some(subscription) = state.subscription(session, client) else { return };
-            if subscription.images == enabled {
-                return;
-            }
-            subscription.images = enabled;
-            if enabled && let Some(cached) = cached.filter(|cached| truthy(cached.get("image"))) {
-                subscription.slot = Some(cached);
-                self.flush(&mut state, session, client, &mut effects);
-            }
+        let mut state = self.lock();
+        let cached = state.latest.get(session).cloned();
+        let Some(subscription) = state.subscription(session, client) else { return };
+        if subscription.images == enabled {
+            return;
         }
-        self.run(effects);
+        subscription.images = enabled;
+        if enabled && let Some(cached) = cached.filter(|cached| truthy(cached.get("image"))) {
+            subscription.slot = Some(cached);
+            self.flush(&mut state, session, client, &mut effects);
+        }
+        self.commit(state, effects);
     }
 
     /// The phone painted `seq`: its next (newest) frame may go out.
     pub fn acknowledge(&self, client: &str, session: &str, seq: f64) {
         let mut effects = Vec::new();
-        {
-            let mut state = self.lock();
-            let Some(subscription) = state.subscription(session, client) else { return };
-            if subscription.inflight.as_ref().and_then(Value::as_f64) != Some(seq) {
-                return;
-            }
-            subscription.inflight = None;
-            if let Some((_, handle)) = subscription.retry.take() {
-                self.clock.clear_timer(handle);
-            }
-            self.flush(&mut state, session, client, &mut effects);
+        let mut state = self.lock();
+        let Some(subscription) = state.subscription(session, client) else { return };
+        if subscription.inflight.as_ref().and_then(Value::as_f64) != Some(seq) {
+            return;
         }
-        self.run(effects);
+        subscription.inflight = None;
+        if let Some((_, handle)) = subscription.retry.take() {
+            self.clock.clear_timer(handle);
+        }
+        self.flush(&mut state, session, client, &mut effects);
+        self.commit(state, effects);
     }
 
     /// A new frame from the desktop: every live subscriber's slot takes it.
     pub fn publish(&self, frame: Value) {
         let Some(session) = frame.get("sessionId").and_then(Value::as_str).map(str::to_owned) else { return };
         let mut effects = Vec::new();
-        {
-            let mut state = self.lock();
-            let Some(clients) = state.subscriptions(&session).map(|subscriptions| subscriptions.iter().map(|(client, _)| client.clone()).collect::<Vec<_>>())
-            else {
-                return;
-            };
-            // A metadata-only frame inherits the newest image for anyone who has not received it yet.
-            let latest = superseding(&frame, state.latest.get(&session));
-            state.latest.insert(session.clone(), latest);
-            for client in clients {
-                if !self.deps.is_live(&client) {
-                    self.drop_subscription(&mut state, &session, &client, &mut effects);
-                    continue;
-                }
-                let Some(subscription) = state.subscription(&session, &client) else { continue };
-                subscription.slot = Some(superseding(&frame, subscription.slot.as_ref()));
-                self.flush(&mut state, &session, &client, &mut effects);
+        let mut state = self.lock();
+        let Some(clients) = state.subscriptions(&session).map(|subscriptions| subscriptions.iter().map(|(client, _)| client.clone()).collect::<Vec<_>>()) else {
+            return;
+        };
+        // A metadata-only frame inherits the newest image for anyone who has not received it yet.
+        let latest = superseding(&frame, state.latest.get(&session));
+        state.latest.insert(session.clone(), latest);
+        for client in clients {
+            if !self.deps.is_live(&client) {
+                self.drop_subscription(&mut state, &session, &client, &mut effects);
+                continue;
             }
+            let Some(subscription) = state.subscription(&session, &client) else { continue };
+            subscription.slot = Some(superseding(&frame, subscription.slot.as_ref()));
+            self.flush(&mut state, &session, &client, &mut effects);
         }
-        self.run(effects);
+        self.commit(state, effects);
     }
 }
 

@@ -27,6 +27,12 @@ const tree = resolveTree(args);
 const only = args.get('only') ?? null;
 const NODE_COMMIT = execFileSync('git', ['rev-parse', 'b6f10295a^{commit}'], { cwd: REPO_ROOT, encoding: 'utf8', timeout: 30_000 }).trim();
 const recorder = 'benchmarks/rust-core/recorders/record-browser-streams.mjs';
+const RECORDER_FILES = [
+  recorder,
+  'benchmarks/rust-core/recorders/lib/common.mjs',
+  'benchmarks/rust-core/recorders/lib/ts-register.mjs',
+  'benchmarks/rust-core/recorders/lib/ts-resolve-hooks.mjs',
+];
 const finalDir = join(FIXTURES_ROOT, 'browser-streams');
 
 // ── the virtual clock and timer queue ──
@@ -105,6 +111,10 @@ const publish = (f) => ({ op: 'frame', frame: f });
 const advanceBy = (ms) => ({ op: 'advance', ms });
 const query = (client, session) => ({ op: 'query', client, session });
 const leave = (client) => ({ op: 'leave', client });
+/** `browserStreams.dropClient(client)`: what remote-relay.ts:619 (`revokeClient`, the unpair) asks of the streams. */
+const dropClient = (client) => ({ op: 'dropClient', client });
+/** `browserStreams.dispose()`: the relay closing (remote-relay.ts:658, `close`). */
+const dispose = () => ({ op: 'dispose' });
 const SDP = 'v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n';
 const FP = { algorithm: 'sha-256', value: '01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA' };
 const GEOMETRY = { generation: 1, cssWidth: 390, cssHeight: 844, deviceScaleFactor: 3, pixelWidth: 1170, pixelHeight: 2532 };
@@ -306,6 +316,150 @@ const SCENARIOS = [
     query(A, S2),
     query(B, S1),
   ]],
+  ['a phone that left with a frame in flight is sent nothing more', [
+    stream(A, S1, { maxWidth: 1200, maxHeight: 900 }),
+    stream(B, S1, { maxWidth: 800, maxHeight: 600 }),
+    publish(frame(S1, 1)),
+    publish(frame(S1, 2)),
+    leave(A),
+    advanceBy(1500),
+    publish(frame(S1, 3)),
+    query(A, S1),
+    advanceBy(1500),
+    query(B, S1),
+  ]],
+  ['an unpaired phone is dropped at once, its frame in flight and its resend with it', [
+    stream(A, S1, { maxWidth: 1200, maxHeight: 900 }),
+    stream(B, S1, { maxWidth: 800, maxHeight: 600 }),
+    stream(A, S2, { maxWidth: 640, maxHeight: 480 }),
+    publish(frame(S1, 1)),
+    publish(frame(S1, 2)),
+    dropClient(A),
+    query(A, S1),
+    query(A, S2),
+    publish(frame(S1, 3)),
+    advanceBy(1500),
+    ack(A, S1, 1),
+    query(B, S1),
+  ]],
+  ['an unpaired phone that alone streams a session stops the desktop view', [
+    stream(A, S1, { maxWidth: 800, maxHeight: 600 }),
+    publish(frame(S1, 1)),
+    publish(frame(S1, 2)),
+    dropClient(A),
+    query(A, S1),
+    publish(frame(S1, 3)),
+    advanceBy(1500),
+  ]],
+  ['the relay closing ends every subscription and every resend', [
+    stream(A, S1, { maxWidth: 1200, maxHeight: 900 }),
+    stream(B, S1, { maxWidth: 800, maxHeight: 600 }),
+    stream(A, S2, { maxWidth: 640, maxHeight: 480 }),
+    publish(frame(S1, 1)),
+    publish(frame(S1, 2)),
+    dispose(),
+    query(A, S1),
+    query(B, S1),
+    query(A, S2),
+    publish(frame(S1, 3)),
+    advanceBy(1500),
+  ]],
+  ['a stale ack after a resend is ignored', [
+    stream(A, S1, { maxWidth: 800, maxHeight: 600 }),
+    publish(frame(S1, 1)),
+    publish(frame(S1, 2)),
+    advanceBy(1500),
+    ack(A, S1, 1),
+    publish(frame(S1, 3)),
+    advanceBy(1499),
+    ack(A, S1, 2),
+    ack(A, S1, 2),
+    advanceBy(1500),
+  ]],
+  ['a resend pending when the phone unsubscribes is not sent', [
+    stream(A, S1, { maxWidth: 800, maxHeight: 600 }),
+    publish(frame(S1, 1)),
+    publish(frame(S1, 2)),
+    stream(A, S1, null),
+    advanceBy(1500),
+    stream(A, S1, { maxWidth: 800, maxHeight: 600 }),
+    advanceBy(1500),
+  ]],
+  ['a phone joining during a pending resend gets the newest frame at once', [
+    stream(A, S1, { maxWidth: 800, maxHeight: 600 }),
+    publish(frame(S1, 1)),
+    publish(frame(S1, 2)),
+    advanceBy(700),
+    stream(B, S1, { maxWidth: 900, maxHeight: 700 }),
+    advanceBy(799),
+    publish(frame(S1, 3)),
+    advanceBy(1),
+    ack(B, S1, 2),
+    advanceBy(1500),
+  ]],
+  ['a fit that failed, then a renewal: the take-over watches unfitted', [
+    stream(A, S1, { maxWidth: 800, maxHeight: 600, fit: FIT }),
+    publish(frame(S1, 1, { fitFailed: true })),
+    query(A, S1),
+    stream(A, S1, { maxWidth: 800, maxHeight: 600, fit: FIT }),
+    query(A, S1),
+    ack(A, S1, 1),
+    publish(frame(S1, 2)),
+    stream(A, S1, { maxWidth: 800, maxHeight: 600, fit: null }),
+    stream(A, S1, { maxWidth: 800, maxHeight: 600, fit: FIT2 }),
+    query(A, S1),
+    ack(A, S1, 2),
+    publish(frame(S1, 3, { fitSettled: true })),
+    query(A, S1),
+  ]],
+  // The orders the core's interleaving tests force (live_view_streams_replay.rs `GATED`): each pair of steps as Node runs it, one
+  // after the other on its one thread.
+  ['gate: a lapse, then a fresh subscribe', [
+    stream(A, S1, { maxWidth: 800, maxHeight: 600 }),
+    advanceBy(4000),
+    stream(A, S1, { maxWidth: 800, maxHeight: 600 }),
+  ]],
+  ['gate: a resend, then an unsubscribe', [
+    stream(A, S1, { maxWidth: 800, maxHeight: 600 }),
+    publish(frame(S1, 1)),
+    publish(frame(S1, 2)),
+    advanceBy(1500),
+    stream(A, S1, null),
+  ]],
+  ['gate: an ack, then a newer frame resent', [
+    stream(A, S1, { maxWidth: 800, maxHeight: 600 }),
+    publish(frame(S1, 1)),
+    publish(frame(S1, 2)),
+    ack(A, S1, 1),
+    publish(frame(S1, 3)),
+    advanceBy(1500),
+  ]],
+  ['gate: a resend, then a phone joins', [
+    stream(A, S1, { maxWidth: 800, maxHeight: 600 }),
+    publish(frame(S1, 1)),
+    publish(frame(S1, 2)),
+    advanceBy(1500),
+    stream(B, S1, { maxWidth: 900, maxHeight: 700 }),
+  ]],
+  ['gate: a fit failure, then a renewal', [
+    stream(A, S1, { maxWidth: 800, maxHeight: 600, fit: FIT }),
+    publish(frame(S1, 1, { fitFailed: true })),
+    stream(A, S1, { maxWidth: 800, maxHeight: 600, fit: FIT }),
+  ]],
+  ['a settled metadata frame over a settled picture ends a take-over wait', [
+    stream(A, S1, { maxWidth: 800, maxHeight: 600, fit: FIT }),
+    publish(frame(S1, 1)),
+    publish(frame(S1, 2, { fitSettled: true })),
+    publish(frame(S1, 3, { fitSettled: true, image: null, title: 'Settled facts' })),
+    query(A, S1),
+    ack(A, S1, 1),
+    query(A, S1),
+    stream(C, S1, { maxWidth: 800, maxHeight: 600, fit: FIT2 }),
+    query(C, S1),
+    publish(frame(S1, 4, { image: null, title: 'Unsettled facts' })),
+    stream(B, S1, { maxWidth: 800, maxHeight: 600, fit: FIT }),
+    query(B, S1),
+  ]],
 ];
 
 // ── one scenario's world ──
@@ -315,9 +469,13 @@ async function record(name, steps) {
   const live = new Set([A, B, C]);
   let effects = [];
   const log = (...entry) => effects.push(clone(entry));
+  // `sendEncryptedFrame` as it reaches a phone: a client no longer in the registry gets nothing (remote-relay-delivery.ts:90-93).
+  const deliver = async (clientId, payload) => {
+    if (live.has(clientId)) log('push', clientId, payload);
+  };
   const streams = createBrowserRemoteStreams({
     isLive: (clientId) => live.has(clientId),
-    send: async (clientId, payload) => log('push', clientId, payload),
+    send: deliver,
     request: async (sessionId, options) => log('request', sessionId, options),
     onDrop: (clientId, sessionId) => webrtc.viewerLeft(clientId, sessionId),
   });
@@ -331,7 +489,7 @@ async function record(name, steps) {
     resolveIceServers: async () => [],
     forward: async () => undefined,
     viewerLeft: async () => undefined,
-    send: async (clientId, payload) => log('push', clientId, payload),
+    send: deliver,
   });
   const dispatch = createRelayClientCallDispatch({
     host: {},
@@ -366,6 +524,12 @@ async function record(name, steps) {
       case 'leave':
         live.delete(step.client);
         webrtc.connectionRemoved(step.client);
+        break;
+      case 'dropClient':
+        streams.dropClient(step.client);
+        break;
+      case 'dispose':
+        streams.dispose();
         break;
       case 'query':
         log('state', { subscribed: streams.subscribed(step.client, step.session), awaitingFit: streams.awaitingFit(step.client, step.session) });
@@ -412,6 +576,23 @@ if (only) {
     extra: {
       exact: true,
       recorderSha256: sha256(readFileSync(join(REPO_ROOT, recorder))),
+      // Every file of the recorder that decides what is loaded, how TypeScript resolves and how the fixture is written.
+      recorderFiles: RECORDER_FILES.map((path) => ({ path, sha256: sha256(readFileSync(join(REPO_ROOT, path))) })),
+      excluded: [
+        {
+          what: "the relay's calls into the window process: `forward` (remote-relay.ts:383-399, the window's `webrtcSignal`), `viewerLeft` (:400-401, `webrtcViewerLeft`), `screenAuthorized`, `screenDisplays`, `resolveIceServers`",
+          why: "scripted here (`forward`/`viewerLeft` resolve, no screen access, no displays, no ICE servers): in the core that window is the live view's own host (live_view.rs `LiveHost`), with no boundary to compare; its signals are recorded where they leave the relay (`browserRemoteWebrtc` pushes)",
+        },
+        {
+          what: "the relay-client call dispatch's other methods and its host/method table (`host: {}`, `methods: {}`, `browserTabs`)",
+          why: 'only the live-view calls (`browserRemoteStream`, `browserRemoteStreamAck`) are driven; nothing else is called',
+        },
+        {
+          what: 'a push to a phone no longer in the relay client registry',
+          why: 'not recorded, as `sendEncryptedFrame` delivers none (remote-relay-delivery.ts:90-93): the phone receives nothing',
+        },
+      ],
+      replayProjections: [],
       nodeVersion: process.version,
       productCommit: NODE_COMMIT,
       inputs: {
