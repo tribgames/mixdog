@@ -822,9 +822,19 @@ struct LoopbackServer {
     server: tokio::sync::Mutex<Option<WebhookServer>>,
     /// Notified once the receiver is bound and its tunnel started (the relay identity is persisted).
     bound: tokio::sync::Notify,
+    /// Notified once a stop has closed the receiver.
+    stopped: tokio::sync::Notify,
+    /// The save's reload held as [`LateReloads`] holds it, when the test holds it.
+    reloads: Option<Arc<LateReloads>>,
+    /// The bind let a held reload go: that reload's restart is the next start.
+    restarting: std::sync::atomic::AtomicBool,
 }
 
 impl LoopbackServer {
+    fn new(service: Arc<WebhookService>, tunnels: Arc<dyn TunnelStarter>, reloads: Option<Arc<LateReloads>>) -> Self {
+        Self { service, tunnels, server: tokio::sync::Mutex::new(None), bound: Default::default(), stopped: Default::default(), reloads, restarting: Default::default() }
+    }
+
     async fn listening(&self) -> bool {
         self.server.lock().await.is_some()
     }
@@ -833,13 +843,24 @@ impl LoopbackServer {
 #[async_trait]
 impl WebhookListener for LoopbackServer {
     async fn start(&self, _: &WebhookSettings) -> Result<(), String> {
+        if self.restarting.load(Ordering::SeqCst) {
+            // The late reload's restart (`syncWebhookAndEventRuntime({ reload: true })`) has stopped
+            // the receiver the start bound; the bind is announced now, with the receiver down, and
+            // the restart binds no more: the readback falls inside the restart.
+            self.bound.notify_one();
+            return std::future::pending().await;
+        }
         let mut server = WebhookServer::new(self.service.clone(), self.tunnels.clone(), 0);
         server.start().await?;
         let replaced = self.server.lock().await.replace(server);
         if let Some(mut old) = replaced {
             old.stop().await;
         }
-        self.bound.notify_one();
+        if self.reloads.as_ref().is_some_and(|reloads| reloads.release_late()) {
+            self.restarting.store(true, Ordering::SeqCst);
+        } else {
+            self.bound.notify_one();
+        }
         Ok(())
     }
     async fn stop(&self) -> Result<(), String> {
@@ -847,7 +868,96 @@ impl WebhookListener for LoopbackServer {
         if let Some(mut server) = server {
             server.stop().await;
         }
+        self.stopped.notify_one();
         Ok(())
+    }
+}
+
+/// The runtime's schedule records with the save's background reload (`reload_soon`) made as late as
+/// a busy machine may run it: a read made before the provider init is released is the reload's
+/// (the start reads after the init), and it goes on only once the test waits for that reload, as
+/// Node's recorder awaits `lastReload` (`record-schedule-save-start.mjs:176`, `:203`), or else once
+/// the start's receiver has bound, where the reload finds the runtime up and restarts the receiver.
+struct LateReloads {
+    inner: Arc<StateScheduleStore>,
+    init_released: std::sync::atomic::AtomicBool,
+    /// Notified when a read is held.
+    arrived: tokio::sync::Notify,
+    /// The held reads go on.
+    open: tokio::sync::watch::Sender<bool>,
+}
+
+impl LateReloads {
+    fn new(inner: Arc<StateScheduleStore>) -> Arc<Self> {
+        Arc::new(Self { inner, init_released: Default::default(), arrived: Default::default(), open: tokio::sync::watch::Sender::new(false) })
+    }
+
+    /// Lets the held reload go at the start's bind; true when it was still held there.
+    fn release_late(&self) -> bool {
+        self.open.send_if_modified(|open| !std::mem::replace(open, true))
+    }
+}
+
+#[async_trait]
+impl ScheduleStore for LateReloads {
+    async fn get(&self, name: &str) -> Result<Option<Schedule>, ScheduleError> {
+        self.inner.get(name).await
+    }
+    async fn list(&self) -> Result<Vec<Schedule>, ScheduleError> {
+        if !self.init_released.load(Ordering::SeqCst) {
+            self.arrived.notify_one();
+            self.open.subscribe().wait_for(|open| *open).await.expect("the gate lives as long as the store");
+        }
+        self.inner.list().await
+    }
+    async fn mark_fired(&self, name: &str, at: chrono::DateTime<chrono::Utc>) -> Result<(), ScheduleError> {
+        self.inner.mark_fired(name, at).await
+    }
+    async fn set_next_fire(&self, name: &str, at: Option<chrono::DateTime<chrono::Utc>>) -> Result<(), ScheduleError> {
+        self.inner.set_next_fire(name, at).await
+    }
+    async fn advance_cursor(&self, name: &str, s: chrono::DateTime<chrono::Utc>, next: Option<chrono::DateTime<chrono::Utc>>) -> Result<bool, ScheduleError> {
+        self.inner.advance_cursor(name, s, next).await
+    }
+    async fn claim_run(&self, name: &str, s: chrono::DateTime<chrono::Utc>, started: chrono::DateTime<chrono::Utc>, next: Option<chrono::DateTime<chrono::Utc>>) -> Result<bool, ScheduleError> {
+        self.inner.claim_run(name, s, started, next).await
+    }
+    async fn mark_success(&self, name: &str, at: chrono::DateTime<chrono::Utc>) -> Result<(), ScheduleError> {
+        self.inner.mark_success(name, at).await
+    }
+    async fn mark_failure(&self, name: &str, at: chrono::DateTime<chrono::Utc>) -> Result<(), ScheduleError> {
+        self.inner.mark_failure(name, at).await
+    }
+    async fn mark_skipped(&self, name: &str, at: chrono::DateTime<chrono::Utc>) -> Result<(), ScheduleError> {
+        self.inner.mark_skipped(name, at).await
+    }
+    async fn mark_done(&self, name: &str) -> Result<(), ScheduleError> {
+        self.inner.mark_done(name).await
+    }
+    async fn set_deferred(&self, name: &str, until: Option<chrono::DateTime<chrono::Utc>>) -> Result<(), ScheduleError> {
+        self.inner.set_deferred(name, until).await
+    }
+    async fn set_skipped_until(&self, name: &str, until: Option<chrono::DateTime<chrono::Utc>>) -> Result<(), ScheduleError> {
+        self.inner.set_skipped_until(name, until).await
+    }
+}
+
+#[async_trait]
+impl ScheduleRecords for LateReloads {
+    async fn upsert(&self, def: &Schedule) -> Result<Schedule, ScheduleError> {
+        self.inner.upsert(def).await
+    }
+    async fn rename(&self, old: &str, def: &Schedule, timing_changed: bool) -> Result<Option<Schedule>, ScheduleError> {
+        self.inner.rename(old, def, timing_changed).await
+    }
+    async fn delete(&self, name: &str) -> Result<bool, ScheduleError> {
+        self.inner.delete(name).await
+    }
+    async fn set_enabled(&self, name: &str, enabled: bool) -> Result<Option<Schedule>, ScheduleError> {
+        self.inner.set_enabled(name, enabled).await
+    }
+    async fn record_delivery(&self, name: &str, run_id: &str, entry: Option<Value>) -> Result<(), ScheduleError> {
+        self.inner.record_delivery(name, run_id, entry).await
     }
 }
 
@@ -884,7 +994,7 @@ async fn saving_a_webhook_leaves_the_hook_identity_and_the_setup_shows_the_publi
         Arc::new(|| 0),
     ));
     let tunnels = Arc::new(RelayTunnelStarter::new(tokens().durability_io, data.path().to_path_buf(), Some(relay.into())));
-    let listener = Arc::new(LoopbackServer { service: service.clone(), tunnels, server: tokio::sync::Mutex::new(None), bound: Default::default() });
+    let listener = Arc::new(LoopbackServer::new(service.clone(), tunnels, None));
     let automation = Arc::new(WebhookAutomation::new(e.settings.clone(), service, listener));
     let scheduler = Scheduler::new(e.schedules.clone(), Arc::new(HomeScheduleRunner::new(e.routines.clone())), Arc::new(SystemClock), e.work.clone(), Tz::UTC, Vec::new());
     let runtime = ChannelRuntime::new(scheduler, e.schedules.clone(), automation, e.agent.clone());
@@ -1007,9 +1117,20 @@ struct Rig {
     listener: Arc<LoopbackServer>,
     /// The scheduler's `now`.
     clock: Arc<FixedClock>,
+    /// The save's reload, held until awaited ([`LateReloads`]), when the rig holds it.
+    reloads: Option<Arc<LateReloads>>,
 }
 
 async fn rig() -> Rig {
+    rig_with(false).await
+}
+
+/// The rig with the save's background reload held as late as [`LateReloads`] holds it.
+async fn rig_holding_the_reload() -> Rig {
+    rig_with(true).await
+}
+
+async fn rig_with(hold_reload: bool) -> Rig {
     let e = env().await;
     // The recording's webhook port (the loopback listener binds an ephemeral one regardless).
     e.settings.webhook.lock().unwrap().port = json!(47311);
@@ -1023,14 +1144,19 @@ async fn rig() -> Rig {
         Arc::new(|| 0),
     ));
     let tunnels = Arc::new(RelayTunnelStarter::new(tokens().durability_io, data.path().to_path_buf(), Some(relay.into())));
-    let listener = Arc::new(LoopbackServer { service: service.clone(), tunnels, server: tokio::sync::Mutex::new(None), bound: Default::default() });
+    let reloads = hold_reload.then(|| LateReloads::new(e.schedules.clone()));
+    let listener = Arc::new(LoopbackServer::new(service.clone(), tunnels, reloads.clone()));
     let automation = Arc::new(WebhookAutomation::new(e.settings.clone(), service, listener.clone()));
     let stamps = Arc::new(tokio::sync::Semaphore::new(0));
     let stamped = Arc::new(tokio::sync::Notify::new());
     let store = Arc::new(GatedStamps { inner: e.schedules.clone(), gate: stamps.clone(), persisted: stamped.clone() });
     let clock = Arc::new(FixedClock(std::sync::atomic::AtomicI64::new(chrono::Utc::now().timestamp_millis())));
     let scheduler = Scheduler::new(store, Arc::new(HomeScheduleRunner::new(e.routines.clone())), clock.clone(), e.work.clone(), Tz::UTC, Vec::new());
-    let runtime = ChannelRuntime::new(scheduler, e.schedules.clone(), automation, e.agent.clone());
+    let records: Arc<dyn ScheduleRecords> = match &reloads {
+        Some(reloads) => reloads.clone(),
+        None => e.schedules.clone(),
+    };
+    let runtime = ChannelRuntime::new(scheduler, records, automation, e.agent.clone());
     let admin = ChannelAdmin::new(AdminDeps {
         schedules: e.schedules.clone(),
         webhooks: e.webhooks.clone(),
@@ -1046,7 +1172,7 @@ async fn rig() -> Rig {
     });
     let init = Arc::new(tokio::sync::Semaphore::new(0));
     *e.agent.init_gate.lock().unwrap() = Some(init.clone());
-    Rig { e, admin, runtime, data, init, stamps, stamped, listener, clock }
+    Rig { e, admin, runtime, data, init, stamps, stamped, listener, clock, reloads }
 }
 
 impl Rig {
@@ -1067,6 +1193,25 @@ impl Rig {
     /// The held next-fire write is persisted.
     async fn wait_for_stamp(&self) {
         signal(&self.stamped, "the next-fire stamp is persisted").await;
+    }
+
+    /// The save's background reload has run (Node's recorder awaits `lastReload`): with the runtime
+    /// not up yet it tears the receiver down (`reloadRuntimeConfig` → `stopWebhookAndEventRuntime`,
+    /// config-reload.mjs:35-39), its last step.
+    async fn wait_for_reload(&self) {
+        let reloads = self.reloads.as_ref().expect("the rig holds the reload");
+        reloads.open.send_replace(true);
+        signal(&self.listener.stopped, "the save's reload tears the receiver down").await;
+    }
+
+    /// Releases the provider init. A held reload has read the stores by then, so the read the
+    /// start makes after the init is the start's.
+    async fn release_init(&self) {
+        if let Some(reloads) = &self.reloads {
+            signal(&reloads.arrived, "the save's reload reads the stores").await;
+            reloads.init_released.store(true, Ordering::SeqCst);
+        }
+        self.init.add_permits(1);
     }
 
     /// The scheduler arms at the instant Node armed at (the recording's release of the provider init).
@@ -1107,18 +1252,21 @@ async fn assert_step(rig: &Rig, setup: Value, rec: &Value, label: &str) {
 /// `saveSchedule` → reload → deferred start: the readbacks at Node's boundaries (start pending;
 /// listener bound with the identity persisted while the next-fire write is pending; the write
 /// done). Rust gets to each boundary through the real mechanisms: the provider init gate, the
-/// real receiver and relay starter, and the gated store.
+/// real receiver and relay starter, and the gated store. The save's background reload is held
+/// until the test awaits it before the init is released, as Node's recorder does: a reload that
+/// lands after the start is up restarts the receiver, Node's as Rust's.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_schedule_save_reads_back_as_node_does_at_each_boundary_of_the_start() {
     let rec = recorded("start-after-save");
-    let rig = rig().await;
+    let rig = rig_holding_the_reload().await;
     let saved = rig.admin.save_schedule(&serde_json::from_str(SCHEDULE_ENTRY).unwrap()).await.unwrap();
     assert_eq!(saved, rec["saveReply"]);
     rig.wait_for_init_entered().await;
     assert_step(&rig, rig.admin.get_channel_setup().await.unwrap(), &rec, "start-pending").await;
 
+    rig.wait_for_reload().await;
     rig.arm_at_recorded_release(&rec);
-    rig.init.add_permits(1);
+    rig.release_init().await;
     rig.wait_for_bound().await;
     assert_step(&rig, rig.admin.get_channel_setup().await.unwrap(), &rec, "identity-persisted-stamp-pending").await;
 
@@ -1168,16 +1316,17 @@ async fn a_stop_during_the_provider_init_ends_in_the_state_node_left() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_save_between_the_config_load_and_the_start_is_armed_as_in_node() {
     let rec = recorded("save-during-provider-init");
-    let rig = rig().await;
+    let rig = rig_holding_the_reload().await;
     let runtime = rig.runtime.clone();
     let daemon_start = tokio::spawn(async move { runtime.start_automation().await });
     rig.wait_for_init_entered().await;
     let saved = rig.admin.save_schedule(&serde_json::from_str(SCHEDULE_ENTRY).unwrap()).await.unwrap();
     assert_eq!(saved, rec["saveReply"]);
+    rig.wait_for_reload().await;
     assert_step(&rig, rig.admin.get_channel_setup().await.unwrap(), &rec, "saved-start-pending").await;
 
     rig.arm_at_recorded_release(&rec);
-    rig.init.add_permits(1);
+    rig.release_init().await;
     rig.wait_for_bound().await;
     assert_step(&rig, rig.admin.get_channel_setup().await.unwrap(), &rec, "started-stamp-pending").await;
 
