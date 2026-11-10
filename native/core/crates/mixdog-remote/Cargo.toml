@@ -54,4 +54,12 @@ tempfile = { workspace = true }
 # LR §9 tests: a phone through the in-process relay connection into the real server over the mock core.
 mixdog-app-server = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-app-protocol = { workspace = true, features = ["codegen"] }
+mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-protocol = { workspace = true, features = ["codegen"] }
 

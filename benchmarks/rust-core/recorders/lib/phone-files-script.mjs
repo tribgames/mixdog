@@ -366,6 +366,21 @@ export function filesRelayScript(world = filesWorld()) {
       call('readEditorBackup', [O, 'granted.txt', grant('granted')]),
       call('deleteEditorBackup', [O, 'granted.txt', grant('granted')]),
       call('readEditorBackup', [O, 'granted.txt', grant('granted')]),
+      // The editor's backups and the document preview name a project file or a granted one only: a file outside every project
+      // without its token, and an entry beyond a project, are refused before anything is read or written.
+      call('writeEditorBackup', [O, 'other.txt', 'planted\n', 'other\n', null]),
+      call('readEditorBackup', [O, 'other.txt', null]),
+      call('deleteEditorBackup', [O, 'other.txt', null]),
+      call('writeEditorBackup', [P, '../outside/other.txt', 'planted\n', 'other\n', null]),
+      call('readEditorBackup', [P, '../outside/other.txt', null]),
+      call('deleteEditorBackup', [P, '../outside/other.txt', null]),
+      call('previewDocumentPages', [O, 'other.txt', null, { pages: [1] }]),
+      call('previewDocumentPages', [P, '../outside/other.txt', null, { pages: [1] }]),
+      // A project file's backup over the relay: written, read back and deleted as on the desktop.
+      call('writeEditorBackup', [P, 'src/a.ts', 'relay draft\n', 'export const a = 1;\n', null]),
+      call('readEditorBackup', [P, 'src/a.ts', null]),
+      call('deleteEditorBackup', [P, 'src/a.ts', null]),
+      call('readEditorBackup', [P, 'src/a.ts', null]),
       call('previewProjectFile', [O, 'granted.txt', grant('granted')]),
       call('previewProjectFileRange', [O, 'granted.txt', grant('granted'), 0, 8]),
       call('previewDocumentPages', [O, 'granted.txt', grant('granted'), { pages: [] }]),
