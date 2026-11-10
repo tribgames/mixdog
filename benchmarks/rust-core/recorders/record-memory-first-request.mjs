@@ -160,7 +160,11 @@ async function stopDaemon({ child, doc }, env, runtimeDir) {
   }
   const pgdata = join(env.MIXDOG_DATA_DIR, 'pgdata');
   if (runtimeDir && existsSync(join(pgdata, 'postmaster.pid'))) {
-    spawnSync(join(runtimeDir, 'bin', 'pg_ctl.exe'), ['stop', '-m', 'fast', '-w', '-t', '30', '-D', pgdata], { stdio: 'ignore', timeout: 40_000, windowsHide: true });
+    const stop = spawnSync(join(runtimeDir, 'bin', 'pg_ctl.exe'), ['stop', '-m', 'fast', '-w', '-t', '30', '-D', pgdata], { stdio: 'ignore', timeout: 40_000, windowsHide: true });
+    // pg_ctl has no children of its own; a postmaster it failed to end is named so the run fails instead of leaving it unnoticed.
+    if (stop.status !== 0 && existsSync(join(pgdata, 'postmaster.pid'))) {
+      throw new Error(`pg_ctl stop failed (${stop.error?.message ?? `exit ${stop.status}`}); the postmaster in ${pgdata} is still running`);
+    }
   }
 }
 
