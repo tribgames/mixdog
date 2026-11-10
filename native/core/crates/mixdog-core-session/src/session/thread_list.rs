@@ -522,9 +522,9 @@ mod tests {
         serde_json::from_str(include_str!("../../../../fixtures/session-list/golden.json")).expect("golden json")
     }
 
-    async fn service(data: &std::path::Path, golden: &Value) -> ThreadListService {
+    async fn service(data: &crate::session::testing::DataDir, golden: &Value) -> ThreadListService {
         let tokens = mixdog_rt::testing::tokens();
-        let root = data.to_path_buf();
+        let root = data.path().to_path_buf();
         let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
             SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
         })
@@ -532,7 +532,7 @@ mod tests {
         .await
         .expect("job ran")
         .expect("index");
-        let store = Arc::new(index);
+        let store = Arc::new(data.index(index));
         for entry in golden["sessions"].as_array().expect("sessions") {
             let mut header = entry["record"].as_object().expect("record").clone();
             header.shift_remove("messages");
@@ -572,8 +572,8 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_list_behind_a_stuck_projection_answers_what_the_index_holds_at_the_bound() {
         let golden = golden();
-        let data = tempfile::tempdir().expect("data dir");
-        let service = service(data.path(), &golden).await;
+        let data = crate::session::testing::DataDir::default();
+        let service = service(&data, &golden).await;
         let (_never_opened, held) = tokio::sync::oneshot::channel();
         let (reached, waiting) = tokio::sync::oneshot::channel();
         service.fence(Arc::new(Gate(std::sync::Mutex::new(Some((reached, held))))));
@@ -601,8 +601,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_list_waits_for_the_projection_queued_before_it_was_issued() {
         let golden = golden();
-        let data = tempfile::tempdir().expect("data dir");
-        let service = Arc::new(service(data.path(), &golden).await);
+        let data = crate::session::testing::DataDir::default();
+        let service = Arc::new(service(&data, &golden).await);
         let (open, held) = tokio::sync::oneshot::channel();
         let (reached, waiting) = tokio::sync::oneshot::channel();
         service.fence(Arc::new(Gate(std::sync::Mutex::new(Some((reached, held))))));
@@ -634,8 +634,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn pages_equal_nodes() {
         let golden = golden();
-        let data = tempfile::tempdir().expect("data dir");
-        let service = service(data.path(), &golden).await;
+        let data = crate::session::testing::DataDir::default();
+        let service = service(&data, &golden).await;
         let summaries: std::collections::HashMap<&str, &Value> =
             golden["sessions"].as_array().expect("sessions").iter().map(|s| (s["record"]["id"].as_str().expect("id"), &s["summary"])).collect();
         let mut walked = 0;
@@ -722,7 +722,7 @@ mod tests {
     }
 
     /// The index holds the log of `room01` and not that of `gone01`.
-    async fn room_list(data: &std::path::Path) -> Arc<ThreadListService> {
+    async fn room_list(data: &crate::session::testing::DataDir) -> Arc<ThreadListService> {
         let golden = golden();
         let store = service(data, &golden).await.store;
         let header = json!({ "id": "sess_room_room01", "title": "log", "cwd": "C:\\Tasks", "createdAt": 1000, "updatedAt": 1000 });
@@ -736,8 +736,8 @@ mod tests {
     /// room. No projection decides it: with a projection held pending for good, the pass answers at its first poll.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_publication_carries_every_saved_room_whether_or_not_the_index_holds_its_log() {
-        let data = tempfile::tempdir().expect("data dir");
-        let list = room_list(data.path()).await;
+        let data = crate::session::testing::DataDir::default();
+        let list = room_list(&data).await;
         let (_never_opened, held) = tokio::sync::oneshot::channel();
         let (reached, _waiting) = tokio::sync::oneshot::channel();
         list.fence(Arc::new(Gate(std::sync::Mutex::new(Some((reached, held))))));
@@ -767,8 +767,8 @@ mod tests {
     /// (`session-host-catalog.ts:231`, `session-host.ts:807`), so the next room call publishes inside the call.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_room_call_before_any_listing_lists_in_the_background_and_the_next_call_is_loaded() {
-        let data = tempfile::tempdir().expect("data dir");
-        let list = room_list(data.path()).await;
+        let data = crate::session::testing::DataDir::default();
+        let list = room_list(&data).await;
         let (told, listed) = tokio::sync::oneshot::channel();
         list.observe(Arc::new(Listed(std::sync::Mutex::new(Some(told)))));
         let (summaries, app) = room_rig(list.clone());
@@ -793,8 +793,8 @@ mod tests {
         use mixdog_store::schema::record::Header;
 
         let golden = golden();
-        let data = tempfile::tempdir().expect("data dir");
-        let list = Arc::new(ThreadListService::new(service(data.path(), &golden).await.store, Arc::new(Busy), Arc::new(NoRooms), Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks"))));
+        let data = crate::session::testing::DataDir::default();
+        let list = Arc::new(ThreadListService::new(service(&data, &golden).await.store, Arc::new(Busy), Arc::new(NoRooms), Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks"))));
         let feed = Arc::new(MockFeed::new("app".into(), mixdog_core_api::mock::epoch(1), Arc::new(mixdog_core_api::mock::EchoView), MockLimits::default()));
         let rig = crate::session::testing::Rig::new();
         let directory = Arc::new(crate::session::SessionDirectory::new(rig.deps()));
@@ -836,8 +836,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_task_thread_with_no_message_and_no_title_is_never_listed() {
         let golden = golden();
-        let data = tempfile::tempdir().expect("data dir");
-        let service = service(data.path(), &golden).await;
+        let data = crate::session::testing::DataDir::default();
+        let service = service(&data, &golden).await;
         let id = "sess_control_probe";
         // What `thread/start` writes: the creation times, no title, no preview, no message.
         let header = json!({ "id": id, "createdAt": 9_000_000_000_000_i64, "updatedAt": 9_000_000_000_000_i64 });
@@ -861,8 +861,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_stored_desktop_session_classifies_the_listed_thread() {
         let golden = golden();
-        let data = tempfile::tempdir().expect("data dir");
-        let service = service(data.path(), &golden).await;
+        let data = crate::session::testing::DataDir::default();
+        let service = service(&data, &golden).await;
         let rows = [
             ("sess_class_task", json!({ "classification": "task", "projectPath": null }), "C:\\Tasks"),
             ("sess_class_project", json!({ "classification": "project", "projectPath": "C:\\Repo" }), "C:\\Repo"),
@@ -890,8 +890,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn refusals() {
         let golden = golden();
-        let data = tempfile::tempdir().expect("data dir");
-        let service = service(data.path(), &golden).await;
+        let data = crate::session::testing::DataDir::default();
+        let service = service(&data, &golden).await;
         let refused = |params: Value| {
             let service = &service;
             async move { value(service, request(LIST, params, None)).await.expect_err("refused") }

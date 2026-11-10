@@ -1158,8 +1158,8 @@ mod projector_tests {
     /// to wait for (no future at all) when idle.
     #[tokio::test]
     async fn a_queued_projection_is_pending_until_the_index_holds_it() {
-        let data = tempfile::tempdir().expect("data");
-        let projector = Projector::spawn(index_in(data.path()).await);
+        let data = crate::session::testing::DataDir::default();
+        let projector = Projector::spawn(data.index(index_in(data.path()).await));
         assert!(projector.settle().is_none(), "idle");
         projector.send(empty_projection("sess_ok"));
         let wait = projector.settle().expect("a queued projection is pending");
@@ -1201,8 +1201,8 @@ mod projector_tests {
     /// full refuses it; the reads still answer.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_store_read_inside_a_lane_job_takes_no_second_lane_slot() {
-        let data = tempfile::tempdir().expect("data");
-        let index = index_in(data.path()).await;
+        let data = crate::session::testing::DataDir::default();
+        let index = data.index(index_in(data.path()).await);
         let tokens = mixdog_rt::testing::tokens();
         let store = Arc::new(
             StoreThreads::over_data_dir(data.path(), index, Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)

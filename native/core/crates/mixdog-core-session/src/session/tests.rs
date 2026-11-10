@@ -2141,7 +2141,7 @@ async fn a_fork_is_placed_and_stamped_as_nodes_fork_is() {
     use std::sync::atomic::Ordering;
     let answers: Value = serde_json::from_slice(&std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/roster-rows/answers.json")).expect("recording")).expect("json");
     let recording = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/roster-rows");
-    let scratch = tempfile::tempdir().expect("scratch dir");
+    let scratch = super::testing::DataDir::default();
     let home = scratch.path().join(".mixdog");
     let profile = scratch.path().join("profile");
     for (from, to) in [(recording.join(".mixdog"), home.clone()), (recording.join("profile"), profile.clone())] {
@@ -2168,6 +2168,7 @@ async fn a_fork_is_placed_and_stamped_as_nodes_fork_is() {
     .await
     .expect("job ran")
     .expect("index");
+    let index = scratch.index(index);
     let threads = super::StoreThreads::over_data_dir(&roots.data, index.clone(), Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store");
     let mut deps = rig.deps_parts(Arc::new(threads));
     deps.new_place = Arc::new(super::testing::RecordingPlace { projects: registered, ..Default::default() });

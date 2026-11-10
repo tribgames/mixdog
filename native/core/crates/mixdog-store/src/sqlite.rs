@@ -518,6 +518,21 @@ enum Command {
     Labels { labels: PlaceholderLabels, ack: Ack },
     /// Drop the index rows of a deleted session whose folder is gone.
     Purge { session: String, ack: Ack },
+    /// The writer stops at once and closes its connection ([`SqliteStore::close`]).
+    #[cfg(any(test, feature = "test-support"))]
+    Close,
+}
+
+impl Command {
+    #[cfg(any(test, feature = "test-support"))]
+    fn closes(&self) -> bool {
+        matches!(self, Command::Close)
+    }
+
+    #[cfg(not(any(test, feature = "test-support")))]
+    fn closes(&self) -> bool {
+        false
+    }
 }
 
 /// A projection being applied: frames before `next` are committed.
@@ -734,11 +749,15 @@ impl Writer {
         loop {
             if self.idle() {
                 match rx.recv() {
+                    Ok(cmd) if cmd.closes() => return,
                     Ok(cmd) => self.take(cmd),
                     Err(_) => return,
                 }
             }
             while let Ok(cmd) = rx.try_recv() {
+                if cmd.closes() {
+                    return;
+                }
                 self.take(cmd);
             }
             self.append_transaction();
@@ -795,6 +814,8 @@ impl Writer {
                         self.refold = true;
                         acks.push(ack);
                     }
+                    #[cfg(any(test, feature = "test-support"))]
+                    Command::Close => unreachable!("the writer stops before it queues a close"),
                     Command::Upsert { .. } | Command::Project { .. } | Command::Purge { .. } => {
                         unreachable!("queued separately")
                     }
@@ -1216,6 +1237,9 @@ struct Shared {
     path: PathBuf,
     pool: Arc<ReadPool>,
     rows: RowSinkCell,
+    /// The writer thread, joined by [`SqliteStore::close`].
+    #[cfg(any(test, feature = "test-support"))]
+    writer: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 /// Cloneable handle on `index/store.sqlite`. The writer thread finishes the queued
@@ -1344,17 +1368,34 @@ impl SqliteStore {
         writer.boot_purge(lane, data, &incomplete)?;
         let rows = writer.sink.clone();
         let (sender, rx) = mpsc::channel();
-        thread
+        let handle = thread
             .spawn_thread("mixdog-index-writer", move |_| writer.run(rx))
             .map_err(|e| DbError::Write(e.to_string()))?;
+        #[cfg(not(any(test, feature = "test-support")))]
+        drop(handle);
         Ok(SqliteStore {
             shared: Arc::new(Shared {
                 path: path.to_path_buf(),
                 pool: ReadPool::new(path, read_lane),
                 rows,
+                #[cfg(any(test, feature = "test-support"))]
+                writer: Mutex::new(Some(handle)),
             }),
             sender,
         })
+    }
+
+    /// Test teardown: the writer stops at once (what is queued behind the close is dropped, its waiters answered `Stopped`) and
+    /// its connection closes, and the read pool's idle connections close, so the database files can be removed while other
+    /// handles still exist. Returns once the writer thread has ended.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn close(&self) {
+        let _ = self.sender.send(Command::Close);
+        let handle = self.shared.writer.lock().expect("writer handle").take();
+        if let Some(handle) = handle {
+            let _ = handle.join();
+        }
+        self.shared.pool.close();
     }
 
     /// Connects the sink of the catalog row writes. Set once; the second call is refused.
@@ -2352,6 +2393,12 @@ impl ReadPool {
             lane,
             conns: Mutex::new(Vec::new()),
         })
+    }
+
+    /// Closes the idle connections (test teardown, with the store's close).
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn close(&self) {
+        self.conns.lock().expect("pool lock").clear();
     }
 
     pub(crate) fn with<T>(&self, f: impl FnOnce(&Connection) -> Result<T, DbError>) -> Result<T, DbError> {
