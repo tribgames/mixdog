@@ -761,25 +761,25 @@ mod tests {
         }
     }
 
-    /// C3 (c) and C1: a tab's shell has output unread at the paused gate (`last` empty: none); a claim takes its hold and its resize
-    /// stops at the claim gate, before the announcement; the shell exits; the resize is let go. The phone gets the owner, then the
-    /// output (as a leading-edge relay frame: no clock moves for it), then the tab's end, then the exit line, as Node, whose exit
-    /// handler could not run inside its resize-and-announce call (terminal-manager.ts:485-488). Windows PowerShell's console: Windows only.
+    /// C3 (c) and C1: `typed`, the tab's shell is sent `exit` while its output is paused, so its echo waits unread at the gate; otherwise
+    /// all its output is taken and it is killed. (A real console still writes output of its own at the close, before the exit line (one run: 50 bytes after the cut, the exit line among them), so a
+    /// shell whose exit has no output before it at all is reached only at the tab's level: `terminal::lock_order::
+    /// a_shells_end_during_a_claim_waits_for_the_pump_to_reach_the_exit_line`, the test that fails without the C1 fix.) A claim takes its hold and its resize stops at the
+    /// claim gate, before the announcement; the shell exits; the resize is let go. The phone gets the owner, then the parked output (as
+    /// a leading-edge relay frame: no clock moves for it), then the tab's end, then the exit line, and no activity change before the
+    /// owner, as Node, whose exit handler could not run inside its resize-and-announce call (terminal-manager.ts:485-488). Windows
+    /// PowerShell's console: Windows only.
     #[cfg(windows)]
-    async fn the_owner_goes_before_the_exit_of_a_shell_that_ends_during_a_claim(last: &str) {
+    async fn the_owner_goes_before_the_exit_of_a_shell_that_ends_during_a_claim(typed: bool) {
         let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
         let scoped = Arc::new(MockScopedFeeds::new(MockLimits::default()));
         let feeds = ProcessFeeds::new(manager.clone(), Arc::clone(&scoped) as Arc<dyn ScopedFeeds>);
         let publisher = Arc::new(Ordered::default());
         let service = TerminalService::new(manager.clone(), Arc::clone(&feeds), Arc::clone(&publisher) as Arc<dyn StatePublisher>, TerminalServiceConfig::default());
-        let id = format!("term_claimed_exit_{}_{}", last.len(), std::process::id());
+        let id = format!("term_claimed_exit_{typed}_{}", std::process::id());
         let handle = ProcessHandle::from(id.as_str());
-        // Keys read without echo: the console draws nothing for them.
-        let script = format!(
-            "[Console]::Out.Write('x' + [char]27 + ']697;P' + [char]7); $null = [Console]::ReadKey($true); [Console]::Out.Write('{last}'); \
-             $null = [Console]::ReadKey($true)"
-        );
-        let profile = SpawnProfile { path: "powershell.exe".to_owned(), args: vec!["-NoProfile".to_owned(), "-Command".to_owned(), script], ..SpawnProfile::default() };
+        // The integrated PowerShell (no arguments): its prompt marks the tab idle, so the tab's end is an activity change.
+        let profile = SpawnProfile { path: "powershell.exe".to_owned(), ..SpawnProfile::default() };
         within("the tab started", service.tabs.ensure(Some(&id), EnsureRequest { profile: Some(profile), cols: Some(80), rows: Some(24), ..EnsureRequest::default() }))
             .await
             .unwrap();
@@ -792,11 +792,14 @@ mod tests {
         // The relay's window closes: the next output goes as a leading-edge frame.
         tokio::time::advance(Duration::from_secs(1)).await;
 
-        manager.set_output_paused(&handle, true).unwrap();
-        assert!(service.tabs.write(&id, "1").is_none(), "the key was queued");
-        if !last.is_empty() {
-            within("the producer parked the last output at the gate", manager.output_blocked(&handle)).await.unwrap();
+        if typed {
+            manager.set_output_paused(&handle, true).unwrap();
+            assert!(service.tabs.write(&id, "exit\r").is_none(), "the line was queued");
+            within("the producer parked the shell's echo at the gate", manager.output_blocked(&handle)).await.unwrap();
         }
+        // With the reader parked nothing more comes in: any relay window still open closes here.
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let claimed = publisher.log.lock().unwrap().len();
         let gate = service.tabs.hold_claim_gate(&id);
         let mut holds = feeds.holds_of(&id);
         let claim = {
@@ -807,7 +810,9 @@ mod tests {
             })
         };
         within("the claim took its hold", holds.wait_for(|holds| holds.len() == 1)).await.unwrap();
-        assert!(service.tabs.write(&id, "2").is_none(), "the key was queued");
+        if !typed {
+            let _ = manager.kill(&handle);
+        }
         within("the shell's exit entered the feed", manager.feed_of(&handle).unwrap().ended()).await;
         let before = relay.position().seq;
         drop(gate);
@@ -819,31 +824,37 @@ mod tests {
         let ended = |tabs: bool, value: &Value| !tabs && value.get(&id).is_none();
         let at_owner = within("the owner was published", publisher.at(owned)).await;
         let at_end = within("the tab's end was published", publisher.at(ended)).await;
-        let frames = if last.is_empty() {
-            tap.notifications_until(|_| true).await
+        // The parked echo goes first after the owner, before any clock moves: a leading-edge frame.
+        let frames = if typed {
+            within("the parked output went as a leading-edge frame", tap.notifications_until(|frames| outputs(frames).iter().any(|(seq, _)| *seq > before))).await
         } else {
-            within("the last output went as a leading-edge frame", tap.notifications_until(|frames| sent(frames, last).is_some())).await
+            Vec::new()
         };
         tokio::time::advance(Duration::from_secs(1)).await;
         let frames = [frames, within("the exit line went", tap.notifications_until(|frames| sent(frames, "[process exited").is_some())).await].concat();
+        let exit_line = sent(&frames, "[process exited").unwrap();
         assert_eq!(at_owner, before, "output went while the claim held the feed, or after the owner was published");
-        assert!(publisher.index(owned) < publisher.index(ended), "the tab's end was published before the owner");
-        if let Some(seq) = sent(&frames, last).filter(|_| !last.is_empty()) {
-            assert!(seq > at_owner && seq <= at_end, "the last output is not between the owner ({at_owner}) and the tab's end ({at_end}): {seq}");
+        let owner = publisher.index(owned).unwrap();
+        let log = publisher.log.lock().unwrap().clone();
+        let changes: Vec<usize> = (claimed..log.len()).filter(|at| !log[*at].0).collect();
+        assert!(changes.iter().all(|at| *at > owner), "an activity change went before the owner: {log:?}");
+        if typed {
+            let parked = outputs(&frames).into_iter().find(|(seq, _)| *seq > before).unwrap();
+            assert!(parked.0 != exit_line && parked.0 <= at_end, "the parked output is not between the owner ({at_owner}) and the tab's end ({at_end}): {parked:?}");
         }
-        assert!(sent(&frames, "[process exited").unwrap() > at_end, "the exit line went before the tab's end");
+        assert!(exit_line > at_end, "the exit line went before the tab's end");
     }
 
     #[cfg(windows)]
     #[tokio::test(start_paused = true)]
     async fn the_owner_goes_before_the_exit_and_the_parked_output_of_a_shell_that_ends_during_a_claim() {
-        the_owner_goes_before_the_exit_of_a_shell_that_ends_during_a_claim("bye").await;
+        the_owner_goes_before_the_exit_of_a_shell_that_ends_during_a_claim(true).await;
     }
 
     #[cfg(windows)]
     #[tokio::test(start_paused = true)]
-    async fn the_owner_goes_before_the_exit_of_a_shell_with_no_output_before_it_that_ends_during_a_claim() {
-        the_owner_goes_before_the_exit_of_a_shell_that_ends_during_a_claim("").await;
+    async fn the_owner_goes_before_the_exit_of_a_shell_killed_with_its_output_taken_during_a_claim() {
+        the_owner_goes_before_the_exit_of_a_shell_that_ends_during_a_claim(false).await;
     }
 
     /// A claim's hold has its deadline from when it is taken: a resize that blocks (here at the id's claim gate) holds the feed no longer.
