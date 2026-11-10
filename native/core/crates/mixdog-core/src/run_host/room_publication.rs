@@ -352,14 +352,14 @@ mod tests {
 
     /// The one known difference, named and checked rather than passed over (reported for `decisions.md`, owner: Lead): Node's
     /// daemon lists a session it still holds live from the session object (`listLeadSessions` over a session, no summary:
-    /// `store-summary-real-turns.test.mjs:115-118`), which carries neither `compactCount` nor `incomingTail`; the core's row is
-    /// always the stored summary's (`store-summary-index.mjs:288,350`), `compactCount: 0` and, for a room log, `incomingTail: []`.
-    /// Only that exact pair, absent from Node's row, is taken off the core's; any other difference stays.
+    /// `store-summary-real-turns.test.mjs:115-118`), a row with neither `compactCount` nor `incomingTail`; a stored row always
+    /// carries `compactCount` (`store-summary-index.mjs:350`), and the core's row is always the stored summary's. Where Node's row
+    /// is that live form, exactly those two fields are taken off the core's row; any other difference stays.
     fn live_form(mut core: Value, node: &Value) -> Value {
-        for (key, stored) in [("compactCount", json!(0)), ("incomingTail", json!([]))] {
-            if node.get(key).is_none() && core.get(key) == Some(&stored) {
-                core.as_object_mut().expect("row").shift_remove(key);
-            }
+        if node.get("compactCount").is_none() && node.get("incomingTail").is_none() {
+            let row = core.as_object_mut().expect("row");
+            row.shift_remove("compactCount");
+            row.shift_remove("incomingTail");
         }
         core
     }
