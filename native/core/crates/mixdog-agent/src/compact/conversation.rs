@@ -172,7 +172,12 @@ fn conversation_rows(messages: &[AgentMessage], summary: bool) -> Vec<AgentMessa
 /// The conversation compaction measures against its summary threshold, or
 /// with `summary`, the input the summary is written from. The turn input (the
 /// latest request and unanswered notifications) is never replaced by a summary.
-pub async fn conversation_compaction_input(ctx: &FreshContext<'_>, messages: &[AgentMessage], summary: bool) -> Vec<AgentMessage> {
+/// Stored text attachments are read as their text; a transient store error is the error.
+pub async fn conversation_compaction_input(
+    ctx: &FreshContext<'_>,
+    messages: &[AgentMessage],
+    summary: bool,
+) -> Result<Vec<AgentMessage>, crate::env::CompactError> {
     let source = split_fresh_source(ctx, messages).await;
     let mut turn_input: Vec<usize> = pending_task_notification_indexes(&source.live);
     turn_input.extend(latest_actual_user_instruction_index(&source.live));
@@ -183,7 +188,8 @@ pub async fn conversation_compaction_input(ctx: &FreshContext<'_>, messages: &[A
         .filter(|(i, _)| !turn_input.contains(i))
         .map(|(_, m)| m.clone())
         .collect();
+    let rest = super::text_utils::with_referenced_text(ctx.attachments, rest).await?;
     let mut out: Vec<AgentMessage> = source.previous_summary.into_iter().collect();
     out.extend(conversation_rows(&rest, summary));
-    out
+    Ok(out)
 }

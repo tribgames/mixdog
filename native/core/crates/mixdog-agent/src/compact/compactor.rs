@@ -327,7 +327,8 @@ impl HandoffSource for PlannedHandoff {
     async fn triggered(&self, messages: &[AgentMessage]) -> bool {
         let meter = self.parts.meter();
         let ctx = self.parts.context(&meter, true);
-        let input = conversation_compaction_input(&ctx, messages, false).await;
+        // A store that cannot be read now leaves the summary to decide: its own read fails the pass.
+        let Ok(input) = conversation_compaction_input(&ctx, messages, false).await else { return true };
         let tokens = (meter.messages(&input) as f64 * self.calibration()).ceil() as u64;
         tokens >= self.threshold()
     }
@@ -335,7 +336,7 @@ impl HandoffSource for PlannedHandoff {
     async fn handoff(&self, messages: &[AgentMessage], budget_tokens: u64) -> Result<Handoff, CompactError> {
         let meter = self.parts.meter();
         let ctx = self.parts.context(&meter, false);
-        let input = conversation_compaction_input(&ctx, messages, true).await;
+        let input = conversation_compaction_input(&ctx, messages, true).await?;
         let hard = 1.max((self.config.context_window as f64 / self.calibration()).floor() as u64);
         let mode = self.config.mode;
         let warm = self.fork.warm();
