@@ -4,6 +4,7 @@
 //   record:  node benchmarks/rust-core/recorders/record-new-task-dedupe.mjs --tree <exact export of b6f10295a with node_modules>
 //   replay:  node --import tsx ../../benchmarks/rust-core/recorders/record-new-task-dedupe.mjs --tree <same> --replay <mixdogd.exe built with --features crash-gates>
 //            [--only <scenario name>]      (cwd: apps/desktop, whose node_modules holds tsx: the replay loads the desktop's TypeScript client)
+//            the whole replay runs each scenario as `--only` in a process and job of its own, four at once, under one 300 s deadline
 //
 // Every scenario runs in a folder of its own under D:\mixdog-build\tmp\new-task-dedupe (removed when the scenario is done). A step list is
 // run in legs: a crash step ends its leg's process at the gate it names and the next step starts a new process over the same data
@@ -166,7 +167,12 @@ if (!args.get('replay')) {
   if (only) console.log(stableStringify(golden));
   console.log(`recorded ${chosen.length} scenarios; ${random.length} contain a random address`);
 } else {
-  const { replayNewTaskDedupe } = await import('./new-task-dedupe/replay.mjs');
+  const { replayNewTaskDedupe, replaySideBySide } = await import('./new-task-dedupe/replay.mjs');
   const golden = JSON.parse(readFileSync(join(SET_DIR, 'golden.json'), 'utf8')).scenarios;
-  process.exit(await replayNewTaskDedupe({ exe: args.get('replay'), scenarios: chosen, golden, numberFresh }));
+  // One scenario runs here; the whole replay runs each scenario as `--only` in a process and job of its own, side by side.
+  if (only) process.exit(await replayNewTaskDedupe({ exe: args.get('replay'), scenarios: chosen, golden, numberFresh }));
+  const started = Date.now();
+  const code = await replaySideBySide({ exe: args.get('replay'), tree, scenarios: chosen, script: new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1') });
+  console.log(`replayed ${chosen.length} scenarios in ${Math.round((Date.now() - started) / 1000)} s`);
+  process.exit(code);
 }

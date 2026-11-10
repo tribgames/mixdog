@@ -106,7 +106,7 @@ function within(ms, promise, what) {
   return Promise.race([promise, new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(`${what}: not within ${ms} ms`)), ms)))]).finally(() => clearTimeout(timer));
 }
 
-async function startGuard(what) {
+async function startGuard(what, answerMs) {
   const guard = spawn('powershell', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(SCRIPT, 'utf16le').toString('base64')], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
   let err = '';
   let buffered = '';
@@ -151,19 +151,29 @@ async function startGuard(what) {
     throw error;
   }
   return {
-    assign: (pid) => ask(`assign ${pid}`, 'assigned', GUARD_DEADLINE_MS),
+    pid: guard.pid,
+    assign: (pid) => ask(`assign ${pid}`, 'assigned', answerMs),
     /** Ends every process in the job once `grace` ms passed without it emptying; resolves with how many it had to end. */
-    end: async (grace) => Number((await ask(`end ${grace} ${GUARD_DEADLINE_MS}`, 'ended', grace + GUARD_DEADLINE_MS * 2)).split(' ')[1]),
+    end: async (grace) => Number((await ask(`end ${grace} ${answerMs}`, 'ended', grace + answerMs * 2)).split(' ')[1]),
     close: async () => {
       guard.stdin.end();
-      await within(GUARD_DEADLINE_MS, exited, `${what}: the job guard to exit`);
+      try {
+        await within(answerMs, exited, `${what}: the job guard to exit`);
+      } catch (error) {
+        // A guard that no longer answers still holds the job's one handle. Ending the guard itself closes that handle, and the job
+        // (KILL_ON_JOB_CLOSE) ends every process in it; the failure that brought us here is the one reported.
+        guard.kill();
+        await within(answerMs, exited, `${what}: the job guard to exit after it was ended by force`);
+        throw error;
+      }
     },
   };
 }
 
-/** Runs `use(job)` with a job of its own, closed (every process in it ended) however `use` ends. */
-export async function withJob(what, use) {
-  const guard = await startGuard(what);
+/** Runs `use(job)` with a job of its own, closed (every process in it ended) however `use` ends. `job.guardPid` is the guard holding the
+ *  job's handle; `answerMs` bounds each of the guard's answers and its exit (the process-job test shortens it). */
+export async function withJob(what, use, { answerMs = GUARD_DEADLINE_MS } = {}) {
+  const guard = await startGuard(what, answerMs);
   const run = (label, command, args, { cwd, env, ms }) =>
     new Promise((resolve, reject) => {
       const child = spawn(process.execPath, ['-e', GATE, command, ...args], { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
@@ -203,8 +213,17 @@ export async function withJob(what, use) {
       );
     });
   try {
-    return await use({ run });
+    return await use({ run, guardPid: guard.pid });
   } finally {
-    await guard.end(0).finally(() => guard.close());
+    // The job is closed however its ending went; of the two, the first failure is the one reported (a guard that stopped answering fails
+    // the ending first, and its close then ends it by force).
+    const ending = await guard.end(0).then(
+      () => null,
+      (error) => error,
+    );
+    await guard.close().catch((error) => {
+      throw ending ?? error;
+    });
+    if (ending) throw ending;
   }
 }

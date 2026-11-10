@@ -280,6 +280,10 @@ async function replayScenario({ exe, scenario, numberFresh }) {
       cleanup.push(`${what}: ${error.message}`);
     }
   };
+  // No step reaches memory, so no core here opens its database (the core opens it at the first memory use, compose_flip.rs:1455-1456).
+  // One that did would scan the same ports as the scenarios running beside it (cluster.rs free_port): the side-by-side run would no
+  // longer hold, so it fails here.
+  if (existsSync(join(coreRoot, 'data', 'pgdata'))) failed ??= new Error(`${scenario.name}: a core started its database, which the side-by-side replay does not provide for`);
   for (const opened of connections) await end('closing a connection', () => opened.client.close?.());
   // The next scenario's database takes the first free port; this one's must have let go of its own.
   if (core && core.child.exitCode === null) await end('stopping the last core', async () => (await stopCore(exe, core))());
@@ -400,7 +404,47 @@ export async function replayNewTaskDedupe({ exe, scenarios, golden, numberFresh 
     failed += 1;
   } finally {
     release();
-    if (existsSync(WORLDS)) rmSync(WORLDS, { recursive: true, force: true });
+    // Only this process's own scenarios: the ones running beside it in other processes keep theirs.
+    for (const scenario of scenarios) rmSync(join(WORLDS, scenario.name), { recursive: true, force: true });
   }
   return failed ? 1 : 0;
+}
+
+/** Scenarios replayed side by side: each in a process (this script with `--only`) of its own, in a job of its own (lib/process-job.mjs),
+ *  over a core and a data folder of its own. */
+const AT_ONCE = 4;
+/** The whole replay's one deadline: every scenario still running when it passes is ended with its job and named. */
+const WHOLE_RUN_MS = 300_000;
+
+export async function replaySideBySide({ exe, tree, scenarios, script }) {
+  const { withJob } = await import('../lib/process-job.mjs');
+  const deadlineAt = Date.now() + WHOLE_RUN_MS;
+  const failures = [];
+  let next = 0;
+  const worker = async () => {
+    while (next < scenarios.length) {
+      const scenario = scenarios[next++];
+      const ms = deadlineAt - Date.now();
+      if (ms <= 0) {
+        failures.push(`${scenario.name}: not started: the whole replay's ${WHOLE_RUN_MS / 1000} s deadline had passed`);
+        continue;
+      }
+      const started = Date.now();
+      const child = await withJob(scenario.name, (job) =>
+        job.run(scenario.name, process.execPath, ['--import', 'tsx', script, '--tree', tree, '--replay', exe, '--only', scenario.name], { cwd: join(REPO_ROOT, 'apps', 'desktop'), env: process.env, ms }),
+      );
+      process.stdout.write(child.stdout.replace(/\n$/, '').concat(` (${Math.round((Date.now() - started) / 1000)} s)\n`));
+      if (child.timedOut) failures.push(`${scenario.name}: still running when the whole replay's ${WHOLE_RUN_MS / 1000} s deadline passed (ended with its job)`);
+      else if (child.code !== 0) failures.push(`${scenario.name}: exited ${child.code}:\n${child.stderr}`);
+      if (child.left) failures.push(`${scenario.name}: left ${child.left} process(es) running (ended with its job)`);
+    }
+  };
+  mkdirSync(WORLDS, { recursive: true });
+  try {
+    await Promise.all(Array.from({ length: Math.min(AT_ONCE, scenarios.length) }, worker));
+  } finally {
+    rmSync(WORLDS, { recursive: true, force: true });
+  }
+  for (const failure of failures) console.log(`FAILED ${failure}`);
+  return failures.length ? 1 : 0;
 }
