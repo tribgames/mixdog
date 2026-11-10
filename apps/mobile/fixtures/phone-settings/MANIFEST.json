@@ -1,5 +1,5 @@
 {
-  "cases": 117,
+  "cases": 131,
   "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-settings.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "notRun": "the relay transport (encryption, admission), the window process (its answers are the WINDOW script), config.mjs's own debounce timer and file watch (the forced pass an in-process write starts is run when the call settled), and a paired device's push channel",
@@ -8,9 +8,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 319408,
+      "bytes": 343937,
       "path": "golden.json",
-      "sha256": "0b08e3b0857c8ef8bd9790e8bf53f20c7814914b37dcade893703fc142d74827"
+      "sha256": "c9c9787d8e7d975e23b544c83307f8fe1643fdef96b0419c8e54a7e18d930450"
     }
   ],
   "node": "v22.20.0",
@@ -39,7 +39,7 @@
   "recorderFiles": [
     {
       "path": "benchmarks/rust-core/recorders/record-phone-settings.mjs",
-      "sha256": "186d0a0e7976788b40305b5ce6a97bbb82687fdba235cdf4b8957c1c28ef5d8f"
+      "sha256": "e0aca3c459a9887d7df829e34dd17618fd78537d951b86df82c9fcd0a51092bd"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -56,5 +56,5 @@
     "recipients": "caller and otherPhone are two relay clients with their channels up behind createRelayPushLanes (Node broadcast to every channel include admits, remote-relay-delivery.ts:177-187); desktop is b6f10295a DesktopStateBridge over the same desktop event bus, its webContents.send recorded",
     "window": "Electron answers (updater, theme, OS notifications), the same script answers the core replay through host requests"
   },
-  "totalBytes": 319408
+  "totalBytes": 343937
 }

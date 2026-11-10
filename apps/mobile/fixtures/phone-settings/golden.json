@@ -2426,6 +2426,353 @@
       "group": "window",
       "name": "submitFeedback",
       "params": [
+        {
+          "id": "88888888-8888-4888-8888-888888888881",
+          "kind": "suggestion",
+          "message": "  The toggle did not stick.  ",
+          "replyTo": " user@example.com ",
+          "attachments": []
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "id": "88888888-8888-4888-8888-888888888881",
+          "status": "accepted"
+        }
+      },
+      "hostCalls": [],
+      "received": {
+        "caller": [],
+        "otherPhone": [],
+        "desktop": []
+      },
+      "feedback": [
+        {
+          "method": "POST",
+          "path": "/feedback",
+          "contentType": "application/json",
+          "body": {
+            "id": "88888888-8888-4888-8888-888888888881",
+            "kind": "suggestion",
+            "message": "The toggle did not stick.",
+            "replyTo": "user@example.com"
+          }
+        }
+      ],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "submitFeedback",
+      "params": [
+        {
+          "id": "88888888-8888-4888-8888-888888888882",
+          "kind": "other",
+          "message": "  The toggle did not stick.  ",
+          "replyTo": " user@example.com ",
+          "extra": 1
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "id": "88888888-8888-4888-8888-888888888882",
+          "status": "accepted"
+        }
+      },
+      "hostCalls": [],
+      "received": {
+        "caller": [],
+        "otherPhone": [],
+        "desktop": []
+      },
+      "feedback": [
+        {
+          "method": "POST",
+          "path": "/feedback",
+          "contentType": "application/json",
+          "body": {
+            "id": "88888888-8888-4888-8888-888888888882",
+            "kind": "other",
+            "message": "The toggle did not stick.",
+            "replyTo": "user@example.com"
+          }
+        }
+      ],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "submitFeedback",
+      "params": [
+        {
+          "id": "88888888-8888-4888-8888-888888888883",
+          "kind": "bug",
+          "message": "  The toggle did not stick.  ",
+          "replyTo": " user@example.com ",
+          "attachments": [
+            {
+              "name": "one.png",
+              "mimeType": "image/png",
+              "data": "iVBORw0KGgoAAAANSUhEUgA=",
+              "extra": 1
+            },
+            {
+              "name": "two.png",
+              "mimeType": "image/png",
+              "data": "iVBORw0KGgoAAAANSUhEUgAA"
+            },
+            {
+              "name": "photo.jpg",
+              "mimeType": "image/jpeg",
+              "data": "/9j/4AAQSkZJRgAB"
+            }
+          ]
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "id": "88888888-8888-4888-8888-888888888883",
+          "status": "accepted"
+        }
+      },
+      "hostCalls": [],
+      "received": {
+        "caller": [],
+        "otherPhone": [],
+        "desktop": []
+      },
+      "feedback": [
+        {
+          "method": "POST",
+          "path": "/feedback",
+          "contentType": "application/json",
+          "body": {
+            "id": "88888888-8888-4888-8888-888888888883",
+            "kind": "bug",
+            "message": "The toggle did not stick.",
+            "replyTo": "user@example.com",
+            "attachments": [
+              {
+                "name": "one.png",
+                "mimeType": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUgA="
+              },
+              {
+                "name": "two.png",
+                "mimeType": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUgAA"
+              },
+              {
+                "name": "photo.jpg",
+                "mimeType": "image/jpeg",
+                "data": "/9j/4AAQSkZJRgAB"
+              }
+            ]
+          }
+        }
+      ],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "submitFeedback",
+      "params": [
+        {
+          "id": "88888888-8888-4888-8888-888888888884",
+          "kind": "bug",
+          "message": "  The toggle did not stick.  ",
+          "replyTo": " user@example.com ",
+          "attachments": [
+            {
+              "name": "shot.webp",
+              "mimeType": "image/webp",
+              "data": "UklGRggAAABXRUJQVlA4IA=="
+            }
+          ]
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "id": "88888888-8888-4888-8888-888888888884",
+          "status": "accepted"
+        }
+      },
+      "hostCalls": [],
+      "received": {
+        "caller": [],
+        "otherPhone": [],
+        "desktop": []
+      },
+      "feedback": [
+        {
+          "method": "POST",
+          "path": "/feedback",
+          "contentType": "application/json",
+          "body": {
+            "id": "88888888-8888-4888-8888-888888888884",
+            "kind": "bug",
+            "message": "The toggle did not stick.",
+            "replyTo": "user@example.com",
+            "attachments": [
+              {
+                "name": "shot.webp",
+                "mimeType": "image/webp",
+                "data": "UklGRggAAABXRUJQVlA4IA=="
+              }
+            ]
+          }
+        }
+      ],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "submitFeedback",
+      "params": [
         null
       ],
       "frame": {
@@ -4062,6 +4409,664 @@
               "name": "screen.png",
               "mimeType": "image/jpeg",
               "data": "iVBORw0KGgoAAAANSUhEUg=="
+            }
+          ]
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Feedback attachments are invalid."
+      },
+      "hostCalls": [],
+      "received": {
+        "caller": [],
+        "otherPhone": [],
+        "desktop": []
+      },
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "submitFeedback",
+      "params": [
+        {
+          "id": "0F1E2D3C-4B5A-4978-8695-a4b3c2d1e0f9",
+          "kind": "bug",
+          "message": "  The toggle did not stick.  ",
+          "replyTo": " user@example.com ",
+          "attachments": [
+            "screen.png"
+          ]
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Feedback attachments are invalid."
+      },
+      "hostCalls": [],
+      "received": {
+        "caller": [],
+        "otherPhone": [],
+        "desktop": []
+      },
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "submitFeedback",
+      "params": [
+        {
+          "id": "0F1E2D3C-4B5A-4978-8695-a4b3c2d1e0f9",
+          "kind": "bug",
+          "message": "  The toggle did not stick.  ",
+          "replyTo": " user@example.com ",
+          "attachments": [
+            [
+              {
+                "name": "screen.png",
+                "mimeType": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUg=="
+              }
+            ]
+          ]
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Feedback attachments are invalid."
+      },
+      "hostCalls": [],
+      "received": {
+        "caller": [],
+        "otherPhone": [],
+        "desktop": []
+      },
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "submitFeedback",
+      "params": [
+        {
+          "id": "0F1E2D3C-4B5A-4978-8695-a4b3c2d1e0f9",
+          "kind": "bug",
+          "message": "  The toggle did not stick.  ",
+          "replyTo": " user@example.com ",
+          "attachments": [
+            {
+              "name": 5,
+              "mimeType": "image/png",
+              "data": "iVBORw0KGgoAAAANSUhEUg=="
+            }
+          ]
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Feedback attachments are invalid."
+      },
+      "hostCalls": [],
+      "received": {
+        "caller": [],
+        "otherPhone": [],
+        "desktop": []
+      },
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "submitFeedback",
+      "params": [
+        {
+          "id": "0F1E2D3C-4B5A-4978-8695-a4b3c2d1e0f9",
+          "kind": "bug",
+          "message": "  The toggle did not stick.  ",
+          "replyTo": " user@example.com ",
+          "attachments": [
+            {
+              "name": "screen.png",
+              "mimeType": null,
+              "data": "iVBORw0KGgoAAAANSUhEUg=="
+            }
+          ]
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Feedback attachments are invalid."
+      },
+      "hostCalls": [],
+      "received": {
+        "caller": [],
+        "otherPhone": [],
+        "desktop": []
+      },
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "submitFeedback",
+      "params": [
+        {
+          "id": "0F1E2D3C-4B5A-4978-8695-a4b3c2d1e0f9",
+          "kind": "bug",
+          "message": "  The toggle did not stick.  ",
+          "replyTo": " user@example.com ",
+          "attachments": [
+            {
+              "name": "screen.png",
+              "mimeType": "image/png",
+              "data": ""
+            }
+          ]
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Feedback attachments are invalid."
+      },
+      "hostCalls": [],
+      "received": {
+        "caller": [],
+        "otherPhone": [],
+        "desktop": []
+      },
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "submitFeedback",
+      "params": [
+        {
+          "id": "0F1E2D3C-4B5A-4978-8695-a4b3c2d1e0f9",
+          "kind": "bug",
+          "message": "  The toggle did not stick.  ",
+          "replyTo": " user@example.com ",
+          "attachments": [
+            {
+              "name": "screen.png",
+              "mimeType": "image/png",
+              "data": "*VBORw0KGgoAAAANSUhEUg=="
+            }
+          ]
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Feedback attachments are invalid."
+      },
+      "hostCalls": [],
+      "received": {
+        "caller": [],
+        "otherPhone": [],
+        "desktop": []
+      },
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "submitFeedback",
+      "params": [
+        {
+          "id": "0F1E2D3C-4B5A-4978-8695-a4b3c2d1e0f9",
+          "kind": "bug",
+          "message": "  The toggle did not stick.  ",
+          "replyTo": " user@example.com ",
+          "attachments": [
+            {
+              "name": "screen.png",
+              "mimeType": "image/png",
+              "data": "iVBORw0KGgoAAAANSUhEUh=="
+            }
+          ]
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Feedback attachments are invalid."
+      },
+      "hostCalls": [],
+      "received": {
+        "caller": [],
+        "otherPhone": [],
+        "desktop": []
+      },
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "submitFeedback",
+      "params": [
+        {
+          "id": "0F1E2D3C-4B5A-4978-8695-a4b3c2d1e0f9",
+          "kind": "bug",
+          "message": "  The toggle did not stick.  ",
+          "replyTo": " user@example.com ",
+          "attachments": [
+            {
+              "name": "screen.png",
+              "mimeType": "image/png",
+              "data": "iVBORw0KGgoAAAANSUhEUgB="
+            }
+          ]
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Feedback attachments are invalid."
+      },
+      "hostCalls": [],
+      "received": {
+        "caller": [],
+        "otherPhone": [],
+        "desktop": []
+      },
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "submitFeedback",
+      "params": [
+        {
+          "id": "0F1E2D3C-4B5A-4978-8695-a4b3c2d1e0f9",
+          "kind": "bug",
+          "message": "  The toggle did not stick.  ",
+          "replyTo": " user@example.com ",
+          "attachments": [
+            {
+              "name": "screen.png",
+              "mimeType": "image/webp",
+              "data": "iVBORw0KGgoAAAANSUhEUg=="
+            }
+          ]
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Feedback attachments are invalid."
+      },
+      "hostCalls": [],
+      "received": {
+        "caller": [],
+        "otherPhone": [],
+        "desktop": []
+      },
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "submitFeedback",
+      "params": [
+        {
+          "id": "0F1E2D3C-4B5A-4978-8695-a4b3c2d1e0f9",
+          "kind": "bug",
+          "message": "  The toggle did not stick.  ",
+          "replyTo": " user@example.com ",
+          "attachments": [
+            {
+              "name": "screen.png",
+              "mimeType": "image/png",
+              "data": "iVFORw0KGgoAAAANSUhEUg=="
             }
           ]
         }

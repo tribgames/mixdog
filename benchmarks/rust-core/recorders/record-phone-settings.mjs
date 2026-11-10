@@ -72,8 +72,23 @@ const WINDOW = {
 };
 const FEEDBACK = { id: '0F1E2D3C-4B5A-4978-8695-a4b3c2d1e0f9', kind: 'bug', message: '  The toggle did not stick.  ', replyTo: ' user@example.com ' };
 /** A PNG feedback attachment: the 8-byte signature and an IHDR start, 16 bytes in all (contract-feedback.ts requires 12). */
-const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]).toString('base64');
+const PNG_BYTES = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52];
+const BASE64 = (bytes) => Buffer.from(bytes).toString('base64');
+const PNG = BASE64(PNG_BYTES);
 const ATTACHMENT = { name: 'screen.png', mimeType: 'image/png', data: PNG };
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+/** `data` with the base64 digit before its `pad` padding characters one higher: the bits padding drops are no longer zero. */
+const DIRTY_PADDING = (data, pad) => {
+  const at = data.length - pad - 1;
+  return `${data.slice(0, at)}${ALPHABET[ALPHABET.indexOf(data[at]) + 1]}${data.slice(at + 1)}`;
+};
+/** 17 bytes: one padding character; 18 bytes: none. */
+const PNG_17 = BASE64([...PNG_BYTES, 0]);
+const PNG_18 = BASE64([...PNG_BYTES, 0, 0]);
+const JPEG = BASE64([0xff, 0xd8, 0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46, 0, 1]);
+const WEBP = BASE64([...Buffer.from('RIFF'), 8, 0, 0, 0, ...Buffer.from('WEBPVP8 ')]);
+/** The PNG with its second signature byte changed ('P' to 'Q'), still canonical base64. */
+const PNG_BAD_SIGNATURE = BASE64([PNG_BYTES[0], 0x51, ...PNG_BYTES.slice(2)]);
 /** The relay's `/feedback` answer to each posted (lowercased) id; any other id is accepted with a receipt naming it. The branches
  *  of feedback-client.ts:18-40 after the post: 429, another status, a body that is not JSON, a receipt for another id or of
  *  another status, and a connection the relay drops (the fetch fails). */
@@ -133,6 +148,24 @@ const GROUPS = {
     ['submitFeedback', [feedbackWith('55555555-5555-4555-8555-555555555555')]],
     ['submitFeedback', [feedbackWith('66666666-6666-4666-8666-666666666666')]],
     ['submitFeedback', [feedbackWith('77777777-7777-4777-8777-777777777777', { attachments: [ATTACHMENT] })]],
+    // normalizeDesktopFeedback :47 the other two kinds, :65 an empty attachment list (no `attachments` field posted), unknown
+    // fields of the feedback and of an attachment dropped; normalizeFeedbackAttachments :40-41 one padding character and none,
+    // :34-35 a JPEG and a WebP signature.
+    ['submitFeedback', [feedbackWith('88888888-8888-4888-8888-888888888881', { kind: 'suggestion', attachments: [] })]],
+    ['submitFeedback', [feedbackWith('88888888-8888-4888-8888-888888888882', { kind: 'other', extra: 1 })]],
+    [
+      'submitFeedback',
+      [
+        feedbackWith('88888888-8888-4888-8888-888888888883', {
+          attachments: [
+            { ...ATTACHMENT, name: 'one.png', data: PNG_17, extra: 1 },
+            { ...ATTACHMENT, name: 'two.png', data: PNG_18 },
+            { name: 'photo.jpg', mimeType: 'image/jpeg', data: JPEG },
+          ],
+        }),
+      ],
+    ],
+    ['submitFeedback', [feedbackWith('88888888-8888-4888-8888-888888888884', { attachments: [{ name: 'shot.webp', mimeType: 'image/webp', data: WEBP }] })]],
     // normalizeDesktopFeedback :39-41 not an object; :43-52 id, kind, message; :53-55 replyTo not a string; :57-59 replyTo.
     ['submitFeedback', [null]],
     ['submitFeedback', [[FEEDBACK]]],
@@ -164,6 +197,19 @@ const GROUPS = {
     ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, data: `${PNG}=` }] })]],
     ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, data: PNG.slice(0, 12) }] })]],
     ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, mimeType: 'image/jpeg' }] })]],
+    // :63 an entry that is a string or an array; :65 a name or type not a string; :41 empty data, a character outside the
+    // alphabet at a valid length, padding bits not zero after `==` (Ug== as Uh==) and after `=`; :82 the PNG sent as WebP, and
+    // its signature corrupted in canonical base64.
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: ['screen.png'] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [[ATTACHMENT]] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, name: 5 }] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, mimeType: null }] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, data: '' }] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, data: `*${PNG.slice(1)}` }] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, data: DIRTY_PADDING(PNG, 2) }] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, data: DIRTY_PADDING(PNG_17, 1) }] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, mimeType: 'image/webp' }] })]],
+    ['submitFeedback', [feedbackWith(FEEDBACK.id, { attachments: [{ ...ATTACHMENT, data: PNG_BAD_SIGNATURE }] })]],
     // requiredString :657 not a string, :659 blank and over 128 after the trim; 128 exactly is taken.
     ['notifyProviderModelsChanged', [' 7c9e6679-7425-40de-944b-e07fc1f90ae7 ']],
     ['notifyProviderModelsChanged', [` ${LONG(128, 'o')} `]],
