@@ -445,6 +445,12 @@ impl TransportSession {
         Box::pin(async move { result.await.unwrap_or(Err(super::coordinator::SendError::Ended(EndReason::SessionEnded))) })
     }
 
+    /// The phone's permission to view ended: a live-view message half in the stream ends the session
+    /// ([`Coord::view_revoked`]).
+    pub fn view_revoked(self: &Arc<Self>) {
+        self.run(Coord::view_revoked);
+    }
+
     /// Ends the session from outside (client removed, revoked, replaced).
     pub fn close(self: &Arc<Self>, reason: EndReason) {
         self.run(|c| {
