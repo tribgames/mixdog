@@ -316,9 +316,16 @@ impl DomainService for TerminalService {
                 let Some(attached) = self.tabs.attach(params.tab_id.as_str()).await else {
                     return Ok(Reply::Value(Value::Null));
                 };
+                // A phone reads the tab's output framed as Node's relay lane sent it; the window keeps the raw feed (its own
+                // 5 ms buffer is in the desktop's main process, ipc-terminal.ts).
+                let feed = if req.ctx.origin == mixdog_protocol::Origin::Relay {
+                    self.feeds.relay_feed(&attached.id)
+                } else {
+                    self.feeds.feed(&attached.id, true)
+                };
                 Ok(Reply::Subscribe(Subscribe {
                     result: attached_reply(&attached, &client),
-                    feed: self.feeds.feed(&attached.id, true),
+                    feed,
                     window: Window::Fixed,
                     resume_from,
                 }))

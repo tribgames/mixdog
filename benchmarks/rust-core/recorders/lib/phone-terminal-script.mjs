@@ -10,10 +10,10 @@
 // Terminal text is compared as the screen the user sees (lib/phone-screen.mjs: the rows' text and attributes and the cursor, as xterm.js
 // draws the stream). The bytes of a real ConPTY and shell vary from one run to the next (PSReadLine redraws the typed line per
 // keystroke or in one frame; ConPTY re-renders after a resize in a varying number of frames, and when those frames arrive relative to
-// a call is a race), the screen does not once the shell has settled. So every terminal text the trace holds is a screen: each reply's
-// `replay`, and the output a tab streamed at a `snap`. A `settle` is the barrier that makes a screen well-defined: it has the shell run
-// a marker command and waits until the marker's result and the next prompt are on the screen, which is after everything the shell
-// and ConPTY had written for earlier resizes. Nothing of a reply or a push is left out of the comparison.
+// a call is a race), the screen does not once the shell has settled. So the checkpoints (`snap`, `screen`) hold screens; replies and
+// output frames are kept as sent, and the comparison leaves out only the places where Node's runs differ. A `settle` is the barrier that
+// makes a screen well-defined: it has the shell run a marker command and waits until the marker's result and the next prompt are on the
+// screen, which is after everything the shell and ConPTY had written for earlier resizes.
 import { join } from 'node:path';import { linesOf, screenOf } from './phone-screen.mjs';
 
 export const TAB = 'term_ph2a';
@@ -227,6 +227,9 @@ export function sizeClaimScript(root) {
       ...tabs.flatMap((tab) => [
         { op: 'call', name: 'termEnsure', params: [tab, cwd, null] },
         { op: 'until', kind: 'activity', event: { id: tab, state: 'idle' } },
+        // The prompt is drawn before the next step: where it lands among the next calls, and whether a claim's resize comes before it,
+        // would otherwise be a race with the calls' own latency (Node's are in-process, the core's cross a socket).
+        { op: 'until', kind: 'text', tab, text: `${prompt} ` },
       ]),
       // From here the leases are timed.
       { op: 'clock' },
@@ -298,8 +301,11 @@ export function sizeClaimScript(root) {
       // A claim and then the dispose of its tab: Node runs the claim wholly (its owner pushed) before the dispose (the tab's end, the
       // answer), never between them (terminal-manager.ts:455, :536). The dispose of an id with no tab leaving a later claim standing is
       // the `term_ph2_none` case above.
-      { op: 'fire', name: 'termResize', params: [L5, 99, 29, true] },
+      claim(L5, 99, 29),
       owner(L5, 99, 29, true),
+      // The re-render ConPTY sends for the new size is on the screen before the tabs are disposed: where it lands among the disposals
+      // would otherwise be a race with the calls' own latency (Node's calls are in-process, the core's cross a socket).
+      ...barrier(L5),
       ...tabs.map((tab) => ({ op: 'call', name: 'termDispose', params: [tab] })),
       ...tabs.map((tab) => ({ op: 'until', kind: 'exitLine', tab })),
       { op: 'lane', lane: 'terminal', on: false },
@@ -307,9 +313,8 @@ export function sizeClaimScript(root) {
   };
 }
 
-/** A call's entry in the trace: its answer (a terminal text in it is the screen it draws) or its error text. */
-export const callEntry = (name, params, { value, error }) =>
-  error !== undefined ? { call: name, params, error } : { call: name, params, value: typeof value?.replay === 'string' ? { ...value, replay: screenOf(value.replay) } : value };
+/** A call's entry in the trace: its answer as sent (a replay is its string) or its error text. */
+export const callEntry = (name, params, { value, error }) => (error !== undefined ? { call: name, params, error } : { call: name, params, value });
 
 /** The marker's own line is on the screen with the prompt right after it (after `gap` blank lines: cmd leaves one after a command's
  *  output): what the shell wrote for the command is complete. */
@@ -321,7 +326,7 @@ const onScreen = (text, { after, prompt, gap = 0 }) => {
 
 /**
  * Plays the ops against a driver and returns the trace.
- * A reply's `replay` is recorded as the screen it draws; a `snap` records the screen each named tab's streamed output draws.
+ * A reply is recorded as sent; a `snap` records the screen each named tab's streamed output draws.
  * driver: call(name, params) -> value (throws the error), fire(name, params), lane(lane, on), touch(file), run(request, redeliver),
  *         waitFor(test, what) -> Promise (resolves once `test(events)` holds; rejects, naming what, if it never does), events() ->
  *         { activity: [], sizeOwner: [], folder: [], run: [], output: { [tabId]: string } }.
@@ -366,6 +371,10 @@ export async function play(script, driver) {
     } else if (op.op === 'until') {
       if (op.kind === 'exitLine') {
         await driver.waitFor((events) => /\[process exited with code -?\d+\]/.test(events.output[op.tab] ?? ''), `the exit line of ${op.tab}`);
+        continue;
+      }
+      if (op.kind === 'text') {
+        await driver.waitFor((events) => (events.output[op.tab] ?? '').includes(op.text), `${JSON.stringify(op.text)} in the output of ${op.tab}`);
         continue;
       }
       const what =

@@ -487,7 +487,8 @@ async fn terminal_ensure_opens_the_output_feed_without_an_attach() {
     // Node answers an ensure with the id it was given (phone-terminal golden.json, `termEnsure` of `term_ph2_l1`: `{ id: "term_ph2_l1" }`).
     assert_eq!(ensured["id"], json!(tab));
     let ids: Vec<String> = made.ids().iter().map(ToString::to_string).collect();
-    assert_eq!(ids, vec![format!("process:{tab}")]);
+    // The raw feed (the window) and the relay feed (a phone: Node's relay-lane framing).
+    assert_eq!(ids, vec![format!("process:relay:{tab}"), format!("process:{tab}")], "the ids, in the mock's sorted order");
     service.tabs().dispose_all();
 }
 

@@ -18,7 +18,7 @@ function client() {
     store: { section: () => null, subscribe: () => () => undefined },
     server: { platformOs: 'windows' },
     output: (id, text) => {
-      const notification = { method: 'process/outputDelta', params: { bytesB64: Buffer.from(text).toString('base64') }, feed: { id: `process:${id}` } };
+      const notification = { method: 'process/outputDelta', params: { bytesB64: Buffer.from(text).toString('base64') }, feed: { id: `process:relay:${id}` } };
       for (const listener of [...listeners]) listener({ type: 'notification', notification });
     },
   };

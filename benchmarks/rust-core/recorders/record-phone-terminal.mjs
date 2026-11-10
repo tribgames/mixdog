@@ -5,7 +5,7 @@
 // events. The script is lib/phone-terminal-script.mjs; apps/mobile replays it through the protocol adapter against a built mixdogd.
 //
 //   node benchmarks/rust-core/recorders/record-phone-terminal.mjs --tree <git archive of b6f10295a with node_modules>
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -51,10 +51,17 @@ if (!args.has('child')) {
   // The recording runs in a process of its own (the test environment's loader hooks only a fresh process takes). Node's real PTY
   // (ConPTY) leaves that process alive at exit, so the parent waits for the trace's end marker, which is the child's own completion
   // signal, and then ends the child it started.
-  // The shells run with a profile folder the recording owns (lib/shell-isolation.mjs), made fresh for each run.
-  const PROFILE = `${ROOT}-profile`;
+  // The shells run with a profile folder the recording owns (lib/shell-isolation.mjs): a new folder for each run, allocated beside the
+  // run's work folder and removed when the run ends, whatever its outcome.
   const recordOnce = async () => {
-  rmSync(PROFILE, { recursive: true, force: true });
+  const PROFILE = mkdtempSync(`${ROOT}-profile-`);
+  try {
+    return await recordIn(PROFILE);
+  } finally {
+    rmSync(PROFILE, { recursive: true, force: true });
+  }
+  };
+  const recordIn = async (PROFILE) => {
   const env = { ...process.env, ...isolatedProfile(PROFILE) };
   assertNoPowerShellProfile(env);
   const here = fileURLToPath(import.meta.url);
@@ -100,19 +107,13 @@ if (!args.has('child')) {
   );
   return trace;
   };
-  // The determinism check: Node is recorded `--runs` times (default 4). The first recording is the golden; what differs between the runs is
-  // written beside it (variance.json), and is what the replay's comparison leaves to a rule instead of comparing entry by entry.
-  const runs = Number(args.get('runs') ?? 4);
+  // Node is recorded `--runs` times (default 5), every run kept (runs.json): what all runs agree on is compared exactly and only what they
+  // disagree on varies, within what they recorded (remote-protocol-terminal-compare.mjs). No run is dropped and no batch is picked.
+  const runs = Number(args.get('runs') ?? 5);
   const traces = [];
   for (let run = 1; run <= runs; run += 1) traces.push(await recordOnce());
-  rmSync(PROFILE, { recursive: true, force: true });
   const trace = traces[0];
   const variance = { runs, ...varianceReport(traces) };
-  // The main list is compared entry by entry without its output: Node's runs must agree on it, or the first run is not Node's behaviour
-  // but one of its timings (one recording of five had two entries more; recorded again, the five agreed).
-  if (variance.order.distinctSequencesWithoutData !== 1) {
-    throw new Error(`Node's ${runs} runs disagree on the main list without output (${variance.order.entriesWithoutData.join(', ')} entries): record again`);
-  }
   const finalOut =join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-terminal');
   const out = stageSet(finalOut);
   writeJson(join(out, 'golden.json'), {
@@ -121,6 +122,7 @@ if (!args.has('child')) {
     trace,
   });
   writeJson(join(out, 'variance.json'), variance);
+  writeJson(join(out, 'runs.json'), traces.map((run) => ({ order: run.order, claims: { order: run.claims.order } })));
   writeSetManifest(out, {
     set: 'phone-terminal',
     recorder: 'benchmarks/rust-core/recorders/record-phone-terminal.mjs',

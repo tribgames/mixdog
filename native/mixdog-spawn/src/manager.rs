@@ -982,6 +982,25 @@ impl LocalProcessManager {
     pub fn kill_with(&self, handle: &ProcessHandle, reason: KillReason) -> Result<(), ProcessError> {
         self.inner.lookup(handle)?.kill(reason)
     }
+
+    /// Closes a PTY process's terminal, as node-pty's `kill` closes the pseudo console: on Windows the console's processes get its close
+    /// and end with `STATUS_CONTROL_C_EXIT` themselves (a shell's own answer to a closed terminal). The close runs on a thread of its own
+    /// (`ClosePseudoConsole` can wait for its output to be read). A process without a PTY is `NotPty`.
+    pub fn hang_up(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+        let proc = self.inner.lookup(handle)?;
+        if proc.pty.is_none() {
+            return Err(ProcessError::NotPty);
+        }
+        thread::Builder::new()
+            .name("pty-hangup".to_owned())
+            .spawn(move || {
+                if let Some(pty) = &proc.pty {
+                    pty.close();
+                }
+            })
+            .map(|_| ())
+            .map_err(|error| ProcessError::Io { os_code: error.raw_os_error() })
+    }
 }
 
 #[async_trait]
