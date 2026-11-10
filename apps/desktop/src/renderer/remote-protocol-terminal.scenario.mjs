@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import WebSocket from 'ws';
 import { DEADLINE_MS, bounded, openClockSocket, stopCore } from './remote-protocol-terminal-deadlines.mjs';
 import { createPhoneWorld, protocolDialect } from '../../../../benchmarks/rust-core/recorders/lib/phone-world.mjs';
-import { play, record, sizeClaimScript, terminalScript } from '../../../../benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs';
+import { immediateScript, play, record, sizeClaimScript, terminalScript } from '../../../../benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs';
 
 // The world replaces the timers with a virtual clock; this scenario's own deadline (a guard that fails a wait that never ends) is real.
 const realSetTimeout = globalThis.setTimeout;
@@ -268,6 +268,9 @@ async function run(core) {
     events.output = {};
     const claims = await play(sizeClaimScript(ROOT), driver);
     trace.claims = JSON.parse(JSON.stringify(claims));
+    for (const list of Object.values(events)) if (Array.isArray(list)) list.length = 0;
+    events.output = {};
+    trace.immediate = JSON.parse(JSON.stringify(await play(immediateScript(ROOT), driver)));
     process.stdout.write(`\n@@TRACE@@${JSON.stringify(trace)}\n`);
   } finally {
     for (const stop of off) stop();

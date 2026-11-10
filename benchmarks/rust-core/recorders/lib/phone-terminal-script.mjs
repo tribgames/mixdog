@@ -313,6 +313,34 @@ export function sizeClaimScript(root) {
   };
 }
 
+/**
+ * The sequences the settled timelines wait out, run as they come: each tab's next call sent the moment its predecessor is idle (before its
+ * prompt is drawn), a claim's resize followed at once by the dispose of its tab, and two disposals back to back. The core answers before
+ * the output a call causes (an ensure's and a dispose's feed holds); what Node's own runs vary here shows in their recordings and is
+ * left to the comparison's rule, not to a wait.
+ */
+export function immediateScript(root) {
+  const cwd = join(root, 'cwd');
+  const [I1, I2] = ['term_ph2_i1', 'term_ph2_i2'];
+  return {
+    cwd,
+    ops: [
+      { op: 'lane', lane: 'terminal', on: true },
+      { op: 'call', name: 'termEnsure', params: [I1, cwd, null] },
+      { op: 'until', kind: 'activity', event: { id: I1, state: 'idle' } },
+      { op: 'call', name: 'termEnsure', params: [I2, cwd, null] },
+      { op: 'until', kind: 'activity', event: { id: I2, state: 'idle' } },
+      { op: 'fire', name: 'termResize', params: [I1, 99, 29, true] },
+      { op: 'until', kind: 'sizeOwner', event: { id: I1, cols: 99, rows: 29, own: true } },
+      { op: 'call', name: 'termDispose', params: [I1] },
+      { op: 'call', name: 'termDispose', params: [I2] },
+      { op: 'until', kind: 'exitLine', tab: I1 },
+      { op: 'until', kind: 'exitLine', tab: I2 },
+      { op: 'lane', lane: 'terminal', on: false },
+    ],
+  };
+}
+
 /** A call's entry in the trace: its answer as sent (a replay is its string) or its error text. */
 export const callEntry = (name, params, { value, error }) => (error !== undefined ? { call: name, params, error } : { call: name, params, value });
 
