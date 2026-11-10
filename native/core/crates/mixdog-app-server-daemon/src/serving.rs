@@ -551,7 +551,7 @@ mod tests {
             assert!(!data.join("runtime").exists() && !data.join("pgdata").exists(), "nothing was downloaded or initialised");
 
             // The first database use enters the install and waits at the gate; the daemon keeps answering.
-            let db = core.memory.db();
+            let db = core.memory_db();
             let using = tokio::spawn(async move { db.client().await.err().map(|error| error.message()) });
             tokio::time::timeout(LIMIT, entries.recv()).await.expect("the first use never entered the install").expect("announced");
             assert!(!using.is_finished(), "the use waits for the install");
