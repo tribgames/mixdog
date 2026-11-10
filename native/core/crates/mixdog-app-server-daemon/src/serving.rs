@@ -493,6 +493,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn a_fresh_profile_serves_while_the_runtime_install_is_held() {
         use futures::FutureExt as _;
+        use mixdog_core_session::session::testing::awaiting_for;
         const LIMIT: std::time::Duration = std::time::Duration::from_secs(20);
         let dir = tempfile::tempdir().unwrap();
         let data = dir.path().join("data");
@@ -526,25 +527,28 @@ mod tests {
             },
         );
         // The gate is not open, so a composition that waited for the install would not end: the one deadline turns that into this failure.
-        let core = Arc::new(tokio::time::timeout(LIMIT, composing).await.expect("the composition waited for the held runtime install").unwrap());
+        let core = Arc::new(awaiting_for(LIMIT, || "the composition, which must not wait for the held runtime install".into(), composing).await.unwrap());
         core.open_memory_in_background();
         let (exited, exit) = oneshot::channel();
         let root = dir.path().join("runtime");
-        let serving = tokio::time::timeout(LIMIT, start(&tokens, core.clone(), outgoing, StartIn { runtime_root: root.clone(), exiter: Arc::new(RecordedExit(Mutex::new(Some(exited)))), update_text: "Update.".into() }))
-            .await
-            .expect("start did not end")
-            .unwrap();
+        let serving = awaiting_for(
+            LIMIT,
+            || "the start of serving".into(),
+            start(&tokens, core.clone(), outgoing, StartIn { runtime_root: root.clone(), exiter: Arc::new(RecordedExit(Mutex::new(Some(exited)))), update_text: "Update.".into() }),
+        )
+        .await
+        .unwrap();
         let checks = std::panic::AssertUnwindSafe(async {
             serving.lifecycle.set_serving().unwrap();
             let writer = serving.discovery.clone();
-            tokio::task::spawn_blocking(move || writer.flush()).await.unwrap();
+            awaiting_for(LIMIT, || "the discovery flush".into(), tokio::task::spawn_blocking(move || writer.flush())).await.unwrap();
             let document: serde_json::Value = serde_json::from_slice(&tokio::fs::read(discovery::path(&root)).await.unwrap()).unwrap();
             assert_eq!(document["core"]["state"], "serving");
             let token = document["endpoints"]["session"]["token"].as_str().unwrap().to_owned();
             let control = u16::try_from(document["core"]["control"]["port"].as_u64().unwrap()).unwrap();
             let status = || async {
                 let request = reqwest::Client::new().get(format!("http://127.0.0.1:{control}/mgmt/status")).bearer_auth(&token).send();
-                tokio::time::timeout(LIMIT, request).await.expect("/mgmt/status did not answer").unwrap().status()
+                awaiting_for(LIMIT, || "the /mgmt/status answer".into(), request).await.unwrap().status()
             };
             assert_eq!(status().await, 200);
             assert!(entries.try_recv().is_err(), "the install was not entered before the first memory use");
@@ -553,11 +557,11 @@ mod tests {
             // The first database use enters the install and waits at the gate; the daemon keeps answering.
             let db = core.memory_db();
             let using = tokio::spawn(async move { db.client().await.err().map(|error| error.message()) });
-            tokio::time::timeout(LIMIT, entries.recv()).await.expect("the first use never entered the install").expect("announced");
+            awaiting_for(LIMIT, || "the first use to enter the install".into(), entries.recv()).await.expect("announced");
             assert!(!using.is_finished(), "the use waits for the install");
             assert_eq!(status().await, 200, "the daemon answers while the use waits");
             release.send(()).expect("the install waits at the gate");
-            let outcome = tokio::time::timeout(LIMIT, using).await.expect("the use did not end with the install").unwrap();
+            let outcome = awaiting_for(LIMIT, || "the use to end with the install".into(), using).await.unwrap();
             assert_eq!(outcome.as_deref(), Some("postgres runtime: held at the gate"), "the use gets the install's outcome");
             assert!(!data.join("pgdata").exists(), "a failed install initialises nothing");
         })
@@ -565,7 +569,7 @@ mod tests {
         .await;
         // Every path ends the core: the stop and the exit wait run whether or not an assertion failed.
         serving.lifecycle.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-        tokio::time::timeout(LIMIT, exit).await.expect("the core did not exit after the stop").unwrap();
+        awaiting_for(LIMIT, || "the core to exit after the stop".into(), exit).await.unwrap();
         if let Err(panic) = checks {
             std::panic::resume_unwind(panic);
         }

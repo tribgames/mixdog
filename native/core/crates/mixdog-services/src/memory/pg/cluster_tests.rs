@@ -63,21 +63,28 @@ async fn questions(seen: &mut tokio::sync::mpsc::UnboundedReceiver<()>, n: usize
 
 type Starting = tokio::task::JoinHandle<Result<PgCluster>>;
 
-/// A start over `dir` (a directory that holds a cluster and no runtime: a start that gets as far as running `pg_ctl` fails there), run as a task.
+/// The cluster directory of the profile `dir`, created.
+fn pgdata(dir: &Path) -> PathBuf {
+    let pgdata = dir.join("pgdata");
+    std::fs::create_dir_all(&pgdata).unwrap();
+    pgdata
+}
+
+/// A start over the profile `dir` (whose cluster exists and which holds no runtime: a start that gets as far as running `pg_ctl` fails there), run as a task.
 fn start_in(dir: &Path, probe: &Arc<Probe>, recovery_wait: Duration, lock_wait: Duration, cancel: &CancellationToken) -> Starting {
-    std::fs::write(dir.join("PG_VERSION"), "16\n").unwrap();
+    std::fs::write(pgdata(dir).join("PG_VERSION"), "16\n").unwrap();
     let (dir, probe, cancel) = (dir.to_owned(), probe.clone(), cancel.clone());
     tokio::spawn(async move {
         let lane = mixdog_rt::testing::tokens().durability_io;
-        let start = Start { health: &*probe, recovery_wait, lock_wait };
-        PgCluster::ensure_with(PgRuntime::new(dir.join("no-runtime")), &dir, 55_900, lane, Processes::for_tests(), &cancel, &start).await
+        let start = Start { health: probe, recovery_wait, lock_wait };
+        PgCluster::ensure(PgRuntime::new(dir.join("no-runtime")), &dir, 55_900, lane, Processes::for_tests(), &cancel, &start).await
     })
 }
 
 /// A start that is waiting for an alive, silent postmaster: the two reuse checks and the first question of the recovery wait are in.
 async fn waiting_start(dir: &Path, port: u16) -> (Fake, Arc<Probe>, tokio::sync::mpsc::UnboundedReceiver<()>, CancellationToken, Starting) {
     let postmaster = Fake::new(dir, "postgres");
-    pid_file(dir, postmaster.id(), port);
+    pid_file(&pgdata(dir), postmaster.id(), port);
     let (probe, mut seen) = Probe::new();
     let cancel = CancellationToken::new();
     let starting = start_in(dir, &probe, RECOVERY_WAIT, SPAWN_LOCK_WAIT, &cancel);
@@ -107,7 +114,7 @@ async fn a_start_waits_thirty_seconds_for_an_alive_postmaster_and_then_refuses()
     assert_eq!(probe.calls(), 123, "the last question is the one at 30 s");
     let refused = awaiting("the refusal at 30 s", starting).await.unwrap().err().expect("refused");
     assert_eq!(refused.message(), format!("postgres runtime: [supervisor-pg] existing postmaster PID {} remains alive but unhealthy; refusing concurrent start", postmaster.id()));
-    assert!(dir.path().join("postmaster.pid").exists(), "the file of an alive postmaster stays");
+    assert!(dir.path().join("pgdata").join("postmaster.pid").exists(), "the file of an alive postmaster stays");
 }
 
 /// The same wait, the postmaster coming up at 10 s: the next question attaches to it and the start starts nothing.
@@ -124,7 +131,7 @@ async fn a_start_attaches_to_a_postmaster_that_comes_up_while_it_is_waited_for()
     let cluster = awaiting("the attach", starting).await.unwrap().expect("attached");
     assert_eq!(probe.calls(), 3 + 41);
     assert_eq!(cluster.port(), 55_902);
-    assert!(dir.path().join("postmaster.pid").exists());
+    assert!(dir.path().join("pgdata").join("postmaster.pid").exists());
 }
 
 /// A stop (the start's cancel) ends the wait at once, with no quarter second passing and no further question.
@@ -136,7 +143,7 @@ async fn a_stop_ends_the_wait_for_an_alive_postmaster() {
     let ended = awaiting_for(Duration::from_secs(5), "the cancelled wait to end", starting).await.unwrap().err().expect("cancelled");
     assert_eq!(ended.message(), "postgres runtime: the start was cancelled before postgres was ready");
     assert_eq!(probe.calls(), 3, "no question after the cancel");
-    assert!(dir.path().join("postmaster.pid").exists(), "a postmaster that is not ours is left alone");
+    assert!(dir.path().join("pgdata").join("postmaster.pid").exists(), "a postmaster that is not ours is left alone");
 }
 
 /// A killed core's postmaster is gone and leaves its file: Node removes it and starts a postmaster of its own (here the start gets as far as `pg_ctl`, which the
@@ -144,12 +151,12 @@ async fn a_stop_ends_the_wait_for_an_alive_postmaster() {
 #[tokio::test]
 async fn a_start_removes_the_pid_file_of_a_dead_postmaster_and_goes_on() {
     let dir = tempfile::tempdir().unwrap();
-    pid_file(dir.path(), dead_pid(dir.path()), 55_903);
+    pid_file(&pgdata(dir.path()), dead_pid(dir.path()), 55_903);
     let (probe, _seen) = Probe::new();
     let starting = start_in(dir.path(), &probe, RECOVERY_WAIT, SPAWN_LOCK_WAIT, &CancellationToken::new());
     let failed = awaiting("the start to fail at pg_ctl", starting).await.unwrap().err().expect("no runtime to start");
     assert!(failed.message().contains("pg_ctl"), "the start reached pg_ctl: {}", failed.message());
-    assert!(!dir.path().join("postmaster.pid").exists(), "the stale file is removed");
+    assert!(!dir.path().join("pgdata").join("postmaster.pid").exists(), "the stale file is removed");
 }
 
 /// A pid a reboot handed to another program is not a postmaster (`isPostgresPid`): its file is stale too.
@@ -157,12 +164,12 @@ async fn a_start_removes_the_pid_file_of_a_dead_postmaster_and_goes_on() {
 async fn a_pid_file_naming_a_live_process_that_is_not_postgres_is_stale() {
     let dir = tempfile::tempdir().unwrap();
     let other = Fake::new(dir.path(), "notapostmaster");
-    pid_file(dir.path(), other.id(), 55_904);
+    pid_file(&pgdata(dir.path()), other.id(), 55_904);
     let (probe, _seen) = Probe::new();
     let starting = start_in(dir.path(), &probe, RECOVERY_WAIT, SPAWN_LOCK_WAIT, &CancellationToken::new());
     let failed = awaiting("the start to fail at pg_ctl", starting).await.unwrap().err().expect("no runtime to start");
     assert!(failed.message().contains("pg_ctl"), "{}", failed.message());
-    assert!(!dir.path().join("postmaster.pid").exists());
+    assert!(!dir.path().join("pgdata").join("postmaster.pid").exists());
 }
 
 /// Two starters on one data directory (`withFileLock(join(dataDir, 'pg-spawn.lock'), …)`, `supervisor.mjs:618`): while a holder has the lock, a starter that
@@ -177,11 +184,11 @@ async fn a_second_starter_is_refused_while_the_spawn_lock_is_held() {
     });
     awaiting("the holder to take the spawn lock", held).await.unwrap().expect("the lock is taken");
     assert!(lock_file.exists(), "the lock is Node's file: <dataDir>/pg-spawn.lock");
-    pid_file(dir.path(), dead_pid(dir.path()), 55_907);
+    pid_file(&pgdata(dir.path()), dead_pid(dir.path()), 55_907);
     let (probe, _seen) = Probe::new();
     let refused = awaiting("the refused start", start_in(dir.path(), &probe, RECOVERY_WAIT, Duration::ZERO, &CancellationToken::new())).await.unwrap().err().expect("refused");
     assert!(refused.message().contains("atomic lock contended (try-once)"), "{}", refused.message());
-    assert!(dir.path().join("postmaster.pid").exists(), "the refused starter did not touch the directory");
+    assert!(dir.path().join("pgdata").join("postmaster.pid").exists(), "the refused starter did not touch the directory");
     assert_eq!(probe.calls(), 1, "only the check before the lock ran");
     hold.release_and_wait();
     assert!(!lock_file.exists(), "released");
@@ -200,7 +207,10 @@ async fn a_postmaster_still_starting_up_is_not_ready() {
             let _ = refuse_startup(socket).await;
         }
     });
-    assert!(tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok(), "the port takes connections");
-    assert!(!healthcheck(port).await, "a refused session is not readiness");
+    let connected = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok();
+    let ready = healthcheck(port).await;
     server.abort();
+    let _ = server.await;
+    assert!(connected, "the port takes connections");
+    assert!(!ready, "a refused session is not readiness");
 }

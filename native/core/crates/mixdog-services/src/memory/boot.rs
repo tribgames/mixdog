@@ -30,7 +30,7 @@ use crate::memory::embed::provider::EmbeddingProvider;
 use crate::memory::error::{MemoryError, Result};
 use crate::memory::ingest::embed_flush::{RawEmbedFlush, start_root_embed_sweep};
 use crate::memory::ingest::{SessionIngest, system_now};
-use crate::memory::pg::cluster::{DEFAULT_PORT, PgCluster, PgRuntime};
+use crate::memory::pg::cluster::{DEFAULT_PORT, PgCluster, PgRuntime, Start};
 use crate::memory::pg::db::{Db, Schema};
 use crate::memory::recall::period::Clock;
 use crate::memory::recall::{QueryEmbedder, Recall, RecallDeps};
@@ -187,6 +187,19 @@ struct Opened {
     search_db: Db,
 }
 
+/// The outcome of the opening task, which every use that arrives while it runs awaits.
+type Flight = futures::future::Shared<BoxFuture<'static, std::result::Result<(), String>>>;
+
+/// Whether the stack stopped, and the opening in flight. One lock, so a stop and the opening's publication are ordered: an opening that ends after the
+/// stop began does not publish, and releases what it opened itself.
+#[derive(Default)]
+struct Opening {
+    stopped: bool,
+    /// The opening task's outcome, shared by every use that arrived while it runs; forgotten when it settles, so the next use after a failure starts a new
+    /// one (Node's `createSharedAbortable` hands one promise to all callers and forgets it when it settles, `supervisor.mjs:659-665`).
+    flight: Option<Flight>,
+}
+
 /// A memory runtime. Like Node's (`registerMemoryRuntimeLazy`, `daemon.mjs:202`) it costs nothing at construction:
 /// the runtime download, `initdb`, the postmaster, the schemas and the background work (transcript watcher, cycles,
 /// reindex, backfill) start at the first use of the database, or when [`MemoryStack::open_in_background`] finds a cluster already on disk.
@@ -201,16 +214,14 @@ pub struct MemoryStack {
     processes: Processes,
     /// Ends the opening in progress; cancelled by `stop`, and a child of the host's token.
     cancel: CancellationToken,
-    opened: tokio::sync::OnceCell<Opened>,
-    /// The opening attempt in flight, shared by every use that arrived while it runs: they all see its one outcome, and the next use after a failure starts a new
-    /// attempt (Node's `createSharedAbortable` hands one promise to all callers and forgets it when it settles, `supervisor.mjs:659`).
-    flight: std::sync::Mutex<Option<futures::future::Shared<futures::future::BoxFuture<'static, std::result::Result<(), String>>>>>,
-    stopped: std::sync::atomic::AtomicBool,
-    launched: std::sync::atomic::AtomicBool,
+    /// What a cluster start asks and waits on (Node's in a release build).
+    start: Start,
+    /// Set once by the opening task, unless a stop came first.
+    opened: std::sync::OnceLock<Opened>,
+    opening: std::sync::Mutex<Opening>,
     background: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     flags: RuntimeFlags,
     memory_db: Db,
-    search_db: Db,
     memory: Arc<LocalMemory>,
     search: Arc<SessionSearchIngest>,
     sensitive: Arc<SensitiveStore>,
@@ -229,6 +240,11 @@ pub struct MemoryStack {
 impl MemoryStack {
     /// Builds the stack over deferred database handles; nothing here touches PostgreSQL or the network.
     pub async fn start(boot: MemoryBoot) -> Result<Arc<Self>> {
+        Self::start_with(boot, Start::node()).await
+    }
+
+    /// [`MemoryStack::start`] whose cluster start asks and waits on `start` (a test holds the probe and the waits).
+    pub(crate) async fn start_with(boot: MemoryBoot, start: Start) -> Result<Arc<Self>> {
         let MemoryBoot { data_dir, pg_runtime, embedder, embedding_provider, flags, progress, sensitive, lane, maintenance, transcripts: watch, cycles, backfill, processes, cancel } = boot;
         let (model_id, dtype) = match &embedder {
             Some(provider) => (provider.model_id().to_owned(), provider.dtype().map(str::to_owned)),
@@ -298,14 +314,12 @@ impl MemoryStack {
                 lane,
                 processes,
                 cancel: cancel.child_token(),
-                opened: tokio::sync::OnceCell::new(),
-                flight: std::sync::Mutex::new(None),
-                stopped: std::sync::atomic::AtomicBool::new(false),
-                launched: std::sync::atomic::AtomicBool::new(false),
+                start,
+                opened: std::sync::OnceLock::new(),
+                opening: std::sync::Mutex::new(Opening::default()),
                 background: std::sync::Mutex::new(None),
                 flags,
                 memory_db,
-                search_db,
                 memory,
                 search,
                 sensitive,
@@ -327,52 +341,78 @@ impl MemoryStack {
     /// The opened database, opening it first when nobody has: the first use pays for the runtime install, `initdb`
     /// and the postmaster. A failed opening is retried by the next use (Node's lazy singleton).
     async fn opened(&self) -> Result<&Opened> {
-        let opened = match self.opened.get() {
-            Some(opened) => opened,
-            None => {
-                let attempt = self.attempt()?;
-                // A failed attempt's text is every waiting use's error.
-                attempt.await.map_err(MemoryError::Rejected)?;
-                self.opened.get().ok_or_else(|| MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned()))?
+        let flight = {
+            let mut opening = self.opening.lock().expect("opening");
+            // Node refuses before its fast path and before joining the shared ensure (`ensurePgInstance`, `supervisor.mjs:647-665`).
+            if opening.stopped {
+                return Err(MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned()));
+            }
+            if let Some(opened) = self.opened.get() {
+                return Ok(opened);
+            }
+            match &opening.flight {
+                Some(flight) => flight.clone(),
+                None => {
+                    let flight = self.launch()?;
+                    opening.flight = Some(flight.clone());
+                    flight
+                }
             }
         };
-        if !self.launched.swap(true, std::sync::atomic::Ordering::SeqCst) && !self.stopped.load(std::sync::atomic::Ordering::SeqCst) {
-            if let Some(me) = self.me.upgrade() {
-                *self.background.lock().expect("background") = Some(mixdog_rt::spawn("services.memory.runtime-start", TaskClass::Work, async move { me.run_background().await }));
-            }
-        }
-        Ok(opened)
+        // A failed opening's text is every waiting use's error.
+        flight.await.map_err(MemoryError::Rejected)?;
+        self.opened.get().ok_or_else(|| MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned()))
     }
 
-    /// The attempt in flight, or a new one.
-    fn attempt(&self) -> Result<futures::future::Shared<futures::future::BoxFuture<'static, std::result::Result<(), String>>>> {
+    /// Starts the opening as a task of its own: it runs to its end whatever its callers do (Node's shared promise does), and `stop` cancels and joins it.
+    fn launch(&self) -> Result<Flight> {
         use futures::FutureExt as _;
-        let mut slot = self.flight.lock().expect("flight");
-        if let Some(flight) = slot.as_ref() {
-            return Ok(flight.clone());
-        }
         let me = self.me.upgrade().ok_or_else(|| MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned()))?;
-        let flight = async move {
-            let done = me.opened.get_or_try_init(|| me.open()).await.map(drop).map_err(|error| error.message());
-            me.flight.lock().expect("flight").take();
-            done
+        let task = mixdog_rt::spawn("services.memory.open", TaskClass::Work, async move { me.run_opening().await });
+        Ok(async move { task.await.unwrap_or_else(|error| Err(format!("the memory opening ended: {error}"))) }.boxed().shared())
+    }
+
+    /// The opening task: opens, then publishes the result and starts the background work, unless a stop began meanwhile; then it releases what it opened
+    /// itself, so a cluster an abandoned opening started is never left without an owner.
+    async fn run_opening(self: Arc<Self>) -> std::result::Result<(), String> {
+        let outcome = self.open().await;
+        let late = {
+            let mut opening = self.opening.lock().expect("opening");
+            opening.flight = None;
+            match outcome {
+                Err(error) => return Err(error.message()),
+                Ok(opened) if opening.stopped => opened,
+                Ok(opened) => {
+                    let _ = self.opened.set(opened);
+                    let me = self.clone();
+                    *self.background.lock().expect("background") = Some(mixdog_rt::spawn("services.memory.runtime-start", TaskClass::Work, async move { me.run_background().await }));
+                    return Ok(());
+                }
+            }
+        };
+        if let Err(error) = self.release(&late).await {
+            tracing::warn!(error = %error.message(), "[pg-process] stopping PostgreSQL an opening started after the stop began");
         }
-        .boxed()
-        .shared();
-        *slot = Some(flight.clone());
-        Ok(flight)
+        Err(REFUSED_AFTER_STOP.to_owned())
+    }
+
+    /// The pools close and, unless this is a secondary process, the postmaster stops.
+    async fn release(&self, opened: &Opened) -> Result<()> {
+        opened.memory_db.close();
+        opened.search_db.close();
+        if self.flags.secondary {
+            return Ok(());
+        }
+        opened.cluster.stop(Duration::from_secs(STOP_SECONDS)).await
     }
 
     async fn open(&self) -> Result<Opened> {
-        if self.stopped.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err(MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned()));
-        }
         let runtime_dir = match &self.source {
             PgRuntimeSource::Dir(dir) => dir.clone(),
             PgRuntimeSource::Install(install) => install(self.cancel.clone()).await?,
         };
         let dims = self.until_stopped(resolve_dims(&self.data_dir, self.lane, &self.identity, &self.model_id, self.runtime.as_deref())).await?;
-        let cluster = PgCluster::ensure(PgRuntime::new(runtime_dir), self.data_dir.join("pgdata"), DEFAULT_PORT, self.lane, self.processes.clone(), &self.cancel).await?;
+        let cluster = PgCluster::ensure(PgRuntime::new(runtime_dir), &self.data_dir, DEFAULT_PORT, self.lane, self.processes.clone(), &self.cancel, &self.start).await?;
         // The postmaster is up: a failure from here to the end of the opening stops it (Node's boot error goes through `shutdown`, whose memory stop ends
         // PostgreSQL, `daemon.mjs:1347,377,383`), as `stop` does: a secondary process leaves the shared one running.
         let (memory_db, search_db) = release_on_failure(
@@ -401,6 +441,7 @@ impl MemoryStack {
     /// `work` unless a stop comes first: the schema steps and the dimension lookup have no time limit of their own, so a stop must be able to end them.
     async fn until_stopped<T>(&self, work: impl std::future::Future<Output = Result<T>>) -> Result<T> {
         tokio::select! {
+            biased;
             () = self.cancel.cancelled() => Err(MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned())),
             done = work => done,
         }
@@ -516,19 +557,24 @@ impl MemoryStack {
 
     /// Whether an opening has completed (the postmaster of this stack is up).
     pub fn is_open(&self) -> bool {
-        self.opened.initialized()
+        self.opened.get().is_some()
     }
 
     /// `_stopRuntime`: background installs end, the pools drain, then the postmaster stops
     /// (a secondary process leaves the shared one running). A stack nobody used has nothing to stop.
     pub async fn stop(&self) -> Result<()> {
-        self.stopped.store(true, std::sync::atomic::Ordering::SeqCst);
+        let flight = {
+            let mut opening = self.opening.lock().expect("opening");
+            opening.stopped = true;
+            opening.flight.clone()
+        };
         self.cancel.cancel();
-        // An opening in flight is joined for at most `OPENING_JOIN` (`stopOwnedPgForShutdown`'s race, `supervisor.mjs:790-800`): it was cancelled, so it
-        // normally ends at once, and one that does not is left behind as Node leaves it (no cluster is published, so none is stopped). When there is none this
-        // initialiser fails and leaves the cell empty.
-        let joined = tokio::time::timeout(OPENING_JOIN, self.opened.get_or_try_init(|| async { Err::<Opened, _>(MemoryError::Rejected(REFUSED_AFTER_STOP.to_owned())) })).await;
-        let opened = joined.ok().and_then(std::result::Result::ok);
+        // The opening task is joined for at most `OPENING_JOIN` (`stopOwnedPgForShutdown`'s race, `supervisor.mjs:790-800`): it was cancelled, so it normally
+        // ends at once, and one that does not goes on alone as Node's does: it publishes nothing after this point and stops what it opened itself.
+        if let Some(flight) = flight {
+            let _ = tokio::time::timeout(OPENING_JOIN, flight).await;
+        }
+        let opened = self.opened.get();
         let background = self.background.lock().expect("background").take();
         if let Some(background) = background {
             background.abort();
@@ -564,11 +610,9 @@ impl MemoryStack {
         if let Some(cycles) = &self.cycles {
             cycles.reset_in_flight();
         }
-        self.memory_db.close();
-        self.search_db.close();
         match opened {
-            Some(opened) if !self.flags.secondary => opened.cluster.stop(Duration::from_secs(STOP_SECONDS)).await,
-            _ => Ok(()),
+            Some(opened) => self.release(opened).await,
+            None => Ok(()),
         }
     }
 }

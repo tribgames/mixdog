@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::BoxFuture;
-use tokio::sync::OnceCell;
 use deadpool_postgres::{Manager, ManagerConfig, Object, Pool, RecyclingMethod, Runtime};
 use tokio_postgres::{Config, NoTls, Row, ToStatement, types::ToSql};
 
@@ -166,61 +165,19 @@ async fn bootstrap(cluster: &PgCluster) -> Result<()> {
 /// What opens a deferred [`Db`]'s pool: the cluster start, and everything that must precede the first query.
 pub type PoolOpener = Arc<dyn Fn() -> BoxFuture<'static, Result<Pool>> + Send + Sync>;
 
-/// The pool of a [`Db`]: present from the start, or opened by the first use (Node starts the memory runtime
-/// on the first memory call, not at boot).
-struct LazyPool {
-    cell: OnceCell<Pool>,
-    opener: Option<PoolOpener>,
-    /// The opening in flight, shared by every use that arrived while it runs: they all see its one outcome, and the next use after a failure opens again
-    /// (Node's callers all await the one `initPromise`, `http-router.mjs:34-46`; a bare `OnceCell` would hand a failed opening to the next waiter to run again).
-    flight: std::sync::Mutex<Option<Flight>>,
-}
-
-type Flight = futures::future::Shared<BoxFuture<'static, std::result::Result<(), String>>>;
-
-impl LazyPool {
-    fn new(cell: OnceCell<Pool>, opener: Option<PoolOpener>) -> Arc<Self> {
-        Arc::new(Self { cell, opener, flight: std::sync::Mutex::new(None) })
-    }
-
-    async fn get(self: &Arc<Self>) -> Result<&Pool> {
-        use futures::FutureExt as _;
-        if let Some(pool) = self.cell.get() {
-            return Ok(pool);
-        }
-        let flight = {
-            let mut slot = self.flight.lock().expect("flight");
-            slot.get_or_insert_with(|| {
-                let this = self.clone();
-                async move {
-                    let opened = this
-                        .cell
-                        .get_or_try_init(|| async {
-                            match &this.opener {
-                                Some(open) => open().await,
-                                None => unreachable!("an eager pool is set at construction"),
-                            }
-                        })
-                        .await
-                        .map(drop)
-                        .map_err(|error| error.message());
-                    this.flight.lock().expect("flight").take();
-                    opened
-                }
-                .boxed()
-                .shared()
-            })
-            .clone()
-        };
-        flight.await.map_err(MemoryError::Rejected)?;
-        self.cell.get().ok_or_else(|| MemoryError::Runtime("the pool did not open".to_owned()))
-    }
+/// The pool of a [`Db`]: open from the start, or asked of its opener at every use. A deferred handle keeps no pool of its own: its opener (the memory
+/// stack's) shares one opening among the uses that arrive while it runs, forgets a failed one, and refuses every use once the stack stops, as Node's
+/// pool lookup goes through `ensurePgInstance` (`supervisor.mjs:647-665`).
+#[derive(Clone)]
+enum PoolSource {
+    Open(Pool),
+    Deferred(PoolOpener),
 }
 
 /// A bounded pool of connections with the schema's `search_path`.
 #[derive(Clone)]
 pub struct Db {
-    pool: Arc<LazyPool>,
+    pool: PoolSource,
     schema: Schema,
 }
 
@@ -230,17 +187,27 @@ impl Db {
         bootstrap(cluster).await?;
         let path = format!("{}, public", schema.name());
         let pool = build_pool(config(cluster.port(), DATABASE, Some(&path)), POOL_SIZE)?;
-        Ok(Self { pool: LazyPool::new(OnceCell::new_with(Some(pool)), None), schema })
+        Ok(Self { pool: PoolSource::Open(pool), schema })
     }
 
-    /// A handle whose pool `opener` produces at the first use; a failed open is retried by the next use.
+    /// A handle whose pool `opener` hands over at each use.
     pub fn deferred(schema: Schema, opener: PoolOpener) -> Self {
-        Self { pool: LazyPool::new(OnceCell::new(), Some(opener)), schema }
+        Self { pool: PoolSource::Deferred(opener), schema }
     }
 
     /// The pool of a handle that is already open (what a deferred handle's opener hands over).
     pub(crate) fn opened_pool(&self) -> Pool {
-        self.pool.cell.get().expect("an open handle has its pool").clone()
+        match &self.pool {
+            PoolSource::Open(pool) => pool.clone(),
+            PoolSource::Deferred(_) => unreachable!("only an open handle is handed over"),
+        }
+    }
+
+    async fn pool(&self) -> Result<Pool> {
+        match &self.pool {
+            PoolSource::Open(pool) => Ok(pool.clone()),
+            PoolSource::Deferred(open) => open().await,
+        }
     }
 
     pub fn schema(&self) -> Schema {
@@ -248,7 +215,7 @@ impl Db {
     }
 
     pub async fn client(&self) -> Result<Object> {
-        Ok(self.pool.get().await?.get().await?)
+        Ok(self.pool().await?.get().await?)
     }
 
     pub async fn query<T>(&self, statement: &T, params: &[&(dyn ToSql + Sync)]) -> Result<Vec<Row>>
@@ -280,12 +247,12 @@ impl Db {
     /// Runs `ddl` while holding the cluster-wide schema-bootstrap lock, so
     /// concurrent first-boot processes never race `CREATE TABLE`.
     pub async fn bootstrap_schema(&self, ddl: &str) -> Result<()> {
-        with_cluster_lock(self.pool.get().await?, LOCK_SCHEMA_BOOTSTRAP, async |_| self.batch(ddl).await).await
+        with_cluster_lock(&self.pool().await?, LOCK_SCHEMA_BOOTSTRAP, async |_| self.batch(ddl).await).await
     }
 
-    /// Closes the pool when it was opened; a handle never used has nothing to close.
+    /// Closes an open handle's pool; a deferred handle has none of its own (its opener's owner closes the pool it hands over).
     pub fn close(&self) {
-        if let Some(pool) = self.pool.cell.get() {
+        if let PoolSource::Open(pool) = &self.pool {
             pool.close();
         }
     }
