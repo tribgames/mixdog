@@ -1,12 +1,16 @@
 {
   "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-plumbing.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "comparison": {
+    "normalized": {
+      "clientId": "the replay opens the phone's relay leg as Node's recorded leg was named (client-a): the line names the relay client id's first 8 units",
+      "logDestination": "Node's console.info ran in the desktop main process, which hosted the relay; the relay is the core's, so the line is the core's console.info, written as `[<ISO>] [console.info] <line>` to daemon.log (DaemonLog::console, as the rooms log): the replay compares the method and the line, not the time stamp",
+      "viewingOrder": "Node's viewing is its visualizePanelSessionIds set in insertion order, the core publishes the set sorted: both are sorted before comparing (the replay and the Rust test). No page sees the order: the one reader of hostState.remoteViewing asks membership (apps/desktop/src/main/protocol/section-reads.ts visualizeRemoteViewing), as Node's viewsSessionLane answered one session at a time"
+    },
     "notCompared": {
-      "emptyBrowserId": "a browser id '' is no push subscription's key (a subscription is keyed by the id the phone generated), so it is not asked",
-      "pcLog": "Node's own log lines (the timeline report): the core writes no such line, and the phone sees none"
+      "emptyBrowserId": "a browser id '' is no push subscription's key (a subscription is keyed by the id the phone generated), so it is not asked"
     },
     "pushRule": "the push columns ask legShowsSession of a live leg; Node's legacy leg rule (remote-relay-session-wiring.ts legacyLegShows: !background && screenSessionIds.has) is the same answer",
-    "replay": "each step whole except the push columns: the call, the frames the phone received and viewing (hostState.remoteViewing, read by a local connection once the phone has had an answer to a later request)",
+    "replay": "each step whole except the push columns: the call, the frames the phone received, the whole published hostState.remoteViewing value (read by a local connection once the phone has had an answer to a later request) against { sessionIds: Node's viewing }, and the PC's console lines so far (Node's pcLog against every `[console.<method>]` row the core wrote to <data>/daemon.log since the phone's first call); after the last step the core is stopped (which flushes its log) and the whole log is compared again",
     "rustTest": "credential, browser and viewing per step: mixdog-core-domains notify::screen::tests::the_phones_plumbing_calls_decide_what_nodes_relay_decided, on the core registry"
   },
   "entry": {
@@ -16,9 +20,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 11066,
+      "bytes": 11090,
       "path": "golden.json",
-      "sha256": "dd62e708a2d5979ba5274c83ba3f836cb2b0fc99c7812ac17b1de47b3c2109f8"
+      "sha256": "670e8bd51dd820e320d926c026a035dd7fa904b084613dee48e43c77adba7014"
     }
   ],
   "inputs": [
@@ -31,8 +35,12 @@
       "sha256": "40f5c454fe4c5b5dfd0fbd01e1f19cb23712fca185ca05993c7a05e94f6fbe2b"
     },
     {
+      "path": "benchmarks/rust-core/recorders/lib/phone-files-script.mjs",
+      "sha256": "07bec252644efbc5645c2e15ebf3aa3302b405deb7313637b712a26e719a9177"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
-      "sha256": "eec41958569e2413fba9721c3e6241758b0ea4dc65c9da84c5a9fa752bfb4ddc"
+      "sha256": "ad55b52b40440cade7f33e14632f5eac8d4cc64313726ed42ddc96826d7b28b0"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -54,8 +62,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-plumbing.mjs",
-  "recorderSha256": "b595af5c522e04cad6a9c3f24b6b787b15a780245153ee9f0b0beff827b9c16c",
+  "recorderSha256": "343ee9afb0dc198a0e7c43bb13c4dcf1e171578ca9b77fbf5ff174f3d486e54d",
   "set": "phone-plumbing",
   "steps": 21,
-  "totalBytes": 11066
+  "totalBytes": 11090
 }

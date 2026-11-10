@@ -532,7 +532,7 @@ version: string, kind: ConnectionKind, build?: string, };
 /**
  * Client notifications (X11): they take no in-flight slot.
  */
-export type ClientNotification = { "method": "initialized" } | { "method": "terminal/input", "params": TerminalInputParams } | { "method": "terminal/resize", "params": TerminalResizeParams } | { "method": "process/input", "params": ProcessInputParams } | { "method": "client/activity", "params": ClientActivityParams } | { "method": "client/perfLog", "params": ClientPerfLogParams } | { "method": "host/power", "params": HostPowerParams } | { "method": "host/update/report", "params": HostUpdateReportParams } | { "method": "host/browser/surface", "params": HostBrowserSurfaceParams } | { "method": "host/browser/page", "params": HostBrowserPageParams } | { "method": "host/browser/frame", "params": HostBrowserFrameParams } | { "method": "browser/streamAck", "params": BrowserStreamAckParams } | { "method": "host/notification/clicked", "params": HostNotificationClickedParams } | { "method": "model/proxy/event", "params": ModelProxyEventParams } | { "method": "model/proxy/heartbeat", "params": ModelProxyHeartbeatParams } | { "method": "modelProxy/cancel", "params": ModelProxyRunCancelParams } | { "method": "ui/newTab/created", "params": UiNewTabCreatedParams } | { "method": "ui/terminalRun/claimed", "params": UiTerminalRunClaimedParams } | { "method": "ui/screenSessions/changed", "params": UiScreenSessionsChangedParams };
+export type ClientNotification = { "method": "initialized" } | { "method": "terminal/input", "params": TerminalInputParams } | { "method": "terminal/resize", "params": TerminalResizeParams } | { "method": "process/input", "params": ProcessInputParams } | { "method": "client/activity", "params": ClientActivityParams } | { "method": "client/perfLog", "params": ClientPerfLogParams } | { "method": "host/power", "params": HostPowerParams } | { "method": "host/update/report", "params": HostUpdateReportParams } | { "method": "host/browser/surface", "params": HostBrowserSurfaceParams } | { "method": "host/browser/page", "params": HostBrowserPageParams } | { "method": "host/browser/frame", "params": HostBrowserFrameParams } | { "method": "browser/streamAck", "params": BrowserStreamAckParams } | { "method": "host/notification/clicked", "params": HostNotificationClickedParams } | { "method": "model/proxy/event", "params": ModelProxyEventParams } | { "method": "model/proxy/heartbeat", "params": ModelProxyHeartbeatParams } | { "method": "modelProxy/cancel", "params": ModelProxyRunCancelParams } | { "method": "ui/newTab/created", "params": UiNewTabCreatedParams } | { "method": "ui/terminalRun/claimed", "params": UiTerminalRunClaimedParams } | { "method": "ui/screenSessions/changed", "params": UiScreenSessionsChangedParams } | { "method": "remote/connectionTimeline", "params": RemoteConnectionTimelineParams };
 
 export type ClientPerfLogParams = { line: string, };
 
@@ -3409,6 +3409,15 @@ browserFit: boolean,
  * The encrypted HTTP media lane.
  */
 mediaE2ee: boolean, };
+
+/**
+ * Client notification `remote/connectionTimeline` (paired phone → core): the phone's own account of a slow reconnect (phase,
+ * state and issue tokens with ms offsets), Node's `reportConnectionTimeline`. The core writes it to its log as Node's PC did
+ * (`remote-relay-client-calls.ts:181-186`): the first 1500 UTF-16 units, without any character outside `[A-Za-z0-9_=@:. -]`, as
+ * `[mixdog-remote-timeline] client=<the relay client id's first 8 units> <text>`, nothing when that leaves no text. Only an
+ * attached relay connection is heard. No response.
+ */
+export type RemoteConnectionTimelineParams = { text: string, };
 
 /**
  * The `pairCode` member of the `remote` section (today's `DesktopRemotePairCode`):
@@ -16466,6 +16475,11 @@ export const methodTable = {
       "delivery": null,
       "method": "ui/screenSessions/changed",
       "params": "UiScreenSessionsChangedParams"
+    },
+    {
+      "delivery": null,
+      "method": "remote/connectionTimeline",
+      "params": "RemoteConnectionTimelineParams"
     }
   ],
   "serverNotifications": [

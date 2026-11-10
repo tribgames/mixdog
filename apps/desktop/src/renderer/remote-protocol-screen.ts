@@ -3,8 +3,9 @@
 // `setVisualizePanels` each set one field of the phone's leg, which decides whether a push is held back for a conversation the
 // phone shows and whether the phone counts as viewing a visualize panel; the core keeps the same fields from
 // `ui/screenSessions/changed` (a report without a field leaves it as stated). `remotePerfPaint` acknowledged a paint probe the PC
-// issued (it issues none unless its perf flag is on, and the core issues none), and `reportConnectionTimeline` was a PC log line:
-// nothing reaches the core for either. The replay compares them with the recording
+// issued, logging `[mixdog-remote-perf]` (remote-performance.ts acknowledgeFrame): the PC issues none unless its perf flag is on,
+// and the core issues none, so no paint answers one and nothing reaches the core. `reportConnectionTimeline` was a PC log line,
+// which the core writes from `remote/connectionTimeline` (sanitised there, as the PC did). The replay compares them with the recording
 // (benchmarks/rust-core/recorders/record-phone-plumbing.mjs).
 import type { UiScreenSessionsChangedParams } from '@mixdog/protocol';
 import { SCREEN_SESSIONS_CHANGED } from '../../../mobile/src/screen-reporter';
@@ -24,6 +25,7 @@ export const adapter: PhoneProtocolAdapter = {
     setScreenSessions: ([ids], host) => report(host, { sessionIds: sessionIds(ids) }),
     setVisualizePanels: ([ids], host) => report(host, { visualizeSessionIds: sessionIds(ids) }),
     remotePerfPaint: () => undefined,
-    reportConnectionTimeline: () => undefined,
+    // Node's PC read `String(params[0] ?? '')`.
+    reportConnectionTimeline: ([text], host) => host.client().notify('remote/connectionTimeline', { text: String(text ?? '') }),
   },
 };
