@@ -30,6 +30,8 @@ pub mod scoped;
 pub mod serial;
 pub mod ticker;
 pub mod tokens;
+#[cfg(feature = "virtual-clock")]
+pub mod virtual_clock;
 
 pub use cancel::CancelSource;
 pub use cancel::CancelView;

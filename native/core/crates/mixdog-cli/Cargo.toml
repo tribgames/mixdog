@@ -18,6 +18,9 @@ terminal-lease-clock = ["mixdog-app-server-daemon/terminal-lease-clock"]
 # recording's held flush timer (mixdog-core-run, failure_log.rs `replay_held`). Never in an ordinary build.
 replay-controls = ["mixdog-app-server-daemon/replay-controls"]
 crash-gates = ["mixdog-app-server-daemon/crash-gates"]
+# Built only for the phone chat history replay (remote-protocol-chat-history-core.mjs): the core's clock is the replay's. No release
+# build enables it.
+virtual-clock = ["mixdog-app-server-daemon/virtual-clock"]
 
 [dependencies]
 mixdog-app-server-daemon = { workspace = true }

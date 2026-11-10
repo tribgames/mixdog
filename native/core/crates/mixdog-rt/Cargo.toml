@@ -10,6 +10,8 @@ workspace = true
 [features]
 # Inline executors for packages that test against mocks (`mixdog_rt::testing`).
 test-support = []
+# A replay's clock (virtual_clock.rs): RT-C and RT-W on a tokio clock the replay freezes and advances. Never in an ordinary build.
+virtual-clock = ["tokio/test-util"]
 
 [dependencies]
 arc-swap = { workspace = true }

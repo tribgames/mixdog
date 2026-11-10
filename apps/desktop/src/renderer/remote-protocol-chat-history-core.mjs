@@ -1,6 +1,8 @@
 // The core's replay of A (remote-protocol-chat-history.record.mjs): one case of ABORT_CASES driven through a running mixdogd with the
 // phone inputs of Node's recording of that case (remote-protocol-chat-history.node/), in the same order, each one released at the same
-// barrier: once the core has published every state Node had published before that input. What the core publishes is its state of the
+// barrier: once the core has published every state Node had published before that input. Node's inputs are its phone's calls, the model
+// endpoint's writes and the moves of its clocks; the core runs on a clock this replay holds (a mixdogd built with `--features
+// virtual-clock`, mixdog-rt virtual_clock.rs), frozen once it serves and moved by Node's recorded moves. What the core publishes is its state of the
 // thread as the phone's client folds it (packages/protocol-client `sessionStateOf`, one fold per frame) and the reply to each phone call,
 // through the phone's own stack (protocol client, router, production chat adapter), as remote-protocol-chat-abort-live.mjs drives it.
 //
@@ -10,10 +12,9 @@
 // core's state, read again behind one more round trip, is Node's last.
 //
 // Declared, with their reasons (MANIFEST `normalized`):
-//  - Clock readings. Node's clocks were virtual (moved only by the recorder), the core's is the machine's: a reading on either side is
-//    compared as the clock of the input it was taken after (Node: the input's recorded clock at or before the reading; the core: the
-//    recorded clock of the last input released at or before it). A duration ending at a reading (`elapsedMs` beside `completedAt`) is
-//    compared as the difference of its two ends, each read so.
+//  - Clock readings. Each side's clock froze at its own epoch (Node's recorder's, the core's freeze) and moved by the same moves: a
+//    reading is compared as its virtual milliseconds since that side's epoch, exactly. A duration ending at a reading (`elapsedMs` beside
+//    `completedAt`) is compared as its two ends, each read so.
 //  - Values that are each run's own: the thread's id, the core's and the model endpoint's process ids and ports.
 //  - `host.startProject` and `host.deleteSession`: the desktop host's own calls in Node's recorder, not a phone's; the core has no host,
 //    so the first is not made and the second is made by the phone's `deleteSession`. Their replies are not compared.
@@ -21,6 +22,7 @@
 //   node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs src/renderer/remote-protocol-chat-history-core.mjs --only <case>[,<case>]
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { connect } from '../../../../packages/protocol-client/src/client.ts';
@@ -32,7 +34,8 @@ import { builtFrom } from './remote-protocol-chat-abort-live.mjs';
 import { endLeftovers } from './remote-protocol-chat-abort-procs.mjs';
 import { kindOf, startAbortProvider } from './remote-protocol-chat-abort-provider.mjs';
 
-const NODE_DIR = new URL('./remote-protocol-chat-history.node/', import.meta.url);
+// HISTORY_NODE_DIR: a folder of recordings not yet installed (a recorder change being tried); the installed fixture otherwise.
+const NODE_DIR = process.env.HISTORY_NODE_DIR ? pathToFileURL(`${process.env.HISTORY_NODE_DIR.replace(/[\\/]$/, '')}/`) : new URL('./remote-protocol-chat-history.node/', import.meta.url);
 /** Node's recording of `name`. */
 export function nodeHistory(name) {
   for (const file of readdirSync(NODE_DIR).filter((f) => /^\d+\.json$/.test(f))) {
@@ -43,11 +46,11 @@ export function nodeHistory(name) {
 }
 
 const plain = (value) => (value === undefined ? null : JSON.parse(JSON.stringify(value)));
-const isPhone = (input) => input.input !== 'provider write';
+const isPhone = (input) => input.input !== 'provider write' && input.input !== 'clock';
 
 /**
- * The normalizer of one side: `instant(ms)` names the input a clock reading was taken after; `ids` the side's own values. The same rules
- * on both sides; only how a reading finds its input differs (Node: by its virtual clock; the core: by the real release of each input).
+ * The normalizer of one side: `instant(ms)` reads a wall clock reading as virtual milliseconds since the side's epoch; `own` the side's
+ * own values. The same rules on both sides.
  */
 export function normalizer({ instant, own, named = new Map() }) {
   const ownPattern = own.size ? new RegExp(`(?<![0-9A-Za-z_])(${[...own.keys()].map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?![0-9A-Za-z_])`, 'g') : null;
@@ -78,15 +81,12 @@ export function normalizer({ instant, own, named = new Map() }) {
   return Object.assign((value) => rename(walk(plain(value), undefined, undefined)), { named });
 }
 
+/** A side's clock reading as the virtual milliseconds since its clock froze at `epoch` (null: not a reading of that clock). */
+const instantOf = (epoch) => (v) => (v >= epoch && v < epoch + 1e9 ? v - epoch : null);
+
 /** Node's history of a case, normalized: entries `{ kind: 'state', value }` / `{ kind: 'reply', input, value }`, and its phone inputs. */
 export function nodeSide(recording) {
-  const { epoch } = recording.manifest;
-  const clocks = recording.inputs.filter(isPhone).map((i) => i.clock);
-  const instant = (v) => {
-    if (!(v >= epoch && v < epoch + 1e9)) return null;
-    const passed = clocks.filter((c) => c <= v - epoch);
-    return passed.length ? passed.at(-1) : 'before';
-  };
+  const instant = instantOf(recording.manifest.epoch);
   const norm = normalizer({ instant, own: new Map([[recording.id, '<session>']]) });
   const history = recording.history.map((h, at) => (h.kind === 'reply' ? { at, kind: 'reply', input: h.input, value: norm(h.error !== undefined ? { error: h.error } : { reply: h.reply }) } : { at, kind: 'state', value: norm(h.snapshot) }));
   return { history, inputs: recording.inputs };
@@ -178,8 +178,10 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
   const { createProtocolRouter } = await import('./remote-shim-protocol.ts');
 
   const log = [];
-  const released = [];
   let core;
+  let clockServer;
+  let clockSocket;
+  let clock;
   let watcher;
   let provider;
   const clients = [];
@@ -208,7 +210,41 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
     await deadline.race(seeded(), 'every side-by-side case to seed its world');
     deadline.clear();
     deadline = createDeadline(deadlineMs, message);
-    core = launch(bin, ['serve'], { env: daemonEnv(paths, { RUST_LOG: 'warn' }), cwd: paths.envRoot });
+    // The core's clock (mixdog-rt virtual_clock.rs): it connects here as it boots, and moves only when this replay says so.
+    clockServer = createServer();
+    const clockLine = latch();
+    let clockBuffer = '';
+    const clockReplies = [];
+    clockServer.on('connection', (socket) => {
+      clockSocket = socket;
+      socket.setEncoding('utf8');
+      // The core ending its side (it exited, or its control thread did) fails what waits on its clock, with its own last words.
+      const lost = (error) => {
+        const why = new Error(`the core's clock connection ended (${error?.message ?? 'closed'}); core: ${core?.tail?.() ?? ''}`);
+        clockLine.reject(why);
+        for (const reply of clockReplies.splice(0)) reply.reject(why);
+      };
+      socket.on('error', lost);
+      socket.on('close', () => lost());
+      socket.on('data', (chunk) => {
+        clockBuffer += chunk;
+        for (let at = clockBuffer.indexOf('\n'); at >= 0; at = clockBuffer.indexOf('\n')) {
+          const line = clockBuffer.slice(0, at).trim();
+          clockBuffer = clockBuffer.slice(at + 1);
+          if (line.startsWith('hello ')) clockLine.resolve(line);
+          else clockReplies.shift()?.resolve(line);
+        }
+      });
+    });
+    await new Promise((resolve) => clockServer.listen(0, '127.0.0.1', resolve));
+    clock = (command) => {
+      const reply = latch();
+      clockReplies.push(reply);
+      clockSocket.write(`${command}\n`);
+      return deadline.race(reply.promise, `the core's clock to answer ${command}`).then((line) => Number(/^now (\d+)$/.exec(line)?.[1]));
+    };
+    core = launch(bin, ['serve'], { env: daemonEnv(paths, { RUST_LOG: 'warn', MIXDOG_VIRTUAL_CLOCK: `127.0.0.1:${clockServer.address().port}` }), cwd: paths.envRoot });
+    await deadline.race(clockLine.promise, 'the core to connect to the replay clock (a mixdogd built with --features virtual-clock)');
     const daemonDoc = () => {
       const file = join(paths.runtimeRoot, 'daemon.json');
       if (!existsSync(file)) return null;
@@ -226,16 +262,15 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
     check();
     const doc = await deadline.race(served.promise, 'the core to serve');
     const endpoint = parseDiscovery(readFileSync(join(paths.runtimeRoot, 'daemon.json'), 'utf8'));
+    // Frozen once the core serves, as Node's clocks froze once its host was attached; from here it moves with Node's recorded moves.
+    const frozenAt = await clock('freeze');
+    let clockAt = 0;
 
     // The core's own values, named as Node's recording names its own.
     let threadId = '';
     const own = () => new Map([[String(core.pid), '<pid:daemon>'], [new URL(provider.baseURL).port, '<port:model>'], [String(doc.core.rpc.port), '<port:daemon>'], ...(threadId ? [[threadId, '<session>']] : [])]);
-    const instant = (v) => {
-      const from = released[0]?.real;
-      if (!(from !== undefined && v >= from - 60_000 && v <= Date.now() + 60_000)) return null;
-      const passed = released.filter((r) => r.real <= v);
-      return passed.length ? passed.at(-1).clock : 'before';
-    };
+    // The core's clock reads the instant it froze plus what this replay advanced, as Node's reads its epoch plus its virtual time.
+    const instant = instantOf(frozenAt);
     // One normalizer per set of own values (the thread's id joins them with the submit's reply), so random ids keep their names.
     let normFor = null;
     let normKey = '';
@@ -325,12 +360,17 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
       // The barrier: every entry Node had published before this input is the core's.
       const owed = compared.filter((h) => h.at < input.at).length;
       await until(() => advance().matched >= owed, `the core to publish Node's ${owed} entries before ${input.input}`);
+      // Node's clocks moved here: the core's moves as far.
+      if (input.input === 'clock') {
+        if (input.clock > clockAt) await clock(`advance ${input.clock - clockAt}`);
+        clockAt = Math.max(clockAt, input.clock);
+        continue;
+      }
       // The model endpoint's next write, of the kind Node released here, once the core has asked for it.
       if (!isPhone(input)) {
         await until(() => provider.release(kindOf(input.key)), `the core to ask the model endpoint for ${kindOf(input.key)} (Node's write ${input.step})`);
         continue;
       }
-      released.push({ clock: input.clock, real: Date.now(), input: input.input });
       if (input.input === 'host.startProject') continue;
       const [phone, method, args] = argsOf(input.input);
       if (method === 'submitNewTask') submitting = true;
@@ -368,6 +408,10 @@ export async function replayCase(name, { bin, harness, deadlineMs = 120_000, see
         await ending.race(core.exited, `the core of ${name} (pid ${core.pid}) to exit`);
       }
       if (provider) await ending.race(provider.close(), 'the model endpoint to close');
+      if (clockServer) {
+        clockSocket?.destroy();
+        await ending.race(new Promise((resolve) => clockServer.close(resolve)), 'the replay clock to close');
+      }
     } finally {
       ending.clear();
       // A case whose processes do not end fails itself; the side-by-side cases go on and report.
