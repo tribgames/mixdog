@@ -120,6 +120,11 @@ fn session_tool(caller: Map<String, Value>, known: &[String], bots: &[&'static s
     for id in known {
         threads.0.lock().expect("threads").entry(id.clone()).or_insert_with(|| Map::from_iter([("id".to_owned(), json!(id))]));
     }
+    tool_over(threads, bots, listing, requests)
+}
+
+/// The real `SessionTool` over the real port, its threads read and patched through `threads`.
+fn tool_over(threads: Arc<dyn ThreadState>, bots: &[&'static str], listing: Arc<dyn SessionListing>, requests: Arc<dyn ThreadRequests>) -> SessionTool {
     let callers = || Arc::new(ThreadCallers::new(threads.clone(), HeartbeatSessions::new(), UnattendedRunRegistry::new(Arc::new(NoStamps))));
     let port = DirectorySessionPort::new(SessionPortParts {
         callers: callers(),
@@ -186,6 +191,57 @@ async fn replay(prefix: &str) {
 #[tokio::test]
 async fn session_compact_answers_as_node() {
     replay("compact-").await;
+}
+
+/// `session action=fork` over the real session directory: the caller's session holds the scenario's conversation, the
+/// heir's compaction budget is known (Node's route has a window) and its fit is not measured (Node's conversation fits),
+/// and the compactor answers the scenario's rows or fails. The answer is Node's, byte for byte, with the heir's minted id
+/// in place of the one Node minted; the heir holds the conversation Node's heir holds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_fork_answers_as_node() {
+    use mixdog_core_session::session::SessionDirectory;
+    use mixdog_core_session::session::testing::Rig;
+    use mixdog_core_session::session::thread_state::SessionThreads;
+    let golden = golden();
+    let mut replayed = 0;
+    for scenario in golden["scenarios"].as_array().expect("scenarios").iter().filter(|s| s["name"].as_str().expect("name").starts_with("fork-")) {
+        let name = scenario["name"].as_str().expect("name");
+        let rig = Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let caller = &scenario["caller"];
+        let source = ThreadId::from(caller["id"].as_str().expect("caller id"));
+        let header = json!({ "cwd": "/ws", "provider": "fork-model", "model": "fake-model", "title": "Source title", "sourceType": caller["sourceType"] });
+        directory.create_with_id(source.clone(), header.as_object().cloned().expect("header"), json!({})).await.expect("create the source");
+        let conversation = scenario["fork"]["conversation"].clone();
+        if conversation.as_array().is_some_and(|rows| !rows.is_empty()) {
+            ThreadRequests::request(&*directory, &source, "thread/inheritedRows/append", json!({ "messages": conversation })).await.expect("the conversation");
+        }
+        *rig.inherit.budget.lock().expect("budget") = Some(100_000);
+        let compactor = &scenario["fork"]["compactor"];
+        if compactor["throws"].is_string() {
+            rig.compaction.heir_fails.store(true, std::sync::atomic::Ordering::SeqCst);
+        } else {
+            *rig.compaction.heir_rows.lock().expect("rows") = Some(compactor["rows"].as_array().expect("rows").clone());
+        }
+        let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
+        let tool = tool_over(threads, &[], Arc::new(Fixture::default()), directory.clone());
+        let caller_id = scenario["callerSessionId"].as_str().unwrap_or(source.as_str()).to_owned();
+        let surface = if scenario["callerSessionId"].is_string() { SurfaceKind::Agent } else { SurfaceKind::Lead };
+        let (ok, mut text) = call_on(&tool, &caller_id, surface, scenario["args"].clone()).await;
+        let expected = &scenario["expected"];
+        if let Some(heir) = expected.get("heir") {
+            let minted: Value = serde_json::from_str(&text).unwrap_or_else(|_| panic!("{name}: {text}"));
+            let minted = minted["sessionId"].as_str().expect("the heir's id").to_owned();
+            assert_ne!(minted, source.as_str(), "{name}: the heir is a new session");
+            let rows = ThreadRequests::request(&*directory, &ThreadId::from(minted.as_str()), "thread/messages/read", json!({ "threadId": minted })).await.expect("the heir's rows");
+            let held: Vec<Value> = rows["messages"].as_array().expect("messages").iter().filter(|m| m["role"] != "system").map(|m| json!({ "role": m["role"], "content": m["content"] })).collect();
+            assert_eq!(json!(held), heir["conversation"], "{name}: what the heir holds");
+            text = text.replace(&minted, heir["id"].as_str().expect("heir id"));
+        }
+        assert_eq!((ok, text.as_str()), (expected["ok"].as_bool().expect("ok"), expected["text"].as_str().expect("text")), "{name}");
+        replayed += 1;
+    }
+    assert!(replayed > 0, "no fork- scenario recorded");
 }
 
 #[tokio::test]
