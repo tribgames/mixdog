@@ -37,8 +37,7 @@ function pgCtl(runtimeDir, args) {
 }
 
 /** Stops the cluster of the profile, if one is running. `pg_ctl status` answers 0 for a running server and 3 for none. */
-export function stopCluster(sandbox) {
-  const dataDir = join(sandbox, 'mixdog_data_dir');
+export function stopCluster(dataDir) {
   const pgdata = join(dataDir, 'pgdata');
   if (!existsSync(join(pgdata, 'postmaster.pid'))) return;
   const runtimeDir = runtimeDirOf(dataDir);
@@ -68,11 +67,11 @@ function namingProfile(sandbox) {
 }
 
 /** The whole end of a profile. Returns the failures (an empty list: the profile is gone); throws nothing. */
-export function endSandbox(sandbox, settleMs = 0) {
+export function endSandbox(sandbox, settleMs = 0, dataDir = join(sandbox, 'mixdog_data_dir')) {
   if (!existsSync(sandbox)) return [];
   const failures = [];
   try {
-    stopCluster(sandbox);
+    stopCluster(dataDir);
   } catch (error) {
     failures.push(error.message);
   }
