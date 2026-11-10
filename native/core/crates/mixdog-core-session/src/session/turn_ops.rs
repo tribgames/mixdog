@@ -123,7 +123,7 @@ impl super::SessionDirectory {
 /// The methods the thread's actor serves itself: they read or change what only the actor owns
 /// (its busy state, its live rows, its queue).
 pub(super) fn is_actor_method(method: &str) -> bool {
-    matches!(method, "thread/pushNotice" | "thread/clearSessionChangeHistory" | "thread/askSide" | "thread/cancelSide" | "thread/compact/start" | "turn/retryFailed")
+    matches!(method, "thread/pushNotice" | "thread/clearSessionChangeHistory" | "thread/askSide" | "thread/cancelSide" | "thread/compact/start" | "thread/compact/schedule" | "turn/retryFailed")
 }
 
 /// `SIDE_QUESTION_NO_REQUEST`.

@@ -44,6 +44,11 @@ impl SessionActor {
                 self.compact_start(req.op.clone(), tx, params.options);
                 return Ok(());
             }
+            // The session tool's `compact` (`pendingCompactSessionIds`): runs once the turn settles.
+            "thread/compact/schedule" => {
+                self.compact_scheduled = true;
+                Ok(json!({}))
+            }
             "turn/retryFailed" => {
                 let params: mixdog_app_protocol::v2::thread::TurnRetryFailedParams = match parse(&req.params, "TurnRetryFailedParams") {
                     Ok(params) => params,
@@ -112,6 +117,42 @@ impl SessionActor {
             compaction.post_compact(&thread, trigger).await;
             let _ = jobs.send(JobDone::Compacted { op, tx, result, recover });
         });
+    }
+
+    /// `settleTurn`'s `runPendingCompact` (`compaction-gate.mjs`): the scheduled compaction runs
+    /// now, as `session.compact()` does, and what follows the turn waits on it: the queued work
+    /// and the Goal continuation, and every turn, clear, rewind or compaction asked meanwhile
+    /// (`afterCompaction`). Its failure breaks nothing (`.catch(() => {})`).
+    pub(super) fn run_scheduled_compaction(&mut self, goal_active: bool) {
+        let (tx, rx) = oneshot::channel();
+        self.after_compaction = Some(AfterCompaction { waiting: Vec::new(), goal_active });
+        self.compact_start(None, tx, None);
+        let jobs = self.jobs_tx.clone();
+        tokio::spawn(async move {
+            let _ = rx.await;
+            let _ = jobs.send(JobDone::ScheduledCompactionEnded);
+        });
+    }
+
+    /// The scheduled compaction ended: what waited on it runs, in arrival order, then the work
+    /// the settled turn left.
+    pub(super) fn scheduled_compaction_ended(&mut self) {
+        let Some(after) = self.after_compaction.take() else {
+            return;
+        };
+        for (req, tx) in after.waiting {
+            if let Err((error, tx)) = self.mutation(req, tx) {
+                let _ = tx.send(Err(error));
+            }
+        }
+        if self.deleting {
+            return;
+        }
+        self.start_next_queued();
+        if after.goal_active {
+            self.schedule_goal_continuation();
+        }
+        self.try_unload();
     }
 
     /// `retryBlocked()`: anything running, settling, closing or queued owns the session first.

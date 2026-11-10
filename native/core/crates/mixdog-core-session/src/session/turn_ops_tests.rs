@@ -306,6 +306,42 @@ async fn a_manual_compaction_follows_the_session_ops_order() {
     assert_eq!(call(&handle, "thread/compact/start", json!({}), "k-4").await.expect("answered"), Value::Null);
 }
 
+/// The session tool's `compact` (`workspace-tools.mjs`: `pendingCompactSessionIds`): asked while
+/// the turn runs, nothing compacts until the turn settles (`turn-settle.mjs`: `takePendingCompact`),
+/// then `session.compact()` runs once; a turn asked meanwhile waits for it (`compaction-gate.mjs`:
+/// `ask: afterCompaction(runner.ask)`) and starts once it ended.
+#[tokio::test(start_paused = true)]
+async fn a_scheduled_compaction_runs_once_the_turn_settles_and_the_next_turn_waits_for_it() {
+    let rig = Rig::new();
+    let gate = held(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    assert_eq!(call(&handle, "thread/compact/schedule", json!({}), "s-1").await.expect("answered"), json!({}));
+    assert!(super::testing::lock(&rig.compaction.calls).is_empty(), "nothing compacts while the turn runs");
+
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
+    *super::testing::lock(&rig.compaction.result) = Some(json!({ "changed": true }));
+    gate.notify_one();
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty()).then_some(())).await;
+    assert_eq!(*super::testing::lock(&rig.compaction.calls), ["compact manual false"]);
+
+    let next = {
+        let handle = handle.clone();
+        tokio::spawn(async move { turn(&handle, "next", "op-2").await })
+    };
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    assert!(!next.is_finished() && idle(&handle), "the next turn waits for the compaction");
+    hold.notify_one();
+    super::testing::awaiting(|| "the next turn to be taken once the compaction ended".to_owned(), next).await.expect("joined");
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    assert_eq!(super::testing::lock(&rig.compaction.calls)[..2], ["compact manual false", "post manual"]);
+    assert_eq!(super::testing::lock(&rig.compaction.calls).iter().filter(|call| call.starts_with("compact")).count(), 1, "it ran once");
+    gate.notify_one();
+}
+
 /// `retryFailedTurn(sessionId, turnKey)` of the quota lane: while `turnKey` is the latest failed
 /// turn and nothing runs, settles or waits, the failed prompt is replayed as a retry turn, the
 /// resume entry is finished and the answer is `true`; any other key, and a second ask for the

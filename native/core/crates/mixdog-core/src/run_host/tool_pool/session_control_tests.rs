@@ -78,11 +78,16 @@ impl SessionListing for Fixture {
 
 /// The scenario's transcripts as the session directory's items (each Node row through the
 /// store's own row conversion), answered newest first in pages as `thread/items/list` does.
-struct Transcripts(Map<String, Value>);
+/// The compactions scheduled through it are kept, in order (`pendingCompactSessionIds`).
+struct Transcripts(Map<String, Value>, Mutex<Vec<String>>);
 
 #[async_trait]
 impl ThreadRequests for Transcripts {
     async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError> {
+        if method == "thread/compact/schedule" {
+            self.1.lock().expect("scheduled").push(thread.as_str().to_owned());
+            return Ok(json!({}));
+        }
         assert_eq!(method, "thread/items/list");
         assert_eq!(params["sortDirection"], "desc");
         let items: Vec<mixdog_protocol::ThreadItem> = self.0[thread.as_str()]
@@ -132,7 +137,11 @@ fn session_tool(caller: Map<String, Value>, known: &[String], bots: &[&'static s
 }
 
 async fn call(tool: &SessionTool, caller: &str, args: Value) -> (bool, String) {
-    let ctx = ToolContext { thread_id: ThreadId::from(caller), tool: "session".into(), ..ctx() };
+    call_on(tool, caller, SurfaceKind::Lead, args).await
+}
+
+async fn call_on(tool: &SessionTool, caller: &str, surface: SurfaceKind, args: Value) -> (bool, String) {
+    let ctx = ToolContext { thread_id: ThreadId::from(caller), tool: "session".into(), surface, ..ctx() };
     match tool.call(&ctx, args).await {
         Ok(out) => match &out.parts[..] {
             [ToolPart::Text(text)] => (true, text.clone()),
@@ -142,13 +151,21 @@ async fn call(tool: &SessionTool, caller: &str, args: Value) -> (bool, String) {
     }
 }
 
-async fn answer(scenario: &Value, bots: &[&'static str]) -> (bool, String) {
+/// The scenario's answer and the compactions it left scheduled. Without a session service
+/// (`noService`) the catalog is the unbound `LateListing`; a caller other than the record
+/// (`callerSessionId`) is a worker of the Lead's runtime.
+async fn answer(scenario: &Value, bots: &[&'static str]) -> (bool, String, Vec<String>) {
     let caller = scenario["caller"].as_object().expect("caller").clone();
-    let caller_id = caller["id"].as_str().expect("caller id").to_owned();
+    let caller_id = scenario["callerSessionId"].as_str().unwrap_or_else(|| caller["id"].as_str().expect("caller id")).to_owned();
+    let surface = if scenario["callerSessionId"].is_string() { SurfaceKind::Agent } else { SurfaceKind::Lead };
     let transcripts = scenario["transcripts"].as_object().expect("transcripts").clone();
     let known: Vec<String> = transcripts.keys().cloned().collect();
-    let tool = session_tool(caller, &known, bots, Arc::new(Fixture::of(scenario)), Arc::new(Transcripts(transcripts)));
-    call(&tool, &caller_id, scenario["args"].clone()).await
+    let listing: Arc<dyn SessionListing> = if scenario["noService"] == true { Arc::new(super::super::session_control::LateListing::default()) } else { Arc::new(Fixture::of(scenario)) };
+    let requests = Arc::new(Transcripts(transcripts, Mutex::default()));
+    let tool = session_tool(caller, &known, bots, listing, requests.clone());
+    let (ok, text) = call_on(&tool, &caller_id, surface, scenario["args"].clone()).await;
+    let scheduled = requests.1.lock().expect("scheduled").clone();
+    (ok, text, scheduled)
 }
 
 async fn replay(prefix: &str) {
@@ -157,11 +174,18 @@ async fn replay(prefix: &str) {
     let mut replayed = 0;
     for scenario in golden["scenarios"].as_array().expect("scenarios").iter().filter(|s| s["name"].as_str().expect("name").starts_with(prefix)) {
         let name = scenario["name"].as_str().expect("name");
-        let (ok, text) = answer(scenario, &bots).await;
-        assert_eq!((ok, text.as_str()), (scenario["expected"]["ok"].as_bool().expect("ok"), scenario["expected"]["text"].as_str().expect("text")), "{name}");
+        let (ok, text, scheduled) = answer(scenario, &bots).await;
+        let expected = &scenario["expected"];
+        assert_eq!((ok, text.as_str()), (expected["ok"].as_bool().expect("ok"), expected["text"].as_str().expect("text")), "{name}");
+        assert_eq!(json!(scheduled), expected["pendingCompact"], "{name}: the compactions left scheduled");
         replayed += 1;
     }
     assert!(replayed > 0, "no {prefix} scenario recorded");
+}
+
+#[tokio::test]
+async fn session_compact_answers_as_node() {
+    replay("compact-").await;
 }
 
 #[tokio::test]
@@ -174,23 +198,7 @@ async fn session_read_answers_as_node() {
     replay("read-").await;
 }
 
-fn lead_caller() -> Map<String, Value> {
-    Map::from_iter([("id".to_owned(), json!("sess_lead1")), ("sourceType".to_owned(), json!("lead"))])
-}
-
-/// A list that arrives before the catalog is bound answers what Node answers without a session
-/// service, and the read beside it is unaffected (it never reads the catalog).
-#[tokio::test]
-async fn a_list_before_the_catalog_is_bound_answers_without_a_session_service() {
-    let transcripts = golden()["scenarios"][0]["transcripts"].as_object().expect("transcripts").clone();
-    let known: Vec<String> = transcripts.keys().cloned().collect();
-    let tool = session_tool(lead_caller(), &known, &[], Arc::new(super::super::session_control::LateListing::default()), Arc::new(Transcripts(transcripts)));
-    assert_eq!(call(&tool, "sess_lead1", json!({ "action": "list" })).await, (false, "session: session service is unavailable".to_owned()));
-    let (ok, text) = call(&tool, "sess_lead1", json!({ "action": "read", "session_id": "sess_home_ann" })).await;
-    assert!(ok, "{text}");
-}
-
-/// A session of `rows` assistant rows, paged newest first as `thread/items/list` pages; counts
+/// A session of `rows` assistant rows (`r<i>` / `row <i>`, as the recorder generates them), paged newest first as `thread/items/list` pages; counts
 /// the rows it hands out, and holds its first page until `release` is notified.
 struct LongSession {
     rows: usize,
@@ -203,7 +211,9 @@ impl ThreadRequests for LongSession {
     async fn request(&self, _: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError> {
         assert_eq!(method, "thread/items/list");
         if params.get("cursor").is_none() {
-            self.release.notified().await;
+            tokio::time::timeout(std::time::Duration::from_secs(10), self.release.notified())
+                .await
+                .expect("the list beside the read released its first page within 10s");
         }
         let end = params.get("cursor").and_then(Value::as_str).map_or(self.rows, |cursor| cursor[1..].parse().expect("cursor row"));
         let start = end.saturating_sub(params["limit"].as_u64().expect("limit") as usize);
@@ -220,25 +230,30 @@ impl ThreadRequests for LongSession {
     }
 }
 
-/// A read of a very long session asks for its window only (the rows it shows and one more to
-/// know older ones exist), never the whole log; and while that read waits on the session, a list
-/// through the same tool completes: the port holds nothing across the read that other calls need.
+/// The recorded read of one window of a million-row session (`longread-window`): it answers what
+/// Node answered, asks for its window only (the rows it shows and one more to know older ones
+/// exist), never the whole log; and while that read waits on the session, a list through the
+/// same tool completes: the port holds nothing across the read that other calls need.
 #[tokio::test]
 async fn a_read_of_a_long_session_pages_its_window_and_holds_nothing_other_calls_wait_on() {
-    let long = Arc::new(LongSession { rows: 1_000_000, served: Default::default(), release: tokio::sync::Notify::new() });
-    let scenario = golden()["scenarios"][0].clone();
-    let tool = session_tool(lead_caller(), &["sess_long".to_owned()], &[], Arc::new(Fixture::of(&scenario)), long.clone());
-    let read = call(&tool, "sess_lead1", json!({ "action": "read", "session_id": "sess_long", "offset": 40, "limit": 10 }));
+    let golden = golden();
+    let scenario = golden["scenarios"].as_array().expect("scenarios").iter().find(|s| s["name"] == "longread-window").expect("longread-window").clone();
+    let (args, rows) = (scenario["args"].clone(), scenario["generated"]["sess_long"].as_u64().expect("rows") as usize);
+    let long = Arc::new(LongSession { rows, served: Default::default(), release: tokio::sync::Notify::new() });
+    let caller = scenario["caller"].as_object().expect("caller").clone();
+    let caller_id = caller["id"].as_str().expect("caller id").to_owned();
+    let tool = session_tool(caller, &["sess_long".to_owned()], &[], Arc::new(Fixture::of(&scenario)), long.clone());
+    let read = call(&tool, &caller_id, args.clone());
     let list_then_release = async {
-        let listed = call(&tool, "sess_lead1", json!({ "action": "list", "limit": 1 })).await;
+        let listed = call(&tool, &caller_id, json!({ "action": "list", "limit": 1 })).await;
         long.release.notify_one();
         listed
     };
     let ((read_ok, read_text), (list_ok, _)) = tokio::time::timeout(std::time::Duration::from_secs(10), async { tokio::join!(read, list_then_release) })
         .await
         .expect("the list completed while the read waited");
-    assert!(read_ok && list_ok, "{read_text}");
-    let read: Value = serde_json::from_str(&read_text).expect("read json");
-    assert_eq!((read["items"][0]["id"].clone(), read["items"][0]["offset"].clone()), (json!("r999950"), json!(49)));
-    assert_eq!(long.served.load(std::sync::atomic::Ordering::SeqCst), 51);
+    assert!(list_ok);
+    assert_eq!((read_ok, read_text.as_str()), (scenario["expected"]["ok"].as_bool().expect("ok"), scenario["expected"]["text"].as_str().expect("text")));
+    let window = args["offset"].as_u64().expect("offset") + args["limit"].as_u64().expect("limit") + 1;
+    assert_eq!(long.served.load(std::sync::atomic::Ordering::SeqCst) as u64, window);
 }

@@ -3,14 +3,15 @@
   "exclusions": [
     "The session service is stood in for its catalog page and transcript range reads only (see the recorder header); every other step is the product code.",
     "storedLiveWork's own reads (inFlightSessionActivity, listStoredAgentWorkersAsync, Date.now) are the scenario's live sources; its merge runs line for line over Node's hasPendingAgentWork and sessionsWithPendingWork.",
-    "Room sends, members and asks are not recorded (out of scope)."
+    "Room sends, members and asks are not recorded (out of scope).",
+    "The compacted session's summary model answers a fixed summary text (the one stand-in of its real compaction). Its display archive is not published at this commit for a log-stored session (the archive fence looks for a `<id>.json` record), so the stored read Node answers holds no divider; the recording keeps what Node answered."
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2924657,
+      "bytes": 4784549,
       "path": "golden.json",
-      "sha256": "6a226ce8263a4326cccf4ad3a0263a80aa1a83ef7842e9a8041ca11661d9d748"
+      "sha256": "36238ba8952a880d832081e39e84cb9ed212f4e67271694e22714d30c2f7e7d6"
     }
   ],
   "product": {
@@ -39,10 +40,10 @@
     ],
     "nodeVersion": "v22.20.0",
     "recorder": "benchmarks/rust-core/recorders/record-session-tool-control.mjs",
-    "recorderSha256": "57b046f777ddd4dbade739034d63ae6ae81445dc7ae913875a130d740c8673db"
+    "recorderSha256": "264848c92cd9059acb67432c6e81e6a966f235bd86e57cc096d82b5793cdb437"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-tool-control.mjs",
-  "scenarios": 61,
+  "scenarios": 67,
   "set": "session-tool-control",
-  "totalBytes": 2924657
+  "totalBytes": 4784549
 }
