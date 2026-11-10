@@ -220,6 +220,15 @@ impl DeviceRegistry {
         matches!(inner.connections.get(&connection), Some(Link::Relay { peer_id, .. }) if inner.peers.contains_key(peer_id))
     }
 
+    /// The relay client id behind `connection` while its peer is attached.
+    pub fn attached_peer(&self, connection: u64) -> Option<String> {
+        let inner = self.inner();
+        match inner.connections.get(&connection) {
+            Some(Link::Relay { peer_id, .. }) if inner.peers.contains_key(peer_id) => Some(peer_id.clone()),
+            _ => None,
+        }
+    }
+
     /// Every connection of the paired credential still attached, in the order they were opened (Node's client registry is a `Map`
     /// iterated in admission order, and an unpair ends their browser streams in that order).
     pub fn connections_of(&self, credential: &str) -> Vec<u64> {

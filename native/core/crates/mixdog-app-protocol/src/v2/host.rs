@@ -900,6 +900,17 @@ pub struct UiScreenSessionsChangedParams {
     pub foreground: Option<bool>,
 }
 
+/// Client notification `remote/connectionTimeline` (paired phone → core): the phone's own account of a slow reconnect (phase,
+/// state and issue tokens with ms offsets), Node's `reportConnectionTimeline`. The core writes it to its log as Node's PC did
+/// (`remote-relay-client-calls.ts:181-186`): the first 1500 UTF-16 units, without any character outside `[A-Za-z0-9_=@:. -]`, as
+/// `[mixdog-remote-timeline] client=<the relay client id's first 8 units> <text>`, nothing when that leaves no text. Only an
+/// attached relay connection is heard. No response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+pub struct RemoteConnectionTimelineParams {
+    pub text: String,
+}
+
 /// Notification `core/drain` (`lifecycle-remote.md` §5.1 step 2): the core is draining; sent to
 /// every connected client with what is still running, and the token that authorizes an abort.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

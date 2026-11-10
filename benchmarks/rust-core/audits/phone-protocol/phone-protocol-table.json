@@ -65,7 +65,7 @@
    "project/create(ProjectCreateParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:736"
+   "mixdog-workspace/src/service.rs:775"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -124,12 +124,12 @@
    "mixdog-core-rooms/src/rooms/service.rs:386"
   ],
   "rust_composed": [
-   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2624",
-   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2624",
-   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2624",
-   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2624",
-   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2624",
-   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2624"
+   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2628",
+   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2628",
+   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2628",
+   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2628",
+   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2628",
+   "RoomService @ mixdog-app-server-daemon/src/compose_flip.rs:2628"
   ],
   "problems": [],
   "proof": "recording",
@@ -211,18 +211,17 @@
    "transfer/grant/mint(TransferGrantMintParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1051",
-   "mixdog-workspace/src/service.rs:1267"
+   "mixdog-workspace/src/service.rs:1115",
+   "mixdog-workspace/src/service.rs:1331"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406",
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:219",
-   "mixdog-workspace/tests/it/service.rs:237"
+   "apps/mobile/fixtures/phone-attachments/golden.json (exact=None)"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -855,7 +854,7 @@
    "projectFs/captureSnapshot(ProjectFsCaptureSnapshotParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1524"
+   "mixdog-workspace/src/service.rs:1605"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -936,7 +935,7 @@
    "project/codeGraph(ProjectCodeGraphParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1348"
+   "mixdog-workspace/src/service.rs:1429"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -980,7 +979,7 @@
    "mixdog-core-domains/src/domains/ai_admin/thread_route_service.rs:26"
   ],
   "rust_composed": [
-   "ThreadRouteService @ mixdog-app-server-daemon/src/compose_flip.rs:2810"
+   "ThreadRouteService @ mixdog-app-server-daemon/src/compose_flip.rs:2814"
   ],
   "problems": [],
   "proof": "test",
@@ -1019,7 +1018,7 @@
    "projectFs/copy(ProjectFsCopyParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:883"
+   "mixdog-workspace/src/service.rs:932"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -1060,7 +1059,7 @@
    "projectFs/create(ProjectFsCreateParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:861"
+   "mixdog-workspace/src/service.rs:910"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -1101,7 +1100,7 @@
    "projectFs/backup/delete(ProjectFsBackupDeleteParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1314"
+   "mixdog-workspace/src/service.rs:1395"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -1220,7 +1219,7 @@
    "transfer/endRead(TransferEndReadParams) -> v2::feed::EmptyResult"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1209"
+   "mixdog-workspace/src/service.rs:1273"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -1259,7 +1258,7 @@
    "transfer/authorizeRead(TransferAuthorizeReadParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1123"
+   "mixdog-workspace/src/service.rs:1187"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -1298,7 +1297,7 @@
    "transfer/redeemGrant(TransferRedeemGrantParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1201"
+   "mixdog-workspace/src/service.rs:1265"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -1337,7 +1336,7 @@
    "transfer/finishRead(TransferFinishReadParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1205"
+   "mixdog-workspace/src/service.rs:1269"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -1376,7 +1375,7 @@
    "transfer/readRange(TransferReadRangeParams) -> v2::op::BlobReadResponse"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1097"
+   "mixdog-workspace/src/service.rs:1161"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -1417,7 +1416,7 @@
    "fs/unwatch(FsUnwatchParams) -> v2::feed::EmptyResult"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:998"
+   "mixdog-workspace/src/service.rs:1062"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -1458,7 +1457,7 @@
    "fs/watch(FsWatchParams) -> v2::feed::Subscription"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:978"
+   "mixdog-workspace/src/service.rs:1042"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -1609,7 +1608,7 @@
    "project/taskWorkspace(ProjectTaskWorkspaceParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1343"
+   "mixdog-workspace/src/service.rs:1424"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -4214,7 +4213,7 @@
    "projectFs/browseDirs(ProjectFsBrowseDirsParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:805"
+   "mixdog-workspace/src/service.rs:844"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -4257,7 +4256,7 @@
    "projectFs/listDir(ProjectFsListDirParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:771"
+   "mixdog-workspace/src/service.rs:810"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -4298,7 +4297,7 @@
    "project/list(ProjectListParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:720"
+   "mixdog-workspace/src/service.rs:759"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -4384,7 +4383,7 @@
    "projectFs/localPageUrl(ProjectFsLocalPageUrlParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1525"
+   "mixdog-workspace/src/service.rs:1606"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -4425,7 +4424,7 @@
    "projectFs/writeTextBatch(ProjectFsWriteTextBatchParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:850"
+   "mixdog-workspace/src/service.rs:899"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -4466,7 +4465,7 @@
    "lsp/document(LspDocumentParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1376"
+   "mixdog-workspace/src/service.rs:1457"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -4507,7 +4506,7 @@
    "lsp/request(LspRequestParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1384"
+   "mixdog-workspace/src/service.rs:1465"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -4551,7 +4550,7 @@
    "mixdog-core-session/src/session/thread_settings.rs:67"
   ],
   "rust_composed": [
-   "ThreadSettings @ mixdog-app-server-daemon/src/compose_flip.rs:2806"
+   "ThreadSettings @ mixdog-app-server-daemon/src/compose_flip.rs:2810"
   ],
   "problems": [],
   "proof": "none",
@@ -4587,7 +4586,7 @@
    "projectFs/move(ProjectFsMoveParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:883"
+   "mixdog-workspace/src/service.rs:932"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -4670,7 +4669,7 @@
    "mixdog-core-agents/src/agents/home_api.rs:642"
   ],
   "rust_composed": [
-   "AgentHomeService @ mixdog-app-server-daemon/src/compose_flip.rs:2906"
+   "AgentHomeService @ mixdog-app-server-daemon/src/compose_flip.rs:2910"
   ],
   "problems": [],
   "proof": "recording",
@@ -4793,7 +4792,7 @@
    "projectFs/previewFile(ProjectFsPreviewFileParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:810"
+   "mixdog-workspace/src/service.rs:849"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -4834,7 +4833,7 @@
    "projectFs/previewRange(ProjectFsPreviewRangeParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:815"
+   "mixdog-workspace/src/service.rs:854"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -4876,16 +4875,15 @@
    "projectFs/recovery(ProjectFsRecoveryParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:961"
+   "mixdog-workspace/src/service.rs:1010"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:1216",
-   "mixdog-workspace/tests/it/service.rs:1218"
+   "apps/mobile/fixtures/phone-attachments/golden.json (exact=None)"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -5043,10 +5041,9 @@
    "BlobService @ mixdog-app-server-daemon/src/compose_domains/rows.rs:12"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-app-protocol/tests/it/contract.rs:130",
-   "mixdog-app-server-client/tests/it/feed_lanes.rs:68"
+   "apps/mobile/fixtures/phone-attachments/golden.json (exact=None)"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -5115,7 +5112,7 @@
    "projectFs/backup/read(ProjectFsBackupReadParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1304"
+   "mixdog-workspace/src/service.rs:1385"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -5156,7 +5153,7 @@
    "projectFs/readEditorSettings(ProjectFsReadEditorSettingsParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1330"
+   "mixdog-workspace/src/service.rs:1411"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -5225,22 +5222,32 @@
    "apps/desktop/src/main/remote-methods.ts:1049"
   ],
   "inventory": "remote",
-  "rust_kind": "method",
+  "rust_kind": "methods",
   "rust_targets": [
-   "projectFs/readLocal"
+   "projectFs/readLocal",
+   "transfer/readRange",
+   "transfer/endRead"
   ],
   "rust_shape": [
-   "projectFs/readLocal(ProjectFsReadLocalParams) -> JsonValue"
+   "projectFs/readLocal(ProjectFsReadLocalParams) -> JsonValue",
+   "transfer/readRange(TransferReadRangeParams) -> v2::op::BlobReadResponse",
+   "transfer/endRead(TransferEndReadParams) -> v2::feed::EmptyResult"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:821"
+   "mixdog-workspace/src/service.rs:860",
+   "mixdog-workspace/src/service.rs:1161",
+   "mixdog-workspace/src/service.rs:1273"
   ],
   "rust_composed": [
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406",
+   "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406",
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "none",
-  "proof_evidence": [],
+  "proof": "recording",
+  "proof_evidence": [
+   "apps/mobile/fixtures/phone-attachments/golden.json (exact=None)"
+  ],
   "phone_o1": "unchanged",
   "server": "served",
   "class": "exists-unproven",
@@ -5273,7 +5280,7 @@
    "projectFs/readText(ProjectFsReadTextParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:776"
+   "mixdog-workspace/src/service.rs:815"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -5518,7 +5525,7 @@
    "mixdog-core-session/src/session/shell_jobs.rs:36"
   ],
   "rust_composed": [
-   "ShellJobsService @ mixdog-app-server-daemon/src/compose_flip.rs:2842"
+   "ShellJobsService @ mixdog-app-server-daemon/src/compose_flip.rs:2846"
   ],
   "problems": [],
   "proof": "none",
@@ -5554,10 +5561,10 @@
   ],
   "rust_composed": [],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-app-server/src/tests/routing.rs:56",
-   "mixdog-core-domains/src/domains/client/tests.rs:51"
+   "apps/mobile/fixtures/phone-plumbing/golden.json (exact=None)",
+   "unlinked: apps/mobile/fixtures/phone-plumbing/golden.json <- mixdog-core-domains/src/notify/screen.rs:232"
   ],
   "phone_o1": "removed",
   "server": "served",
@@ -5590,7 +5597,7 @@
    "project/delete(ProjectDeleteParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:746"
+   "mixdog-workspace/src/service.rs:785"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -5672,7 +5679,7 @@
    "project/update(ProjectUpdateParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:742"
+   "mixdog-workspace/src/service.rs:781"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -5714,7 +5721,7 @@
    "projectFs/rename(ProjectFsRenameParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:873"
+   "mixdog-workspace/src/service.rs:922"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -5797,7 +5804,7 @@
    "projectFs/replaceText(ProjectFsReplaceTextParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:927"
+   "mixdog-workspace/src/service.rs:976"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -5841,10 +5848,10 @@
   ],
   "rust_composed": [],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-app-server/src/tests/routing.rs:56",
-   "mixdog-core-domains/src/domains/client/tests.rs:51"
+   "apps/mobile/fixtures/phone-plumbing/golden.json (exact=None)",
+   "unlinked: apps/mobile/fixtures/phone-plumbing/golden.json <- mixdog-core-domains/src/notify/screen.rs:232"
   ],
   "phone_o1": "removed",
   "server": "served",
@@ -5880,7 +5887,7 @@
    "mixdog-core-agents/src/agents/home_api.rs:643"
   ],
   "rust_composed": [
-   "AgentHomeService @ mixdog-app-server-daemon/src/compose_flip.rs:2906"
+   "AgentHomeService @ mixdog-app-server-daemon/src/compose_flip.rs:2910"
   ],
   "problems": [],
   "proof": "recording",
@@ -5922,18 +5929,17 @@
    "transfer/grant/mint(TransferGrantMintParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:825",
-   "mixdog-workspace/src/service.rs:1267"
+   "mixdog-workspace/src/service.rs:874",
+   "mixdog-workspace/src/service.rs:1331"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406",
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
   ],
   "problems": [],
-  "proof": "test",
+  "proof": "recording",
   "proof_evidence": [
-   "mixdog-workspace/tests/it/service.rs:468",
-   "mixdog-app-server-transport/tests/it/websocket.rs:213"
+   "apps/mobile/fixtures/phone-attachments/golden.json (exact=None)"
   ],
   "phone_o1": "unchanged",
   "server": "served",
@@ -6007,7 +6013,7 @@
    "projectFs/workspaceFile/write(ProjectFsWorkspaceFileWriteParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1324"
+   "mixdog-workspace/src/service.rs:1405"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -6095,9 +6101,9 @@
    "search/stop(SearchStopParams) -> v2::feed::EmptyResult"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1013",
-   "mixdog-workspace/src/service.rs:1041",
-   "mixdog-workspace/src/service.rs:1045"
+   "mixdog-workspace/src/service.rs:1077",
+   "mixdog-workspace/src/service.rs:1105",
+   "mixdog-workspace/src/service.rs:1109"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406",
@@ -6144,7 +6150,7 @@
    "mixdog-services/src/memory/thread_search.rs:23"
   ],
   "rust_composed": [
-   "ThreadSearchService @ mixdog-app-server-daemon/src/compose_flip.rs:2863"
+   "ThreadSearchService @ mixdog-app-server-daemon/src/compose_flip.rs:2867"
   ],
   "problems": [],
   "proof": "test",
@@ -6183,7 +6189,7 @@
    "projectFs/searchText(ProjectFsSearchTextParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:917"
+   "mixdog-workspace/src/service.rs:966"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -6228,7 +6234,7 @@
    "mixdog-core-domains/src/notify/service.rs:126"
   ],
   "rust_composed": [
-   "NotifyService @ mixdog-app-server-daemon/src/compose_flip.rs:2487"
+   "NotifyService @ mixdog-app-server-daemon/src/compose_flip.rs:2491"
   ],
   "problems": [],
   "proof": "recording",
@@ -6310,7 +6316,7 @@
    "mixdog-core-domains/src/domains/ai_admin/route_set_service.rs:32"
   ],
   "rust_composed": [
-   "RouteSetService @ mixdog-app-server-daemon/src/compose_flip.rs:2810"
+   "RouteSetService @ mixdog-app-server-daemon/src/compose_flip.rs:2814"
   ],
   "problems": [],
   "proof": "none",
@@ -6351,10 +6357,9 @@
   ],
   "rust_composed": [],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-app-server-daemon/src/connection_close.rs:182",
-   "mixdog-remote/tests/it/foreground.rs:112"
+   "apps/mobile/fixtures/phone-plumbing/golden.json (exact=None; names the wire method) <- mixdog-core-domains/src/notify/screen.rs:232"
   ],
   "phone_o1": "replaced: apps/mobile/src/screen-reporter.ts",
   "server": "served",
@@ -6431,7 +6436,7 @@
    "mixdog-core-domains/src/domains/ai_admin/route_set_service.rs:31"
   ],
   "rust_composed": [
-   "RouteSetService @ mixdog-app-server-daemon/src/compose_flip.rs:2810"
+   "RouteSetService @ mixdog-app-server-daemon/src/compose_flip.rs:2814"
   ],
   "problems": [],
   "proof": "test",
@@ -6592,10 +6597,9 @@
   ],
   "rust_composed": [],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-app-server-daemon/src/connection_close.rs:182",
-   "mixdog-remote/tests/it/foreground.rs:112"
+   "apps/mobile/fixtures/phone-plumbing/golden.json (exact=None; names the wire method) <- mixdog-core-domains/src/notify/screen.rs:232"
   ],
   "phone_o1": "replaced: apps/mobile/src/screen-reporter.ts",
   "server": "served",
@@ -6806,10 +6810,9 @@
   ],
   "rust_composed": [],
   "problems": [],
-  "proof": "test",
+  "proof": "recording+test",
   "proof_evidence": [
-   "mixdog-app-server-daemon/src/connection_close.rs:182",
-   "mixdog-remote/tests/it/foreground.rs:112"
+   "apps/mobile/fixtures/phone-plumbing/golden.json (exact=None; names the wire method) <- mixdog-core-domains/src/notify/screen.rs:232"
   ],
   "phone_o1": "replaced: apps/mobile/src/screen-reporter.ts",
   "server": "served",
@@ -7046,7 +7049,7 @@
    "projectFs/stat(ProjectFsStatParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:797"
+   "mixdog-workspace/src/service.rs:836"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -7128,7 +7131,7 @@
    "mixdog-core-session/src/session/shell_jobs.rs:35"
   ],
   "rust_composed": [
-   "ShellJobsService @ mixdog-app-server-daemon/src/compose_flip.rs:2842"
+   "ShellJobsService @ mixdog-app-server-daemon/src/compose_flip.rs:2846"
   ],
   "problems": [],
   "proof": "none",
@@ -7662,7 +7665,7 @@
    "projectFs/trash(ProjectFsTrashParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:901"
+   "mixdog-workspace/src/service.rs:950"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -8115,7 +8118,7 @@
    "projectFs/backup/write(ProjectFsBackupWriteParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:1308"
+   "mixdog-workspace/src/service.rs:1389"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"
@@ -8156,7 +8159,7 @@
    "projectFs/writeText(ProjectFsWriteTextParams) -> JsonValue"
   ],
   "rust_sites": [
-   "mixdog-workspace/src/service.rs:839"
+   "mixdog-workspace/src/service.rs:888"
   ],
   "rust_composed": [
    "WorkspaceService @ mixdog-app-server-daemon/src/compose_flip.rs:2406"

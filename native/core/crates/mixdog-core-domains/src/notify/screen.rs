@@ -279,8 +279,11 @@ mod tests {
                 screen.notify(Method(CHANGED), report, ConnectionId(1));
             }
             let shown = |which: &dyn Fn(&str) -> bool| json!(sessions.iter().copied().filter(|id| which(id)).collect::<Vec<_>>());
-            let viewed = registry.visualize_viewed_sessions();
-            assert_eq!(shown(&|id| viewed.contains(id)), step["viewing"], "viewing after {step}");
+            // The whole set Node counted as viewed, in no order: the core publishes it sorted and a reader asks membership.
+            let viewed: Vec<String> = registry.visualize_viewed_sessions().into_iter().collect();
+            let mut node: Vec<String> = serde_json::from_value(step["viewing"].clone()).unwrap();
+            node.sort();
+            assert_eq!(viewed, node, "viewing after {step}");
             assert_eq!(shown(&|id| registry.credential_shows(credential, id)), step["credential"], "credential after {step}");
             for browser in &browsers {
                 assert_eq!(shown(&|id| registry.browser_shows(browser, id)), step["browser"][*browser], "browser {browser} after {step}");
