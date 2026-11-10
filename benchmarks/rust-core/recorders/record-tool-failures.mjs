@@ -313,7 +313,7 @@ try {
       identity,
       extra: {
         rows: a.rows.flat().length,
-        normalised: ['session_id', 'ts', 'tool_ms', 'workspace', 'data folder (with result_bytes_est counted on the masked text)', 'leftAtExit: process ids dropped (a parent named by its place in the list), the workspace and the data folder in a command line as in the rows, a console host\'s arguments after its image path (chosen by Windows\' console driver: one mixdogd build gave `0x4` and `0xffffffff -ForceV1` on two replays of scenario 9) as `<console host arguments>`'],
+        normalised: ['session_id', 'ts', 'tool_ms', 'workspace', 'data folder (with result_bytes_est counted on the masked text)', 'leftAtExit: process ids dropped (a parent named by its place in the list), the workspace and the data folder in a command line as in the rows, a console host\'s server handle value as `<server handle>`, only in a command line that is wholly `\\??\\<drive>:\\WINDOWS\\system32\\conhost.exe` SP `0x` HEXDIGIT+ [ SP `-ForceV1` ] (lib/tool-failure-rows.mjs CONSOLE_HOST; any other argument text is compared as it is). The value is chosen by Windows\' console driver, which starts the console host, not by the launcher: one mixdogd build gave `0x4` and `0xffffffff -ForceV1` on two replays of scenario 9'],
         node: process.version,
         recorderSha256: sha256(SELF),
         scenariosSha256: sha256(SCENARIOS_FILE),
