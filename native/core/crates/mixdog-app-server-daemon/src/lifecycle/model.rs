@@ -215,6 +215,8 @@ pub enum Effect {
     Discovery(DiscoveryState),
     DrainNotice(DrainNotice),
     CancelRunning(Vec<Running>),
+    /// A stop was requested: the new-task attempts in flight end now, as Node's host dispose ends them ([`super::CorePort::cut_new_tasks`]).
+    CutNewTasks,
     ReleaseDecision { pid: u32 },
     /// Node's text of the self-shutdown that is about to begin (`Lifecycle::note_trigger`), before its `BeginRelease`.
     NodeTrigger(&'static str),

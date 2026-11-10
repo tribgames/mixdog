@@ -31,6 +31,7 @@ mixdog-statefile = { workspace = true }
 mixdog-store = { workspace = true }
 mixdog-tools = { workspace = true }
 mixdog-workspace = { workspace = true }
+rand = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -53,6 +54,8 @@ tempfile = { workspace = true, optional = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [features]
+# A test build ends the process at the point MIXDOG_NEW_TASK_CRASH_AT names (session/new_task.rs); no normal build enables it.
+crash-gates = []
 test-support = ["dep:tempfile", "dep:mixdog-core-review", "mixdog-core-review/test-support", "mixdog-core-api/mock", "mixdog-rt/test-support", "mixdog-store/test-support"]
 
 [dev-dependencies]
@@ -74,7 +77,7 @@ mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
 mixdog-app-protocol = { workspace = true, features = ["codegen"] }
 mixdog-core-domains = { workspace = true, features = ["count-work"] }
-mixdog-core-session = { path = ".", features = ["test-support"] }
+mixdog-core-session = { path = ".", features = ["crash-gates", "test-support"] }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock"] }
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set

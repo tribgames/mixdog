@@ -34,6 +34,7 @@ use super::store::CredentialIo;
 
 /// What a process is to the lock protocol: the owner its records name, and its line per lock path, where its callers
 /// wait their turn before contending for the file (`lockQueue`).
+#[allow(clippy::disallowed_types, reason = "the line is the queue: a caller holds its turn across the whole contended attempt, first come first served, as Node's lockQueue")]
 pub struct LockProcess {
     owner: LockOwner,
     lines: Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>,
@@ -51,6 +52,7 @@ impl LockProcess {
         Self { owner, lines: Mutex::new(HashMap::new()) }
     }
 
+    #[allow(clippy::disallowed_types, reason = "see LockProcess")]
     fn line(&self, lock: &Path) -> Arc<tokio::sync::Mutex<()>> {
         let mut lines = self.lines.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         lines.entry(lock.to_path_buf()).or_default().clone()

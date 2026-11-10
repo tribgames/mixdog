@@ -530,12 +530,12 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Operations,
         "notifyProviderModelsChanged",
-        Target::Deleted("publishers own their changes (DS §3)"),
+        Target::Method("ui/providerModels/announce"),
     ),
     (
         InventoryList::Operations,
         "notifySettingsChanged",
-        Target::Deleted("publishers own their changes (DS §3)"),
+        Target::Method("ui/settings/announce"),
     ),
     (
         InventoryList::Operations,
@@ -1209,7 +1209,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Remote,
         "notifyProviderModelsChanged",
-        Target::Deleted("publishers own their changes (DS §3)"),
+        Target::Method("ui/providerModels/announce"),
     ),
     (
         InventoryList::Remote,

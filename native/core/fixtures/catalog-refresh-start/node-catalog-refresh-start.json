@@ -1,0 +1,4319 @@
+{
+  "nodeCommit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
+  "nodeVersion": "v22.20.0",
+  "now": 1800000000000,
+  "baseURL": "__BASE_URL__",
+  "seeds": {
+    "modelsDev": {
+      "anthropic": {
+        "id": "anthropic",
+        "name": "Anthropic",
+        "env": [
+          "ANTHROPIC_API_KEY"
+        ],
+        "models": {
+          "claude-sonnet-4-6": {
+            "id": "claude-sonnet-4-6",
+            "name": "Claude Sonnet 4.6",
+            "family": "claude-sonnet",
+            "reasoning": true,
+            "tool_call": true,
+            "attachment": true,
+            "temperature": true,
+            "release_date": "2090-01-01",
+            "knowledge": "2025-03",
+            "modalities": {
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "limit": {
+              "context": 1000000,
+              "output": 64000
+            },
+            "cost": {
+              "input": 3,
+              "output": 15,
+              "cache_read": 0.3,
+              "cache_write": 3.75
+            }
+          },
+          "claude-haiku-4-5-20251001": {
+            "id": "claude-haiku-4-5-20251001",
+            "name": "Claude Haiku 4.5",
+            "family": "claude-haiku",
+            "reasoning": true,
+            "tool_call": true,
+            "attachment": true,
+            "temperature": true,
+            "release_date": "2091-01-01",
+            "knowledge": "2025-03",
+            "modalities": {
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "limit": {
+              "context": 200000,
+              "output": 64000
+            },
+            "cost": {
+              "input": 1,
+              "output": 5,
+              "cache_read": 0.1,
+              "cache_write": 1.25
+            }
+          },
+          "claude-opus-4-8": {
+            "id": "claude-opus-4-8",
+            "name": "Claude Opus 4.8",
+            "family": "claude-opus",
+            "reasoning": true,
+            "tool_call": true,
+            "attachment": true,
+            "temperature": true,
+            "release_date": "2092-01-01",
+            "knowledge": "2025-03",
+            "modalities": {
+              "input": [
+                "text",
+                "image"
+              ],
+              "output": [
+                "text"
+              ]
+            },
+            "limit": {
+              "context": 500000,
+              "output": 64000
+            },
+            "cost": {
+              "input": 15,
+              "output": 75,
+              "cache_read": 1.5,
+              "cache_write": 18.75
+            }
+          }
+        }
+      }
+    },
+    "litellm": {
+      "claude-sonnet-4-6": {
+        "litellm_provider": "anthropic",
+        "mode": "chat",
+        "max_input_tokens": 1000000,
+        "max_output_tokens": 64000,
+        "input_cost_per_token": 0.000003,
+        "output_cost_per_token": 0.000015,
+        "supports_vision": true,
+        "supports_function_calling": true,
+        "supports_prompt_caching": true,
+        "supports_reasoning": true
+      },
+      "claude-haiku-4-5-20251001": {
+        "litellm_provider": "anthropic",
+        "mode": "chat",
+        "max_input_tokens": 200000,
+        "max_output_tokens": 64000,
+        "input_cost_per_token": 0.000001,
+        "output_cost_per_token": 0.000005,
+        "supports_vision": true,
+        "supports_function_calling": true,
+        "supports_prompt_caching": true,
+        "supports_reasoning": true
+      },
+      "claude-opus-4-8": {
+        "litellm_provider": "anthropic",
+        "mode": "chat",
+        "max_input_tokens": 500000,
+        "max_output_tokens": 64000,
+        "input_cost_per_token": 0.000015,
+        "output_cost_per_token": 0.000075,
+        "supports_vision": true,
+        "supports_function_calling": true,
+        "supports_prompt_caching": true,
+        "supports_reasoning": true
+      }
+    }
+  },
+  "scenarios": [
+    {
+      "name": "a-ready-call-starts-the-refresh-and-its-completion-rewarms",
+      "agent": {
+        "providers": {
+          "custom-0a0a0a0a-0000-4000-8000-00000000000a": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/a/v1",
+            "auth": "none",
+            "enabled": true
+          },
+          "custom-0b0b0b0b-0000-4000-8000-00000000000b": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Beta",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/b/v1",
+            "auth": "none",
+            "enabled": false
+          }
+        },
+        "presets": [
+          {
+            "id": "p1",
+            "name": "P1",
+            "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+            "model": "a-1"
+          }
+        ],
+        "default": "p1"
+      },
+      "stub": {
+        "/a/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "a-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        },
+        "/b/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "b-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "do": "ready",
+          "hold": [
+            "/a/v1/models"
+          ],
+          "ok": true,
+          "observed": {
+            "requests": 1,
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "release",
+          "observed": {
+            "requests": 1,
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 2,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 2,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              }
+            ]
+          }
+        },
+        {
+          "do": "serve",
+          "stub": {
+            "/a/v1/models": {
+              "object": "list",
+              "data": [
+                {
+                  "id": "a-1",
+                  "object": "model",
+                  "owned_by": "fixture"
+                },
+                {
+                  "id": "a-2",
+                  "object": "model",
+                  "owned_by": "fixture"
+                }
+              ]
+            },
+            "/b/v1/models": {
+              "object": "list",
+              "data": [
+                {
+                  "id": "b-1",
+                  "object": "model",
+                  "owned_by": "fixture"
+                }
+              ]
+            }
+          },
+          "observed": {
+            "requests": 2,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "ready",
+          "ok": true,
+          "observed": {
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 2,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              }
+            ]
+          }
+        },
+        {
+          "do": "ready",
+          "enable": "custom-0b0b0b0b-0000-4000-8000-00000000000b",
+          "hold": [
+            "/a/v1/models",
+            "/b/v1/models"
+          ],
+          "ok": true,
+          "observed": {
+            "requests": 4,
+            "pending": true,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "release",
+          "observed": {
+            "requests": 4,
+            "pending": true,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 6,
+            "pending": false,
+            "wakes": 2,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              },
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 6,
+            "pending": false,
+            "wakes": 2,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              },
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-2",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-2",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-2",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              },
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              },
+              {
+                "id": "b-1",
+                "provider": "custom-0b0b0b0b-0000-4000-8000-00000000000b",
+                "display": "b-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "b-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Beta",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              }
+            ]
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        }
+      ],
+      "final": {
+        "requests": 6,
+        "pending": false,
+        "wakes": 2,
+        "rewarms": [
+          {
+            "loadSecrets": true
+          },
+          {
+            "loadSecrets": true
+          }
+        ],
+        "cacheLoaded": true,
+        "loadInFlight": false
+      }
+    },
+    {
+      "name": "a-second-ready-call-during-a-running-refresh-joins-it",
+      "agent": {
+        "providers": {
+          "custom-0a0a0a0a-0000-4000-8000-00000000000a": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/a/v1",
+            "auth": "none",
+            "enabled": true
+          },
+          "custom-0b0b0b0b-0000-4000-8000-00000000000b": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Beta",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/b/v1",
+            "auth": "none",
+            "enabled": false
+          }
+        },
+        "presets": [
+          {
+            "id": "p1",
+            "name": "P1",
+            "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+            "model": "a-1"
+          }
+        ],
+        "default": "p1"
+      },
+      "stub": {
+        "/a/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "a-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        },
+        "/b/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "b-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "do": "ready",
+          "hold": [
+            "/a/v1/models"
+          ],
+          "ok": true,
+          "observed": {
+            "requests": 1,
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "ready",
+          "ok": true,
+          "observed": {
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "release",
+          "observed": {
+            "requests": 1,
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 2,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 2,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              }
+            ]
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        }
+      ],
+      "final": {
+        "requests": 2,
+        "pending": false,
+        "wakes": 1,
+        "rewarms": [
+          {
+            "loadSecrets": true
+          }
+        ],
+        "cacheLoaded": true,
+        "loadInFlight": false
+      }
+    },
+    {
+      "name": "a-provider-set-change-during-a-running-refresh-starts-another",
+      "agent": {
+        "providers": {
+          "custom-0a0a0a0a-0000-4000-8000-00000000000a": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/a/v1",
+            "auth": "none",
+            "enabled": true
+          },
+          "custom-0b0b0b0b-0000-4000-8000-00000000000b": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Beta",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/b/v1",
+            "auth": "none",
+            "enabled": false
+          }
+        },
+        "presets": [
+          {
+            "id": "p1",
+            "name": "P1",
+            "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+            "model": "a-1"
+          }
+        ],
+        "default": "p1"
+      },
+      "stub": {
+        "/a/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "a-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        },
+        "/b/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "b-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "do": "ready",
+          "hold": [
+            "/a/v1/models"
+          ],
+          "ok": true,
+          "observed": {
+            "requests": 1,
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "ready",
+          "enable": "custom-0b0b0b0b-0000-4000-8000-00000000000b",
+          "hold": [
+            "/b/v1/models"
+          ],
+          "ok": true,
+          "observed": {
+            "requests": 2,
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "release",
+          "observed": {
+            "requests": 2,
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              },
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              },
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              },
+              {
+                "id": "b-1",
+                "provider": "custom-0b0b0b0b-0000-4000-8000-00000000000b",
+                "display": "b-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "b-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Beta",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              }
+            ]
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        }
+      ],
+      "final": {
+        "requests": 4,
+        "pending": false,
+        "wakes": 1,
+        "rewarms": [
+          {
+            "loadSecrets": true
+          },
+          {
+            "loadSecrets": true
+          }
+        ],
+        "cacheLoaded": true,
+        "loadInFlight": false
+      }
+    },
+    {
+      "name": "a-refresh-that-fails",
+      "agent": {
+        "providers": {
+          "custom-0a0a0a0a-0000-4000-8000-00000000000a": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/a/v1",
+            "auth": "none",
+            "enabled": true
+          }
+        },
+        "presets": [
+          {
+            "id": "p1",
+            "name": "P1",
+            "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+            "model": "a-1"
+          }
+        ],
+        "default": "p1"
+      },
+      "stub": {
+        "/a/v1/models": {
+          "__status": 500
+        }
+      },
+      "steps": [
+        {
+          "do": "ready",
+          "hold": [
+            "/a/v1/models"
+          ],
+          "ok": true,
+          "observed": {
+            "requests": 1,
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "release",
+          "observed": {
+            "requests": 1,
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 2,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 3,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": false,
+            "loadInFlight": false,
+            "rows": []
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        }
+      ],
+      "final": {
+        "requests": 3,
+        "pending": false,
+        "wakes": 1,
+        "rewarms": [
+          {
+            "loadSecrets": true
+          }
+        ],
+        "cacheLoaded": false,
+        "loadInFlight": false
+      }
+    },
+    {
+      "name": "a-failed-refresh-after-a-good-one",
+      "agent": {
+        "providers": {
+          "custom-0a0a0a0a-0000-4000-8000-00000000000a": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/a/v1",
+            "auth": "none",
+            "enabled": true
+          },
+          "custom-0b0b0b0b-0000-4000-8000-00000000000b": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Beta",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/b/v1",
+            "auth": "none",
+            "enabled": false
+          }
+        },
+        "presets": [
+          {
+            "id": "p1",
+            "name": "P1",
+            "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+            "model": "a-1"
+          }
+        ],
+        "default": "p1"
+      },
+      "stub": {
+        "/a/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "a-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        },
+        "/b/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "b-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "do": "ready",
+          "ok": true,
+          "observed": {
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 2,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 2,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              }
+            ]
+          }
+        },
+        {
+          "do": "serve",
+          "stub": {
+            "/a/v1/models": {
+              "__status": 500
+            },
+            "/b/v1/models": {
+              "object": "list",
+              "data": [
+                {
+                  "id": "b-1",
+                  "object": "model",
+                  "owned_by": "fixture"
+                }
+              ]
+            }
+          },
+          "observed": {
+            "requests": 2,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "ready",
+          "enable": "custom-0b0b0b0b-0000-4000-8000-00000000000b",
+          "ok": true,
+          "observed": {
+            "pending": true,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 6,
+            "pending": false,
+            "wakes": 2,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              },
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 6,
+            "pending": false,
+            "wakes": 2,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              },
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              },
+              {
+                "id": "b-1",
+                "provider": "custom-0b0b0b0b-0000-4000-8000-00000000000b",
+                "display": "b-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "b-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Beta",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              }
+            ]
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        }
+      ],
+      "final": {
+        "requests": 6,
+        "pending": false,
+        "wakes": 2,
+        "rewarms": [
+          {
+            "loadSecrets": true
+          },
+          {
+            "loadSecrets": true
+          }
+        ],
+        "cacheLoaded": true,
+        "loadInFlight": false
+      }
+    },
+    {
+      "name": "providers-without-credentials",
+      "agent": {
+        "providers": {
+          "custom-0a0a0a0a-0000-4000-8000-00000000000a": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/a/v1",
+            "auth": "none",
+            "enabled": true
+          },
+          "custom-0c0c0c0c-0000-4000-8000-00000000000c": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Gamma",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/c/v1",
+            "auth": "key",
+            "enabled": true
+          },
+          "custom-0e0e0e0e-0000-4000-8000-00000000000e": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Epsilon",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/e/v1",
+            "auth": "key",
+            "enabled": true,
+            "apiKeyEnv": "MIXDOG_RECORDER_UNSET_KEY"
+          }
+        },
+        "presets": [
+          {
+            "id": "p1",
+            "name": "P1",
+            "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+            "model": "a-1"
+          }
+        ],
+        "default": "p1"
+      },
+      "stub": {
+        "/a/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "a-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        },
+        "/c/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "c-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        },
+        "/e/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "e-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "do": "ready",
+          "ok": true,
+          "observed": {
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {},
+                "catalogPartial": true,
+                "catalogMissing": [
+                  "custom-0e0e0e0e-0000-4000-8000-00000000000e"
+                ],
+                "catalogRetryAt": 1800000030000
+              },
+              {
+                "id": "c-1",
+                "provider": "custom-0c0c0c0c-0000-4000-8000-00000000000c",
+                "display": "c-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "c-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Gamma",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {},
+                "catalogPartial": true,
+                "catalogMissing": [
+                  "custom-0e0e0e0e-0000-4000-8000-00000000000e"
+                ],
+                "catalogRetryAt": 1800000030000
+              }
+            ]
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/c/v1/models",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer no-key"
+            ]
+          ],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/c/v1/models",
+          "headers": [
+            [
+              "Authorization",
+              "Bearer no-key"
+            ]
+          ],
+          "body": null
+        }
+      ],
+      "final": {
+        "requests": 4,
+        "pending": false,
+        "wakes": 1,
+        "rewarms": [
+          {
+            "loadSecrets": true
+          }
+        ],
+        "cacheLoaded": true,
+        "loadInFlight": false
+      }
+    },
+    {
+      "name": "the-catalog-timer-at-its-boundary",
+      "agent": {
+        "providers": {
+          "custom-0a0a0a0a-0000-4000-8000-00000000000a": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/a/v1",
+            "auth": "none",
+            "enabled": true
+          }
+        },
+        "presets": [
+          {
+            "id": "p1",
+            "name": "P1",
+            "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+            "model": "a-1"
+          }
+        ],
+        "default": "p1"
+      },
+      "stub": {
+        "/a/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "a-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "do": "ready",
+          "ok": true,
+          "observed": {
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 2,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 2,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              }
+            ]
+          }
+        },
+        {
+          "do": "serve",
+          "stub": {
+            "/a/v1/models": {
+              "object": "list",
+              "data": [
+                {
+                  "id": "a-1",
+                  "object": "model",
+                  "owned_by": "fixture"
+                },
+                {
+                  "id": "a-2",
+                  "object": "model",
+                  "owned_by": "fixture"
+                }
+              ]
+            }
+          },
+          "observed": {
+            "requests": 2,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "advance",
+          "ms": 86399999,
+          "observed": {
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "timersFired": 0
+          }
+        },
+        {
+          "do": "ready",
+          "ok": true,
+          "observed": {
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 2,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              }
+            ]
+          }
+        },
+        {
+          "do": "advance",
+          "ms": 1,
+          "observed": {
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "timersFired": 1
+          }
+        },
+        {
+          "do": "settleTimer",
+          "observed": {
+            "requests": 3,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-2",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-2",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-2",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              },
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              }
+            ]
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        }
+      ],
+      "final": {
+        "requests": 4,
+        "pending": false,
+        "wakes": 1,
+        "rewarms": [
+          {
+            "loadSecrets": true
+          }
+        ],
+        "cacheLoaded": true,
+        "loadInFlight": false
+      }
+    },
+    {
+      "name": "a-ready-call-and-a-read-after-a-disable",
+      "agent": {
+        "providers": {
+          "custom-0a0a0a0a-0000-4000-8000-00000000000a": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/a/v1",
+            "auth": "none",
+            "enabled": true
+          },
+          "custom-0b0b0b0b-0000-4000-8000-00000000000b": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Beta",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/b/v1",
+            "auth": "none",
+            "enabled": true
+          }
+        },
+        "presets": [
+          {
+            "id": "p1",
+            "name": "P1",
+            "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+            "model": "a-1"
+          }
+        ],
+        "default": "p1"
+      },
+      "stub": {
+        "/a/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "a-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        },
+        "/b/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "b-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "do": "ready",
+          "ok": true,
+          "observed": {
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              },
+              {
+                "id": "b-1",
+                "provider": "custom-0b0b0b0b-0000-4000-8000-00000000000b",
+                "display": "b-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "b-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Beta",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              }
+            ]
+          }
+        },
+        {
+          "do": "disable",
+          "disable": "custom-0b0b0b0b-0000-4000-8000-00000000000b",
+          "removed": true,
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "ready",
+          "ok": true,
+          "observed": {
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 5,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              }
+            ]
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        }
+      ],
+      "final": {
+        "requests": 5,
+        "pending": false,
+        "wakes": 1,
+        "rewarms": [
+          {
+            "loadSecrets": true
+          }
+        ],
+        "cacheLoaded": true,
+        "loadInFlight": false
+      }
+    },
+    {
+      "name": "a-forced-refresh-after-a-disable",
+      "agent": {
+        "providers": {
+          "custom-0a0a0a0a-0000-4000-8000-00000000000a": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/a/v1",
+            "auth": "none",
+            "enabled": true
+          },
+          "custom-0b0b0b0b-0000-4000-8000-00000000000b": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Beta",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/b/v1",
+            "auth": "none",
+            "enabled": true
+          }
+        },
+        "presets": [
+          {
+            "id": "p1",
+            "name": "P1",
+            "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+            "model": "a-1"
+          }
+        ],
+        "default": "p1"
+      },
+      "stub": {
+        "/a/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "a-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        },
+        "/b/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "b-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "do": "ready",
+          "ok": true,
+          "observed": {
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "disable",
+          "disable": "custom-0b0b0b0b-0000-4000-8000-00000000000b",
+          "removed": true,
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "refresh",
+          "observed": {
+            "requests": 5,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 5,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 6,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              }
+            ]
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        }
+      ],
+      "final": {
+        "requests": 6,
+        "pending": false,
+        "wakes": 1,
+        "rewarms": [
+          {
+            "loadSecrets": true
+          }
+        ],
+        "cacheLoaded": true,
+        "loadInFlight": false
+      }
+    },
+    {
+      "name": "a-forced-read-of-the-disabled-provider",
+      "agent": {
+        "providers": {
+          "custom-0a0a0a0a-0000-4000-8000-00000000000a": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/a/v1",
+            "auth": "none",
+            "enabled": true
+          },
+          "custom-0b0b0b0b-0000-4000-8000-00000000000b": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Beta",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/b/v1",
+            "auth": "none",
+            "enabled": true
+          }
+        },
+        "presets": [
+          {
+            "id": "p1",
+            "name": "P1",
+            "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+            "model": "a-1"
+          }
+        ],
+        "default": "p1"
+      },
+      "stub": {
+        "/a/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "a-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        },
+        "/b/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "b-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "do": "ready",
+          "ok": true,
+          "observed": {
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "disable",
+          "disable": "custom-0b0b0b0b-0000-4000-8000-00000000000b",
+          "removed": true,
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 5,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              }
+            ]
+          }
+        },
+        {
+          "do": "read",
+          "force": true,
+          "provider": "custom-0b0b0b0b-0000-4000-8000-00000000000b",
+          "observed": {
+            "requests": 5,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              }
+            ]
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        }
+      ],
+      "final": {
+        "requests": 5,
+        "pending": false,
+        "wakes": 1,
+        "rewarms": [
+          {
+            "loadSecrets": true
+          }
+        ],
+        "cacheLoaded": true,
+        "loadInFlight": false
+      }
+    },
+    {
+      "name": "the-catalog-timer-after-a-disable",
+      "agent": {
+        "providers": {
+          "custom-0a0a0a0a-0000-4000-8000-00000000000a": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/a/v1",
+            "auth": "none",
+            "enabled": true
+          },
+          "custom-0b0b0b0b-0000-4000-8000-00000000000b": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Beta",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/b/v1",
+            "auth": "none",
+            "enabled": true
+          }
+        },
+        "presets": [
+          {
+            "id": "p1",
+            "name": "P1",
+            "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+            "model": "a-1"
+          }
+        ],
+        "default": "p1"
+      },
+      "stub": {
+        "/a/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "a-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        },
+        "/b/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "b-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "do": "ready",
+          "ok": true,
+          "observed": {
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "disable",
+          "disable": "custom-0b0b0b0b-0000-4000-8000-00000000000b",
+          "removed": true,
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "advance",
+          "ms": 86400000,
+          "observed": {
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "timersFired": 1
+          }
+        },
+        {
+          "do": "settleTimer",
+          "observed": {
+            "requests": 5,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 6,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              }
+            ]
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        }
+      ],
+      "final": {
+        "requests": 6,
+        "pending": false,
+        "wakes": 1,
+        "rewarms": [
+          {
+            "loadSecrets": true
+          }
+        ],
+        "cacheLoaded": true,
+        "loadInFlight": false
+      }
+    },
+    {
+      "name": "a-disable-during-a-running-refresh",
+      "agent": {
+        "providers": {
+          "custom-0a0a0a0a-0000-4000-8000-00000000000a": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/a/v1",
+            "auth": "none",
+            "enabled": true
+          },
+          "custom-0b0b0b0b-0000-4000-8000-00000000000b": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Beta",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/b/v1",
+            "auth": "none",
+            "enabled": true
+          }
+        },
+        "presets": [
+          {
+            "id": "p1",
+            "name": "P1",
+            "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+            "model": "a-1"
+          }
+        ],
+        "default": "p1"
+      },
+      "stub": {
+        "/a/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "a-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        },
+        "/b/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "b-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "do": "ready",
+          "hold": [
+            "/a/v1/models",
+            "/b/v1/models"
+          ],
+          "ok": true,
+          "observed": {
+            "requests": 2,
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "disable",
+          "disable": "custom-0b0b0b0b-0000-4000-8000-00000000000b",
+          "removed": true,
+          "observed": {
+            "requests": 2,
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "release",
+          "observed": {
+            "requests": 2,
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 3,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 3,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              }
+            ]
+          }
+        },
+        {
+          "do": "advance",
+          "ms": 86400000,
+          "hold": [
+            "/a/v1/models"
+          ],
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "timersFired": 1
+          }
+        },
+        {
+          "do": "disable",
+          "disable": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+          "removed": true,
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "release",
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settleTimer",
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "refresh",
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        }
+      ],
+      "final": {
+        "requests": 4,
+        "pending": false,
+        "wakes": 1,
+        "rewarms": [
+          {
+            "loadSecrets": true
+          }
+        ],
+        "cacheLoaded": false,
+        "loadInFlight": false
+      }
+    },
+    {
+      "name": "the-catalog-timer-after-an-enable",
+      "agent": {
+        "providers": {
+          "custom-0a0a0a0a-0000-4000-8000-00000000000a": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/a/v1",
+            "auth": "none",
+            "enabled": true
+          },
+          "custom-0b0b0b0b-0000-4000-8000-00000000000b": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Beta",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/b/v1",
+            "auth": "none",
+            "enabled": false
+          }
+        },
+        "presets": [
+          {
+            "id": "p1",
+            "name": "P1",
+            "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+            "model": "a-1"
+          }
+        ],
+        "default": "p1"
+      },
+      "stub": {
+        "/a/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "a-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        },
+        "/b/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "b-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "do": "ready",
+          "ok": true,
+          "observed": {
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 2,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "init",
+          "enable": "custom-0b0b0b0b-0000-4000-8000-00000000000b",
+          "observed": {
+            "requests": 2,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "advance",
+          "ms": 86400000,
+          "observed": {
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "timersFired": 1
+          }
+        },
+        {
+          "do": "settleTimer",
+          "observed": {
+            "requests": 4,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "read",
+          "observed": {
+            "requests": 8,
+            "pending": false,
+            "wakes": 2,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              },
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "rows": [
+              {
+                "id": "a-1",
+                "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+                "display": "a-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "a-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Alpha",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              },
+              {
+                "id": "b-1",
+                "provider": "custom-0b0b0b0b-0000-4000-8000-00000000000b",
+                "display": "b-1",
+                "created": null,
+                "releaseDate": null,
+                "contextWindow": 0,
+                "maxContextWindow": null,
+                "outputTokens": null,
+                "family": null,
+                "tier": null,
+                "latest": false,
+                "description": "",
+                "supportsVision": false,
+                "supportsFunctionCalling": false,
+                "supportsWebSearch": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "serviceTiers": [],
+                "additionalSpeedTiers": [],
+                "defaultServiceTier": null,
+                "fastCapable": false,
+                "modelParameterOptions": [],
+                "parameterVariants": [],
+                "defaultModelParameters": {},
+                "defaultEffort": null,
+                "defaultFast": false,
+                "supportsMaxMode": false,
+                "mode": null,
+                "name": "b-1",
+                "hidden": false,
+                "manual": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                },
+                "providerName": "Beta",
+                "effortOptions": [],
+                "fastPreferred": false,
+                "autoEffortCapable": false,
+                "savedEffort": null,
+                "savedModelParameters": {}
+              }
+            ]
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        }
+      ],
+      "final": {
+        "requests": 8,
+        "pending": false,
+        "wakes": 2,
+        "rewarms": [
+          {
+            "loadSecrets": true
+          },
+          {
+            "loadSecrets": true
+          }
+        ],
+        "cacheLoaded": true,
+        "loadInFlight": false
+      }
+    },
+    {
+      "name": "an-enable-during-a-running-refresh",
+      "agent": {
+        "providers": {
+          "custom-0a0a0a0a-0000-4000-8000-00000000000a": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/a/v1",
+            "auth": "none",
+            "enabled": true
+          },
+          "custom-0b0b0b0b-0000-4000-8000-00000000000b": {
+            "type": "custom",
+            "schemaVersion": 2,
+            "name": "Beta",
+            "protocol": "openai-chat",
+            "baseURL": "__BASE_URL__/b/v1",
+            "auth": "none",
+            "enabled": false
+          }
+        },
+        "presets": [
+          {
+            "id": "p1",
+            "name": "P1",
+            "provider": "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+            "model": "a-1"
+          }
+        ],
+        "default": "p1"
+      },
+      "stub": {
+        "/a/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "a-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        },
+        "/b/v1/models": {
+          "object": "list",
+          "data": [
+            {
+              "id": "b-1",
+              "object": "model",
+              "owned_by": "fixture"
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "do": "ready",
+          "ok": true,
+          "observed": {
+            "pending": true,
+            "wakes": 0,
+            "rewarms": [],
+            "cacheLoaded": false,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settle",
+          "observed": {
+            "requests": 2,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "advance",
+          "ms": 86400000,
+          "hold": [
+            "/a/v1/models"
+          ],
+          "observed": {
+            "requests": 3,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "timersFired": 1
+          }
+        },
+        {
+          "do": "init",
+          "enable": "custom-0b0b0b0b-0000-4000-8000-00000000000b",
+          "observed": {
+            "requests": 3,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "release",
+          "observed": {
+            "requests": 3,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "settleTimer",
+          "observed": {
+            "requests": 3,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        },
+        {
+          "do": "advance",
+          "ms": 86400000,
+          "observed": {
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false,
+            "timersFired": 1
+          }
+        },
+        {
+          "do": "settleTimer",
+          "observed": {
+            "requests": 5,
+            "pending": false,
+            "wakes": 1,
+            "rewarms": [
+              {
+                "loadSecrets": true
+              }
+            ],
+            "cacheLoaded": true,
+            "loadInFlight": false
+          }
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/a/v1/models",
+          "headers": [],
+          "body": null
+        },
+        {
+          "method": "GET",
+          "url": "__BASE_URL__/b/v1/models",
+          "headers": [],
+          "body": null
+        }
+      ],
+      "final": {
+        "requests": 5,
+        "pending": false,
+        "wakes": 1,
+        "rewarms": [
+          {
+            "loadSecrets": true
+          }
+        ],
+        "cacheLoaded": true,
+        "loadInFlight": false
+      }
+    }
+  ]
+}
