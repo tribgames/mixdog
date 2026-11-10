@@ -6,7 +6,7 @@
 //! decrypted here and handed to the bridge byte for byte (R25); a slow phone stalls only its own
 //! bridge task.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -205,6 +205,9 @@ struct State {
     connected: bool,
     /// The relay answered a client listing on this leg (Node's descriptor was null until relay.listClients() succeeded): what the section's `info.connected` means. Reset with the leg.
     listed: bool,
+    /// The devices the relay's latest listing on this leg reported online (Node showed the relay's `online` flag, the roster
+    /// keeps none). Reset with the leg.
+    online: BTreeSet<String>,
     caps: RelayCaps,
     table: ClientTable,
     claims: ClaimBindings,
@@ -400,18 +403,19 @@ impl Inner {
 
     /// Publishes the whole `remote` section from the current state.
     fn refresh(&self) {
-        let (running, connected, claims, live) = {
+        let (running, connected, claims, live, online) = {
             let state = self.state();
             let now = now_ms();
             let claims: Vec<Value> =
                 state.pending_claims.values().filter(|p| p.request.expires_at > now).map(|p| claim_value(&p.request)).collect();
-            (state.live.is_some(), state.connected && state.listed, claims, state.live.clone())
+            (state.live.is_some(), state.connected && state.listed, claims, state.live.clone(), state.online.clone())
         };
         let settings = self.cfg.settings.read();
         let (clients, controller_keys, owed_keys) = match self.roster.get() {
             Some(roster) => {
                 let roster = lock(roster);
-                (self.with_aliases(roster.list()), roster.controller_keys(), roster.owed_access())
+                let rows = roster.list().into_iter().map(|row| ClientInfo { online: online.contains(&row.id), ..row }).collect();
+                (self.with_aliases(rows), roster.controller_keys(), roster.owed_access())
             }
             None => (Vec::new(), Vec::new(), OwedAccess { keys: Vec::new(), unknown: 0 }),
         };
@@ -514,6 +518,7 @@ impl RemoteRuntime {
                     live: None,
                     connected: false,
                     listed: false,
+                    online: BTreeSet::new(),
                     caps: RelayCaps::default(),
                     table: ClientTable::default(),
                     claims: ClaimBindings::default(),
@@ -791,6 +796,7 @@ impl RemoteRuntime {
             let live = state.live.take();
             state.connected = false;
             state.listed = false;
+            state.online.clear();
             state.native = None;
             (live, state.table.close_all())
         };
@@ -868,20 +874,18 @@ impl RemoteRuntime {
     /// The relay's paired-device list; remembered with pending removals marked.
     pub async fn list_clients(&self) -> Result<Vec<Value>, RemoteError> {
         let rows = self.control("list-clients", Map::new()).await?;
-        let first = {
-            let mut state = self.inner.state();
-            let first = state.live.is_some() && state.connected && !state.listed;
-            if first {
-                state.listed = true;
-            }
-            first
-        };
-        if first {
-            self.inner.refresh();
-        }
         let listed = parse_client_list(&rows);
+        {
+            let mut state = self.inner.state();
+            if state.live.is_some() && state.connected {
+                state.listed = true;
+                state.online = listed.iter().filter(|row| row.online).map(|row| row.id.clone()).collect();
+            }
+        }
         let remembered = listed.clone();
         self.inner.with_roster(move |roster, lane| roster.remember(lane, &remembered)).await??;
+        // The section names the devices the relay just listed (a publish only when something changed).
+        self.inner.refresh();
         let roster = self.inner.roster().await?;
         let pending = lock(&roster).pending();
         let marked = listed.into_iter().map(|row| ClientInfo { pending_removal: pending.contains(&row.id), ..row }).collect();
@@ -1420,6 +1424,7 @@ impl RemoteRuntime {
             state.caps.reset();
             state.connected = true;
             state.listed = false;
+            state.online.clear();
             if let Some(web) = state.web.as_mut() {
                 web.reset();
             }
@@ -1441,6 +1446,7 @@ impl RemoteRuntime {
             let mut state = self.inner.state();
             state.connected = false;
             state.listed = false;
+            state.online.clear();
             state.table.close_all()
         };
         self.inner.link_up.send_replace(false);

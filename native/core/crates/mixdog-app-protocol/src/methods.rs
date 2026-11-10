@@ -4223,6 +4223,18 @@ crate::client_request_definitions! {
         mutation: op(Notify),
         origins: [Local, Ssh, Relay],
     },
+    /// What Settings › Notifications reads besides the sections: whether this PC shows OS notifications (the desktop host's
+    /// `host/notification/status`, false with no host: Node asked its window at each read, desktop-service.ts:866) and the
+    /// stored notification document after the default of this PC and of every paired device without stored preferences was
+    /// written (Node's `notificationPreferencesState` wrote them, notification-preferences.ts `withDefaults`).
+    NotifyState => "notify/state" {
+        params: NotifyStateParams,
+        result: NotifyStateResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
     /// Claim the desktop host role.
     HostClaim => "host/claim" {
         params: v2::host::HostClaimParams,
