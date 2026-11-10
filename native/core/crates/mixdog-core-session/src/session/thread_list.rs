@@ -797,9 +797,11 @@ mod tests {
         tokio::time::timeout(std::time::Duration::from_secs(10), listed).await.expect("the background publication never listed").expect("told");
         assert!(list.catalog_loaded(), "the background publication left the catalog unloaded");
         summaries.republish_catalog().await.expect("the second call publishes inside the call");
-        // The background listing's two room rows, then the second call's two, all sent when the second call answers.
+        // Every row of the background listing, then the second call's two room rows, all sent when the second call answers (one
+        // pass chain: the second call's pass starts after the background pass has sent its rows).
         let sent = app.drain_text().into_iter().filter(|text| text.contains(SUMMARY_UPDATED)).count();
-        assert_eq!(sent, 4, "the second call's publication was not inside the call");
+        let whole = list.whole_listing().await.expect("the whole listing").len();
+        assert_eq!(sent, whole + 2, "the second call's publication was not inside the call");
     }
 
     /// A room's republish sets its log thread's `roomView` (opening the log for it), so the
