@@ -15,7 +15,7 @@ import {
 import {
   VISUALIZE_OWNER_META_CODE,
   visualizeOwnerMetaSessionId,
-} from '../../../../src/runtime/visualize-bridge/tool-meta.mjs';
+} from '../shared/core-src/runtime/visualize-bridge/tool-meta.mjs';
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
 import { type SurfaceOwnerSources, surfaceOwnerChain } from './session-browser-policy';

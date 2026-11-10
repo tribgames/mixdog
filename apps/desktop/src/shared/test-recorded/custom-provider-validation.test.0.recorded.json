@@ -1,0 +1,1244 @@
+{
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/agent/orchestrator/providers/custom-provider-config.mjs",
+  "test": "apps/desktop/src/main/custom-provider-validation.test.mjs"
+ },
+ "constants": {
+  "CUSTOM_API_KEY_ENV_RE": {},
+  "CUSTOM_HEADER_LIMIT": 64,
+  "CUSTOM_MODEL_OVERRIDE_LIMIT": 500,
+  "CUSTOM_MODEL_REFUSED_HEADERS": {
+   "$set": [
+    "content-type",
+    "content-length",
+    "host",
+    "connection",
+    "transfer-encoding",
+    "proxy-authorization"
+   ]
+  },
+  "CUSTOM_PROTOCOL_WIRES": {
+   "openai-chat": "chat",
+   "openai-responses": "responses",
+   "anthropic": "messages"
+  },
+  "CUSTOM_PROVIDER_AUTH_MODES": [
+   "key",
+   "none"
+  ],
+  "CUSTOM_PROVIDER_PROTOCOLS": [
+   "openai-chat",
+   "openai-responses",
+   "anthropic"
+  ],
+  "CUSTOM_PROVIDER_SCHEMA_VERSION": 2,
+  "CUSTOM_PROVIDER_WIRES": [
+   "chat",
+   "responses",
+   "messages"
+  ],
+  "CUSTOM_REASONING_LEVELS": [
+   "none",
+   "minimal",
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ],
+  "CUSTOM_REASONING_WIRE_FORMATS": [
+   "standard",
+   "deepseek",
+   "together",
+   "vllm"
+  ],
+  "CUSTOM_REQUEST_BODY_MAX_CHARS": 16384,
+  "CUSTOM_RESERVED_BODY_KEYS": {
+   "$set": [
+    "model",
+    "messages",
+    "input",
+    "system",
+    "instructions",
+    "tools",
+    "tool_choice",
+    "parallel_tool_calls",
+    "stream",
+    "stream_options",
+    "previous_response_id",
+    "store",
+    "include",
+    "prompt_cache_key",
+    "max_tokens",
+    "max_output_tokens",
+    "max_completion_tokens"
+   ]
+  }
+ },
+ "calls": {
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"auth\":\"none\",\"discovery\":{\"newModelsHidden\":true},\"modelOverrides\":{\"mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\":{\"name\":\"nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn\",\"reasoning\":{\"levels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"xhigh\",\"max\"],\"wireValues\":{\"low\":\"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\"}}}}}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "none",
+     "discovery": {
+      "newModelsHidden": true
+     },
+     "modelOverrides": {
+      "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm": {
+       "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+       "reasoning": {
+        "levels": [
+         "none",
+         "minimal",
+         "low",
+         "medium",
+         "high",
+         "xhigh",
+         "max"
+        ],
+        "wireValues": {
+         "low": "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww"
+        }
+       }
+      }
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {}
+    },
+    "async": false
+   },
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {}
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{}}}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {
+      "m": {}
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"levels\":[\"ultra\"]}}}}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {
+      "m": {
+       "reasoning": {
+        "levels": [
+         "max"
+        ]
+       }
+      }
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"levels\":[\"max\"],\"wireValues\":{\"ultra\":\"u\"}}}}}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {
+      "m": {
+       "reasoning": {
+        "levels": [
+         "max"
+        ],
+        "wireValues": {
+         "max": "u"
+        }
+       }
+      }
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"levels\":[\" High\"]}}}}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {
+      "m": {
+       "reasoning": {
+        "levels": [
+         "high"
+        ]
+       }
+      }
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"levels\":[]}}}}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {
+      "m": {
+       "reasoning": {
+        "levels": []
+       }
+      }
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"levels\":[\"none\",\"minimal\",\"low\",\"medium\",\"high\",\"xhigh\",\"max\"]}}}}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {
+      "m": {
+       "reasoning": {
+        "levels": [
+         "none",
+         "minimal",
+         "low",
+         "medium",
+         "high",
+         "xhigh",
+         "max"
+        ]
+       }
+      }
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"wireFormat\":\"deepseek\"}}}}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {
+      "m": {
+       "reasoning": {
+        "wireFormat": "deepseek"
+       }
+      }
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"contextWindow\":9007199254740991}}}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {
+      "m": {
+       "contextWindow": 9007199254740991
+      }
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"discovery\":{}}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {}
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"headers\":{\"originator\":\"codex_cli_rs\"}}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "headers": {
+      "originator": "codex_cli_rs"
+     },
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {}
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"headers\":{}}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {}
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"headers\":[]}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] headers must be an object of header names to string values",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"headers\":null}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] headers must be an object of header names to string values",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"headers\":{\"a\":1}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] headers.a must be a string",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"levels\":[\"max\",\"ultra\"]}}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].reasoning.levels has duplicate level: max",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"levels\":[\"low\",\"low\"]}}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].reasoning.levels has duplicate level: low",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"levels\":[\"turbo\"]}}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].reasoning.levels has unknown level: turbo",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"levels\":[1]}}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].reasoning.levels has unknown level: 1",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"levels\":\"low\"}}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].reasoning.levels must be an array",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"levels\":[\"low\"],\"wireValues\":{\"high\":\"h\"}}}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].reasoning.wireValues level high is not in levels",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"wireValues\":{\"max\":\"a\",\"ultra\":\"b\"}}}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].reasoning.wireValues has duplicate level: max",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"wireValues\":{\"low\":\"  \"}}}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].reasoning.wireValues.low must be non-empty",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"wireValues\":{\"low\":\"a\\u0001b\"}}}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].reasoning.wireValues.low must not contain control characters",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-responses\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"wireFormat\":\"deepseek\"}}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].reasoning.wireFormat 'deepseek' requires protocol 'openai-chat'",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"extra\":1}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m] has unsupported field: extra",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"nope\":1}}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].reasoning has unsupported field: nope",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"discovery\":{\"x\":1}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] discovery has unsupported field: x",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"discovery\":null}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] discovery must be an object",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":null}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides must be an object",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"contextWindow\":\"4096\"}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].contextWindow must be a positive integer",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"maxOutputTokens\":\"512\"}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].maxOutputTokens must be a positive integer",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"contextWindow\":1152921504606847000}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].contextWindow must be a positive integer",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"maxOutputTokens\":0}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].maxOutputTokens must be a positive integer",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"contextWindow\":1.5}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].contextWindow must be a positive integer",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"contextWindow\":null}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].contextWindow must be a positive integer",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"name\":\"  \"}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].name must be non-empty",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"name\":\"a\\u0007\"}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].name must not contain control characters",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\" m\":{}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides key must not have surrounding whitespace: \" m\"",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\\u0000\":{}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides key must not contain control characters",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"hidden\":\"no\"}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].hidden must be a boolean",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"replay\":1}}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].reasoning.replay must be a boolean",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"supportsVision\":true}}}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {
+      "m": {
+       "supportsVision": true
+      }
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"supportsVision\":false}}}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {
+      "m": {
+       "supportsVision": false
+      }
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"supportsVision\":\"auto\"}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].supportsVision must be a boolean",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"supportsVision\":null}}}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] modelOverrides[m].supportsVision must be a boolean",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"auth\":\"none\"}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "none",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {}
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"auth\":\"key\"}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {}
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"enabled\":false}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": false,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {}
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"type\":\"custom\"}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {}
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"anthropic\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "anthropic",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {}
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"extra\":1}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] config has unsupported field: extra",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"enabled\":\"false\"}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] enabled must be a boolean",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"enabled\":null}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] enabled must be a boolean",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"auth\":null}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] invalid auth: null",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"auth\":\"KEY\"}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] invalid auth: KEY",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"auth\":1}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] invalid auth: 1",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\" openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] unsupported protocol:  openai-chat",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":1,\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] protocol must be a string",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"grpc\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] unsupported protocol: grpc",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":1,\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] name must be a string",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\" \",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] name is required",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"a\\u0001\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] name must not contain control characters",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] name must be at most 200 characters",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"type\":\"openai\"}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] invalid type: openai",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"models\":[{\"id\":\"m\"}]}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] config has unsupported field: models",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":5,\"schemaVersion\":2}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] baseURL is required",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"schemaVersion\":2}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] baseURL must be at most 2048 characters",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":\"2\"}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] invalid schemaVersion: 2",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":3}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] unsupported schemaVersion 3; update mixdog to use this provider",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"id\":\"custom-x\",\"apiKey\":\"k\",\"preconnect\":false}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {}
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"preconnect\":\"no\"}]": [
+   {
+    "error": {
+     "name": "Error",
+     "message": "[custom-provider] preconnect must be a boolean",
+     "code": {
+      "$undef": 1
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":2,\"modelOverrides\":{\"m\":{\"reasoning\":{\"levels\":[\"ultra\"],\"wireValues\":{\"ultra\":\"u\"}}}}}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": false
+     },
+     "modelOverrides": {
+      "m": {
+       "reasoning": {
+        "levels": [
+         "max"
+        ],
+        "wireValues": {
+         "max": "u"
+        }
+       }
+      }
+     }
+    },
+    "async": false
+   }
+  ],
+  "normalizeCustomProviderConfig\u0000[{\"name\":\"Local\",\"protocol\":\"openai-chat\",\"baseURL\":\"http://localhost:1234/v1\",\"schemaVersion\":{\"$undef\":1},\"models\":[{\"id\":\"m\",\"contextWindow\":\"4096\",\"name\":\"\"}]}]": [
+   {
+    "result": {
+     "type": "custom",
+     "schemaVersion": 2,
+     "name": "Local",
+     "protocol": "openai-chat",
+     "baseURL": "http://localhost:1234/v1",
+     "enabled": true,
+     "auth": "key",
+     "discovery": {
+      "newModelsHidden": true
+     },
+     "modelOverrides": {
+      "m": {
+       "manual": true,
+       "hidden": false,
+       "contextWindow": 4096
+      }
+     }
+    },
+    "async": false
+   }
+  ]
+ },
+ "services": {},
+ "stubs": {},
+ "opaque": []
+}

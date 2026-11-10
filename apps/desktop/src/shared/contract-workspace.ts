@@ -1,7 +1,7 @@
 // Sessions, projects, workspaces, editor, LSP, renderer diagnostics, boot,
 // workspace text search, local files and document previews.
 import type { DesktopSessionWorkspace } from './contract-worktree';
-import type { RoutineProvenance } from '../../../../src/runtime/agent/orchestrator/session/routine-result.mjs';
+import type { RoutineProvenance } from './core-src/runtime/agent/orchestrator/session/routine-result.mjs';
 
 /** A schedule's or webhook's run result, as routine-result.mjs normalizes it. */
 export type { RoutineProvenance };

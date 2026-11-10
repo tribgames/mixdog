@@ -1,6 +1,6 @@
 // The live step of a connector sign-in (row line, detail note, chat card):
 // the shared row spinner and the words of the current step.
-import { connectorById } from '../../../../src/runtime/shared/connector-catalog.mjs';
+import { connectorById } from '../shared/core-src/runtime/shared/connector-catalog.mjs';
 import type { ConnectorRowView } from './connectors-model';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';

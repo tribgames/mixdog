@@ -5,12 +5,12 @@
 // clock and what the device is showing. Order (design C):
 //   1 quiet hours   2 conversation override   3 device scope   4 event toggle
 //   5 automatic runs   6 presence
-import { agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import {
   roomIdOfSession,
   roomMemberOfSession,
-} from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
-import { runOwnerOf } from '../../../../src/runtime/shared/held-request-host.mjs';
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { runOwnerOf } from '../shared/core-src/runtime/shared/held-request-host.mjs';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { activeOverrides } from '../shared/notification-state';
 import type {

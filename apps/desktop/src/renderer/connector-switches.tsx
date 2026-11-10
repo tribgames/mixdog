@@ -6,7 +6,7 @@
 // bot's permission for it (connector-tool-permissions.tsx).
 import { ChevronRight, Plug } from 'lucide-react';
 import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { connectorById } from '../../../../src/runtime/shared/connector-catalog.mjs';
+import { connectorById } from '../shared/core-src/runtime/shared/connector-catalog.mjs';
 import type { DesktopApi } from '../shared/contract';
 import { openConnectorsTab } from './connector-connect';
 import { ConnectorIcon } from './connector-icon';

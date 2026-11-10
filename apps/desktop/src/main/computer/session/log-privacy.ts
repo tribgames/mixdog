@@ -1,5 +1,5 @@
 /** Diagnostics retain categories, never arbitrary provider or launch payloads. */
-import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
+import { computerErrorCode } from '../../../shared/core-src/runtime/computer-bridge/error-code.mjs';
 
 export function computerLogTarget(value: string): string {
   const target = value.trim();

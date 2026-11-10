@@ -4,7 +4,7 @@ import { assertSafeComputerInput } from './guards.ts';
 import {
   validateComputerToolArgs,
   toComputerHostCommand,
-} from '../../../../../../src/runtime/computer-bridge/action-schema.mjs';
+} from '../../../shared/test-recorded/unicode-bounds.test.0.recorded.mjs';
 
 const checkHostCommands = (command) => {
   assertSafeComputerInput(command);

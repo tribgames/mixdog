@@ -10,7 +10,7 @@ after(restore);
 const [{ renderToStaticMarkup }, { RoomAvatar }, { agentAvatar }] = await Promise.all([
   import('react-dom/server'),
   import('./agent-room-parts.tsx'),
-  import('../../../../src/runtime/shared/agent-avatar.mjs'),
+  import('../shared/core-src/runtime/shared/agent-avatar.mjs'),
 ]);
 
 const members = (count) =>

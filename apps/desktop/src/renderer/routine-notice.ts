@@ -1,7 +1,7 @@
 // A schedule's or webhook's result line in its agent's home thread, in the
 // user's language: the transcript notice row and the contact preview read it
 // the same way.
-import { routineHumanNeeded } from '../../../../src/runtime/agent/orchestrator/session/routine-result.mjs';
+import { routineHumanNeeded } from '../shared/core-src/runtime/agent/orchestrator/session/routine-result.mjs';
 import type { RoutineProvenance } from '../shared/contract';
 import { t } from './i18n';
 

@@ -5,7 +5,7 @@ import { computerStepTimings, computerTimings } from '../shared/timings';
 import { computerCursorFeedback } from '../shared/cursor-feedback';
 import { captureAttempts } from '../shared/capture-attempts';
 import { diagnosticCategory } from '../shared/diagnostic-category';
-import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
+import { computerErrorCode } from '../../../shared/core-src/runtime/computer-bridge/error-code.mjs';
 
 const MAX_BUNDLES = 20;
 const MAX_SESSIONS = 32;

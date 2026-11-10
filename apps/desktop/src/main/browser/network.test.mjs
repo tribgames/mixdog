@@ -13,7 +13,7 @@ import {
 } from './downloads.ts';
 import { createBrowserIntercept } from './intercept.ts';
 import { createBrowserInitScripts } from './init-scripts.ts';
-import { validateBrowserToolArgs } from '../../../../../src/runtime/browser-bridge/action-schema.mjs';
+import { validateBrowserToolArgs } from '../../shared/core-src/runtime/browser-bridge/action-schema.mjs';
 import { browserStorageKeyIsSensitive, createBrowserPageState } from './page-state.ts';
 
 test('browser network ledger records request, response, timing, and filters', () => {

@@ -75,7 +75,7 @@ import { showDesktopToast } from './desktop-toasts';
 import { errorMessageText } from './ErrorNotice';
 import { MixyEmptyState, useMixyFirstPane } from './mixy-first';
 import { isAgentChatSession } from './agent-chat-mode';
-import { agentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { agentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import {
   agentActivityGroups,
   agentPoolStore,

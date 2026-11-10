@@ -4,7 +4,7 @@ import { app, screen } from 'electron';
 import { createPolling } from '../../host-harness-poll';
 import { SCENARIO_IDS } from './scenario-ids';
 import { isScenarioUserControl, userControlDetail } from './scenario-user-control';
-import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
+import { computerErrorCode } from '../../../shared/core-src/runtime/computer-bridge/error-code.mjs';
 import type {
   CommandResult,
   ScenarioCommand,

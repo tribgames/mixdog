@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path/posix';
 
-import { detectDesktop, detectSession } from '../../../../../../src/runtime/computer-bridge/linux-readiness.mjs';
+import { detectDesktop, detectSession } from '../../../shared/core-src/runtime/computer-bridge/linux-readiness.mjs';
 
 const DESTINATION = 'org.gnome.Shell';
 const OBJECT_PATH = '/io/mixdog/Windows';

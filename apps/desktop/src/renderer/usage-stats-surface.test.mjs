@@ -16,7 +16,7 @@ import {
 } from './sidebar-reference-cache.ts';
 import { usageMoney } from './usage-format.ts';
 import { HOVER_POPOVER_CLOSE_DELAY_MS } from './hover-popover.ts';
-import { resolveUsageStatsPeriod } from '../../../../src/standalone/usage-stats-period.mjs';
+import { resolveUsageStatsPeriod } from './test-support/usage-stats-period.recorded.mjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 function harness(context, Component = UsageStatsBody) {

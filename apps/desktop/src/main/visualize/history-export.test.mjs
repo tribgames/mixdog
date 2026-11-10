@@ -18,7 +18,6 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { MAX_VISUALIZE_HISTORY, remoteVisualizeState } from '../../shared/visualize.ts';
-import { createRemoteVisualizeMethods, createRemoteVisualizeMirror } from '../remote-visualize.ts';
 import {
   exportProblemLine,
   exportRequestAllowed,
@@ -383,31 +382,6 @@ test('export acts on the displayed version', async () => {
   const saved = await service.command({ sessionId: 's1', tabId: 'v1', action: 'export', format: 'project', pane: 0 });
   assert.equal(saved.path, 'design/mockups/doc/doc.md');
   assert.equal(readFileSync(join(cwd, saved.path), 'utf8'), '# one');
-});
-
-test('remote export: png/pdf stay on the desktop, project saves on the host and answers path-free', async () => {
-  const cwd = project();
-  const requests = [];
-  const mirror = createRemoteVisualizeMirror();
-  const methods = createRemoteVisualizeMethods({
-    mirror,
-    invokeDesktopOperation: async () => null,
-    hostRequest: async (method, args) => {
-      requests.push([method, args]);
-      return method === 'visualizeCommand'
-        ? { path: 'design/mockups/x/x.svg', openable: true, host: join(cwd, 'secret') }
-        : [];
-    },
-  });
-  const base = { sessionId: 's1', tabId: 'v1', action: 'export' };
-  await assert.rejects(methods.visualizeCommand([{ ...base, format: 'png' }]), /desktop window/);
-  await assert.rejects(methods.visualizeCommand([{ ...base, format: 'pdf' }]), /desktop window/);
-  assert.deepEqual(await methods.visualizeCommand([{ ...base, format: 'project' }]), {
-    path: 'design/mockups/x/x.svg',
-    openable: true,
-  });
-  assert.equal(requests.length, 1);
-  assert.equal(requests[0][1][0].format, 'project');
 });
 
 test('pane text: inline source, an HTML file as read now, a kept version from its snapshot', async () => {

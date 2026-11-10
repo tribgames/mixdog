@@ -1,0 +1,112 @@
+{
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/agent/orchestrator/session/conversation-import/imported-session.mjs",
+  "test": "apps/desktop/src/renderer/transcript-tool-i18n.test.mjs"
+ },
+ "constants": {},
+ "calls": {
+  "importedTranscriptMessages\u0000[[{\"role\":\"user\",\"text\":\"Fix it\",\"at\":null},{\"role\":\"assistant\",\"text\":\"Looking.\\n\\n[ran tools: shell ×2, Read ×1, apply_patch ×1]\\n\\nDone.\",\"at\":null,\"toolRuns\":[{\"start\":10,\"end\":56,\"tools\":[{\"name\":\"shell\",\"count\":2},{\"name\":\"Read\",\"count\":1},{\"name\":\"apply_patch\",\"count\":1}]}]}],1]": [
+   {
+    "result": [
+     {
+      "role": "user",
+      "content": "Fix it",
+      "meta": {
+       "source": "import",
+       "transcript": {
+        "messageId": "msg_963624f630a241b58ff53907a4023d77",
+        "at": 1
+       }
+      }
+     },
+     {
+      "role": "assistant",
+      "content": "Looking.\n\n[ran tools: shell ×2, Read ×1, apply_patch ×1]\n\nDone.",
+      "meta": {
+       "source": "import",
+       "importedToolRuns": [
+        {
+         "start": 10,
+         "end": 56,
+         "tools": [
+          {
+           "name": "shell",
+           "count": 2
+          },
+          {
+           "name": "Read",
+           "count": 1
+          },
+          {
+           "name": "apply_patch",
+           "count": 1
+          }
+         ]
+        }
+       ],
+       "transcript": {
+        "messageId": "msg_796590bf612642f09577aa98fce6533a",
+        "at": 1
+       }
+      }
+     }
+    ],
+    "async": false
+   }
+  ],
+  "importedTranscriptMessages\u0000[[{\"role\":\"user\",\"text\":\"Fix it\",\"at\":1767225600000},{\"role\":\"assistant\",\"text\":\"Looking.\\n\\n[ran tools: shell ×2, Read ×1, apply_patch ×1]\\n\\nDone.\",\"at\":1767225600000,\"toolRuns\":[{\"start\":10,\"end\":56,\"tools\":[{\"name\":\"shell\",\"count\":2},{\"name\":\"Read\",\"count\":1},{\"name\":\"apply_patch\",\"count\":1}]}]}],1]": [
+   {
+    "result": [
+     {
+      "role": "user",
+      "content": "Fix it",
+      "meta": {
+       "source": "import",
+       "transcript": {
+        "messageId": "msg_3a966afe2df8402e8763a868af8015a3",
+        "at": 1767225600000
+       }
+      }
+     },
+     {
+      "role": "assistant",
+      "content": "Looking.\n\n[ran tools: shell ×2, Read ×1, apply_patch ×1]\n\nDone.",
+      "meta": {
+       "source": "import",
+       "importedToolRuns": [
+        {
+         "start": 10,
+         "end": 56,
+         "tools": [
+          {
+           "name": "shell",
+           "count": 2
+          },
+          {
+           "name": "Read",
+           "count": 1
+          },
+          {
+           "name": "apply_patch",
+           "count": 1
+          }
+         ]
+        }
+       ],
+       "transcript": {
+        "messageId": "msg_e264fb9e903241e197d274fbe2f3f643",
+        "at": 1767225600000
+       }
+      }
+     }
+    ],
+    "async": false
+   }
+  ]
+ },
+ "services": {},
+ "stubs": {},
+ "opaque": []
+}

@@ -10,7 +10,7 @@
 // and its 일하는 방식 agents/lead/AGENT.md.
 import { ChevronRight, Power, RotateCcw, Star, Trash2 } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MIXY_AGENT_ID, agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { MIXY_AGENT_ID, agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import {
   type AgentAvatarValue,
   agentAvatar,
@@ -19,7 +19,7 @@ import {
   MIXY_AVATAR,
   defaultAgentAvatar,
   mascotLook,
-} from '../../../../src/runtime/shared/agent-avatar.mjs';
+} from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 import type { DesktopApi, DesktopModelOption, DesktopModelSelection } from '../shared/contract';
 import {
   AgentAvatar,

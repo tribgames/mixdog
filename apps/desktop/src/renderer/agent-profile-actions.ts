@@ -1,7 +1,7 @@
 // The agent actions the profile tab and a contact row's menu share:
 // 켜기/끄기 and 삭제, and the chat's 대화 초기화. Deleting and resetting ask first.
-import { MIXY_AGENT_ID, agentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
-import { roomSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { MIXY_AGENT_ID, agentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { roomSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { DesktopApi } from '../shared/contract';
 import { confirmAction, promptAction } from './app-confirm';
 import { publishMixyStatus } from './mixy-identity';

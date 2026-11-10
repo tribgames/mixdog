@@ -16,7 +16,7 @@ const { AgentCreateDialog, AgentCreateForm } = await import('./agent-create-dial
 const { agentBodyFromBrief } = await import('./workflow-dialogs.tsx');
 const { agentGreetingKickoff, greetNewAgent } = await import('./agent-greeting.ts');
 const { isSessionPreviewNoise } = await import(
-  '../../../../src/runtime/agent/orchestrator/runtime-core/session-text.mjs'
+  '../shared/core-src/runtime/agent/orchestrator/runtime-core/session-text.mjs'
 );
 test.after(() => dom.window.close());
 

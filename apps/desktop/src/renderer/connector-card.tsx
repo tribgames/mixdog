@@ -4,7 +4,7 @@
 // with the marks of the connected services.
 import { Link } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
-import { connectorAppPasswordOnly, connectorById } from '../../../../src/runtime/shared/connector-catalog.mjs';
+import { connectorAppPasswordOnly, connectorById } from '../shared/core-src/runtime/shared/connector-catalog.mjs';
 import {
   appPasswordAccount,
   cancelConnectorLogin,

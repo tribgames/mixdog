@@ -18,12 +18,7 @@ function sshConnection(overrides = {}) {
   const connection = createDesktopConnection(
     { id: 'srv', kind: 'ssh', name: 'Box', target: 'root@127.0.0.1:2223', ...overrides.spec },
     {
-      moduleUrl: () => 'file:///daemon.cjs',
-      environmentReady: () => Promise.resolve(),
       sessionOptions: () => ({ userDataPath: 'C:\\profile', packaged: false, resourcesPath: '', appPath: '', appVersion: '0.0.0', rendererDir: '' }),
-      loadModelProxyRuntime: async () => {
-        throw new Error('the Node model proxy is not used on a core connection');
-      },
       appVersion: '0.0.0',
       createProtocol: () => server,
       localProtocol: () => local,

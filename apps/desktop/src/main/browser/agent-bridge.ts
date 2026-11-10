@@ -4,7 +4,7 @@
  * the pane infrastructure runs regardless of the toggle.
  */
 import type { WebContents } from 'electron';
-import { validateBrowserToolArgs } from '../../../../../src/runtime/browser-bridge/action-schema.mjs';
+import { validateBrowserToolArgs } from '../../shared/core-src/runtime/browser-bridge/action-schema.mjs';
 import { bridgeDiscoveryDirectory } from '../bridge/discovery-file';
 import { BrowserBridgeServer } from './bridge-server';
 import { BACKGROUND_RECLAIM_INTERVAL_MS, type BrowserCommand } from './command';

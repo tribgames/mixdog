@@ -9,7 +9,7 @@ import { SUPPORTED_UI_LANGUAGES } from '../shared/ui-language';
 import {
   DEVIN_OAUTH_FAILURE_CODES,
   exchangeDevinCode,
-} from '../../../../src/runtime/agent/orchestrator/providers/devin-auth.mjs';
+} from '../shared/test-recorded/oauth-failure-copy.test.0.recorded.mjs';
 
 const ko = JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8'));
 const english = (code) => `${code}: some English sentence (127.0.0.1:59653)`;

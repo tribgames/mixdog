@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { app, BrowserWindow, nativeImage, webContents, type WebContents } from 'electron';
-import { BROWSER_ACTIONS } from '../../../../../src/runtime/browser-bridge/browser-action-contract.mjs';
+import { BROWSER_ACTIONS } from '../../shared/core-src/runtime/browser-bridge/browser-action-contract.mjs';
 import { createBrowserHost, type BrowserHost } from './host';
 import { readyBrowserFrame } from './harness-frame';
 import type { BrowserCommandTiming } from './timing';

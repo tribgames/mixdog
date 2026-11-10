@@ -4,8 +4,8 @@
  * The action lists and limits it enforces come from the same definitions the
  * Windows host is built from, handed over through its environment.
  */
-import { computerActionsWith } from '../../../../../../src/runtime/computer-bridge/actions.mjs';
-import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS } from '../../../../../../src/runtime/computer-bridge/limits.mjs';
+import { computerActionsWith } from '../../../shared/core-src/runtime/computer-bridge/actions.mjs';
+import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS } from '../../../shared/core-src/runtime/computer-bridge/limits.mjs';
 import { DEFAULT_CAPTURE_AFTER_DELAY_MS } from '../shared/common';
 
 export function computerNativeBinary(): string {

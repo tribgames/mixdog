@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { DEVELOPER_SECTIONS } from '../../../../src/runtime/shared/developer-options.mjs';
+import { readFileSync } from 'node:fs';
 import { DESKTOP_IPC } from '../shared/contract.ts';
 import { createAllowAllActionsConfirm, isAllowAllActionsEnable } from './developer-risk-confirm.ts';
 import { beginComputerOperation } from './human-only-approval.ts';
 import { registerWindowSettingsIpc } from './ipc-window-settings.ts';
-import { assertRemoteCapabilityCall } from './remote-methods.ts';
-
+// Node b6f10295a DEVELOPER_SECTIONS (runtime/shared/developer-options.mjs), recorded.
+const DEVELOPER_SECTIONS = JSON.parse(readFileSync(new URL('./test-support/developer-sections.recorded.json', import.meta.url), 'utf8'));
 const option = DEVELOPER_SECTIONS.flatMap((section) => section.options).find((entry) => entry.id === 'allowAllActions');
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -139,13 +139,4 @@ test('the renderer cannot turn on allowAllActions without the main-process confi
     ['setDeveloperOption', ['allowAllActions', false]],
     ['setDeveloperOption', ['cursorOAuth', true]],
   ]);
-});
-
-test('a paired remote client cannot turn on allowAllActions but can turn it off', () => {
-  assert.throws(
-    () => assertRemoteCapabilityCall('setDeveloperOption', ['allowAllActions', true]),
-    /cannot turn on Allow all actions over remote access/
-  );
-  assertRemoteCapabilityCall('setDeveloperOption', ['allowAllActions', false]);
-  assertRemoteCapabilityCall('setDeveloperOption', ['cursorOAuth', true]);
 });

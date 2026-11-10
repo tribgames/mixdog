@@ -3,9 +3,9 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
-import { UsageLedger, makeUsageRecord } from '../../../../src/runtime/shared/llm/usage-ledger.mjs';
-import { createUsageStatsApi } from '../../../../src/session-runtime/usage-stats-api.mjs';
-import { resolveUsageStatsPeriod } from '../../../../src/standalone/usage-stats-period.mjs';
+import { UsageLedger, makeUsageRecord } from '../shared/test-recorded/usage-stats-speed-layout.slow.test.0.recorded.mjs';
+import { createUsageStatsApi } from '../shared/test-recorded/usage-stats-speed-layout.slow.test.1.recorded.mjs';
+import { resolveUsageStatsPeriod } from '../shared/test-recorded/usage-stats-speed-layout.slow.test.2.recorded.mjs';
 
 // Vite gives every dynamic import its own chunk, so a surface only loads what
 // it opens. esbuild cannot code-split an `iife` bundle, so it inlines those

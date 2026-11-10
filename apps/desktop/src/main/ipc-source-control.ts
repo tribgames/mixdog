@@ -30,7 +30,7 @@ import {
   optionalGithubLoginOptions,
 } from './ipc-validation';
 import type { IpcHandle as Handle } from './ipc';
-import { validateGithubRequest } from '../../../../src/runtime/github/contract.mjs';
+import { validateGithubRequest } from '../shared/core-src/runtime/github/contract.mjs';
 import { launchFile } from './file-launch';
 import { writeAttachmentFile } from './attachment-files';
 

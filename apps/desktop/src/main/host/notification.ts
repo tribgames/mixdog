@@ -9,6 +9,7 @@ import type { Notification } from 'electron';
 import type {
   HostNotificationClickedParams,
   HostNotificationShowParams,
+  HostNotificationStatus,
 } from '../../../../../packages/protocol/src/index.ts';
 import { retainNotification } from '../notification-window';
 import { HOST_METHOD, type HostConnection, HostRpcError, HOST_INVALID_PARAMS, objectParams } from './connection';
@@ -20,10 +21,20 @@ export interface NotificationPresenter {
   playSound?(volume: number | undefined): Promise<unknown>;
   /** Brings this PC's window forward (the session itself is routed by the core). */
   activate(): void;
+  /** Whether the OS can show toasts at all. */
+  isSupported(): boolean;
+  /** The OS's own idle time in seconds: input anywhere on the PC counts. */
+  idleSeconds(): number;
 }
 
 export function registerNotificationHost(connection: HostConnection, presenter: NotificationPresenter): void {
   const live = new Set<unknown>();
+  // What Node's `notificationStatus` host method answered (main/index.ts at b6f10295a): paired devices hold their pushes
+  // while this PC is in use.
+  connection.handleRequest(HOST_METHOD.notificationStatus, async (): Promise<HostNotificationStatus> => ({
+    supported: presenter.isSupported(),
+    idleSeconds: presenter.idleSeconds(),
+  }));
   connection.handleNotification(HOST_METHOD.notificationShow, (params) => {
     const { title, body, threadId, sound, volume } = objectParams<HostNotificationShowParams>(
       params,

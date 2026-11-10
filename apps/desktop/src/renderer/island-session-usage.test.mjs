@@ -3,7 +3,7 @@ import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
-import { createUsageStatsApi } from '../../../../src/session-runtime/usage-stats-api.mjs';
+import { createUsageStatsApi } from '../shared/test-recorded/island-session-usage.test.0.recorded.mjs';
 import { islandUsageCue, useIslandSessionUsage } from './island-session-usage.ts';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;

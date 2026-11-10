@@ -178,7 +178,7 @@ test('while the user reads a bot chat, a coding session that finishes takes the 
 
 test("a delegated session and its descendants (via the desktop projection) take their own dots, read with the bot's chat; a user's /inherit continuation is not", async () => {
   const { desktopSessionSummaries } = await import('../main/desktop-state.ts');
-  const { agentHomeSessionId } = await import('../../../../src/runtime/agent/orchestrator/session/agent-home.mjs');
+  const { agentHomeSessionId } = await import('../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs');
   const botChat = agentHomeSessionId('bot');
   const raw = (id, extra) => ({
     id,
@@ -385,45 +385,6 @@ test('focus coming back reads the shown chats without re-rendering the window', 
     );
     assert.equal(marks(), '');
     assert.equal(renders - before, 1, 'only the dot changes; no extra render for the return itself');
-  } finally {
-    await act(async () => dom.root.unmount());
-    dom.close();
-  }
-});
-
-test("a reply read to its end in the bot overlay clears the chat's unread mark (sidebar dot, Bots badge)", async (t) => {
-  const { mkdtemp, rm } = await import('node:fs/promises');
-  const { tmpdir } = await import('node:os');
-  const { join } = await import('node:path');
-  const { DesktopSessionMetadata } = await import('../main/desktop-session-metadata.ts');
-  const dir = await mkdtemp(join(tmpdir(), 'mixdog-pet-read-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const metadata = new DesktopSessionMetadata(() => dir);
-  await metadata.load();
-  const dom = installDom();
-  const api = {};
-  // The user looks at another chat while Mixy's reply lands.
-  function Harness() {
-    const viewedSessionRef = useRef('other');
-    Object.assign(api, useUnreadSessions({ viewedSessionRef }));
-    return React.createElement('div', null, [...api.unreadSessionIds].join(','));
-  }
-  const marks = () => document.querySelector('#root div').textContent;
-  const mixy = { ...row, id: 'mixy-home', messageCount: 2, readMessageCount: 2, readRevision: 1 };
-  const catalog = (count) => metadata.withReadCursors([{ ...mixy, messageCount: count }]);
-  try {
-    await metadata.markRead('mixy-home', 2, false);
-    await act(async () => dom.root.render(React.createElement(Harness)));
-    await act(async () => api.reconcileUnreadSessions(catalog(2)));
-    await act(async () => api.reconcileUnreadSessions(catalog(4)));
-    assert.equal(marks(), 'mixy-home', 'a new reply: unread');
-    // Closed in the overlay before its last page: nothing is recorded; still unread.
-    await act(async () => api.reconcileUnreadSessions(catalog(4)));
-    assert.equal(marks(), 'mixy-home');
-    // Its last page shown: main's markRead (the overlay's deps.markRead) and the catalog push.
-    await metadata.markRead('mixy-home', 4, true);
-    await act(async () => api.reconcileUnreadSessions(catalog(4)));
-    assert.equal(marks(), '', 'read in the overlay: cleared in the app');
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();

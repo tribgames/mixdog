@@ -10,7 +10,7 @@ import { waitForElectronTypingTarget } from './electron-text-target';
 import type { ComputerExecutionPolicy } from './execution-policy';
 import type { ResolvedInputTarget } from './input-resolution';
 import { assertObservationInputAllowed } from './observation-policy';
-import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
+import { computerErrorCode } from '../../../shared/core-src/runtime/computer-bridge/error-code.mjs';
 
 export type DispatchAuthority =
   | Awaited<ReturnType<ComputerExecutionPolicy['dispatchAuthority']>>

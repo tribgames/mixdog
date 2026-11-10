@@ -6,7 +6,7 @@ import { desktopComposerSlashCommands } from './slash-commands';
 import type { ComposerSkill } from './composer-skill';
 import { filterSkillMentions } from './composer-skill-mentions';
 import { changedFilePaths, mentionedFilePaths, mentionItems, verifiedMentionedFiles } from './composer-mention-rows';
-import { isInMarkdownCode } from '../../../../src/runtime/shared/skill-mentions.mjs';
+import { isInMarkdownCode } from '../../../../packages/protocol-client/src/rows/skill-mentions.mjs';
 
 type MentionMatch = { start: number; end: number; query: string };
 

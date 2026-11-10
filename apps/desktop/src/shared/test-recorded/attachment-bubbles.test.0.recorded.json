@@ -1,0 +1,737 @@
+{
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/tui/session/session-flow/queue/entry-shape.mjs",
+  "test": "apps/desktop/src/renderer/attachment-bubbles.test.mjs"
+ },
+ "constants": {},
+ "calls": {
+  "makeQueueEntry\u0000[[{\"type\":\"image\",\"data\":\"cG5nIGJ5dGVz\",\"mimeType\":\"image/png\"}],{\"id\":\"sub_pasted_image\",\"pastedImages\":{\"1\":{\"id\":1,\"type\":\"image\",\"sizeBytes\":9,\"mediaType\":\"image/png\",\"filename\":\"Pasted image\"}}},{\"$fn\":1}]": [
+   {
+    "result": {
+     "id": "sub_pasted_image",
+     "submittedAt": 1794201060792,
+     "text": "[Image]",
+     "content": [
+      {
+       "type": "image",
+       "data": "cG5nIGJ5dGVz",
+       "mimeType": "image/png"
+      }
+     ],
+     "pastedImages": {
+      "1": {
+       "id": 1,
+       "type": "image",
+       "sizeBytes": 9,
+       "mediaType": "image/png",
+       "filename": "Pasted image"
+      }
+     },
+     "pastedTexts": null,
+     "images": [
+      {
+       "id": 1,
+       "name": "Pasted image",
+       "mimeType": "image/png",
+       "bytes": 12
+      }
+     ],
+     "onCommitted": null,
+     "onSettled": null,
+     "onToolResult": null,
+     "transcriptMeta": null,
+     "context": null,
+     "mode": "prompt",
+     "priority": "next",
+     "key": null,
+     "origin": null,
+     "skipSlashCommands": false,
+     "displayText": "[Image]",
+     "suppressDisplay": false,
+     "abortDiscardOnAbort": false,
+     "resumeCompletionKeys": [],
+     "steeringPersistId": null,
+     "isMeta": false,
+     "skillSelection": null,
+     "goalId": null,
+     "retryFailedTurn": false,
+     "retryTurnId": null,
+     "retryAttemptId": null
+    },
+    "async": false
+   }
+  ],
+  "makeQueueEntry\u0000[[{\"type\":\"image\",\"data\":\"cG5nIGJ5dGVz\",\"mimeType\":\"image/jpeg\"}],{\"id\":\"sub_image_file\",\"pastedImages\":{\"1\":{\"id\":1,\"type\":\"image\",\"sizeBytes\":9,\"mediaType\":\"image/jpeg\",\"filename\":\"photo.jpg\"}}},{\"$fn\":1}]": [
+   {
+    "result": {
+     "id": "sub_image_file",
+     "submittedAt": 1794201060849,
+     "text": "[Image]",
+     "content": [
+      {
+       "type": "image",
+       "data": "cG5nIGJ5dGVz",
+       "mimeType": "image/jpeg"
+      }
+     ],
+     "pastedImages": {
+      "1": {
+       "id": 1,
+       "type": "image",
+       "sizeBytes": 9,
+       "mediaType": "image/jpeg",
+       "filename": "photo.jpg"
+      }
+     },
+     "pastedTexts": null,
+     "images": [
+      {
+       "id": 1,
+       "name": "photo.jpg",
+       "mimeType": "image/jpeg",
+       "bytes": 12
+      }
+     ],
+     "onCommitted": null,
+     "onSettled": null,
+     "onToolResult": null,
+     "transcriptMeta": null,
+     "context": null,
+     "mode": "prompt",
+     "priority": "next",
+     "key": null,
+     "origin": null,
+     "skipSlashCommands": false,
+     "displayText": "[Image]",
+     "suppressDisplay": false,
+     "abortDiscardOnAbort": false,
+     "resumeCompletionKeys": [],
+     "steeringPersistId": null,
+     "isMeta": false,
+     "skillSelection": null,
+     "goalId": null,
+     "retryFailedTurn": false,
+     "retryTurnId": null,
+     "retryAttemptId": null
+    },
+    "async": false
+   }
+  ],
+  "makeQueueEntry\u0000[[{\"type\":\"image\",\"data\":\"cG5nIGJ5dGVz\",\"mimeType\":\"image/png\"},{\"type\":\"image\",\"data\":\"cG5nIGJ5dGVz\",\"mimeType\":\"image/png\"},{\"type\":\"image\",\"data\":\"cG5nIGJ5dGVz\",\"mimeType\":\"image/png\"}],{\"id\":\"sub_several_pasted_images\",\"pastedImages\":{\"1\":{\"id\":1,\"type\":\"image\",\"sizeBytes\":9,\"mediaType\":\"image/png\",\"filename\":\"Pasted image\"},\"2\":{\"id\":2,\"type\":\"image\",\"sizeBytes\":9,\"mediaType\":\"image/png\",\"filename\":\"Pasted image\"},\"3\":{\"id\":3,\"type\":\"image\",\"sizeBytes\":9,\"mediaType\":\"image/png\",\"filename\":\"Pasted image\"}}},{\"$fn\":1}]": [
+   {
+    "result": {
+     "id": "sub_several_pasted_images",
+     "submittedAt": 1794201060871,
+     "text": "[Image]\n[Image]\n[Image]",
+     "content": [
+      {
+       "type": "image",
+       "data": "cG5nIGJ5dGVz",
+       "mimeType": "image/png"
+      },
+      {
+       "type": "image",
+       "data": "cG5nIGJ5dGVz",
+       "mimeType": "image/png"
+      },
+      {
+       "type": "image",
+       "data": "cG5nIGJ5dGVz",
+       "mimeType": "image/png"
+      }
+     ],
+     "pastedImages": {
+      "1": {
+       "id": 1,
+       "type": "image",
+       "sizeBytes": 9,
+       "mediaType": "image/png",
+       "filename": "Pasted image"
+      },
+      "2": {
+       "id": 2,
+       "type": "image",
+       "sizeBytes": 9,
+       "mediaType": "image/png",
+       "filename": "Pasted image"
+      },
+      "3": {
+       "id": 3,
+       "type": "image",
+       "sizeBytes": 9,
+       "mediaType": "image/png",
+       "filename": "Pasted image"
+      }
+     },
+     "pastedTexts": null,
+     "images": [
+      {
+       "id": 1,
+       "name": "Pasted image",
+       "mimeType": "image/png",
+       "bytes": 12
+      },
+      {
+       "id": 2,
+       "name": "Pasted image",
+       "mimeType": "image/png",
+       "bytes": 12
+      },
+      {
+       "id": 3,
+       "name": "Pasted image",
+       "mimeType": "image/png",
+       "bytes": 12
+      }
+     ],
+     "onCommitted": null,
+     "onSettled": null,
+     "onToolResult": null,
+     "transcriptMeta": null,
+     "context": null,
+     "mode": "prompt",
+     "priority": "next",
+     "key": null,
+     "origin": null,
+     "skipSlashCommands": false,
+     "displayText": "[Image]\n[Image]\n[Image]",
+     "suppressDisplay": false,
+     "abortDiscardOnAbort": false,
+     "resumeCompletionKeys": [],
+     "steeringPersistId": null,
+     "isMeta": false,
+     "skillSelection": null,
+     "goalId": null,
+     "retryFailedTurn": false,
+     "retryTurnId": null,
+     "retryAttemptId": null
+    },
+    "async": false
+   }
+  ],
+  "makeQueueEntry\u0000[[{\"type\":\"text\",\"text\":\"[PDF #1: report.pdf]\"},{\"type\":\"file\",\"data\":\"JVBERi0xLjQgcGRmIGJ5dGVz\",\"mimeType\":\"application/pdf\",\"filename\":\"report.pdf\"}],{\"id\":\"sub_PDF\",\"displayText\":\"[PDF #1: report.pdf]\"},{\"$fn\":1}]": [
+   {
+    "result": {
+     "id": "sub_PDF",
+     "submittedAt": 1794201060886,
+     "text": "[PDF #1: report.pdf]",
+     "content": [
+      {
+       "type": "text",
+       "text": "[PDF #1: report.pdf]"
+      },
+      {
+       "type": "file",
+       "data": "JVBERi0xLjQgcGRmIGJ5dGVz",
+       "mimeType": "application/pdf",
+       "filename": "report.pdf"
+      }
+     ],
+     "pastedImages": null,
+     "pastedTexts": null,
+     "images": null,
+     "onCommitted": null,
+     "onSettled": null,
+     "onToolResult": null,
+     "transcriptMeta": null,
+     "context": null,
+     "mode": "prompt",
+     "priority": "next",
+     "key": null,
+     "origin": null,
+     "skipSlashCommands": false,
+     "displayText": "[PDF #1: report.pdf]",
+     "suppressDisplay": false,
+     "abortDiscardOnAbort": false,
+     "resumeCompletionKeys": [],
+     "steeringPersistId": null,
+     "isMeta": false,
+     "skillSelection": null,
+     "goalId": null,
+     "retryFailedTurn": false,
+     "retryTurnId": null,
+     "retryAttemptId": null
+    },
+    "async": false
+   }
+  ],
+  "makeQueueEntry\u0000[[{\"type\":\"text\",\"text\":\"[File #1: plan.docx]\"},{\"type\":\"file\",\"data\":\"UEsgZG9jeCBieXRlcw==\",\"mimeType\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"filename\":\"plan.docx\"}],{\"id\":\"sub_office_document\",\"displayText\":\"[File #1: plan.docx]\"},{\"$fn\":1}]": [
+   {
+    "result": {
+     "id": "sub_office_document",
+     "submittedAt": 1794201060915,
+     "text": "[File #1: plan.docx]",
+     "content": [
+      {
+       "type": "text",
+       "text": "[File #1: plan.docx]"
+      },
+      {
+       "type": "file",
+       "data": "UEsgZG9jeCBieXRlcw==",
+       "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+       "filename": "plan.docx"
+      }
+     ],
+     "pastedImages": null,
+     "pastedTexts": null,
+     "images": null,
+     "onCommitted": null,
+     "onSettled": null,
+     "onToolResult": null,
+     "transcriptMeta": null,
+     "context": null,
+     "mode": "prompt",
+     "priority": "next",
+     "key": null,
+     "origin": null,
+     "skipSlashCommands": false,
+     "displayText": "[File #1: plan.docx]",
+     "suppressDisplay": false,
+     "abortDiscardOnAbort": false,
+     "resumeCompletionKeys": [],
+     "steeringPersistId": null,
+     "isMeta": false,
+     "skillSelection": null,
+     "goalId": null,
+     "retryFailedTurn": false,
+     "retryTurnId": null,
+     "retryAttemptId": null
+    },
+    "async": false
+   }
+  ],
+  "makeQueueEntry\u0000[\"[File #1: main.ts]\",{\"id\":\"sub_text_code_file\",\"displayText\":\"[File #1: main.ts]\",\"pastedTexts\":{\"1\":{\"id\":1,\"text\":\"export const answer = 42;\\n\",\"filename\":\"main.ts\",\"mimeType\":\"text/plain\",\"source\":\"file\"}}},{\"$fn\":1}]": [
+   {
+    "result": {
+     "id": "sub_text_code_file",
+     "submittedAt": 1794201060948,
+     "text": "[File #1: main.ts]",
+     "content": "[File #1: main.ts]",
+     "pastedImages": null,
+     "pastedTexts": {
+      "1": {
+       "id": 1,
+       "text": "export const answer = 42;\n",
+       "filename": "main.ts",
+       "mimeType": "text/plain",
+       "source": "file"
+      }
+     },
+     "images": null,
+     "onCommitted": null,
+     "onSettled": null,
+     "onToolResult": null,
+     "transcriptMeta": null,
+     "context": null,
+     "mode": "prompt",
+     "priority": "next",
+     "key": null,
+     "origin": null,
+     "skipSlashCommands": false,
+     "displayText": "[File #1: main.ts]",
+     "suppressDisplay": false,
+     "abortDiscardOnAbort": false,
+     "resumeCompletionKeys": [],
+     "steeringPersistId": null,
+     "isMeta": false,
+     "skillSelection": null,
+     "goalId": null,
+     "retryFailedTurn": false,
+     "retryTurnId": null,
+     "retryAttemptId": null
+    },
+    "async": false
+   }
+  ],
+  "makeQueueEntry\u0000[\"[Pasted text #1 +30 lines]\",{\"id\":\"sub_pasted_text\",\"displayText\":\"[Pasted text #1 +30 lines]\",\"pastedTexts\":{\"1\":{\"id\":1,\"text\":\"line 1\\nline 2\\nline 3\\nline 4\\nline 5\\nline 6\\nline 7\\nline 8\\nline 9\\nline 10\\nline 11\\nline 12\\nline 13\\nline 14\\nline 15\\nline 16\\nline 17\\nline 18\\nline 19\\nline 20\\nline 21\\nline 22\\nline 23\\nline 24\\nline 25\\nline 26\\nline 27\\nline 28\\nline 29\\nline 30\",\"filename\":\"Pasted text · 30 lines\",\"mimeType\":\"text/plain\",\"source\":\"paste\"}}},{\"$fn\":1}]": [
+   {
+    "result": {
+     "id": "sub_pasted_text",
+     "submittedAt": 1794201060985,
+     "text": "[Pasted text #1 +30 lines]",
+     "content": "[Pasted text #1 +30 lines]",
+     "pastedImages": null,
+     "pastedTexts": {
+      "1": {
+       "id": 1,
+       "text": "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nline 25\nline 26\nline 27\nline 28\nline 29\nline 30",
+       "filename": "Pasted text · 30 lines",
+       "mimeType": "text/plain",
+       "source": "paste"
+      }
+     },
+     "images": null,
+     "onCommitted": null,
+     "onSettled": null,
+     "onToolResult": null,
+     "transcriptMeta": null,
+     "context": null,
+     "mode": "prompt",
+     "priority": "next",
+     "key": null,
+     "origin": null,
+     "skipSlashCommands": false,
+     "displayText": "[Pasted text #1 +30 lines]",
+     "suppressDisplay": false,
+     "abortDiscardOnAbort": false,
+     "resumeCompletionKeys": [],
+     "steeringPersistId": null,
+     "isMeta": false,
+     "skillSelection": null,
+     "goalId": null,
+     "retryFailedTurn": false,
+     "retryTurnId": null,
+     "retryAttemptId": null
+    },
+    "async": false
+   }
+  ],
+  "makeQueueEntry\u0000[\"C:\\\\clips\\\\demo.mp4\",{\"id\":\"sub_video_path_\",\"displayText\":\"C:\\\\clips\\\\demo.mp4\"},{\"$fn\":1}]": [
+   {
+    "result": {
+     "id": "sub_video_path_",
+     "submittedAt": 1794201061017,
+     "text": "C:\\clips\\demo.mp4",
+     "content": "C:\\clips\\demo.mp4",
+     "pastedImages": null,
+     "pastedTexts": null,
+     "images": null,
+     "onCommitted": null,
+     "onSettled": null,
+     "onToolResult": null,
+     "transcriptMeta": null,
+     "context": null,
+     "mode": "prompt",
+     "priority": "next",
+     "key": null,
+     "origin": null,
+     "skipSlashCommands": false,
+     "displayText": "C:\\clips\\demo.mp4",
+     "suppressDisplay": false,
+     "abortDiscardOnAbort": false,
+     "resumeCompletionKeys": [],
+     "steeringPersistId": null,
+     "isMeta": false,
+     "skillSelection": null,
+     "goalId": null,
+     "retryFailedTurn": false,
+     "retryTurnId": null,
+     "retryAttemptId": null
+    },
+    "async": false
+   }
+  ],
+  "makeQueueEntry\u0000[\"C:\\\\audio\\\\memo.m4a\",{\"id\":\"sub_audio_path_\",\"displayText\":\"C:\\\\audio\\\\memo.m4a\"},{\"$fn\":1}]": [
+   {
+    "result": {
+     "id": "sub_audio_path_",
+     "submittedAt": 1794201061020,
+     "text": "C:\\audio\\memo.m4a",
+     "content": "C:\\audio\\memo.m4a",
+     "pastedImages": null,
+     "pastedTexts": null,
+     "images": null,
+     "onCommitted": null,
+     "onSettled": null,
+     "onToolResult": null,
+     "transcriptMeta": null,
+     "context": null,
+     "mode": "prompt",
+     "priority": "next",
+     "key": null,
+     "origin": null,
+     "skipSlashCommands": false,
+     "displayText": "C:\\audio\\memo.m4a",
+     "suppressDisplay": false,
+     "abortDiscardOnAbort": false,
+     "resumeCompletionKeys": [],
+     "steeringPersistId": null,
+     "isMeta": false,
+     "skillSelection": null,
+     "goalId": null,
+     "retryFailedTurn": false,
+     "retryTurnId": null,
+     "retryAttemptId": null
+    },
+    "async": false
+   }
+  ],
+  "makeQueueEntry\u0000[\"C:\\\\Project\\\\app\",{\"id\":\"sub_folder_path_\",\"displayText\":\"C:\\\\Project\\\\app\"},{\"$fn\":1}]": [
+   {
+    "result": {
+     "id": "sub_folder_path_",
+     "submittedAt": 1794201061025,
+     "text": "C:\\Project\\app",
+     "content": "C:\\Project\\app",
+     "pastedImages": null,
+     "pastedTexts": null,
+     "images": null,
+     "onCommitted": null,
+     "onSettled": null,
+     "onToolResult": null,
+     "transcriptMeta": null,
+     "context": null,
+     "mode": "prompt",
+     "priority": "next",
+     "key": null,
+     "origin": null,
+     "skipSlashCommands": false,
+     "displayText": "C:\\Project\\app",
+     "suppressDisplay": false,
+     "abortDiscardOnAbort": false,
+     "resumeCompletionKeys": [],
+     "steeringPersistId": null,
+     "isMeta": false,
+     "skillSelection": null,
+     "goalId": null,
+     "retryFailedTurn": false,
+     "retryTurnId": null,
+     "retryAttemptId": null
+    },
+    "async": false
+   }
+  ],
+  "makeQueueEntry\u0000[\"회의 내용을 요약하세요\",{\"id\":\"sub_voice_recording_dictated_\",\"displayText\":\"회의 내용을 요약하세요\"},{\"$fn\":1}]": [
+   {
+    "result": {
+     "id": "sub_voice_recording_dictated_",
+     "submittedAt": 1794201061027,
+     "text": "회의 내용을 요약하세요",
+     "content": "회의 내용을 요약하세요",
+     "pastedImages": null,
+     "pastedTexts": null,
+     "images": null,
+     "onCommitted": null,
+     "onSettled": null,
+     "onToolResult": null,
+     "transcriptMeta": null,
+     "context": null,
+     "mode": "prompt",
+     "priority": "next",
+     "key": null,
+     "origin": null,
+     "skipSlashCommands": false,
+     "displayText": "회의 내용을 요약하세요",
+     "suppressDisplay": false,
+     "abortDiscardOnAbort": false,
+     "resumeCompletionKeys": [],
+     "steeringPersistId": null,
+     "isMeta": false,
+     "skillSelection": null,
+     "goalId": null,
+     "retryFailedTurn": false,
+     "retryTurnId": null,
+     "retryAttemptId": null
+    },
+    "async": false
+   }
+  ],
+  "makeQueueEntry\u0000[[{\"type\":\"text\",\"text\":\"[PDF #2: report.pdf]\\n[File #3: plan.docx]\\n[File #4: main.ts]\\n[Pasted text #5 +30 lines]\"},{\"type\":\"image\",\"data\":\"cG5nIGJ5dGVz\",\"mimeType\":\"image/png\"},{\"type\":\"file\",\"data\":\"JVBERi0xLjQgcGRmIGJ5dGVz\",\"mimeType\":\"application/pdf\",\"filename\":\"report.pdf\"},{\"type\":\"file\",\"data\":\"UEsgZG9jeCBieXRlcw==\",\"mimeType\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"filename\":\"plan.docx\"}],{\"id\":\"sub_mixed_attachments\",\"displayText\":\"[PDF #2: report.pdf]\\n[File #3: plan.docx]\\n[File #4: main.ts]\\n[Pasted text #5 +30 lines]\",\"pastedImages\":{\"1\":{\"id\":1,\"type\":\"image\",\"sizeBytes\":9,\"mediaType\":\"image/png\",\"filename\":\"Pasted image\"}},\"pastedTexts\":{\"4\":{\"id\":4,\"text\":\"export const answer = 42;\\n\",\"filename\":\"main.ts\",\"mimeType\":\"text/plain\",\"source\":\"file\"},\"5\":{\"id\":5,\"text\":\"line 1\\nline 2\\nline 3\\nline 4\\nline 5\\nline 6\\nline 7\\nline 8\\nline 9\\nline 10\\nline 11\\nline 12\\nline 13\\nline 14\\nline 15\\nline 16\\nline 17\\nline 18\\nline 19\\nline 20\\nline 21\\nline 22\\nline 23\\nline 24\\nline 25\\nline 26\\nline 27\\nline 28\\nline 29\\nline 30\",\"filename\":\"Pasted text · 30 lines\",\"mimeType\":\"text/plain\",\"source\":\"paste\"}}},{\"$fn\":1}]": [
+   {
+    "result": {
+     "id": "sub_mixed_attachments",
+     "submittedAt": 1794201061032,
+     "text": "[PDF #2: report.pdf]\n[File #3: plan.docx]\n[File #4: main.ts]\n[Pasted text #5 +30 lines]",
+     "content": [
+      {
+       "type": "text",
+       "text": "[PDF #2: report.pdf]\n[File #3: plan.docx]\n[File #4: main.ts]\n[Pasted text #5 +30 lines]"
+      },
+      {
+       "type": "image",
+       "data": "cG5nIGJ5dGVz",
+       "mimeType": "image/png"
+      },
+      {
+       "type": "file",
+       "data": "JVBERi0xLjQgcGRmIGJ5dGVz",
+       "mimeType": "application/pdf",
+       "filename": "report.pdf"
+      },
+      {
+       "type": "file",
+       "data": "UEsgZG9jeCBieXRlcw==",
+       "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+       "filename": "plan.docx"
+      }
+     ],
+     "pastedImages": {
+      "1": {
+       "id": 1,
+       "type": "image",
+       "sizeBytes": 9,
+       "mediaType": "image/png",
+       "filename": "Pasted image"
+      }
+     },
+     "pastedTexts": {
+      "4": {
+       "id": 4,
+       "text": "export const answer = 42;\n",
+       "filename": "main.ts",
+       "mimeType": "text/plain",
+       "source": "file"
+      },
+      "5": {
+       "id": 5,
+       "text": "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nline 25\nline 26\nline 27\nline 28\nline 29\nline 30",
+       "filename": "Pasted text · 30 lines",
+       "mimeType": "text/plain",
+       "source": "paste"
+      }
+     },
+     "images": [
+      {
+       "id": 1,
+       "name": "Pasted image",
+       "mimeType": "image/png",
+       "bytes": 12
+      }
+     ],
+     "onCommitted": null,
+     "onSettled": null,
+     "onToolResult": null,
+     "transcriptMeta": null,
+     "context": null,
+     "mode": "prompt",
+     "priority": "next",
+     "key": null,
+     "origin": null,
+     "skipSlashCommands": false,
+     "displayText": "[PDF #2: report.pdf]\n[File #3: plan.docx]\n[File #4: main.ts]\n[Pasted text #5 +30 lines]",
+     "suppressDisplay": false,
+     "abortDiscardOnAbort": false,
+     "resumeCompletionKeys": [],
+     "steeringPersistId": null,
+     "isMeta": false,
+     "skillSelection": null,
+     "goalId": null,
+     "retryFailedTurn": false,
+     "retryTurnId": null,
+     "retryAttemptId": null
+    },
+    "async": false
+   }
+  ],
+  "makeQueueEntry\u0000[[{\"type\":\"text\",\"text\":\"what is this?\"},{\"type\":\"image\",\"data\":\"cG5nIGJ5dGVz\",\"mimeType\":\"image/png\"}],{\"id\":\"sub_image_plus_text\",\"displayText\":\"what is this?\",\"pastedImages\":{\"1\":{\"id\":1,\"type\":\"image\",\"sizeBytes\":9,\"mediaType\":\"image/png\",\"filename\":\"Pasted image\"}}},{\"$fn\":1}]": [
+   {
+    "result": {
+     "id": "sub_image_plus_text",
+     "submittedAt": 1794201061056,
+     "text": "what is this?",
+     "content": [
+      {
+       "type": "text",
+       "text": "what is this?"
+      },
+      {
+       "type": "image",
+       "data": "cG5nIGJ5dGVz",
+       "mimeType": "image/png"
+      }
+     ],
+     "pastedImages": {
+      "1": {
+       "id": 1,
+       "type": "image",
+       "sizeBytes": 9,
+       "mediaType": "image/png",
+       "filename": "Pasted image"
+      }
+     },
+     "pastedTexts": null,
+     "images": [
+      {
+       "id": 1,
+       "name": "Pasted image",
+       "mimeType": "image/png",
+       "bytes": 12
+      }
+     ],
+     "onCommitted": null,
+     "onSettled": null,
+     "onToolResult": null,
+     "transcriptMeta": null,
+     "context": null,
+     "mode": "prompt",
+     "priority": "next",
+     "key": null,
+     "origin": null,
+     "skipSlashCommands": false,
+     "displayText": "what is this?",
+     "suppressDisplay": false,
+     "abortDiscardOnAbort": false,
+     "resumeCompletionKeys": [],
+     "steeringPersistId": null,
+     "isMeta": false,
+     "skillSelection": null,
+     "goalId": null,
+     "retryFailedTurn": false,
+     "retryTurnId": null,
+     "retryAttemptId": null
+    },
+    "async": false
+   }
+  ],
+  "makeQueueEntry\u0000[[{\"type\":\"text\",\"text\":\"review these\\n[PDF #1: report.pdf]\\n[File #2: main.ts]\"},{\"type\":\"file\",\"data\":\"JVBERi0xLjQgcGRmIGJ5dGVz\",\"mimeType\":\"application/pdf\",\"filename\":\"report.pdf\"}],{\"id\":\"sub_files_plus_text\",\"displayText\":\"review these\\n[PDF #1: report.pdf]\\n[File #2: main.ts]\",\"pastedTexts\":{\"2\":{\"id\":2,\"text\":\"export const answer = 42;\\n\",\"filename\":\"main.ts\",\"mimeType\":\"text/plain\",\"source\":\"file\"}}},{\"$fn\":1}]": [
+   {
+    "result": {
+     "id": "sub_files_plus_text",
+     "submittedAt": 1794201061063,
+     "text": "review these\n[PDF #1: report.pdf]\n[File #2: main.ts]",
+     "content": [
+      {
+       "type": "text",
+       "text": "review these\n[PDF #1: report.pdf]\n[File #2: main.ts]"
+      },
+      {
+       "type": "file",
+       "data": "JVBERi0xLjQgcGRmIGJ5dGVz",
+       "mimeType": "application/pdf",
+       "filename": "report.pdf"
+      }
+     ],
+     "pastedImages": null,
+     "pastedTexts": {
+      "2": {
+       "id": 2,
+       "text": "export const answer = 42;\n",
+       "filename": "main.ts",
+       "mimeType": "text/plain",
+       "source": "file"
+      }
+     },
+     "images": null,
+     "onCommitted": null,
+     "onSettled": null,
+     "onToolResult": null,
+     "transcriptMeta": null,
+     "context": null,
+     "mode": "prompt",
+     "priority": "next",
+     "key": null,
+     "origin": null,
+     "skipSlashCommands": false,
+     "displayText": "review these\n[PDF #1: report.pdf]\n[File #2: main.ts]",
+     "suppressDisplay": false,
+     "abortDiscardOnAbort": false,
+     "resumeCompletionKeys": [],
+     "steeringPersistId": null,
+     "isMeta": false,
+     "skillSelection": null,
+     "goalId": null,
+     "retryFailedTurn": false,
+     "retryTurnId": null,
+     "retryAttemptId": null
+    },
+    "async": false
+   }
+  ]
+ },
+ "services": {},
+ "stubs": {},
+ "opaque": []
+}

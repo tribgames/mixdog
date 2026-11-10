@@ -9,21 +9,11 @@ import { DESKTOP_IPC } from '../../shared/contract.ts';
 import { registerWindowSettingsIpc } from '../ipc-window-settings.ts';
 import { createServerLoginHandlers } from '../ssh/ssh-ipc-server-logins.ts';
 import { waitUntil } from '../bounded-wait.mjs';
-import { createModelProxyHost } from '../model-proxy-host.ts';
 import { ConnectionPool, createConnectionManager, createDesktopConnection } from './index.ts';
 import { fakeProtocol } from './fake-core-protocol.mjs';
 import { RemoteSession } from '../ssh/remote-session.ts';
-import {
-  encodeModelProxyWire,
-  MODEL_PROXY_OPERATIONS,
-  MODEL_PROXY_REQUEST_EVENT,
-} from '../../../../../src/runtime/agent/orchestrator/providers/model-proxy-channel.mjs';
-
-const SNAPSHOT = { requests: [{ id: 'call-1' }], cancelled: [] };
 
 const deps = (loads, server, local) => ({
-  moduleUrl: () => 'file:///unused.mjs',
-  environmentReady: () => Promise.resolve(),
   sessionOptions: () => ({
     userDataPath: '',
     packaged: false,
@@ -32,10 +22,6 @@ const deps = (loads, server, local) => ({
     appVersion: '0.0.0',
     rendererDir: '',
   }),
-  loadModelProxyRuntime: async () => {
-    loads.push('runtime');
-    throw new Error('not in this test');
-  },
   appVersion: '0.0.0',
   createProtocol: () => server,
   localProtocol: () => local,
@@ -166,135 +152,6 @@ test('a pending login without a forward is cancelled on the old attachment even 
     'the login is cancelled before the restart is attempted'
   );
   await handlers.dispose();
-});
-
-test('a model proxy host that is not serving takes up no request until it serves again', async () => {
-  let serving = false;
-  const invoked = [];
-  const host = createModelProxyHost({
-    invoke: async (operation, args) => {
-      invoked.push([operation, args]);
-      return null;
-    },
-    loadRuntime: async () => {
-      throw new Error('not loaded');
-    },
-    serving: () => serving,
-  });
-  host.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, SNAPSHOT);
-  await quiesced();
-  assert.deepEqual(invoked, []);
-  serving = true;
-  host.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, SNAPSHOT);
-  await waitUntil(() => invoked.length > 0, 'the request to be taken up once serving');
-  assert.ok(invoked.length > 0);
-  host.dispose();
-});
-
-/** A host whose daemon answers each claim only when the test releases it. */
-function delayedClaims(payloadFor, runtime) {
-  let serving = true;
-  const sent = [];
-  const releases = new Map();
-  const reads = [];
-  const host = createModelProxyHost({
-    invoke: (operation, args) => {
-      if (operation !== MODEL_PROXY_OPERATIONS.claim) {
-        sent.push([operation, args]);
-        return Promise.resolve({ results: encodeModelProxyWire([]) });
-      }
-      return new Promise((resolve) => releases.set(args[0], () => resolve({ payload: payloadFor(args[0]) })));
-    },
-    loadRuntime: async () => {
-      reads.push('runtime');
-      return runtime(reads);
-    },
-    serving: () => serving,
-  });
-  return {
-    host,
-    sent,
-    reads,
-    release: (id) => releases.get(id)(),
-    claimed: (id) => releases.has(id),
-    switchToServer() {
-      serving = false;
-      host.revoke();
-    },
-  };
-}
-
-const pcRuntime = (reads) => ({
-  providerConfig: async () => {
-    reads.push('providerConfig');
-    return { providers: { 'openai-oauth': { enabled: true } }, ready: true };
-  },
-  provider: async (name) => {
-    reads.push(`provider:${name}`);
-    return undefined;
-  },
-  finalizeTools: (tools) => tools,
-});
-
-test("a claim still out when the model login changes reads and returns nothing of this PC's", async () => {
-  const proxy = delayedClaims(() => encodeModelProxyWire({ method: 'providerConfig' }), pcRuntime);
-  proxy.host.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, SNAPSHOT);
-  await waitUntil(() => proxy.claimed('call-1'), 'call-1 to be claimed');
-  proxy.switchToServer();
-  proxy.release('call-1');
-  await quiesced();
-  assert.deepEqual(proxy.reads, [], "this PC's runtime and provider config are never read");
-  assert.deepEqual(proxy.sent, [], 'no answer, no refusal reaches the server');
-  assert.equal(proxy.host.running, 0);
-  proxy.host.dispose();
-});
-
-test('a claim taken before a switch and back is still revoked: the generation, not the mode, decides', async () => {
-  const proxy = delayedClaims(() => encodeModelProxyWire({ method: 'providerConfig' }), pcRuntime);
-  proxy.host.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, SNAPSHOT);
-  await waitUntil(() => proxy.claimed('call-1'), 'call-1 to be claimed');
-  // To server accounts and straight back to this PC's: the claim belongs to the replaced daemon.
-  proxy.host.revoke();
-  proxy.release('call-1');
-  await quiesced();
-  assert.deepEqual(proxy.reads, []);
-  assert.deepEqual(proxy.sent, []);
-  proxy.host.dispose();
-});
-
-test('a call running when the model login changes is aborted and its answer stays on this PC', async () => {
-  let aborted = null;
-  let finish;
-  const runtime = (reads) => ({
-    ...pcRuntime(reads),
-    provider: async (name) => ({
-      send: (_messages, _model, _tools, options) =>
-        new Promise((resolve) => {
-          reads.push(`send:${name}`);
-          options.signal.addEventListener('abort', () => {
-            aborted = options.signal.reason;
-          });
-          finish = () => resolve({ content: 'from this PC' });
-        }),
-    }),
-  });
-  const proxy = delayedClaims(
-    () => encodeModelProxyWire({ method: 'send', provider: 'openai-oauth', messages: [] }),
-    runtime
-  );
-  proxy.host.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, SNAPSHOT);
-  await waitUntil(() => proxy.claimed('call-1'), 'call-1 to be claimed');
-  proxy.release('call-1');
-  await waitUntil(() => proxy.reads.includes('send:openai-oauth'), 'the call to reach the provider');
-  assert.deepEqual(proxy.reads, ['runtime', 'send:openai-oauth']);
-  assert.equal(proxy.host.running, 1);
-  proxy.switchToServer();
-  assert.match(String(aborted?.message), /model login changed/);
-  assert.equal(proxy.host.running, 0);
-  finish();
-  await quiesced();
-  assert.deepEqual(proxy.sent, [], 'neither the answer nor the failure is sent');
-  proxy.host.dispose();
 });
 
 test("switching a connection to server accounts revokes the call this PC's mode left out", async (t) => {

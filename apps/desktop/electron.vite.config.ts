@@ -1,6 +1,5 @@
 // electron-vite configuration for the desktop app.
 // Third-party derivation notices: NOTICE.md at the repository root.
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -259,29 +258,6 @@ const firstScreenHints: Plugin = {
   },
 };
 
-// `electron-vite dev` empties out/main on every main build, deleting the
-// plain-Node desktop service bundle (daemon.cjs) that production builds add
-// afterwards with build-daemon.mjs. Without it the dev app never finishes
-// desktop init. Rebuild it after each development main build, before
-// Electron starts.
-// The bundle lands beside the main build that loads it, so an isolated dev
-// instance (scripts/dev-isolated.mjs, --outDir) never rewrites the shared out/.
-let devMainOutDir = resolve(__dirname, 'out/main');
-const devDesktopServiceBundle: Plugin = {
-  name: 'mixdog-dev-desktop-service',
-  apply: (_config, { mode }) => mode === 'development',
-  configResolved(config) {
-    devMainOutDir = resolve(config.root, config.build.outDir);
-  },
-  closeBundle() {
-    execFileSync(
-      process.execPath,
-      [resolve(__dirname, 'scripts/build-daemon.mjs'), `--outfile=${resolve(devMainOutDir, 'daemon.cjs')}`],
-      { stdio: 'inherit' },
-    );
-  },
-};
-
 // Each isolated dev instance optimizes renderer deps into its own cache: a
 // shared node_modules/.vite re-optimized by one dev server invalidates the
 // modules another (the 9342 app) is serving and forces it to reload.
@@ -297,7 +273,6 @@ export default defineConfig({
       echartsSourceModule,
       mermaidSourceModule,
       externalizeDepsPlugin({ exclude: ['qrcode'] }),
-      devDesktopServiceBundle,
     ],
     build: {
       rollupOptions: {

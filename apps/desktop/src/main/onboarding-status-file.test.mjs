@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -23,50 +23,36 @@ test('missing config answers onboarding status without starting the engine', asy
   }
 });
 
+// The config Node b6f10295a left on disk after `skipOnboarding()` and two `saveStarterGuideState` calls (recorded by running
+// settings-profile-api.mjs over an empty data directory); the guide merges `visited` across saves and keeps the first `closed`/`welcomed`.
+const NODE_SAVED_CONFIG = {
+  agent: {
+    onboarding: {
+      completed: true,
+      version: 1,
+      completedAt: '2026-11-09T03:22:37.763Z',
+      skipped: true,
+      starterGuide: { closed: true, welcomed: true, visited: ['provider', 'remote'] },
+    },
+  },
+  defaultsVersion: 2,
+};
+
 test('a guide state saved through the runtime config is what the engine-free probe reads back', async () => {
   const previousDataDir = process.env.MIXDOG_DATA_DIR;
-  const previousBackupRoot = process.env.MIXDOG_USER_DATA_BACKUP_ROOT;
   const dir = await mkdtemp(join(tmpdir(), 'mixdog-starter-guide-roundtrip-'));
-  process.env.MIXDOG_DATA_DIR = join(dir, 'data');
-  // Config writes snapshot the profile; keep those out of the real home.
-  process.env.MIXDOG_USER_DATA_BACKUP_ROOT = join(dir, 'backups');
+  process.env.MIXDOG_DATA_DIR = dir;
   try {
-    await mkdir(process.env.MIXDOG_DATA_DIR, { recursive: true });
-    const cfgMod = await import('../../../../src/runtime/agent/orchestrator/config.mjs');
-    const { createProfileSettings } = await import('../../../../src/session-runtime/settings-profile-api.mjs');
-    let config = cfgMod.loadConfig({ secrets: false });
-    const profile = createProfileSettings({
-      getConfig: () => config,
-      adoptConfig: (next) => {
-        config = next;
-      },
-      saveConfigAndAdopt: (next) => {
-        cfgMod.saveConfig(next, { baseConfig: config });
-        config = next;
-      },
-      scheduleSkillsSave() {},
-      cfgMod,
-      hasOwn: Object.hasOwn,
-      summarizeWorkflowRoutes: () => [],
-      ONBOARDING_VERSION: 1,
-    });
-    profile.skipOnboarding();
-    profile.saveStarterGuideState({ closed: true, welcomed: true, visited: ['remote'] });
-    profile.saveStarterGuideState({ closed: false, welcomed: false, visited: ['provider'] });
-    const expected = { closed: true, welcomed: true, visited: ['provider', 'remote'] };
+    await writeFile(join(dir, 'mixdog-config.json'), JSON.stringify(NODE_SAVED_CONFIG));
     const probe = await readOnboardingStatusFromDisk();
     assert.equal(probe.completed, true);
-    assert.deepEqual(probe.starterGuide, expected);
-    assert.deepEqual(cfgMod.loadConfig({ secrets: false }).onboarding.starterGuide, expected);
+    assert.deepEqual(probe.starterGuide, { closed: true, welcomed: true, visited: ['provider', 'remote'] });
   } finally {
     if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previousDataDir;
-    if (previousBackupRoot === undefined) delete process.env.MIXDOG_USER_DATA_BACKUP_ROOT;
-    else process.env.MIXDOG_USER_DATA_BACKUP_ROOT = previousBackupRoot;
     await rm(dir, { recursive: true, force: true });
   }
 });
-
 test('the starter guide state is read from agent.onboarding.starterGuide, null when absent', async () => {
   const previousDataDir = process.env.MIXDOG_DATA_DIR;
   const dir = await mkdtemp(join(tmpdir(), 'mixdog-starter-guide-'));

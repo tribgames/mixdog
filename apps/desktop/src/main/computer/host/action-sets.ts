@@ -3,7 +3,7 @@
  * mutate, which need a fresh observation, and which lanes they run on.
  */
 import type { ComputerCommand } from '../shared/types';
-import { computerActionsWith, computerActionHas } from '../../../../../../src/runtime/computer-bridge/actions.mjs';
+import { computerActionsWith, computerActionHas } from '../../../shared/core-src/runtime/computer-bridge/actions.mjs';
 
 /** The session the bridge warms up under, before any caller exists. */
 export const HOST_WARMUP_SESSION_ID = '__computer_host_warmup__';

@@ -8,7 +8,7 @@ import { isOtherDevice } from '../shared/session-devices';
 import { t, uiFormatLocale } from './i18n';
 import { timeFormatOptions } from './time-format-preference';
 import { useRoomContacts } from './agent-room-parts';
-import { stripAgentMessageEnvelope } from '../../../../src/runtime/shared/agent-message-envelope.mjs';
+import { stripAgentMessageEnvelope } from '../shared/core-src/runtime/shared/agent-message-envelope.mjs';
 import { localizeHeartbeatBreakerNotice, localizeRouteFallbackNotice } from './error-notice-copy';
 import MarkdownBody from './MarkdownBody';
 import {

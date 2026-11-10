@@ -9,7 +9,7 @@ import { attemptCapture, CaptureSourceError, RECOVERABLE_CAPTURE_CODES, type Sur
 import { buildCapturePlan, type CaptureSourceRequest } from './capture-source-plan';
 import { frameQualityIssue } from './frame-quality';
 import { SCREEN_RECORDING_GUIDANCE, screenCaptureBlocked } from '../shared/permissions';
-import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
+import { computerErrorCode } from '../../../shared/core-src/runtime/computer-bridge/error-code.mjs';
 
 export { fitCaptureImage } from './capture-source-plan';
 

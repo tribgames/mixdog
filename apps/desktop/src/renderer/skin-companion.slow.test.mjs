@@ -996,7 +996,7 @@ test('a picture face (#178): an empty box while it loads, the picture once read,
   const turn = () => new Promise((r) => setTimeout(r, 10));
   for (let wait = 0; wait < 200 && (!$('.skin-companion-pet') || !showView); wait += 1) await turn();
   assert.ok(showView, 'the page subscribed to its view');
-  const { MIXY_AGENT_ID: lead } = await import('../../../../src/runtime/agent/orchestrator/session/agent-home.mjs');
+  const { MIXY_AGENT_ID: lead } = await import('../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs');
   const view = (idle) => ({
     sessionId: 's1',
     bubble: { kind: 'idle' },
@@ -1829,7 +1829,7 @@ test('the overlay draws the sprite at the size main made its window for', async 
   }
   // The visible feet are the box's bottom (main stands it on the island's
   // bottom line): a look with empty rows under its feet is lowered by them.
-  const { mascotCells } = await import('../../../../src/runtime/shared/agent-avatar.mjs');
+  const { mascotCells } = await import('../shared/core-src/runtime/shared/agent-avatar.mjs');
   const face = (avatar) => ({ room: false, members: [{ id: 'bot', name: 'Bot', avatar }] });
   for (const species of ['mixy', 'labrador', 'corgi']) {
     const avatar = { kind: 'mascot', species, accessory: 'none', expression: 'calm', color: '#e6e6e6' };
@@ -2410,7 +2410,7 @@ test('no representative bot: the overlay options are disabled with a note; the s
 
 test("the pet always talks to Mixy's home chat; the publisher sends nothing while off", async (t) => {
   const { agentHomeSessionId, MIXY_AGENT_ID } = await import(
-    '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs'
+    '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs'
   );
   const off = fakeDesktop({ enabled: false });
   const { publisher, root } = await mountSettings(t, off);
@@ -2420,7 +2420,7 @@ test("the pet always talks to Mixy's home chat; the publisher sends nothing whil
 });
 
 test("while on, the publisher sends Mixy's chat state with Mixy's face", async (t) => {
-  const { MIXY_AGENT_ID } = await import('../../../../src/runtime/agent/orchestrator/session/agent-home.mjs');
+  const { MIXY_AGENT_ID } = await import('../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs');
   const on = fakeDesktop({ enabled: true });
   const { publisher, root } = await mountSettings(t, on);
   await act(async () => root.render(React.createElement(publisher.DesktopPetPublisher)));

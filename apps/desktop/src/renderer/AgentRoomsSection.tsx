@@ -3,7 +3,7 @@
 // menu (new agent / new room) and the new-room dialog.
 import { Check, Plus, X } from 'lucide-react';
 import { type FormEvent, useId, useMemo, useRef, useState } from 'react';
-import { ROOM_MAX_MEMBERS, ROOM_MIN_MEMBERS } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { ROOM_MAX_MEMBERS, ROOM_MIN_MEMBERS } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { agentChatTimeLabel } from './agent-chat-summary';
 import { RoomAvatar, RoomMemberFace, type RoomMemberLabel, useRoomContacts } from './agent-room-parts';

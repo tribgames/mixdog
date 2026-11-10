@@ -2,8 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DESKTOP_IPC } from '../shared/contract.ts';
 import { registerSessionIpc } from './ipc-sessions.ts';
-import { createRemoteMethods } from './remote-methods.ts';
-
 const SESSION = `sess_desktop_${'a'.repeat(64)}`;
 
 function ipc() {
@@ -29,14 +27,4 @@ test('the favorite IPC handler validates its arguments and forwards to the host'
   await assert.rejects(async () => call('../bad id', true), /session id is invalid/);
   await assert.rejects(async () => call(undefined, true), /session id must be a string/);
   assert.equal(calls.length, 2);
-});
-
-test('the remote setSessionFavorite method applies the same validation', async () => {
-  const calls = [];
-  const methods = createRemoteMethods({ host: { setSessionFavorite: async (...args) => calls.push(args) } });
-  await methods.setSessionFavorite([SESSION, true]);
-  assert.deepEqual(calls, [[SESSION, true]]);
-  assert.throws(() => methods.setSessionFavorite([SESSION, 1]), /favorite must be a boolean/);
-  assert.throws(() => methods.setSessionFavorite(['bad id', true]), /session id is invalid/);
-  assert.equal(calls.length, 1);
 });

@@ -39,6 +39,21 @@ export interface ModelProxyRelayHooks {
   onCallSettled?: (event: { provider: string; outcome: 'answered' | 'failed' | 'abandoned'; error?: unknown }) => void;
 }
 
+export interface ModelProxyCallSettled {
+  provider: string;
+  outcome: 'answered' | 'failed' | 'undelivered' | 'abandoned';
+  error?: unknown;
+}
+
+/** What a connection keeps of its model proxy. */
+export interface ModelProxyHost {
+  readonly running: number;
+  /** The server's model login changed: every call in flight is given up, and none of them reads or sends anything of
+   *  this PC's from now on. */
+  revoke(): void;
+  dispose(): void;
+}
+
 type ExecuteParams = ModelProxyExecuteParams;
 type RunResult = ModelProxyResult;
 

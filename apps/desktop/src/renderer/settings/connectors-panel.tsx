@@ -7,7 +7,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react';
 import {
   type ConnectorCatalogEntry,
   GMAIL_APP_PASSWORD,
-} from '../../../../../src/runtime/shared/connector-catalog.mjs';
+} from '../../shared/core-src/runtime/shared/connector-catalog.mjs';
 import { subscribeSetupChanges } from '../setup-change-refresh';
 import {
   announceConnectorsChanged,

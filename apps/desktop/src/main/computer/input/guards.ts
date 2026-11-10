@@ -5,8 +5,8 @@
  */
 import type { ComputerCommand } from '../shared/types';
 import { KEY_SEQUENCE_ACTIONS, normalizeComputerKeySequence } from './keyboard';
-import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS } from '../../../../../../src/runtime/computer-bridge/limits.mjs';
-import { schemaStringLength } from '../../../../../../src/runtime/shared/schema-value-error.mjs';
+import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS } from '../../../shared/core-src/runtime/computer-bridge/limits.mjs';
+import { schemaStringLength } from '../../../shared/core-src/runtime/shared/schema-value-error.mjs';
 
 const MAX_COMPUTER_TYPE_TEXT_LENGTH = 30_000;
 const MAX_COMPUTER_KEY_SEQUENCE_LENGTH = 512;

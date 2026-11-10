@@ -9,7 +9,7 @@ import {
   AGENT_AVATAR_IMAGE_MAX_BYTES,
   AGENT_AVATAR_IMAGE_MAX_SIDE,
   avatarImageInfo,
-} from '../../../../src/runtime/shared/agent-avatar.mjs';
+} from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 import { t } from './i18n';
 
 export const AGENT_AVATAR_IMAGE_TYPES = ['image/png', 'image/gif', 'image/webp', 'image/jpeg'] as const;

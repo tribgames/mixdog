@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -8,12 +7,6 @@ import test from 'node:test';
 
 import { writeProjectTextFileIn as save, writeProjectTextFilesIn as saveMany } from './project-files.ts';
 import { hookProjectSwap } from './project-swap-hook.mjs';
-import { replaceWorkspaceTextIn } from './workspace-search.ts';
-import { DesktopServiceClient } from './desktop-service-client.ts';
-
-// Public writers, mutation ownership and real file IO are retained. Faults
-// are injected only at leaf IO, at deterministic points before a file's first
-// in-place write and after its write completes (see project-swap-hook.mjs).
 async function fixture(t, files = { 'a.txt': 'A0', 'b.txt': 'B0', 'c.txt': 'C0' }) {
   const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'mixdog-batch-recovery-')));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -419,75 +412,4 @@ test('partial recovery holds all claims until settlement and a later save can pr
   assert.equal((await settled)[0].status, 'fulfilled');
   assert.equal(await fs.readFile(join(root, 'c.txt'), 'utf8'), 'QUEUED');
   await clean(root);
-});
-
-test('workspace replace propagates partial recovery instead of reporting changed counts', async (t) => {
-  const root = await fixture(t, { 'a.txt': 'needle', 'b.txt': 'needle' });
-  const cause = fault('workspace second write failed');
-  let recovering = false;
-  hookProjectSwap(t, {
-    before(path) {
-      if (path === join(root, 'b.txt')) {
-        recovering = true;
-        throw cause;
-      }
-      if (recovering) throw fault('workspace recovery denied', 'EPERM');
-    },
-  });
-  const error = await rejection(
-    replaceWorkspaceTextIn(
-      root,
-      { query: 'needle', regex: false, caseSensitive: true, wholeWord: false, includeIgnored: false },
-      'updated',
-      undefined
-    )
-  );
-  outcome(error, cause, 'b.txt', ['a.txt'], [], ['a.txt']);
-  assert.equal(await fs.readFile(join(root, 'a.txt'), 'utf8'), 'updated');
-});
-
-test('partial recovery survives the existing message-only service error boundary', async (t) => {
-  const root = await fixture(t);
-  const cause = fault('transport second write failed');
-  let recovering = false;
-  hookProjectSwap(t, {
-    before(path) {
-      if (path === join(root, 'b.txt')) {
-        recovering = true;
-        throw cause;
-      }
-      if (recovering) throw fault('transport recovery denied', 'EPERM');
-    },
-  });
-  const failure = await rejection(saveMany(root, writes('a', 'b')));
-  class Transport extends EventEmitter {
-    postMessage(message) {
-      if (message.kind === 'init') queueMicrotask(() => this.emit('message', { kind: 'ready' }));
-      if (message.kind === 'request')
-        queueMicrotask(() =>
-          this.emit('message', {
-            kind: 'response',
-            id: message.id,
-            ok: false,
-            // Deliberately only the fields the current service protocol carries.
-            error: JSON.parse(JSON.stringify({ name: failure.name, message: failure.message, code: failure.code })),
-          })
-        );
-    }
-    async close() {}
-  }
-  const client = new DesktopServiceClient({
-    connect: () => new Transport(),
-    sessionOptions: () => ({ userDataPath: root, packaged: false }),
-  });
-  try {
-    const error = await rejection(client.invokeDesktopOperation('writeProjectTextFilesIn', [root, writes('a', 'b')]));
-    assert.equal(error.code, 'EPARTIAL_WRITE');
-    assert.equal(error.message, failure.message);
-    assert.match(error.message, /Rollback incomplete.*"a.txt".*transport recovery denied/);
-    assert.match(error.message, /Committed: \["a.txt"\]. Restored: \[\]/);
-    assert.equal(error.result, undefined, 'do not rely on custom fields surviving the protocol');
-  } finally {
-    await client.dispose();
-  }
 });

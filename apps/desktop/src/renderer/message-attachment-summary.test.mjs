@@ -1,70 +1,18 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
-
-const root = mkdtempSync(join(tmpdir(), 'mixdog-rewind-restore-'));
-const previousDataDir = process.env.MIXDOG_DATA_DIR;
-process.env.MIXDOG_DATA_DIR = root;
-mkdirSync(join(root, 'sessions'));
 
 const { restoreAttachmentsFromRecord, restoreDraftHandoff } = await import('./composer-attachment-restore.ts');
 const { attachmentSummary, textWithoutAttachmentTokens } = await import('./message-attachment-summary.ts');
-const { drainSessionStore, saveSessionAsync } = await import(
-  '../../../../src/runtime/agent/orchestrator/session/store.mjs'
-);
-const { rewindSessionMessagesTo } = await import(
-  '../../../../src/runtime/agent/orchestrator/session/manager/session-crud.mjs'
-);
-const { settleSessionSummaryIndex } = await import(
-  '../../../../src/runtime/agent/orchestrator/session/store/listing.mjs'
-);
-const { materializePromptSubmission, storeAttachmentBuffer } = await import(
-  '../../../../src/runtime/attachments/store.mjs'
-);
-const { createRewindAction } = await import('../../../../src/tui/session/session-api/intake/rewind.mjs');
 
-test.after(async () => {
-  drainSessionStore();
-  await settleSessionSummaryIndex();
-  if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
-  else process.env.MIXDOG_DATA_DIR = previousDataDir;
-  rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
-});
-
+// What Node b6f10295a's session rewind (`rewindSessionMessagesTo` through the TUI/desktop `rewindToItem` action) answered for the
+// three submitted prompts below, recorded by running it over a real session store: the record the composer restores its chips from.
+const REWOUND = JSON.parse(readFileSync(new URL('./test-support/message-attachment-rewound.recorded.json', import.meta.url), 'utf8'));
 const b64 = (text) => Buffer.from(text).toString('base64');
 
-/** Submit a prompt like the composer does, store it, and rewind it through the
- *  real session rewind + the TUI/desktop `rewindToItem` action. */
-async function rewindSubmitted(sessionId, rowText, content, options) {
-  const { prompt } = materializePromptSubmission(content, options);
-  const session = {
-    id: sessionId,
-    provider: 'openai',
-    model: 'gpt-test',
-    cwd: root,
-    messages: [{ role: 'user', content: prompt, meta: { transcript: { messageId: 'msg_row' } } }],
-    generation: 0,
-    closed: false,
-  };
-  await saveSessionAsync(session, { expectedGeneration: 0 });
-  let state = {
-    busy: false,
-    commandBusy: false,
-    items: [{ id: 'u1', kind: 'user', text: rowText, messageId: 'msg_row' }],
-  };
-  const action = createRewindAction({
-    runtime: { rewindMessages: (rewind) => rewindSessionMessagesTo(sessionId, rewind) },
-    getState: () => state,
-    set: (patch) => {
-      state = { ...state, ...patch };
-    },
-    flushEmitImmediate: () => {},
-    replaceItems: (items) => items,
-    syncContextStats: () => {},
-  });
-  return action.rewindToItem('u1');
+/** The record Node's rewind gave for the prompt of sessionId (the prompt itself is what the recording was made from). */
+async function rewindSubmitted(sessionId) {
+  return structuredClone(REWOUND[sessionId]);
 }
 
 const chipsOf = (record, text) =>
@@ -92,10 +40,8 @@ test('a PDF token before a folded paste still restores both chips', async () => 
 
 test('a reference-backed pasted text restores its chip with the text', async () => {
   const body = 'stored line\n'.repeat(50);
-  const stored = storeAttachmentBuffer(Buffer.from(body, 'utf8'));
   const rowText = 'check [Pasted text #1 +50 lines]';
   const record = await rewindSubmitted('sess_restore_ref', rowText, rowText, {
-    pastedTexts: { 1: { id: 1, source: 'paste', filename: 'Pasted text #1', ...stored } },
   });
   const restored = chipsOf(record, record.text);
   assert.equal(restored.attachments.length, 1);

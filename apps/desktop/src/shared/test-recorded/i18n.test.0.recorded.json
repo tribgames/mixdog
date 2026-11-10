@@ -1,0 +1,24 @@
+{
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/shared/markdown-frontmatter.mjs",
+  "test": "apps/desktop/src/renderer/i18n.test.mjs"
+ },
+ "constants": {},
+ "calls": {
+  "parseMarkdownFrontmatter\u0000[\"---\\nid: default\\nname: Default\\ndescription: \\\"Handle tasks as requested.\\\"\\n---\\n\\nAn explicit request is the approval within its scope: carry it out, including\\nroutine supporting steps and delegation, without asking again. Resolve\\ndiscoverable facts by inspection; decide minor details yourself and say which\\nyou chose. Read-only requests do not authorize changes.\\n\\nAsk only for a decision that only the user can make and that materially\\nchanges the outcome, or for authorization outside the request's scope —\\nincluding a commit, push, release, deployment, or payment the user has not\\nrequested. When user input is required, park only the affected work, continue\\nthe rest, and ask pending questions together once no such work remains.\\n\"]": [
+   {
+    "result": {
+     "id": "default",
+     "name": "Default",
+     "description": "Handle tasks as requested."
+    },
+    "async": false
+   }
+  ]
+ },
+ "services": {},
+ "stubs": {},
+ "opaque": []
+}

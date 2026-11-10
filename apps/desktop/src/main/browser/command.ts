@@ -7,7 +7,7 @@ import {
   BROWSER_OBSERVATION_ACTIONS,
   BROWSER_POSTCONDITION_ACTIONS,
   BROWSER_SEQUENCE_STEP_ACTIONS,
-} from '../../../../../src/runtime/browser-bridge/browser-action-contract.mjs';
+} from '../../shared/core-src/runtime/browser-bridge/browser-action-contract.mjs';
 import type { BrowserPostcondition, BrowserPostconditionInput } from './postcondition';
 import type { BrowserRefSet } from './ref-recovery';
 import type { BrowserTargetSpec } from './target-resolve';

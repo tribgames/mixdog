@@ -10,7 +10,7 @@ import {
   shouldRemoveSelectedSkill,
 } from './composer-skill.ts';
 import { useComposerSubmission } from './use-composer-submission.ts';
-import { selectedSkillName } from '../../../../src/runtime/shared/skill-selection.mjs';
+import { selectedSkillName } from '../shared/core-src/runtime/shared/skill-selection.mjs';
 
 const { dom } = installTestDom(null, {
   html: '<html><body></body></html>',

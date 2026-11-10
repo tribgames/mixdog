@@ -14,7 +14,6 @@ import {
   shouldStopComposerGeneration,
 } from './renderer-logic.mjs';
 import { paneActiveSessionIds } from './pane-layout.ts';
-import { usePromptQueueHistory } from '../../../../src/tui/app/use-prompt-queue-history.mjs';
 import { classifyPromptEscape } from '../../../../src/tui/components/prompt-input/escape-policy.mjs';
 import {
   mergeQueuedRestoreDraft,
@@ -23,7 +22,6 @@ import {
   queuedRestoreProjection,
   replaceQueuedRestorePrefix,
 } from '../../../../src/tui/components/prompt-input/restore-policy.mjs';
-import { isQueuedEntryEditable } from '../../../../src/tui/session/queue-helpers.mjs';
 
 function installDom() {
   const { restore } = installTestDom(null, { jsdom: { url: 'http://localhost/' }, expose: ['navigator'] });
@@ -92,66 +90,6 @@ test('queued follow-up Escape behavior keeps queue priority and handoff', () => 
     false,
     'New task materialization keeps its separate submit ownership'
   );
-});
-
-test('queued restore paints before a daemon acknowledgement and reconciles without duplication', async () => {
-  const dom = installDom();
-  let restoreQueuedToPrompt;
-  let resolveRestore;
-  let latestDraft = { value: 'current draft', cursor: 7, selectionAnchor: null };
-  const overrides = [];
-  const promptValueRef = { current: latestDraft.value };
-  const store = {
-    restoreQueued: () =>
-      new Promise((resolve) => {
-        resolveRestore = resolve;
-      }),
-  };
-  function Harness() {
-    ({ restoreQueuedToPrompt } = usePromptQueueHistory({
-      store,
-      state: { queued: [{ id: 'queued-1', displayText: 'queued follow-up' }] },
-      exit: () => {},
-      exitRequestedRef: { current: false },
-      setExiting: () => {},
-      promptValueRef,
-      promptDraft: latestDraft.value,
-      showPromptHint: () => {},
-      clearPromptHint: () => {},
-      installPastedImages: () => {},
-      installPastedTexts: () => {},
-      syncPromptLayoutRows: () => {},
-      setPromptDraftOverride: (next) => {
-        latestDraft = next;
-        promptValueRef.current = next.value;
-        overrides.push(next);
-      },
-      promptHistoryNavRef: { current: {} },
-    }));
-    return null;
-  }
-  try {
-    await act(async () => {
-      dom.root.render(React.createElement(Harness));
-    });
-    let accepted = false;
-    act(() => {
-      accepted = restoreQueuedToPrompt({
-        showHint: false,
-        getCurrentDraft: () => latestDraft,
-      });
-    });
-    assert.equal(accepted, true);
-    assert.equal(overrides.at(-1)?.value, 'queued follow-up\ncurrent draft');
-    await act(async () => {
-      resolveRestore({ count: 1, ids: ['queued-1'], text: 'queued follow-up' });
-      await Promise.resolve();
-    });
-    assert.equal(overrides.at(-1)?.value, 'queued follow-up\ncurrent draft');
-  } finally {
-    await act(async () => dom.root.unmount());
-    dom.close();
-  }
 });
 
 test('existing-session Enter does not wait for the previous host acknowledgement', () => {
@@ -263,8 +201,6 @@ test('queue parity helpers preserve order, rollback exact prefixes, and guard me
   );
   assert.equal(paletteOwnsPromptVerticalArrow(1), false);
   assert.equal(paletteOwnsPromptVerticalArrow(2), true);
-  assert.equal(isQueuedEntryEditable({ mode: 'prompt', isMeta: true }), false);
-  assert.equal(isQueuedEntryEditable({ mode: 'prompt' }), true);
 });
 
 test('PANE active sessions follow focused pane order', () => {

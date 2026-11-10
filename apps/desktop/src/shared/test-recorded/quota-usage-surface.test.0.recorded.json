@@ -1,0 +1,2848 @@
+{
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/shared/llm/usage-ledger.mjs",
+  "test": "apps/desktop/src/renderer/quota-usage-surface.test.mjs"
+ },
+ "constants": {},
+ "calls": {
+  "makeUsageRecord\u0000[{\"ts\":1790741400000,\"provider\":\"anthropic-oauth\",\"model\":\"claude-sonnet-4-5\",\"sessionId\":\"session-a\",\"sourceType\":\"lead\",\"inputTokens\":1000,\"outputTokens\":100,\"account\":\"default\"}]": [
+   {
+    "result": {
+     "ts": 1790741400000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "claude-sonnet-4-5",
+     "kind": "oauth",
+     "sessionId": "session-a",
+     "sourceType": "lead",
+     "input": 1000,
+     "output": 100,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "claude-sonnet-4-5",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "1d295c99-28c6-4b08-8a86-2d7a91121f30"
+    },
+    "async": false
+   },
+   {
+    "result": {
+     "ts": 1790741400000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "claude-sonnet-4-5",
+     "kind": "oauth",
+     "sessionId": "session-a",
+     "sourceType": "lead",
+     "input": 1000,
+     "output": 100,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "claude-sonnet-4-5",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "2530fad9-ecfb-4c01-8017-8e4bae1d05e2"
+    },
+    "async": false
+   },
+   {
+    "result": {
+     "ts": 1790741400000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "claude-sonnet-4-5",
+     "kind": "oauth",
+     "sessionId": "session-a",
+     "sourceType": "lead",
+     "input": 1000,
+     "output": 100,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "claude-sonnet-4-5",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "5f5904a2-374e-4543-8d86-4ee1bc6f0479"
+    },
+    "async": false
+   },
+   {
+    "result": {
+     "ts": 1790741400000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "claude-sonnet-4-5",
+     "kind": "oauth",
+     "sessionId": "session-a",
+     "sourceType": "lead",
+     "input": 1000,
+     "output": 100,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "claude-sonnet-4-5",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "947fbf5a-23e6-4bf0-a9d5-c86a631fcc93"
+    },
+    "async": false
+   },
+   {
+    "result": {
+     "ts": 1790741400000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "claude-sonnet-4-5",
+     "kind": "oauth",
+     "sessionId": "session-a",
+     "sourceType": "lead",
+     "input": 1000,
+     "output": 100,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "claude-sonnet-4-5",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "fbfb2d87-200a-40fc-a994-59d09f237376"
+    },
+    "async": false
+   },
+   {
+    "result": {
+     "ts": 1790741400000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "claude-sonnet-4-5",
+     "kind": "oauth",
+     "sessionId": "session-a",
+     "sourceType": "lead",
+     "input": 1000,
+     "output": 100,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "claude-sonnet-4-5",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "124e2e17-24e6-45bf-a8d5-89152d22880a"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790743800000,\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus-4-1\",\"sessionId\":\"session-b\",\"sourceType\":\"lead\",\"inputTokens\":3200,\"outputTokens\":100,\"account\":\"default\"}]": [
+   {
+    "result": {
+     "ts": 1790743800000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "claude-opus-4-1",
+     "kind": "oauth",
+     "sessionId": "session-b",
+     "sourceType": "lead",
+     "input": 3200,
+     "output": 100,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "claude-opus-4-1",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "d4e6c9ce-99fc-44a9-9de7-fa883b19fc94"
+    },
+    "async": false
+   },
+   {
+    "result": {
+     "ts": 1790743800000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "claude-opus-4-1",
+     "kind": "oauth",
+     "sessionId": "session-b",
+     "sourceType": "lead",
+     "input": 3200,
+     "output": 100,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "claude-opus-4-1",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "5754d4fd-6770-4ae5-a6ea-b68e2e631fce"
+    },
+    "async": false
+   },
+   {
+    "result": {
+     "ts": 1790743800000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "claude-opus-4-1",
+     "kind": "oauth",
+     "sessionId": "session-b",
+     "sourceType": "lead",
+     "input": 3200,
+     "output": 100,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "claude-opus-4-1",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "a2f28fc4-0123-4627-ae97-0010f475e801"
+    },
+    "async": false
+   },
+   {
+    "result": {
+     "ts": 1790743800000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "claude-opus-4-1",
+     "kind": "oauth",
+     "sessionId": "session-b",
+     "sourceType": "lead",
+     "input": 3200,
+     "output": 100,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "claude-opus-4-1",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "4f3b9d93-64a2-4bc1-ae50-c701fe4e3de1"
+    },
+    "async": false
+   },
+   {
+    "result": {
+     "ts": 1790743800000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "claude-opus-4-1",
+     "kind": "oauth",
+     "sessionId": "session-b",
+     "sourceType": "lead",
+     "input": 3200,
+     "output": 100,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "claude-opus-4-1",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "ffcc0eff-32ec-4f8d-a904-61db14984c6a"
+    },
+    "async": false
+   },
+   {
+    "result": {
+     "ts": 1790743800000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "claude-opus-4-1",
+     "kind": "oauth",
+     "sessionId": "session-b",
+     "sourceType": "lead",
+     "input": 3200,
+     "output": 100,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "claude-opus-4-1",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "5e61a097-604e-4f2b-820d-f76ff96101e3"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790740860000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790740860000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "b7e5a5fb-7994-4dcf-b15b-e94829053bde"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790740980000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790740980000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "fc992a9e-8bea-43a9-bc04-300cc8dda9aa"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790741100000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790741100000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "da5b8f43-54ad-4e6c-b54c-c0a51b696edd"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790741220000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790741220000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "25391068-7a6d-435a-82ae-34bdb803efec"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790741340000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790741340000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "13553e5d-701d-4207-a863-554dc6601c40"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790741460000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790741460000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "7d3dae95-fc8c-45c9-a68c-343930db9476"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790741580000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790741580000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "443adc8f-287b-4e03-8b22-734687d53dda"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790741700000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790741700000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "f6b96418-a61f-44ee-ace3-512ee5237e7d"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790741820000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790741820000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "47bca979-aa46-46a8-86fa-a888aeef8810"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790741940000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790741940000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "8b5851a4-8e30-4eb4-96b6-45a4837dbea0"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790742060000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790742060000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "a9d1f70c-3672-4466-80a9-ffc931c90fdc"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790742180000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790742180000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "cbfba934-7c2f-4634-b70a-834da7ed4d9e"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790742300000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790742300000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "ea42d156-b541-462b-bd22-a06c7c65e925"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790742420000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790742420000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "a9869d2b-1cc4-49a3-ab2c-199565d42029"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790742540000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790742540000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "9906487d-8d4f-4dea-aacd-01875613a8f3"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790742660000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790742660000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "21d1d96c-ec92-44a3-82be-64ad247a22a3"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790742780000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790742780000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "952ea385-0952-4636-99a7-1475603ec09e"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790742900000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790742900000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "e226b6e7-fc60-40ca-a56a-b7636d9d83ef"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790743020000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790743020000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "c7d39971-e20d-499e-9407-9e7c0c239cb1"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790743140000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790743140000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "334b589d-23b1-4069-85d0-af92a01c79ab"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790743260000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790743260000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "dab551d7-972c-4f83-aa5b-736a4fdf8c27"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790743380000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790743380000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "6c3a1ae6-a243-4880-bba4-4e3096c142f2"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790743500000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790743500000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "7f7dfdcc-315f-4b6f-912e-4a9e5299071b"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790743620000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790743620000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "0b859181-c34f-45e0-9a46-77cfba7a0d98"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790743740000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790743740000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "78683481-72c3-413d-a453-1a0f35353158"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790743860000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790743860000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "ac14d59c-6a6f-4ffa-82ab-64d40a31fc51"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790743980000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790743980000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "4f1cc786-bed9-41a3-a1ed-6653f87ad9fa"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790744100000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790744100000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "fae5d47e-0d7f-4bbc-9286-189c22bcee9b"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790744220000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790744220000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "35712f44-b2cc-412a-a666-7affb0feffb8"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790744340000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790744340000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "f4f7da43-a241-4914-aca6-d2d11db8354d"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790744460000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790744460000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "ea152491-2ead-479f-89da-59e56136091a"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790744580000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790744580000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "9376dc21-2f68-4e24-8968-1940dfc39072"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790744700000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790744700000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "7e047562-d629-4535-81c0-985966db948f"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790744820000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790744820000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "1bb9d11b-144e-4c79-b747-003220c8ca57"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790744940000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790744940000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "371d1102-9879-4394-b132-09156733dd44"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790745060000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790745060000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "d5b77df1-8107-4db3-bcef-51a5a5a91763"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790745180000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790745180000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "033b4110-74c2-4835-bf96-ce616b5a34cc"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790745300000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790745300000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "5029d9b6-78dd-4954-996c-041b1d143e78"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790745420000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790745420000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "0fb78b89-0b56-47b6-95ce-a5c32f821288"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790745540000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790745540000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "619d3fd5-100a-4c74-b0ed-9b08f7d8005c"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790745660000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790745660000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "f3a516c0-833e-495b-b9f8-8354f75cfa6a"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790745780000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790745780000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "e30092ce-08c6-4b62-aa0e-b8334a5403bd"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790745900000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790745900000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "3155813d-8a6c-4f0f-8168-9b9def840f25"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790746020000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790746020000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "f4f1e931-813a-4509-9a17-08ef2570bbf7"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790746140000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790746140000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "86e41a3a-796c-42af-9581-dcd2397175ad"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790746260000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790746260000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "67dcec18-7d25-40fd-a6ef-1bb5343fbcf9"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790746380000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790746380000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "13d36ce5-a500-48e9-b3fd-ccbf5e599fe5"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790746500000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790746500000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "1e592ab8-8c79-4cb3-b881-660f17f53f0b"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790746620000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790746620000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "9d2cf1c7-c2be-4954-9c77-1964f55fc05f"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790746740000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790746740000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "da8a038b-3fee-4ef1-9d1b-6725661a7c2e"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790746860000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790746860000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "f0532b18-c6e8-4b23-8e0a-1dedce7afe76"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790746980000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790746980000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "e74309da-7d50-4a61-9cd7-eda80fb4c328"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790747100000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790747100000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "b2587bc0-6e56-4b43-8556-0c6d21ec6c26"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790747220000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790747220000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "75bfbe90-fa74-44c0-b7f3-6befd34fb094"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790747340000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790747340000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "83733382-fbbf-489f-8b66-33162e5944d9"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790747460000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790747460000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "7f9a58f4-87ee-493c-ba35-19b1fcb712b5"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790747580000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790747580000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "a81a1904-d073-4d4c-967d-4d4cab95f1b7"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790747700000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790747700000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "658c4e5c-febd-4de8-af68-19be4ea310c3"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790747820000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790747820000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "8b73a453-4052-4235-a9cc-180860d0d043"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790747940000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-priced\",\"sessionId\":\"mixed-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":10}]": [
+   {
+    "result": {
+     "ts": 1790747940000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-priced",
+     "kind": "oauth",
+     "sessionId": "mixed-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 10,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-priced",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 0,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "4cf5771e-8310-4554-8f73-da1451643b19"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790741400000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-both\",\"sessionId\":\"fast-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":300,\"durationMs\":2000}]": [
+   {
+    "result": {
+     "ts": 1790741400000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-both",
+     "kind": "oauth",
+     "sessionId": "fast-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 300,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-both",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 2000,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "e0652dcc-81c6-462a-81ab-48a7305dae47"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790742000000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-both\",\"sessionId\":\"fast-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":600,\"durationMs\":2000,\"requestServiceTier\":\"fast\"}]": [
+   {
+    "result": {
+     "ts": 1790742000000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-both",
+     "kind": "oauth",
+     "sessionId": "fast-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 600,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-both",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "requestServiceTier": "fast",
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 2000,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "410da688-57f5-4ada-ab34-73e4e268fbdf"
+    },
+    "async": false
+   }
+  ],
+  "makeUsageRecord\u0000[{\"ts\":1790742600000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"model-normal\",\"sessionId\":\"fast-session\",\"sourceType\":\"lead\",\"inputTokens\":100,\"outputTokens\":300,\"durationMs\":2000}]": [
+   {
+    "result": {
+     "ts": 1790742600000,
+     "day": "2026-09-30",
+     "provider": "anthropic-oauth",
+     "model": "model-normal",
+     "kind": "oauth",
+     "sessionId": "fast-session",
+     "sourceType": "lead",
+     "input": 100,
+     "output": 300,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "costUsd": null,
+     "costSource": "unpriced",
+     "rates": {
+      "requestedModel": null,
+      "pricingModel": "model-normal",
+      "pricingProvider": "anthropic-oauth",
+      "pricingSource": null,
+      "unpricedReason": "model-not-found"
+     },
+     "responseId": "",
+     "account": "default",
+     "origin": "live",
+     "durationMs": 2000,
+     "requestedModel": "",
+     "requestedProvider": "",
+     "status": "completed",
+     "attempts": 1,
+     "ttftMs": null,
+     "elapsedMs": 0,
+     "id": "0e662903-7ef5-42e9-9d89-a2f0ec75232d"
+    },
+    "async": false
+   }
+  ]
+ },
+ "services": {},
+ "stubs": {
+  "UsageLedger": "class",
+  "makeUsageRecord": "identity"
+ },
+ "opaque": []
+}

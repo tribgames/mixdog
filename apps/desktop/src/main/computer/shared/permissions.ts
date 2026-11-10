@@ -1,4 +1,4 @@
-import type { LinuxComputerReadiness } from '../../../../../../src/runtime/computer-bridge/linux-readiness.mjs';
+import type { LinuxComputerReadiness } from '../../../shared/core-src/runtime/computer-bridge/linux-readiness.mjs';
 
 /**
  * The operating-system grants Computer Use runs under. Windows needs none:

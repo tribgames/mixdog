@@ -1,6 +1,6 @@
 import { isPendingLocalPathMention } from './markdown-plugins';
 // @ts-expect-error Shared runtime ESM intentionally has no separate declaration file.
-import { healStreamingMarkdownTail as healMarkdownTail } from '../../../../src/ui/streaming-markdown-heal.mjs';
+import { healStreamingMarkdownTail as healMarkdownTail } from '../shared/core-src/ui/streaming-markdown-heal.mjs';
 
 export function healStreamingMarkdownTail(text: string): string {
   return healMarkdownTail(text, isPendingLocalPathMention);

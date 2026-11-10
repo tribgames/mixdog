@@ -3,10 +3,10 @@ import test from 'node:test';
 import { executeSetupDesktopAction } from './setup-desktop-actions.ts';
 import { DESKTOP_SETUP_SETTING_ACTIONS } from '../shared/setup-settings-coverage.ts';
 import { desktopSettingsFromConfig } from '../main/settings-store.ts';
-import { SETUP_ACTIONS } from '../../../../src/session-runtime/setup-tool/tool-defs.mjs';
+import { SETUP_ACTIONS } from '../shared/test-recorded/setup-desktop-actions.test.0.recorded.mjs';
 import { DESKTOP_READ_CAPABILITIES } from '../shared/contract.ts';
-import { SESSION_READ_ACTIONS } from '../../../../src/standalone/session-protocol.mjs';
-import { SETUP_ACTIVITY_RAIL_PIN_IDS } from '../../../../src/session-runtime/setup-tool/settings-contract.mjs';
+import { SESSION_READ_ACTIONS } from '../shared/test-recorded/setup-desktop-actions.test.1.recorded.mjs';
+import { SETUP_ACTIVITY_RAIL_PIN_IDS } from '../shared/test-recorded/setup-desktop-actions.test.2.recorded.mjs';
 import { ACTIVITY_RAIL_PIN_IDS } from '../shared/activity-rail-pins.ts';
 import { DESKTOP_PET_SCALES } from '../shared/desktop-pet.ts';
 
@@ -579,7 +579,7 @@ test('botOverlay rejects bad values without writing and refuses to enable withou
 });
 
 test('setup schema agrees with the Desktop stores for the new appearance and botOverlay fields', async () => {
-  const { SETUP_TOOL_DEFS } = await import('../../../../src/session-runtime/setup-tool/tool-defs.mjs');
+  const { SETUP_TOOL_DEFS } = await import('../shared/test-recorded/setup-desktop-actions.test.0.recorded.mjs');
   const { CODE_SIZE_RANGE, UI_SCALE_RANGE } = await import('./appearance/font-settings.ts');
   const { CHAT_TEXT_SCALES } = await import('./chat-text-size-preference.ts');
   const { appearance, desktop } = SETUP_TOOL_DEFS[0].inputSchema.properties;

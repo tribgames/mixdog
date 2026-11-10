@@ -1,45 +1,40 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 
 const model = await import('./worktree-branch-model.ts');
 
-test('the runtime getBranchMenu response feeds the renderer model: rows, marks and search', async (t) => {
-  const { createWorkspaceTransitions } = await import('../../../../src/session-runtime/workspace/transitions.mjs');
-  // The runtime reads the project folder's repository, so the menu is read
-  // for a real git repository with one commit on main.
-  const project = mkdtempSync(join(tmpdir(), 'branch-chip-menu-'));
-  const git = (...args) => execFileSync('git', ['-C', project, ...args]);
-  git('init', '-q', '-b', 'main');
-  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init');
-  t.after(() => rmSync(project, { recursive: true, force: true }));
-  const session = { id: 'lead-1', cwd: project, desktopSession: { classification: 'project', projectPath: project } };
-  const api = createWorkspaceTransitions({
-    getSession: () => session,
-    getCurrentCwd: () => project,
-    getActiveTurnCount: () => 0,
-    // The manager's listBranchOccupancy shape: local branch NAMES plus occupancy rows.
-    manager: {
-      async listBranchOccupancy() {
-        return {
-          branches: ['main', 'dev', 'feat/ssh-remote', 'ext-branch'],
-          occupancy: [
-            { branch: 'main', kind: 'current', path: project },
-            { branch: 'dev', kind: 'free' },
-            { branch: 'feat/ssh-remote', kind: 'session', sessionId: 'other-session', path: '/wt/ssh' },
-            { branch: 'ext-branch', kind: 'external', path: '/elsewhere' },
-          ],
-          committedAt: { dev: new Date(Date.now() - 86_400_000).toISOString() },
-          retainedWorktree: null,
-        };
-      },
+test('the runtime getBranchMenu response feeds the renderer model: rows, marks and search', () => {
+  // The response Node b6f10295a's createWorkspaceTransitions().getBranchMenu() gave for a repository with one commit on main and the
+  // occupancy below (recorded; the project folder is a placeholder, `dev` was committed yesterday).
+  const project = '/work/branch-chip-menu';
+  const menu = {
+    workspace: {
+      projectPath: project,
+      repoCommonDir: `${project}/.git`,
+      cwd: project,
+      worktreeId: null,
+      branch: 'main',
+      baseCommit: null,
+      mergeTarget: null,
+      revision: 0,
+      transition: { state: 'idle', txId: null },
     },
-  });
-  const menu = await api.getBranchMenu();
-  menu.workspace.branch = 'main';
+    pendingWorktree: null,
+    branches: [
+      { name: 'main', current: true, remote: false, upstream: '' },
+      { name: 'dev', current: false, remote: false, upstream: '', lastCommitAt: new Date(Date.now() - 86_400_000).toISOString() },
+      { name: 'feat/ssh-remote', current: false, remote: false, upstream: '' },
+      { name: 'ext-branch', current: false, remote: false, upstream: '' },
+    ],
+    occupancy: [
+      { branch: 'main', kind: 'current', path: project },
+      { branch: 'dev', kind: 'free' },
+      { branch: 'feat/ssh-remote', kind: 'session', sessionId: 'other-session', path: '/wt/ssh' },
+      { branch: 'ext-branch', kind: 'external', path: '/elsewhere' },
+    ],
+    retainedWorktree: null,
+    warnings: [],
+  };
   assert.deepEqual(
     model.branchRows(menu, 'lead-1', '').map((row) => [row.name, row.mark, row.group]),
     [

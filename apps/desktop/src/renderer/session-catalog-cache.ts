@@ -1,4 +1,4 @@
-import { normalizeRoutineProvenance } from '../../../../src/runtime/agent/orchestrator/session/routine-result.mjs';
+import { normalizeRoutineProvenance } from '../shared/core-src/runtime/agent/orchestrator/session/routine-result.mjs';
 import type { DesktopAgentRoomSummary, DesktopSessionSummary } from '../shared/contract';
 import { cleanIncomingTail } from '../shared/incoming-tail';
 import { catalogStorageKey, catalogStorageScope } from './catalog-storage-scope';

@@ -19,7 +19,7 @@ import {
   defaultAgentAvatar,
   mascotLook,
   mascotParts,
-} from '../../../../src/runtime/shared/agent-avatar.mjs';
+} from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 import { type AvatarMotionState, useAvatarMotion, useReducedMotion } from './avatar-motion';
 import { t } from './i18n';
 import './agent-avatar.css';

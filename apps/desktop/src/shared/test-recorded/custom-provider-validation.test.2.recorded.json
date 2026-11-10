@@ -1,0 +1,27 @@
+{
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/shared/provider-accounts.mjs",
+  "test": "apps/desktop/src/main/custom-provider-validation.test.mjs"
+ },
+ "constants": {
+  "ACCOUNT_PROVIDERS": [
+   "openai-oauth",
+   "anthropic-oauth",
+   "grok-oauth",
+   "muse-code-oauth",
+   "command-code-oauth",
+   "mimo-oauth",
+   "cursor-oauth",
+   "devin-oauth",
+   "antigravity-oauth",
+   "opencode-go-oauth"
+  ],
+  "MAX_ACCOUNTS": 20
+ },
+ "calls": {},
+ "services": {},
+ "stubs": {},
+ "opaque": []
+}

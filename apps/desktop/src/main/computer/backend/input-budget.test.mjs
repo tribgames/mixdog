@@ -4,8 +4,8 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 import { assertSafeComputerInput } from '../input/guards.ts';
 import { powershellHostProgram } from './program.ts';
-import { validateComputerToolArgs } from '../../../../../../src/runtime/computer-bridge/action-schema.mjs';
-import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS as maximum } from '../../../../../../src/runtime/computer-bridge/limits.mjs';
+import { validateComputerToolArgs } from '../../../shared/test-recorded/input-budget.test.0.recorded.mjs';
+import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS as maximum } from '../../../shared/test-recorded/input-budget.test.1.recorded.mjs';
 
 test('foreground typing budgets are checked before dispatch without reducing background values', () => {
   for (const [delivery, length, accepted] of [

@@ -130,7 +130,7 @@ test('a session resolves its own override, else its room, else its bot', async (
 });
 
 test('seats resolve session → room → bot, fall back when a mute expires, and count as bot conversations', async (t) => {
-  const { roomMemberSessionId } = await import('../../../../src/runtime/agent/orchestrator/session/agent-room.mjs');
+  const { roomMemberSessionId } = await import('../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs');
   const seat = roomMemberSessionId(ROOM_ID, 'marketer');
   assert.ok(seat, 'a seat id');
   const { store } = await setup(t, { scope: 'bots' });
@@ -159,7 +159,7 @@ test('seats resolve session → room → bot, fall back when a mute expires, and
 });
 
 test("scope 'off' leaves every kind outside; an override still wins", async (t) => {
-  const { roomMemberSessionId } = await import('../../../../src/runtime/agent/orchestrator/session/agent-room.mjs');
+  const { roomMemberSessionId } = await import('../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs');
   const { controls, store } = await setup(t, { scope: 'off' });
   const targets = [
     { kind: 'session', id: 'sess_code' },
@@ -331,7 +331,7 @@ test('a failed settings read keeps the cached values and tells the user', async 
 });
 
 const seatOf = async (agent) => {
-  const { roomMemberSessionId } = await import('../../../../src/runtime/agent/orchestrator/session/agent-room.mjs');
+  const { roomMemberSessionId } = await import('../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs');
   return roomMemberSessionId(ROOM_ID, agent);
 };
 

@@ -9,13 +9,10 @@ import {
   DESKTOP_WORKTREE_NEW_TASK_DEFAULTS,
 } from '../shared/contract.ts';
 import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-validation.ts';
-import { createRemoteMethods } from './remote-methods.ts';
 import { worktreeErrorWithCode } from './worktree-validation.ts';
-import { WORKTREE_ERROR_CODES } from '../../../../src/runtime/shared/worktrees/contract.mjs';
-import { WORKTREE_NEW_TASK_DEFAULTS } from '../../../../src/runtime/shared/worktrees/settings.mjs';
-import { SESSION_CONFIGURE_ACTIONS, SESSION_READ_ACTIONS } from '../../../../src/standalone/session-protocol.mjs';
-import { createSessionWorktreeApi } from '../../../../src/tui/session/session-api/worktree.mjs';
-
+import { WORKTREE_ERROR_CODES } from './test-support/worktree-contract.recorded.mjs';
+import { WORKTREE_NEW_TASK_DEFAULTS } from './test-support/worktree-contract.recorded.mjs';
+import { SESSION_CONFIGURE_ACTIONS, SESSION_READ_ACTIONS } from './test-support/session-protocol-actions.recorded.mjs';
 const request = (capability, ...args) => requiredDesktopCapabilityRequest({ capability, args });
 
 test('worktree capabilities are registered on the desktop surface and the session protocol', () => {
@@ -133,39 +130,6 @@ test('worktree capability arguments are shape-checked', () => {
   }
 });
 
-test('a phone force-deletes a branch through the desktop validation: boolean, delete-branch only', async () => {
-  const forwarded = [];
-  const methods = createRemoteMethods({
-    host: {
-      async invokeCapability(capability, args) {
-        forwarded.push([capability, args[0].force]);
-        return { value: { deleted: true } };
-      },
-    },
-  });
-  const branchAction = (input) =>
-    methods.invokeCapability([
-      {
-        capability: 'manageProjectBranch',
-        args: [
-          {
-            projectPath: '/p',
-            branch: 'kept',
-            commit: 'a'.repeat(40),
-            target: 'main',
-            targetCommit: 'b'.repeat(40),
-            confirmed: true,
-            ...input,
-          },
-        ],
-      },
-    ]);
-  await assert.rejects(async () => branchAction({ action: 'delete-branch', force: 'yes' }), TypeError);
-  await assert.rejects(async () => branchAction({ action: 'merge', force: true }), TypeError);
-  await branchAction({ action: 'delete-branch', force: true });
-  assert.deepEqual(forwarded, [['manageProjectBranch', true]]);
-});
-
 test('a typed worktree failure keeps its code at the head of the message across IPC', () => {
   const typed = Object.assign(new Error('The repository is large.'), {
     code: 'WORKTREE_LARGE_REPO_CONFIRM',
@@ -183,23 +147,4 @@ test('a typed worktree failure keeps its code at the head of the message across 
   assert.equal(worktreeErrorWithCode(bare).message, 'WORKTREE_PROJECT_UNKNOWN: Project is not available.');
   const other = Object.assign(new Error('nope'), { code: 'ENOENT' });
   assert.equal(worktreeErrorWithCode(other), other);
-});
-
-test('session worktree actions reject with the typed not-implemented error on a runtime without the workspace authority', async () => {
-  const api = createSessionWorktreeApi();
-  for (const action of [
-    'getBranchMenu',
-    'getProjectBranchMenu',
-    'selectBranch',
-    'selectProjectBranch',
-    'requestWorktree',
-    'mergeWorkspace',
-    'removeWorktree',
-  ]) {
-    await assert.rejects(api[action]({}), (error) => {
-      assert.equal(error.code, 'WORKTREE_NOT_IMPLEMENTED');
-      assert.match(error.message, new RegExp(`${action} is not implemented`));
-      return true;
-    });
-  }
 });

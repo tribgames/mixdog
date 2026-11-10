@@ -8,7 +8,7 @@ import { remotePairingKeys } from './remote-pairing-recovery.ts';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { useAppFrameEntryIntake } from './app-root/app-frame-entry-intake.ts';
 import { useAppFrameNavigationState } from './app-root/app-frame-navigation-state.ts';
-import { agentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { agentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 
 const session = (id) => ({ kind: 'session', id });
 const layout = () => ({

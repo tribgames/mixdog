@@ -1,5 +1,5 @@
 // @ts-expect-error Shared presentation contract has no separate declaration file.
-import { measuredContextUsage } from '../../../../src/ui/context-measurement.mjs';
+import { measuredContextUsage } from '../../../../packages/protocol-client/src/rows/context-measurement.mjs';
 
 interface ContextUsageInput {
   usedTokens?: unknown;

@@ -10,7 +10,7 @@ import { windowTransitionRetargets } from '../shared/window-transition';
 import { assertSafeComputerInput } from '../input/guards';
 import { classifyComputerSequenceObservation, executeComputerSequenceSteps } from '../input/sequence';
 import type { createCaptureEngine } from '../observation/capture';
-import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
+import { computerErrorCode } from '../../../shared/core-src/runtime/computer-bridge/error-code.mjs';
 
 type CaptureEngine = ReturnType<typeof createCaptureEngine>;
 

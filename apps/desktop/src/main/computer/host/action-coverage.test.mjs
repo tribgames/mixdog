@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { COMPUTER_CORE_ACTION_SCHEMA } from '../../../../../../src/runtime/computer-bridge/core-actions.mjs';
+import { COMPUTER_CORE_ACTION_SCHEMA } from '../../../shared/test-recorded/action-coverage.test.0.recorded.mjs';
 
 // Source-text on purpose (whole file): the action lists live in TypeScript modules and
 // PowerShell programs that only run on a real desktop; the cross-layer coverage is the invariant.

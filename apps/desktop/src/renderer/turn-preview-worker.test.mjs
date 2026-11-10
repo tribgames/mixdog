@@ -21,7 +21,7 @@ import {
   completeTurnSnapshot,
   getTurnChanges,
   recordTurnDiffChanges,
-} from '../../../../src/runtime/shared/turn-snapshot.mjs';
+} from '../shared/test-recorded/turn-preview-worker.test.0.recorded.mjs';
 
 const h = React.createElement;
 const LEAD = 'desk-lead';

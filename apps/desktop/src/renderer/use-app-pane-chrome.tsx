@@ -7,7 +7,7 @@ import type { PaneLeaf } from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
 import { t } from './i18n';
 import { browserTabTitle, displayProject, navigationKey } from './text-format';
-import { isAgentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { isAgentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { agentHomeTitle } from './agent-contacts-model';
 import { openAgentProfile } from './agent-panel-tab';
 import { isDeletedBotSession } from './agent-chat-mode';

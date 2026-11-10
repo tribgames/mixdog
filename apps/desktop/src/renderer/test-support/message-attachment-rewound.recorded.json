@@ -1,0 +1,75 @@
+{
+ "sess_restore_pdf_first": {
+  "text": "[File #1: spec.pdf] then [Pasted text #2 +60 lines]",
+  "removed": 1,
+  "messages": 1,
+  "pastedTexts": {
+   "2": {
+    "id": 2,
+    "source": "paste",
+    "attachmentRef": "c53011907b588cf1ed831537a60a486b62fc2875155f3a4f7e6df928c6802197",
+    "sizeBytes": 1020,
+    "filename": "Pasted text #2",
+    "mimeType": "text/plain",
+    "text": "pasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\npasted body line\n"
+   }
+  },
+  "content": [
+   {
+    "type": "file",
+    "data": "JVBERi0xLjcKYm9keQ==",
+    "mimeType": "application/pdf",
+    "filename": "spec.pdf"
+   }
+  ]
+ },
+ "sess_restore_ref": {
+  "text": "check [Pasted text #1 +50 lines]",
+  "removed": 1,
+  "messages": 1,
+  "pastedTexts": {
+   "1": {
+    "id": 1,
+    "source": "paste",
+    "attachmentRef": "c6b0ba959c64777d7e70bd9c952c7ba687f47127c7f1281bda4677d02b6b4444",
+    "sizeBytes": 600,
+    "filename": "Pasted text #1",
+    "text": "stored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\nstored line\n"
+   }
+  }
+ },
+ "sess_restore_mixed": {
+  "text": "see [Image #3: shot.png] [File #1: notes.md] [Pasted text #2 +3 lines]",
+  "removed": 1,
+  "messages": 1,
+  "pastedImages": {
+   "3": {
+    "id": 3,
+    "type": "image",
+    "mediaType": "image/png",
+    "attachmentRef": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e",
+    "sizeBytes": 9,
+    "content": "cG5nIGJ5dGVz"
+   }
+  },
+  "pastedTexts": {
+   "1": {
+    "id": 1,
+    "source": "file",
+    "attachmentRef": "1d4188d7227f4e91ea74679173038f3cdaf122ceae11659e28a04af459a872bf",
+    "sizeBytes": 1200,
+    "filename": "notes.md",
+    "mimeType": "text/markdown",
+    "text": "file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body file body "
+   },
+   "2": {
+    "id": 2,
+    "source": "paste",
+    "attachmentRef": "37d04155793420fda9d429a62433f5407c6126f6d3d7cc5b57af4a62d26ec09a",
+    "sizeBytes": 1120,
+    "filename": "Pasted text #2",
+    "text": "one\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\none\ntwo\nthree\n"
+   }
+  }
+ }
+}

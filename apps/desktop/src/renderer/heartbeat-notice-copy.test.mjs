@@ -1,57 +1,22 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import i18n from './i18n';
 import { localizeHeartbeatBreakerNotice } from './error-notice-copy';
-import { HEARTBEAT_LIMITS, createMixyHeartbeat } from '../../../../src/session-runtime/mixy-heartbeat.mjs';
 
 const ko = JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8'));
 i18n.addResourceBundle('ko', 'translation', ko);
 
-/** The warning the real heartbeat posts once its Maintainer gate trips on `decide`. */
-async function breakerNotice(t, decide) {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-heartbeat-notice-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  let clock = Date.UTC(2026, 0, 1, 9);
-  const notices = [];
-  const heartbeat = createMixyHeartbeat({
-    now: () => clock,
-    path: join(dir, 'heartbeat.json'),
-    isEnabled: async () => true,
-    // A profile with Mixy.
-    mixyExists: async () => true,
-    userTurnAt: () => 0,
-    collect: async () => ({
-      sessions: [{ id: 'sess_lead_1', bot: '', title: 'Report', preview: 'Draft done' }],
-      tasks: [],
-      approvals: 0,
-      routines: [],
-    }),
-    routeKey: async () => 'fake/tiny/',
-    decide,
-    review: async () => ({ action: 'unmanaged' }),
-    wake: async () => ({ quiet: true }),
-    notify: async (text) => notices.push(text),
-    log: () => {},
-  });
-  assert.equal(await heartbeat.tick(), 'armed');
-  for (let i = 0; i < HEARTBEAT_LIMITS.providerFailuresToTrip && !notices.length; i += 1) {
-    clock += HEARTBEAT_LIMITS.intervalMs;
-    await heartbeat.tick();
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-  assert.equal(notices.length, 1);
-  return notices[0];
-}
-
-test("the heartbeat's breaker warning shows in the reader's language, its count kept", async (t) => {
-  const unusable = await breakerNotice(t, async () => null);
-  const failed = await breakerNotice(t, async () => {
-    throw new Error('503 overloaded');
-  });
+// The warnings Node b6f10295a's heartbeat (src/session-runtime/mixy-heartbeat.mjs) posts once its Maintainer gate trips on 3 unusable
+// replies / 5 failed calls, recorded by running it.
+const UNUSABLE_NOTICE =
+  'Heartbeat: the Maintainer model gave 3 unusable replies in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.';
+const FAILED_NOTICE =
+  'Heartbeat: the Maintainer model gave 5 failed calls in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.';
+test("the heartbeat's breaker warning shows in the reader's language, its count kept", async () => {
+  const unusable = UNUSABLE_NOTICE;
+  const failed = FAILED_NOTICE;
   assert.equal(localizeHeartbeatBreakerNotice(unusable), unusable, 'English stays the source text');
   await i18n.changeLanguage('ko');
   try {

@@ -4,8 +4,8 @@ import test from 'node:test';
 import {
   CUSTOM_REQUEST_BODY_MAX_CHARS,
   CUSTOM_RESERVED_BODY_KEYS,
-} from '../../../../../src/runtime/agent/orchestrator/providers/custom-provider-config.mjs';
-import { normalizeCustomProviderConfig } from '../../../../../src/runtime/agent/orchestrator/providers/custom-provider.mjs';
+} from '../../shared/test-recorded/custom-request-options.test.0.recorded.mjs';
+import { normalizeCustomProviderConfig } from '../../shared/test-recorded/custom-request-options.test.1.recorded.mjs';
 import { installTestDom } from '../test-support/test-dom.mjs';
 
 const { restore } = installTestDom(null, {
