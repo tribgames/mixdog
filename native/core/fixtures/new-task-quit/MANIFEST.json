@@ -69,7 +69,7 @@
     "scripts": [
       {
         "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-        "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+        "sha256": "1f65dbb615d53376c103b20d0df7a53b7ba1bfed8100be99716da900dfc58c66"
       },
       {
         "path": "benchmarks/rust-core/recorders/lib/phone-files-replay.mjs",
@@ -85,7 +85,7 @@
       },
       {
         "path": "benchmarks/rust-core/recorders/lib/process-job.mjs",
-        "sha256": "1b0c21755d30bd69db15d51fb4fb593bb301a55eff009900ad9318a8665acd24"
+        "sha256": "6f415811f42683dcba41304663da7feaa96568cdcb6834cabb7b73ee04d6ba4e"
       },
       {
         "path": "benchmarks/rust-core/recorders/lib/recording-scripts.mjs",
@@ -93,7 +93,7 @@
       },
       {
         "path": "benchmarks/rust-core/recorders/new-task-dedupe/replay.mjs",
-        "sha256": "5c0f4b09eead381d3a959b4c4f357daa58f7cd78c2d313f20400d72172a2c029"
+        "sha256": "a4f0d44d5acc8fa26b45f3ad9b0b1b47940ab7a915d6de8e95487e6871d2a765"
       },
       {
         "path": "benchmarks/rust-core/recorders/new-task-dedupe/scenarios.mjs",
