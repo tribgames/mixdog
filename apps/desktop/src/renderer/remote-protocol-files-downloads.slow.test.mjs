@@ -12,5 +12,6 @@ const BIN = process.env.MIXDOGD_BIN || 'D:\\mixdog-build\\pool\\w25-target\\debu
 test('the files adapter replays every call of the downloads recording over a real core', () => {
   const child = spawnSync(process.execPath, [...process.execArgv, recorder, '--replay', BIN], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 900_000 });
   assert.equal(child.status, 0, `replay failed (${child.status}):\n${child.stdout.slice(-6000)}\n${child.stderr.slice(-2000)}`);
-  assert.match(child.stdout, /file-downloads replay .*: \d+ calls compared, \d+ held calls and \d+ handle counts proved by the workspace crate's transfer::replay, 0 unexpected/);
+  assert.match(child.stdout, /file-downloads replay .*: \d+ calls compared, \d+ held calls, \d+ handle counts, \d+ calls recorded on another platform, 0 unexpected/);
 });
+
