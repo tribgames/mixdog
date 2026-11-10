@@ -55,8 +55,9 @@ pub trait CoreHandle: Send + Sync + 'static {
 
     /// The server admitted a request (took an in-flight slot of its class): the returned guard lives until the slot is freed. A core that
     /// counts service calls (Node's `inFlightWork().activeCalls`, `daemon.mjs:444-449`) holds the count in the guard. Required, with no
-    /// default, so an implementor cannot ignore the calls by omission.
-    fn request_started(&self) -> RequestGuard;
+    /// default, so an implementor cannot ignore the calls by omission. `method` and `params` are the request's, so a core can tell a
+    /// call its stop does not wait for (a new task, host logic in Node) from one it drains.
+    fn request_started(&self, method: &str, params: &serde_json::Value) -> RequestGuard;
 }
 
 /// What an admitted request holds for as long as it runs (see [`CoreHandle::request_started`]).

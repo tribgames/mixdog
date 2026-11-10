@@ -104,6 +104,12 @@ impl SessionHandle {
         &self.cell.stepped
     }
 
+    /// The actor's `turn_busy()` after its last step: a next turn is queued while it holds.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn turn_busy(&self) -> bool {
+        self.cell.busy.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     fn closing(&self) -> CoreError {
         CoreError::ThreadClosing {
             thread_id: self.id.clone(),

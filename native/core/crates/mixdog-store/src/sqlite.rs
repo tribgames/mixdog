@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
 
+mod gate;
 pub mod lead;
 #[cfg(test)]
 mod model_tests;
@@ -35,6 +36,8 @@ use rusqlite::OptionalExtension;
 use rusqlite::Transaction;
 use rusqlite::params;
 use tokio::sync::oneshot;
+#[cfg(test)]
+use tokio::sync::watch;
 
 use crate::fold::LineageIndex;
 use crate::fold::LookupError;
@@ -518,6 +521,14 @@ enum Command {
     Labels { labels: PlaceholderLabels, ack: Ack },
     /// Drop the index rows of a deleted session whose folder is gone.
     Purge { session: String, ack: Ack },
+    /// Frames of a session the reconcile read from its log; with `finish`, its row and damage,
+    /// written clean (`reconcile`). Answered on a channel the lane job blocks on.
+    Reconcile {
+        session: String,
+        frames: Vec<ProjectedFrame>,
+        finish: Option<Box<(CatalogHead, Option<String>)>>,
+        ack: mpsc::Sender<Result<(), DbError>>,
+    },
     /// The writer stops at once and closes its connection ([`SqliteStore::close`]).
     #[cfg(any(test, feature = "test-support"))]
     Close,
@@ -573,6 +584,62 @@ struct Writer {
 const LABELS_KEY: &str = "ui:placeholder_labels";
 const REFOLD_JOB: &str = "job:refold_titles";
 
+/// The seam of the boot reconcile between a session's projection and its row: a test arms it
+/// for one data dir, and the next reconcile there ends (as a process ending at that point).
+#[cfg(test)]
+pub(crate) mod reconcile_seam {
+    use std::path::Path;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    static ARMED: Mutex<Option<PathBuf>> = Mutex::new(None);
+    static FAILING: Mutex<Option<PathBuf>> = Mutex::new(None);
+    static HELD: Mutex<Option<(PathBuf, std::sync::mpsc::Receiver<()>)>> = Mutex::new(None);
+
+    pub(crate) fn arm(data: &Path) {
+        *ARMED.lock().expect("seam") = Some(data.to_path_buf());
+    }
+
+    /// The next reconcile in `data` starts once the returned sender sends (or is dropped).
+    pub(crate) fn hold(data: &Path) -> std::sync::mpsc::Sender<()> {
+        let (release, held) = std::sync::mpsc::channel();
+        *HELD.lock().expect("seam") = Some((data.to_path_buf(), held));
+        release
+    }
+
+    pub(super) fn wait_if_held(data: &Path) {
+        let mut slot = HELD.lock().expect("seam");
+        if slot.as_ref().is_some_and(|(at, _)| at == data) {
+            let (_, held) = slot.take().expect("held");
+            drop(slot);
+            let _ = held.recv();
+        }
+    }
+
+    /// The next reconcile in `data` fails its first index write.
+    pub(crate) fn fail(data: &Path) {
+        *FAILING.lock().expect("seam") = Some(data.to_path_buf());
+    }
+
+    pub(super) fn fails_here(data: &Path) -> bool {
+        let mut failing = FAILING.lock().expect("seam");
+        let hit = failing.as_deref() == Some(data);
+        if hit {
+            *failing = None;
+        }
+        hit
+    }
+
+    pub(super) fn ends_here(data: &Path) -> bool {
+        let mut armed = ARMED.lock().expect("seam");
+        let hit = armed.as_deref() == Some(data);
+        if hit {
+            *armed = None;
+        }
+        hit
+    }
+}
+
 fn send(acks: Vec<Ack>, result: &Result<(), String>) {
     for ack in acks {
         let _ = ack.send(result.clone().map_err(DbError::Write));
@@ -622,6 +689,10 @@ impl Writer {
         self.seq += 1;
         let seq = self.seq;
         match cmd {
+            // Applied as it arrives: every other request waits until the reconcile is done.
+            Command::Reconcile { session, frames, finish, ack } => {
+                let _ = ack.send(self.reconcile_apply(&session, &frames, finish.map(|finish| *finish)));
+            }
             Command::Upsert { head, dirty, ack } => {
                 let entry = self
                     .upserts
@@ -692,6 +763,27 @@ impl Writer {
             remove_session_dir(lane, &data.join("sessions").join(&session))?;
             while !self.purge_rows(&session)? {}
         }
+    }
+
+    /// One message of the reconcile (`reconcile`): the frames, then with `finish` the row
+    /// (and damage) of the session, which clears its dirty mark in the row's transaction.
+    fn reconcile_apply(
+        &mut self,
+        session: &str,
+        frames: &[ProjectedFrame],
+        finish: Option<(CatalogHead, Option<String>)>,
+    ) -> Result<(), DbError> {
+        apply_all(&mut self.conn, session, frames)?;
+        let Some((head, damage)) = finish else { return Ok(()) };
+        let tx = self.conn.transaction()?;
+        upsert(&tx, &head, DirtyMark::Clear, &self.labels)?;
+        if let Some(damage) = damage {
+            set_status_on(&tx, session, SessionStatus::Damaged, Some(&damage))?;
+        }
+        tx.commit()?;
+        // A fork whose base gained rows may now have a view to finish.
+        self.views = true;
+        Ok(())
     }
 
     /// One bounded step of the oldest purge (`purge_rows`).
@@ -816,7 +908,7 @@ impl Writer {
                     }
                     #[cfg(any(test, feature = "test-support"))]
                     Command::Close => unreachable!("the writer stops before it queues a close"),
-                    Command::Upsert { .. } | Command::Project { .. } | Command::Purge { .. } => {
+                    Command::Upsert { .. } | Command::Project { .. } | Command::Purge { .. } | Command::Reconcile { .. } => {
                         unreachable!("queued separately")
                     }
                 }
@@ -1235,7 +1327,8 @@ fn refresh_prompt(tx: &Transaction<'_>, session: &str, key: &str) -> rusqlite::R
 
 struct Shared {
     path: PathBuf,
-    pool: Arc<ReadPool>,
+    /// The read pool and the writer channel, behind the boot reconcile.
+    gate: gate::Gate,
     rows: RowSinkCell,
     /// The writer thread, joined by [`SqliteStore::close`].
     #[cfg(any(test, feature = "test-support"))]
@@ -1247,7 +1340,6 @@ struct Shared {
 #[derive(Clone)]
 pub struct SqliteStore {
     shared: Arc<Shared>,
-    sender: mpsc::Sender<Command>,
 }
 
 impl std::fmt::Debug for SqliteStore {
@@ -1366,6 +1458,11 @@ impl SqliteStore {
             }
         };
         writer.boot_purge(lane, data, &incomplete)?;
+        let dirty: Vec<String> = writer
+            .conn
+            .prepare_cached("SELECT id FROM sessions WHERE dirty = 1 ORDER BY id")?
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
         let rows = writer.sink.clone();
         let (sender, rx) = mpsc::channel();
         let handle = thread
@@ -1373,16 +1470,44 @@ impl SqliteStore {
             .map_err(|e| DbError::Write(e.to_string()))?;
         #[cfg(not(any(test, feature = "test-support")))]
         drop(handle);
-        Ok(SqliteStore {
+        let (gate, reconciler) = gate::Gate::new(ReadPool::new(path, read_lane), sender, !dirty.is_empty());
+        let store = SqliteStore {
             shared: Arc::new(Shared {
                 path: path.to_path_buf(),
-                pool: ReadPool::new(path, read_lane),
+                gate,
                 rows,
                 #[cfg(any(test, feature = "test-support"))]
                 writer: Mutex::new(Some(handle)),
             }),
-            sender,
-        })
+        };
+        // The read lane's first job: every lane job that reads the index after this one waits for it, never the other way round.
+        if let Some(reconciler) = reconciler {
+            let data = data.to_path_buf();
+            let _job = read_lane
+                .submit(&CancellationToken::new(), move |lane| {
+                    match reconcile(lane, &reconciler.pool, &reconciler.sender, &data, dirty) {
+                        Ok(true) => reconciler.finish(Ok(())),
+                        // The test seam: the process ended mid-reconcile; dropping the reconciler fails every access.
+                        Ok(false) => {}
+                        Err(why) => reconciler.finish(Err(why)),
+                    }
+                })
+                .map_err(|_| DbError::LaneFull)?;
+        }
+        Ok(store)
+    }
+
+    /// Resolves once the sessions found dirty at open are reconciled (`reconcile`); every read
+    /// and every acknowledged write waits for it, so none sees or changes a row the reconcile
+    /// has yet to write. A reconcile that failed to write the index fails it.
+    pub fn reconciled(&self) -> impl Future<Output = Result<(), DbError>> + Send + 'static {
+        self.shared.gate.reconciled()
+    }
+
+    /// The number of reads and writes that waited for the reconcile so far.
+    #[cfg(test)]
+    pub(crate) fn reconcile_waiters(&self) -> watch::Receiver<usize> {
+        self.shared.gate.waiters()
     }
 
     /// Test teardown: the writer stops at once (what is queued behind the close is dropped, its waiters answered `Stopped`) and
@@ -1390,12 +1515,12 @@ impl SqliteStore {
     /// handles still exist. Returns once the writer thread has ended.
     #[cfg(any(test, feature = "test-support"))]
     pub fn close(&self) {
-        let _ = self.sender.send(Command::Close);
-        let handle = self.shared.writer.lock().expect("writer handle").take();
-        if let Some(handle) = handle {
-            let _ = handle.join();
-        }
-        self.shared.pool.close();
+        self.shared.gate.close(|| {
+            let handle = self.shared.writer.lock().expect("writer handle").take();
+            if let Some(handle) = handle {
+                let _ = handle.join();
+            }
+        });
     }
 
     /// Connects the sink of the catalog row writes. Set once; the second call is refused.
@@ -1403,14 +1528,8 @@ impl SqliteStore {
         self.shared.rows.set(sink).map_err(|_| "the row sink is already set")
     }
 
-    fn submit(&self, cmd: Command) -> Result<(), DbError> {
-        self.sender.send(cmd).map_err(|_| DbError::Stopped)
-    }
-
     async fn ask(&self, make: impl FnOnce(Ack) -> Command) -> Result<(), DbError> {
-        let (ack, rx) = oneshot::channel();
-        self.submit(make(ack))?;
-        rx.await.map_err(|_| DbError::Stopped)?
+        self.shared.gate.ask(make).await
     }
 
     /// Catalog row write, coalesced per session; resolves once committed.
@@ -1418,11 +1537,6 @@ impl SqliteStore {
     /// message state when it is written.
     pub async fn upsert(&self, head: CatalogHead, dirty: DirtyMark) -> Result<(), DbError> {
         self.ask(|ack| Command::Upsert { head: Box::new(head), dirty, ack: Some(ack) }).await
-    }
-
-    /// Catalog row write without a waiter (active-session header changes).
-    pub fn upsert_async(&self, head: CatalogHead) -> Result<(), DbError> {
-        self.submit(Command::Upsert { head: Box::new(head), dirty: DirtyMark::Keep, ack: None })
     }
 
     /// RL §9.2 rule 1: committed before the activation's first append.
@@ -1455,7 +1569,7 @@ impl SqliteStore {
         &self,
         f: impl FnOnce(&Connection) -> Result<T, DbError> + Send + 'static,
     ) -> impl Future<Output = Result<T, DbError>> + Send + 'static {
-        self.shared.pool.run(f)
+        self.shared.gate.read(f)
     }
 
     /// RL §9.2 rule 5.
@@ -1489,7 +1603,7 @@ impl SqliteStore {
         lineage: &[LineageLevel],
         cut: Option<u64>,
     ) -> Result<Vec<String>, DbError> {
-        self.shared.pool.with(|c| {
+        self.shared.gate.with(|c| {
             let mut seen = std::collections::HashSet::new();
             let mut out = Vec::new();
             let mut own = c.prepare_cached(PROMPTS_SQL)?;
@@ -1524,7 +1638,7 @@ impl SqliteStore {
     /// GC condition 3 (SM §9) for `BlobStore::collect_shard`, which runs on the
     /// maintenance lane: answered on that lane's thread.
     pub fn blob_referenced_on_lane(&self, _lane: &InLane<MaintenanceIo>, digest: &Digest) -> Result<bool, DbError> {
-        self.shared.pool.with(|c| blob_referenced_on(c, digest))
+        self.shared.gate.with(|c| blob_referenced_on(c, digest))
     }
 
     /// P §9.2 thread-scope lookup: the indexed op of `session` (records not yet projected
@@ -1537,7 +1651,7 @@ impl SqliteStore {
     /// `thread_op` inside a job already on the read lane: answered on the job's thread, so the job never waits for a lane slot
     /// behind itself.
     pub fn thread_op_on_lane(&self, _lane: &InLane<InteractiveIo>, session: &str, op_id: &str) -> Result<Option<ThreadOp>, DbError> {
-        self.shared.pool.with(|c| thread_op_on(c, session, op_id))
+        self.shared.gate.with(|c| thread_op_on(c, session, op_id))
     }
 
     /// The ops of `session` that `op/status{fence}` fenced (P §9.4): an actor refuses them at
@@ -1549,7 +1663,7 @@ impl SqliteStore {
 
     /// `fenced_ops` inside a job already on the read lane.
     pub fn fenced_ops_on_lane(&self, _lane: &InLane<InteractiveIo>, session: &str) -> Result<Vec<String>, DbError> {
-        self.shared.pool.with(|c| fenced_ops_on(c, session))
+        self.shared.gate.with(|c| fenced_ops_on(c, session))
     }
 
     /// The compaction dividers of the display history placed before rows of
@@ -1583,7 +1697,7 @@ impl SqliteStore {
         from: u64,
         to: u64,
     ) -> Result<Vec<Divider>, DbError> {
-        self.shared.pool.with(|c| dividers_on(c, lineage, cut, level, from, to))
+        self.shared.gate.with(|c| dividers_on(c, lineage, cut, level, from, to))
     }
 
     /// The JSON list row of a session; `None` for a session whose log has no readable
@@ -1749,7 +1863,7 @@ impl SqliteStore {
         cursor: Option<crate::context::ContextCursor>,
         limit: usize,
     ) -> Result<crate::context::ContextPage, crate::context::ContextError> {
-        let (rows, next) = self.shared.pool.with(|c| crate::context::rows_on(c, lineage, cut, cursor, limit))?;
+        let (rows, next) = self.shared.gate.with(|c| crate::context::rows_on(c, lineage, cut, cursor, limit))?;
         crate::context::read_frames(lane, sessions, rows, next)
     }
 
@@ -1762,7 +1876,7 @@ impl SqliteStore {
         cursor: Option<PageCursor>,
         limit: usize,
     ) -> Result<(Vec<HistoryRow>, Option<PageCursor>), DbError> {
-        self.shared.pool.with(|c| page_on(c, lineage, cut, cursor, limit))
+        self.shared.gate.with(|c| page_on(c, lineage, cut, cursor, limit))
     }
 
     /// The live `compacted` frame whose replacement holds the entry `iid` (such as the
@@ -1787,7 +1901,7 @@ impl SqliteStore {
         cut: Option<u64>,
         iid: &str,
     ) -> Result<Option<CompactionEntry>, DbError> {
-        self.shared.pool.with(|c| compaction_entry_on(c, lineage, cut, iid))
+        self.shared.gate.with(|c| compaction_entry_on(c, lineage, cut, iid))
     }
 }
 
@@ -1849,7 +1963,7 @@ pub fn project_index(
     for id in sessions {
         let dir = data.join("sessions").join(id);
         let mut fold = None;
-        let damage = project_session(&mut conn, &dir, &blobs, &mut fold)
+        let damage = project_session(&mut conn, &dir, &blobs, &mut fold, None)
             .map_err(|e| format!("{id}: {e}"))?
             .err()
             .map(|(error, at)| damage_text(&dir, at, &error));
@@ -1883,20 +1997,117 @@ pub fn project_index(
 /// Why a log stopped before its end, and the damaged frame when the reader names it.
 type LogFailure = (String, Option<crate::log::Damage>);
 
-/// Projects the log in `dir` forward into `conn`, folding into `fold`. The outer error is
+/// Where `project_session` writes: the index connection of a rebuild, or the writer thread
+/// (the reconcile of an open index).
+trait ProjectTo {
+    /// The log's `session` frame was folded: a rebuild writes the row before its frames.
+    fn started(&mut self, head: &CatalogHead) -> Result<(), String>;
+    fn frames(&mut self, session: &str, frames: Vec<ProjectedFrame>) -> Result<(), String>;
+}
+
+impl ProjectTo for Connection {
+    fn started(&mut self, head: &CatalogHead) -> Result<(), String> {
+        let tx = self.transaction().map_err(|e| e.to_string())?;
+        upsert(&tx, head, DirtyMark::Clear, &PlaceholderLabels::default()).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())
+    }
+
+    fn frames(&mut self, session: &str, frames: Vec<ProjectedFrame>) -> Result<(), String> {
+        apply_all(self, session, &frames).map_err(|e| e.to_string())
+    }
+}
+
+/// The reconcile's way into the open index: each message is applied by the writer thread,
+/// and the lane job waits for it (one read chunk of frames in memory at a time).
+struct ToWriter<'a>(&'a mpsc::Sender<Command>);
+
+impl ToWriter<'_> {
+    fn send(&self, session: &str, frames: Vec<ProjectedFrame>, finish: Option<(CatalogHead, Option<String>)>) -> Result<(), String> {
+        let (ack, done) = mpsc::channel();
+        let stopped = |_| "the index writer stopped".to_owned();
+        self.0
+            .send(Command::Reconcile { session: session.to_owned(), frames, finish: finish.map(Box::new), ack })
+            .map_err(|_| "the index writer stopped".to_owned())?;
+        done.recv().map_err(stopped)?.map_err(|e| e.to_string())
+    }
+}
+
+impl ProjectTo for ToWriter<'_> {
+    /// The row is there (it is marked dirty); it is written once the log is folded.
+    fn started(&mut self, _head: &CatalogHead) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn frames(&mut self, session: &str, frames: Vec<ProjectedFrame>) -> Result<(), String> {
+        if frames.is_empty() {
+            return Ok(());
+        }
+        self.send(session, frames, None)
+    }
+}
+
+/// RL §9.2 rule 5, a job on the read lane that `SqliteStore::open` starts once the writer
+/// runs: a session still marked dirty was active when the process last ended, and the frames
+/// its log acked after the index's projected cursor were never projected (the projection runs
+/// behind the ack, so a process that ends right after an ack loses it). Those frames are
+/// projected now and its catalog row is written from its log, so a read after a crash sees
+/// every acked row (a prompt whose turn the crash interrupted included). A cursor at the log's
+/// end does not show the row is current (the row is written after the projection, by the live
+/// writer and here alike), so every dirty session is folded; its mark is cleared in the row's
+/// own transaction, and a process that ends between the projection and the row reconciles the
+/// session again. `Ok(false)`: the test seam ended it, as a process ending there.
+#[allow(clippy::disallowed_methods, reason = "runs on the read lane job (lane proof argument)")]
+fn reconcile(
+    _lane: &InLane<InteractiveIo>,
+    pool: &ReadPool,
+    sender: &mpsc::Sender<Command>,
+    data: &Path,
+    dirty: Vec<String>,
+) -> Result<bool, String> {
+    #[cfg(test)]
+    reconcile_seam::wait_if_held(data);
+    let blobs = crate::blobs::BlobStore::new(data);
+    for session in dirty {
+        let dir = data.join("sessions").join(&session);
+        if !dir.is_dir() {
+            continue;
+        }
+        #[cfg(test)]
+        if reconcile_seam::fails_here(data) {
+            return Err(format!("{session}: the test seam failed the index write"));
+        }
+        let from = pool.with(|c| projected_on(c, &session)).map_err(|e| format!("{session}: {e}"))?;
+        let mut fold = None;
+        let mut to = ToWriter(sender);
+        let damage = project_session(&mut to, &dir, &blobs, &mut fold, from)
+            .map_err(|e| format!("{session}: {e}"))?
+            .err()
+            .map(|(error, at)| damage_text(&dir, at, &error));
+        #[cfg(test)]
+        if reconcile_seam::ends_here(data) {
+            return Ok(false);
+        }
+        let head = fold.as_ref().map_or_else(|| unreadable_head(&session), CatalogHead::of);
+        to.send(&session, Vec::new(), Some((head, damage))).map_err(|e| format!("{session}: {e}"))?;
+    }
+    Ok(true)
+}
+
+/// Projects the log in `dir` forward into `to`, folding into `fold`. The outer error is
 /// an index write failure; the inner one is the log's own failure, after which the frames
-/// before it stay projected.
+/// before it stay projected. `from`: the index already holds every frame before this one
+/// (the reconcile), so those are folded only.
 fn project_session(
-    conn: &mut Connection,
+    to: &mut impl ProjectTo,
     dir: &Path,
     blobs: &crate::blobs::BlobStore,
     fold: &mut Option<crate::fold::Fold>,
+    from: Option<FramePos>,
 ) -> Result<Result<(), LogFailure>, String> {
     use crate::fold::Fold;
     use crate::fold::NoIndex;
     use crate::log::ForwardEnd;
     use crate::schema::record::Record;
-    let labels = PlaceholderLabels::default();
     let log = |e: String| (e, None);
     let first = match crate::log::first_ordinal_unlaned(dir) {
         Ok(first) => first,
@@ -1935,10 +2146,11 @@ fn project_session(
                 }
             };
             let f = fold.as_ref().expect("folded");
-            if started {
-                let tx = conn.transaction().map_err(|e| e.to_string())?;
-                upsert(&tx, &CatalogHead::of(f), DirtyMark::Clear, &labels).map_err(|e| e.to_string())?;
-                tx.commit().map_err(|e| e.to_string())?;
+            if started && from.is_none() {
+                to.started(&CatalogHead::of(f))?;
+            }
+            if from.is_some_and(|from| at.ordinal < from.ordinal) {
+                continue;
             }
             let (kind, op) = match crate::projection::project(record, &mut resolve) {
                 Ok(projected) => projected,
@@ -1958,7 +2170,7 @@ fn project_session(
             });
         }
         let session = fold.as_ref().map(|f| f.session.clone()).unwrap_or_default();
-        apply_all(conn, &session, &frames).map_err(|e| e.to_string())?;
+        to.frames(&session, frames)?;
         if let Some(failure) = failure {
             return Ok(Err(failure));
         }
@@ -2455,7 +2667,7 @@ impl ReadPool {
 
 impl LineageIndex for SqliteStore {
     fn live_rows(&self, session: &str, from: u64, to: u64) -> Result<(u64, u64), LookupError> {
-        self.shared.pool.with(|c| {
+        self.shared.gate.with(|c| {
             let projected = projected_on(c, session)?.map_or(0, |p| p.ordinal);
             if projected < to {
                 return Ok(Err(LookupError::Behind { projected, needed: to }));
@@ -2467,7 +2679,7 @@ impl LineageIndex for SqliteStore {
     }
 
     fn live_compaction_before(&self, session: &str, before: u64) -> Result<Option<FramePos>, LookupError> {
-        self.shared.pool.with(|c| {
+        self.shared.gate.with(|c| {
             let projected = projected_on(c, session)?.map_or(0, |p| p.ordinal);
             if projected < before {
                 return Ok(Err(LookupError::Behind { projected, needed: before }));

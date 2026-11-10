@@ -123,6 +123,23 @@ mod tests {
         assert_eq!(js_words(" a\u{3000}\u{3000}b  c ").collect::<Vec<_>>(), ["a", "b", "c"]);
     }
 
+    /// Every code point `js_trim` removes is one `String.prototype.trim()` removes, and no other, against the set recorded from
+    /// Node (testdata/js_trim.mjs).
+    #[test]
+    fn trim_removes_what_javascripts_trim_removes() {
+        let golden = crate::json_parse(include_str!("../testdata/js_trim.json")).unwrap();
+        let recorded: Vec<u32> = golden["trimmed"].as_array().unwrap().iter().map(|cp| cp.as_u64().unwrap() as u32).collect();
+        let ours: Vec<u32> = (0..=0x10ffff_u32)
+            .filter_map(char::from_u32)
+            .filter(|c| {
+                let inner = format!("a{c}b");
+                js_trim(&format!("{c}{inner}{c}")) == inner
+            })
+            .map(u32::from)
+            .collect();
+        assert_eq!(ours, recorded, "regenerate with testdata/js_trim.mjs");
+    }
+
     #[test]
     fn slice_counts_utf16_units() {
         let emoji = "😀".repeat(201);
