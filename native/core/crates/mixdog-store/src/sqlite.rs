@@ -977,6 +977,14 @@ impl Writer {
             tx.commit()
         })();
         let result = result.map_err(|e| e.to_string());
+        // The count told to the sink is given back before anything can leave this function: the assertion below panics in a
+        // debug build, and a count never given back makes every later listing wait for ever.
+        if result.is_err()
+            && told > 0
+            && let Some(sink) = self.sink.get()
+        {
+            sink.dropped(told);
+        }
         debug_assert!(result.is_ok(), "append transaction failed: {result:?}");
         // Projections: finished ones are acked (and their blob pins released); on a
         // failure every projection in flight is dropped, to be reconciled from its cursor.
@@ -1000,10 +1008,6 @@ impl Writer {
                     sink.written(edge);
                 }
             }
-        } else if told > 0
-            && let Some(sink) = self.sink.get()
-        {
-            sink.dropped(told);
         }
         send(acks, &result);
     }
