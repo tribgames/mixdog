@@ -1675,14 +1675,14 @@ struct Deadline {
 }
 
 impl Deadline {
-    fn start() -> Self {
+    fn start(limit: std::time::Duration) -> Self {
         let (over, ended) = std::sync::mpsc::channel::<()>();
         let (fire, fired) = tokio::sync::oneshot::channel();
         // A blocking task, not a bare thread: while one runs, a paused runtime does not advance its clock by itself, so the wait
         // cannot be made true by a timer nobody advanced to.
         #[allow(clippy::disallowed_methods, reason = "test setup")]
         tokio::task::spawn_blocking(move || {
-            if ended.recv_timeout(DEADLINE) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+            if ended.recv_timeout(limit) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
                 let _ = fire.send(());
             }
         });
@@ -1697,13 +1697,19 @@ impl Deadline {
     }
 }
 
-/// Awaits `wait`, failing by assertion naming `what` if it has not ended by the deadline.
-pub async fn awaiting<T>(what: &str, wait: impl Future<Output = T>) -> T {
-    let mut deadline = Deadline::start();
+/// Awaits `wait`, failing by assertion with `what` (evaluated at the failure, so it can show what was observed by then) if it has
+/// not ended by the deadline.
+pub async fn awaiting<T>(what: impl FnOnce() -> String, wait: impl Future<Output = T>) -> T {
+    awaiting_for(DEADLINE, what, wait).await
+}
+
+/// `awaiting` with the deadline's length given, for a test of the deadline itself.
+pub async fn awaiting_for<T>(limit: std::time::Duration, what: impl FnOnce() -> String, wait: impl Future<Output = T>) -> T {
+    let mut deadline = Deadline::start(limit);
     tokio::select! {
         biased;
         value = wait => value,
-        () = deadline.expired() => panic!("timed out after {DEADLINE:?} waiting for {what}"),
+        () = deadline.expired() => panic!("timed out after {limit:?} waiting for {}", what()),
     }
 }
 

@@ -24,6 +24,7 @@ use super::handle::SessionHandle;
 use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::testing::awaiting;
+use super::testing::awaiting_for;
 use super::tests::eventually_on;
 use super::tests::idle;
 use super::tests::rows;
@@ -97,7 +98,7 @@ async fn a_withheld_wait_fails_at_the_real_deadline_with_the_paused_clock_untouc
     });
     let wake = tokio::sync::Notify::new();
     let started = tokio::time::Instant::now();
-    let failed = tokio::spawn(async move { awaiting("the withheld thing", eventually_on(&[&wake], || None::<()>)).await }).await.expect_err("the wait fails");
+    let failed = tokio::spawn(async move { awaiting_for(std::time::Duration::from_millis(200), || "the withheld thing".to_owned(), eventually_on(&[&wake], || None::<()>)).await }).await.expect_err("the wait fails");
     let message = failed.into_panic().downcast::<String>().map(|text| *text).unwrap_or_default();
     assert!(message.contains("waiting for the withheld thing"), "{message}");
     assert_eq!(tokio::time::Instant::now(), started, "the paused clock did not move");
@@ -138,7 +139,7 @@ async fn another_device_stopping_sends_the_prompt_to_the_sender_through_prompt_r
     assert_eq!((reply["aborted"].clone(), reply["restoreText"].clone(), reply["restoredSubmissionIds"].clone()), (json!(true), json!(""), json!([])));
     eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || idle(&handle).then_some(())).await;
     let restores = awaiting(
-        "the prompt restore frame",
+        || "the prompt restore frame".to_owned(),
         eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || Some(prompt_restores(&rig, &handle)).filter(|frames| !frames.is_empty())),
     )
     .await;
@@ -618,7 +619,7 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         }
         if notification {
             // The call returned once the notice was in the thread's inbox; the actor puts it on the queue in a step, which signals `stepped`.
-            awaiting(&format!("{name}: the channel notification on the thread's queue"), eventually_on(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1).then_some(()))).await;
+            awaiting(|| format!("{name}: the channel notification on the thread's queue (held entries: {})", handle.cell.queue.load().len()), eventually_on(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1).then_some(()))).await;
         }
         let since = || frames().into_iter().skip(base_frames).collect::<Vec<_>>();
         let node = &case["after"];
@@ -627,7 +628,7 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         let (mut rust_labels, mut node_labels) = (Labels::default(), Labels::default());
         let want_frames: Vec<(String, Value)> = node_frames(node["publications"].as_array().unwrap(), at, clock).into_iter().map(|(method, params)| (method, renumber(&params, &mut node_labels))).collect();
         awaiting(
-            &format!("{name}: the {} frames Node published", want_frames.len()),
+            || format!("{name}: the {} frames Node published (Rust's so far: {:?})", want_frames.len(), since()),
             eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (since().len() >= want_frames.len()).then_some(())),
         )
         .await;
@@ -702,10 +703,6 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
     }
 }
 
-/// A wait that fails with the rows it saw instead of hanging: paused time makes the deadline fire only when nothing can still happen.
-async fn within<T>(wait: impl std::future::Future<Output = T>, name: &str, seen: &[(&'static str, String)]) -> T {
-    tokio::time::timeout(std::time::Duration::from_secs(60), wait).await.unwrap_or_else(|_| panic!("{name}: never reached; rows {seen:?}"))
-}
 
 /// Node's transcript rows after a turn (`user`, `assistant`, `turndone`) as the wire items Rust holds for them. Every key of Node's row
 /// is taken from the row, and the key set is asserted, so a key this mapping does not place fails. Ids are placeholders by first
@@ -826,11 +823,11 @@ async fn every_recorded_rewind_resolves_the_displayed_id_as_nodes_does() {
             submit(&handle, 1, &ops[turn], case["prompt"].as_str().unwrap(), &format!("sub{}", turn + 1)).await.expect("the prompt");
             if !busy {
                 // The prompt, its answer and the turn's live end: the rows Node held (`before.items`).
-                within(eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (idle(&handle) && rows(&handle).len() == 3 * (turn + 1)).then_some(())), name, &rows(&handle)).await;
+                awaiting(|| format!("{name}: never reached; rows {:?}", rows(&handle)), eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (idle(&handle) && rows(&handle).len() == 3 * (turn + 1)).then_some(()))).await;
             }
         }
         if busy {
-            within(eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == 1).then_some(())), name, &rows(&handle)).await;
+            awaiting(|| format!("{name}: never reached; rows {:?}", rows(&handle)), eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == 1).then_some(()))).await;
         } else {
             let clock = rig.clock.0.load(std::sync::atomic::Ordering::SeqCst);
             let items: Vec<Value> = handle.cell.view.load_full().items.iter().map(|item| serde_json::to_value(item.as_ref()).unwrap()).collect();
@@ -878,7 +875,7 @@ async fn every_recorded_rewind_resolves_the_displayed_id_as_nodes_does() {
                 assert_eq!(real["options"]["text"], reply["text"]);
                 assert_eq!(real["result"]["removed"], reply["messages"], "the messages the runtime removed");
                 let left = case["after"]["items"].as_array().unwrap();
-                within(eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == left.len()).then_some(())), name, &rows(&handle)).await;
+                awaiting(|| format!("{name}: never reached; rows {:?}", rows(&handle)), eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == left.len()).then_some(()))).await;
                 // What stays, whole: the rows of the turns before the one rewound, as Node's transcript holds them.
                 let clock = rig.clock.0.load(std::sync::atomic::Ordering::SeqCst);
                 let items: Vec<Value> = handle.cell.view.load_full().items.iter().map(|item| serde_json::to_value(item.as_ref()).unwrap()).collect();
