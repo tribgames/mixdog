@@ -35,6 +35,32 @@ const BOUND: std::time::Duration = std::time::Duration::from_secs(60);
 /// `work`, or a failure naming `what` once `BOUND` of real time has passed without it. The deadline is a thread that waits on a
 /// channel for the work's end: it ends with the work, and when the bound passes first it wakes the test, which then fails.
 async fn within<T>(what: &str, work: impl std::future::Future<Output = T>) -> T {
+    bounded(|| what.to_owned(), work).await
+}
+
+/// The step a test has reached, named in its deadline's failure.
+#[derive(Clone)]
+struct Steps(Arc<std::sync::Mutex<&'static str>>);
+
+impl Steps {
+    fn at(&self, step: &'static str) {
+        *self.0.lock().unwrap() = step;
+    }
+}
+
+/// A test's whole body under one real-time deadline (`BOUND`), whose failure names the test and the step it reached: the awaits
+/// inside need none of their own.
+async fn whole<F, Fut>(test: &str, body: F)
+where
+    F: FnOnce(Steps) -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    let steps = Steps(Arc::new(std::sync::Mutex::new("its start")));
+    let reached = steps.clone();
+    bounded(move || format!("{test}, at {}", reached.0.lock().unwrap()), body(steps)).await;
+}
+
+async fn bounded<T>(what: impl FnOnce() -> String, work: impl std::future::Future<Output = T>) -> T {
     let (done, waiting) = std::sync::mpsc::channel::<()>();
     let (expire, expired) = tokio::sync::oneshot::channel::<()>();
     std::thread::spawn(move || {
@@ -48,7 +74,7 @@ async fn within<T>(what: &str, work: impl std::future::Future<Output = T>) -> T 
             drop(done);
             out
         }
-        _ = expired => panic!("{what}: not within {BOUND:?}"),
+        _ = expired => panic!("{}: not within {BOUND:?}", what()),
     }
 }
 
@@ -293,6 +319,7 @@ impl super::NewThreadRoute for HeldRoute {
 /// refusal): the retry joins it or reads its receipt. One task, one prompt.
 #[tokio::test(start_paused = true)]
 async fn a_request_whose_reply_is_lost_runs_on_and_the_retry_gets_its_task() {
+    whole("a_request_whose_reply_is_lost_runs_on_and_the_retry_gets_its_task", |step| async move {
     let rig = Rig::new();
     let runs = counting(&rig);
     let (entered, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
@@ -303,13 +330,11 @@ async fn a_request_whose_reply_is_lost_runs_on_and_the_retry_gets_its_task() {
     let directory = SessionDirectory::new(deps);
     let connection = CancellationToken::new();
     // The attempt is past `reserved`: the connection ends and the call is dropped with it, before any answer.
-    within("the attempt reaching its held route", async {
-        tokio::select! {
-            () = entered.notified() => connection.cancel(),
-            answered = submit_on(&directory, "op-1", "sub-l", "write the report", json!({}), connection.clone()) => panic!("answered while held: {answered:?}"),
-        }
-    })
-    .await;
+    step.at("the attempt reaching its held route");
+    tokio::select! {
+        () = entered.notified() => connection.cancel(),
+        answered = submit_on(&directory, "op-1", "sub-l", "write the report", json!({}), connection.clone()) => panic!("answered while held: {answered:?}"),
+    }
     assert_eq!(stored(&rig, "sub-l").expect("receipt").phase(), Phase::Reserved, "the reply is lost after `reserved`");
     // The retry arrives while the attempt is still held, and joins it: no second attempt starts. Each other way the retry can go
     // (a second attempt, or an answer without joining) ends the wait as a failure.
@@ -319,17 +344,16 @@ async fn a_request_whose_reply_is_lost_runs_on_and_the_retry_gets_its_task() {
         let directory = directory.share();
         async move { submit(&directory, "op-2", "sub-l", "write the report", json!({})).await }
     });
-    within("the retry joining the held attempt, starting a second one or being answered", async {
-        tokio::select! {
-            () = receipts.joined.notified() => {}
-            _ = attempts.wait_for(|started| *started > 1) => panic!("the retry started a second attempt instead of joining the held one"),
-            answered = &mut retry => panic!("the retry was answered without joining the held attempt: {answered:?}"),
-        }
-    })
-    .await;
+    step.at("the retry joining the held attempt, starting a second one or being answered");
+    tokio::select! {
+        () = receipts.joined.notified() => {}
+        _ = attempts.wait_for(|started| *started > 1) => panic!("the retry started a second attempt instead of joining the held one"),
+        answered = &mut retry => panic!("the retry was answered without joining the held attempt: {answered:?}"),
+    }
     assert_eq!(*attempts.borrow(), 1, "one attempt");
     release.add_permits(1);
-    let retry = within("the joined retry's answer once the attempt was released", retry).await.expect("joined").expect("retry");
+    step.at("the joined retry's answer once the attempt was released");
+    let retry = retry.await.expect("joined").expect("retry");
     assert_eq!(retry, derived("sub-l"));
     assert_eq!(runs.load(Ordering::SeqCst), 1, "one prompt");
     assert_eq!(directory.loaded_ids().len(), 1, "one task");
@@ -337,6 +361,8 @@ async fn a_request_whose_reply_is_lost_runs_on_and_the_retry_gets_its_task() {
     assert_eq!((receipt.phase(), receipt.refused()), (Phase::Accepted, false));
     let writes = receipts.writes.lock().unwrap().clone();
     assert_eq!(writes, vec![("reserved".to_owned(), false), ("configured".to_owned(), false), ("accepted".to_owned(), true)], "one attempt's phases");
+    })
+    .await;
 }
 
 /// An attempt that panics gives up its place: the callers it had get no answer, and the next request for the id starts afresh
@@ -362,6 +388,7 @@ async fn an_attempt_that_panics_frees_its_id() {
 /// connection (`apps/desktop/src/main/index.ts:1662-1664` detaches the phones' carriers first and nothing ends the attempt).
 #[tokio::test(start_paused = true)]
 async fn shutdown_cuts_an_attempt_in_flight_and_the_next_start_resumes_it() {
+    whole("shutdown_cuts_an_attempt_in_flight_and_the_next_start_resumes_it", |step| async move {
     let rig = Rig::new();
     let runs = counting(&rig);
     let (entered, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
@@ -372,14 +399,13 @@ async fn shutdown_cuts_an_attempt_in_flight_and_the_next_start_resumes_it() {
     let directory = SessionDirectory::new(deps);
     let caller = submit(&directory, "op-1", "sub-s", "write the report", json!({}));
     tokio::pin!(caller);
-    within("the attempt reaching its held route", async {
-        tokio::select! {
-            () = entered.notified() => {}
-            answered = &mut caller => panic!("answered while held: {answered:?}"),
-        }
-    })
-    .await;
-    within("the directory's shutdown", directory.shutdown()).await;
+    step.at("the attempt reaching its held route");
+    tokio::select! {
+        () = entered.notified() => {}
+        answered = &mut caller => panic!("answered while held: {answered:?}"),
+    }
+    step.at("the directory's shutdown");
+    directory.shutdown().await;
     assert_eq!(receipts.in_flight(), 0, "the attempt was cut");
     // Nothing the attempt held runs on: released now, it would write `configured`.
     release.add_permits(1);
@@ -395,14 +421,17 @@ async fn shutdown_cuts_an_attempt_in_flight_and_the_next_start_resumes_it() {
     assert_eq!(polled(later.as_mut()), std::task::Poll::Pending, "a request after shutdown got an answer");
     assert_eq!(*receipts.attempts.borrow(), 1, "a request after shutdown started an attempt");
     let (restarted, _) = directory_over(&rig);
-    let retry = within("the retry's answer after the restart", submit(&restarted, "op-3", "sub-s", "write the report", json!({}))).await.expect("retry");
+    step.at("the retry's answer after the restart");
+    let retry = submit(&restarted, "op-3", "sub-s", "write the report", json!({})).await.expect("retry");
     assert_eq!(retry, derived("sub-s"));
     assert_eq!(runs.load(Ordering::SeqCst), 1);
     assert_eq!(stored(&rig, "sub-s").expect("receipt").phase(), Phase::Accepted);
+    })
+    .await;
 }
 
-/// The route is seated on the created session (Node's `configureDraft` `setRoute`, after `client.create`) and held there until
-/// released, saying when it is entered.
+/// The route is seated on the created session, the last step of its creation (the record is written, `begin_thread` has not
+/// returned), and held there until released, saying when it is entered.
 struct HeldSeat {
     entered: Arc<tokio::sync::Notify>,
     release: Arc<tokio::sync::Semaphore>,
@@ -428,12 +457,13 @@ impl super::NewThreadRoute for HeldSeat {
     }
 }
 
-/// A shutdown while the draft is applied to the created session ends the attempt as Node's quit does there: the disposed client
-/// fails the draft's call and `createNewTask` refuses the attempt (`if (unsent) await request.reset()`): the receipt is marked
-/// refused on a fresh address and the empty reservation goes. The caller gets no answer; the retry after the restart starts the
-/// task on the refusal's address, as the recorded `refusal-then-same-content` does, and the id is free for other content.
+/// A shutdown while the session's creation has written its record and not returned (Node: `client.create` pending, its daemon
+/// having made the session) ends the attempt before the `try` that refuses (session-host-lifecycle.ts:824-835): the receipt stays
+/// `reserved` at its address, unmarked. The caller gets no answer; the retry after the restart opens the session there and starts
+/// the task in it, as the recorded `retry-after-created` does: one task, one prompt, at the derived address.
 #[tokio::test(start_paused = true)]
-async fn shutdown_while_the_draft_is_applied_refuses_the_attempt_as_nodes_quit() {
+async fn shutdown_while_the_creation_has_not_returned_keeps_the_reservation() {
+    whole("shutdown_while_the_creation_has_not_returned_keeps_the_reservation", |step| async move {
     let rig = Rig::new();
     let runs = counting(&rig);
     let (entered, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
@@ -444,29 +474,97 @@ async fn shutdown_while_the_draft_is_applied_refuses_the_attempt_as_nodes_quit()
     let directory = SessionDirectory::new(deps);
     let caller = submit(&directory, "op-1", "sub-q", "write the report", REFUSED_ROUTE());
     tokio::pin!(caller);
-    within("the attempt reaching its held seat", async {
-        tokio::select! {
-            () = entered.notified() => {}
-            answered = &mut caller => panic!("answered while held: {answered:?}"),
-        }
-    })
-    .await;
-    assert!(directory.loaded_ids().contains(&mixdog_core_api::ids::ThreadId::from(derived("sub-q"))), "the session was created before its seat");
-    within("the directory's shutdown", directory.shutdown()).await;
+    step.at("the creation reaching its held seat");
+    tokio::select! {
+        () = entered.notified() => {}
+        answered = &mut caller => panic!("answered while held: {answered:?}"),
+    }
+    let header = directory.try_stored_header(&mixdog_core_api::ids::ThreadId::from(derived("sub-q"))).await.expect("read");
+    assert!(header.is_some(), "the creation wrote its record");
+    step.at("the directory's shutdown");
+    directory.shutdown().await;
     release.add_permits(1);
     let polled = caller.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
     assert!(polled.is_pending(), "the caller in flight got an answer at shutdown: {polled:?}");
-    let mark = stored(&rig, "sub-q").expect("receipt");
-    assert!(mark.refused() && mark.phase() == Phase::Reserved, "the attempt was refused: {:?}", (mark.phase(), mark.refused()));
-    assert_ne!(mark.session_id(), derived("sub-q"), "the refused reservation is not resumed");
-    assert_eq!(*receipts.writes.lock().unwrap(), vec![("reserved".to_owned(), false), ("reserved+refused".to_owned(), true)]);
+    let receipt = stored(&rig, "sub-q").expect("receipt");
+    assert_eq!((receipt.phase(), receipt.refused(), receipt.session_id()), (Phase::Reserved, false, derived("sub-q").as_str()), "the reservation is kept");
+    assert_eq!(*receipts.writes.lock().unwrap(), vec![("reserved".to_owned(), false)]);
     let mut deps = rig.deps_parts(rig.store.clone());
     deps.new_route = Arc::new(HeldSeat { entered: Arc::default(), release: Arc::new(tokio::sync::Semaphore::new(0)), held: true.into() });
     let restarted = SessionDirectory::new(Arc::new(deps));
-    let retry = within("the retry's answer after the restart", submit(&restarted, "op-2", "sub-q", "write the report", REFUSED_ROUTE())).await.expect("retry");
+    step.at("the retry's answer after the restart");
+    let retry = submit(&restarted, "op-2", "sub-q", "write the report", REFUSED_ROUTE()).await.expect("retry");
+    assert_eq!(retry, derived("sub-q"), "the retry starts the task in the session at the reserved address");
+    assert_eq!(stored(&rig, "sub-q").expect("receipt").phase(), Phase::Accepted);
+    assert_eq!(runs.load(Ordering::SeqCst), 1, "one prompt");
+    assert_eq!(restarted.loaded_ids().len(), 1, "one task");
+    })
+    .await;
+}
+
+/// The draft's worktree is entered and held there until released, saying when it is entered.
+struct HeldPlace {
+    entered: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Semaphore>,
+    held: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait::async_trait]
+impl super::NewThreadPlace for HeldPlace {
+    async fn projects(&self) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
+
+    async fn enter_worktree(&self, _: &mixdog_core_api::ids::ThreadId, _: &Value, _: Option<&Value>, _: &CancellationToken) -> Result<(), CoreError> {
+        if !self.held.swap(true, Ordering::SeqCst) {
+            self.entered.notify_one();
+            self.release.acquire().await.expect("open").forget();
+        }
+        Ok(())
+    }
+}
+
+/// A shutdown inside the draft step (the worktree being entered, after the session was created and `configured` written) ends the
+/// attempt as Node's quit does there: the disposed client fails the worktree's call inside the `try`, and `createNewTask` refuses
+/// the attempt (`if (unsent) await request.reset()`, session-host-lifecycle.ts:955): the receipt is marked refused on a fresh
+/// address. The caller gets no answer; the retry after the restart starts the task on the refusal's address, as the recorded
+/// `refusal-then-same-content` does.
+#[tokio::test(start_paused = true)]
+async fn shutdown_inside_the_draft_step_refuses_the_attempt_as_nodes_quit() {
+    whole("shutdown_inside_the_draft_step_refuses_the_attempt_as_nodes_quit", |step| async move {
+    let rig = Rig::new();
+    let runs = counting(&rig);
+    let (entered, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_place = Arc::new(HeldPlace { entered: entered.clone(), release: release.clone(), held: false.into() });
+    let deps = Arc::new(deps);
+    let receipts = deps.new_tasks.clone();
+    let directory = SessionDirectory::new(deps);
+    let worktree = || json!({ "worktree": {} });
+    let caller = submit(&directory, "op-1", "sub-k", "write the report", worktree());
+    tokio::pin!(caller);
+    step.at("the attempt reaching its held worktree");
+    tokio::select! {
+        () = entered.notified() => {}
+        answered = &mut caller => panic!("answered while held: {answered:?}"),
+    }
+    step.at("the directory's shutdown");
+    directory.shutdown().await;
+    release.add_permits(1);
+    let polled = caller.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
+    assert!(polled.is_pending(), "the caller in flight got an answer at shutdown: {polled:?}");
+    let mark = stored(&rig, "sub-k").expect("receipt");
+    assert!(mark.refused() && mark.phase() == Phase::Reserved, "the attempt was refused: {:?}", (mark.phase(), mark.refused()));
+    assert_ne!(mark.session_id(), derived("sub-k"), "the refused reservation is not resumed");
+    assert_eq!(*receipts.writes.lock().unwrap(), vec![("reserved".to_owned(), false), ("configured".to_owned(), false), ("reserved+refused".to_owned(), true)]);
+    let (restarted, _) = directory_over(&rig);
+    step.at("the retry's answer after the restart");
+    let retry = submit(&restarted, "op-2", "sub-k", "write the report", worktree()).await.expect("retry");
     assert_eq!(retry, mark.session_id(), "the retry starts on the refusal's address");
     assert_eq!(runs.load(Ordering::SeqCst), 1, "one prompt");
     assert_eq!(restarted.loaded_ids().len(), 1, "one task");
+    })
+    .await;
 }
 
 /// A receipt write that does not end (stalled on durability) holds shutdown only up to its bound: shutdown is still waiting one tick
@@ -566,6 +664,22 @@ async fn an_io_error_reading_the_receipt_fails_the_request() {
     assert_eq!(json!({ "ok": false, "error": message.as_ref(), "code": code.as_ref() }), node);
     assert_eq!(runs.load(Ordering::SeqCst), 0);
     assert_eq!(directory.loaded_ids().len(), 0);
+}
+
+/// The refusal's fresh address is `sess_desktop_` and 32 random bytes in hex (`freshSessionId`): every hex digit takes any value.
+/// Two joined UUID v4 values would fix digit 12 of each half to `4` and digit 16 to one of `8`-`b`; over 64 addresses each of those
+/// digits takes a value outside `4`, `8`-`b` unless the bytes are not uniformly random (a chance of (5/16)^64, about 10^-32, each).
+#[test]
+fn the_fresh_address_is_32_random_bytes() {
+    let addresses: Vec<String> = (0..64).map(|_| super::new_task::fresh_session_id()).collect();
+    for address in &addresses {
+        let hex = address.strip_prefix("sess_desktop_").expect("the prefix");
+        assert!(hex.len() == 64 && hex.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')), "{address}");
+    }
+    for at in [12, 16, 44, 48] {
+        let digits: std::collections::BTreeSet<u8> = addresses.iter().map(|address| address.as_bytes()["sess_desktop_".len() + at]).collect();
+        assert!(digits.iter().any(|digit| !matches!(digit, b'4' | b'8'..=b'9' | b'a'..=b'b')), "hex digit {at} only ever took {digits:?}");
+    }
 }
 
 /// At most 128 requests are in flight; the next is refused with Node's message, and a finished one frees its place.

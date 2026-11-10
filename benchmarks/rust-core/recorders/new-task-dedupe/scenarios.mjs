@@ -4,7 +4,7 @@
 //
 //   submit      one `submitNewTask(prompt, {...options, id}, draft)`
 //   together    several submits started at once (their replies in the order they were started)
-//   crash       a submit whose process ends at a gate (`at`: reserved | configured | submitted), then the process restarts over
+//   crash       a submit whose process ends at a gate (`at`: reserved | created | configured | submitted), then the process restarts over
 //               the same data directory; its reply is the lost one
 //   restart     the process ends cleanly and starts again over the same data directory
 //   seed        a file written into the receipts folder before the next step (`receipt`: a file's name is sha256(id))
@@ -91,6 +91,8 @@ export const SCENARIOS = [
   { name: 'first-submit', steps: [submit('s-first', 'c1')] },
   // A reply lost after the receipt went to each phase: the client sends the same request again.
   { name: 'retry-after-reserved', steps: [crash('s-reserved', 'c1', 'reserved'), submit('s-reserved', 'c1')] },
+  // The session was made at the reserved address and the answer to its creation was lost: the receipt is still `reserved`.
+  { name: 'retry-after-created', steps: [crash('s-created', 'c1', 'created'), submit('s-created', 'c1')] },
   { name: 'retry-after-configured', steps: [crash('s-configured', 'c1', 'configured'), submit('s-configured', 'c1')] },
   { name: 'retry-after-submitted', steps: [crash('s-submitted', 'c1', 'submitted'), submit('s-submitted', 'c1')] },
   { name: 'retry-after-accepted', steps: [submit('s-accepted', 'c1'), submit('s-accepted', 'c1'), { op: 'restart' }, submit('s-accepted', 'c1')] },

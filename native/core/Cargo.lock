@@ -4489,6 +4489,7 @@ dependencies = [
  "mixdog-tools",
  "mixdog-workspace",
  "mixdog-workspace-hack",
+ "rand 0.9.5",
  "regex",
  "serde",
  "serde_json",

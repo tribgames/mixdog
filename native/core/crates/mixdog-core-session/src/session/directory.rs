@@ -1538,6 +1538,8 @@ impl SessionDirectory {
         // Node's `sessionOptions` always applies: with no options a Lead is `full`, denied the goal tools.
         super::session_options::write_header(&params.session.clone().unwrap_or_default(), &mut header);
         // `createSession`'s tool surface and `seedToolSurface`, for the id it will have.
+        // A new task's address is given (`client.create` at the reserved address).
+        let reserved = id.is_some();
         let id = id.unwrap_or_else(|| ThreadId::from(super::new_session_id(self.inner.deps.clock.now_ms())));
         // The control session is followed by the config's adoption from before its route is first resolved.
         let starting = if control { Some(self.inner.start(&id)?) } else { None };
@@ -1583,6 +1585,11 @@ impl SessionDirectory {
                 starting,
             })
             .await?;
+        // A test build of a new task may end here: the record is written and the creation has not returned (Node's daemon made
+        // the session and its answer to `client.create` was lost).
+        if reserved {
+            super::new_task::crash_gate("created");
+        }
         self.inner.deps.new_route.seat(&handle.id).await.map_err(|message| mixdog_core_base::support::failed("route", message))?;
         // `contextTokens` is on a created record only when set; the seat writes the route's, null when none.
         if handle.cell.header.load().get("contextTokens") == Some(&Value::Null) {

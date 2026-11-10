@@ -38,9 +38,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 98128,
+      "bytes": 101174,
       "path": "golden.json",
-      "sha256": "06d963f1d00e1cab3eef1d90f1a9cea8f161c2948965d584bb2f2545c69a2726"
+      "sha256": "cc3a2d16407fc2976117dbccb25f4bc9a4ddc2eaec883dd67e70ec5d666dd5fc"
     }
   ],
   "product": {
@@ -70,5 +70,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-new-task-dedupe.mjs",
   "set": "new-task-dedupe",
-  "totalBytes": 98128
+  "totalBytes": 101174
 }

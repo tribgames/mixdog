@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { REPO_ROOT } from '../lib/common.mjs';
-import { exitWithin, killTree, startCore } from '../lib/phone-files-replay.mjs';
+import { answered, exitWithin, killTree, NoAnswer, startCore } from '../lib/phone-files-replay.mjs';
 import { asReceived, COMPARISON, CONTENTS, CORRUPT } from './scenarios.mjs';
 
 // A connection that is dropped on purpose (the core ended at a gate, or was stopped) ends the client's reconnect ladder with this error, which nobody awaits.
@@ -126,7 +126,7 @@ async function connectLane(core) {
   const { connect, sessionReducer } = await here('packages/protocol-client/src/index.ts');
   const { createWsConnector } = await here('apps/desktop/src/main/protocol/ws-connector.ts');
   const { createServiceLane } = await here('apps/desktop/src/main/protocol/service-route.ts');
-  const client = await connect({
+  const client = await answered('the connection (initialize)', connect({
     target: { id: 'core' },
     connector: createWsConnector(async () => core.endpoint),
     clientInfo: { name: 'mixdog-replay', title: 'Mixdog Replay', version: '1.4.5', kind: 'desktop' },
@@ -135,7 +135,7 @@ async function connectLane(core) {
     // The client sleeps only on its reconnect ladder, after a dropped transport: a core that ended at its gate fails the call.
     clock: { sleep: () => Promise.reject(new Error('the replay dropped its connection')) },
     random: Math.random,
-  });
+  }));
   const lane = createServiceLane({ protocol: { call: (method, params) => client.call(method, params), notify() {} }, snapshot: () => null });
   return { client, lane };
 }
@@ -143,8 +143,9 @@ async function connectLane(core) {
 const reply = async (lane, { id, content }) => {
   const { prompt, options, draft } = CONTENTS[content];
   try {
-    return asReceived.answer(await lane.call('submitNewTask', [prompt, { ...options, id }, structuredClone(draft)]));
+    return asReceived.answer(await answered('submitNewTask (thread/start)', lane.call('submitNewTask', [prompt, { ...options, id }, structuredClone(draft)])));
   } catch (error) {
+    if (error instanceof NoAnswer) throw error;
     return asReceived.rejection(error);
   }
 };
@@ -162,7 +163,7 @@ async function sessionsOf(client, dataDir) {
   for (const id of stored) {
     let items;
     try {
-      items = await client.call('thread/items/list', { threadId: id });
+      items = await answered(`thread/items/list of ${id}`, client.call('thread/items/list', { threadId: id }));
     } catch (error) {
       if (error.code === 'threadNotFound') continue;
       throw new Error(`thread/items/list of stored session ${id}: ${error.message} (${JSON.stringify({ code: error.code, data: error.data })})`);

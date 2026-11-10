@@ -136,9 +136,23 @@ impl Drop for Leave {
     }
 }
 
-/// `freshSessionId`: `sess_desktop_` and 32 random bytes in hex.
-fn fresh_session_id() -> String {
-    format!("sess_desktop_{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple())
+/// `freshSessionId`: `sess_desktop_` and 32 random bytes in hex (`randomBytes(32).toString('hex')`).
+pub(super) fn fresh_session_id() -> String {
+    let bytes: [u8; 32] = rand::random();
+    format!("sess_desktop_{}", bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>())
+}
+
+/// Where an attempt of `createNewTask` stands, which decides what Node's quit leaves when it cuts the attempt there.
+#[derive(Clone, Copy)]
+enum Step {
+    /// `client.create` (session-host-lifecycle.ts:824): the session is being created or opened at the reserved address.
+    Creating,
+    /// `request.commit('configured')`: the host's own file write.
+    Committing,
+    /// The draft's worktree (`selectBranch` / `requestWorktree`), inside the `try`.
+    Entering,
+    /// The first prompt and `accepted`, after `unsent = false`.
+    Sending,
 }
 
 /// The input with every object's keys inserted in UTF-16 order, arrays and the objects in them included: the replacer of
@@ -495,17 +509,14 @@ impl SessionDirectory {
             let handle = self.open_handle(&id, &req.ctx).await?;
             return Ok(Started { thread: id, summary: serde_json::to_value(handle.cell.view.load_full().summary.clone()).unwrap_or(Value::Null), turn: None });
         }
-        let mut unsent = request.phase() == Phase::Reserved;
-        // What Node's createNewTask still sends the daemon after the session is created, while unsent: the draft's workflow,
-        // mode and route (`configureDraft`, before `configured`) and its worktree.
-        let draft = params.draft.as_ref();
-        let configures = draft.is_some_and(|draft| {
-            draft.route.is_some() || draft.workflow_id.as_deref().is_some_and(|workflow| !workflow.is_empty()) || draft.orchestration_mode.is_some()
-        });
-        let enters = draft.is_some_and(|draft| draft.worktree.is_some());
+        // A replay (receipt past `reserved`) may follow an ambiguous send: only a first attempt that fails before the prompt is
+        // refused.
+        let first = request.phase() == Phase::Reserved;
+        let enters = params.draft.as_ref().is_some_and(|draft| draft.worktree.is_some());
         let closing = self.deps().new_tasks.closing();
+        let mut step = Step::Creating;
         let started = {
-            let phases = self.new_task_phases(request, req, params, submission, &id, &mut unsent);
+            let phases = self.new_task_phases(request, req, params, submission, &id, &mut step);
             tokio::select! {
                 biased;
                 () = closing.cancelled() => None,
@@ -514,12 +525,19 @@ impl SessionDirectory {
         };
         let Some(started) = started else {
             // Shutdown, as Node's quit: the disposed daemon client fails the call in flight and every later one
-            // (desktop-service-client.ts `dispose` → `rejectPending`). A call that fails before the session exists (`client.create`)
-            // leaves the receipt as it is; one that fails while the draft is applied to the created session, or its worktree
-            // entered, is refused as any failure there is (`if (unsent) await request.reset()`); after that the receipt keeps
-            // its phase. Nobody is answered (the gate sends no outcome once it is closing).
-            let pending = (request.phase() == Phase::Reserved && configures) || enters;
-            if unsent && pending && self.try_stored_header(&id).await.ok().flatten().is_some() {
+            // (desktop-service-client.ts `dispose` → `rejectPending`), and `createNewTask` goes on from the call that failed.
+            // The creation (`client.create`, session-host-lifecycle.ts:824) fails before the `try` that refuses (:835): the
+            // receipt stays as it is, whatever the creation had already persisted. The commit of `configured` is the host's own
+            // file write, which the disposal does not fail: the next call fails, the worktree's inside the `try` while unsent
+            // (:955 `if (unsent) await request.reset()`), else the submit after `unsent = false`. The worktree's own call is
+            // inside the `try`. Nobody is answered (the gate sends no outcome once it is closing).
+            let refused = first
+                && match step {
+                    Step::Creating | Step::Sending => false,
+                    Step::Committing => enters,
+                    Step::Entering => true,
+                };
+            if refused {
                 let _ = request.reset().await;
                 if !self.holds_user_conversation(&id).await.unwrap_or(true) {
                     self.discard(&id).await;
@@ -529,7 +547,7 @@ impl SessionDirectory {
         };
         if let Err(error) = &started {
             // The daemon destroys an unclaimed reservation, so the receipt must stop pointing at it.
-            if unsent {
+            if first && !matches!(step, Step::Sending) {
                 let _ = request.reset().await;
             }
             if !self.holds_user_conversation(&id).await.unwrap_or(true) {
@@ -551,9 +569,11 @@ impl SessionDirectory {
                     if body.pointer("/meta/transcript/clientSubmissionId").and_then(Value::as_str) == Some(submission))
         }))
     }
-    async fn new_task_phases(&self, request: &Request, req: &CoreRequest, mut params: ThreadStartParams, submission: &str, id: &ThreadId, unsent: &mut bool) -> Outcome {
-        // The reservation is made again at its address when the session is not there (`client.create`); a session that is there
-        // is opened and its draft applied again.
+    /// `step` outlives the future: it is read when the attempt fails or is cut ([`Self::new_task`]).
+    async fn new_task_phases(&self, request: &Request, req: &CoreRequest, mut params: ThreadStartParams, submission: &str, id: &ThreadId, step: &mut Step) -> Outcome {
+        // `client.create`: the reservation is made again at its address when the session is not there; a session that is there
+        // is opened (Node's daemon opens the session at the address it is given, `getOrCreateSessionEntry`). The core's creation
+        // takes the draft's route with it (`begin_thread`: adopted before the record, seated after it).
         let handle = if self.try_stored_header(id).await?.is_some() {
             let handle = self.open_handle(id, &req.ctx).await?;
             self.seat_session(id).await?;
@@ -561,11 +581,13 @@ impl SessionDirectory {
         } else {
             self.begin_thread(req, &params, Some(id.clone())).await?
         };
+        *step = Step::Committing;
         if request.phase() == Phase::Reserved {
             request.commit(Phase::Configured).await?;
         }
+        *step = Step::Entering;
         self.enter_draft_worktree(&handle, req, &params).await?;
-        *unsent = false;
+        *step = Step::Sending;
         let summary = serde_json::to_value(handle.cell.view.load_full().summary.clone()).unwrap_or(Value::Null);
         let mut input = params.initial_input.take().expect("a new task carries its first prompt");
         input.options.get_or_insert_with(Default::default).client_submission_id = Some(submission.to_owned());
