@@ -1,0 +1,56 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-tools-fs-search.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146> --graph-bin <mixdog-graph built from b6f10295a2f698afc85332467192de28500bd146:native/mixdog-graph> --scratch <scratch parent>",
+  "exclusions": [
+    "what each scenario process left running at its exit (Node's resident search server) is ended with its job and not recorded"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 8255,
+      "path": "list-glob-path.json",
+      "sha256": "4ae556f6f41553e83c040e1139960eeacdff6894d301142a0d6bdbcd21090300"
+    }
+  ],
+  "graphBinary": {
+    "builtFrom": "b6f10295a2f698afc85332467192de28500bd146:native/mixdog-graph (cargo build --locked --bin mixdog-graph, dev profile)",
+    "sha256": "8ebdf3820fa0a5d4ba36c8b338f6bf339b536222d287acdfc5b54dad157ff149"
+  },
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/job-run.mjs",
+      "sha256": "81706cfb9424070aebc944c20cbdc72c31c84d06bd60119e4ad752af2fc7fc91"
+    }
+  ],
+  "node": "v22.20.0",
+  "normalised": [
+    "the workspace path (backslash and forward-slash forms) is <ROOT> in every text"
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-tools-fs-search.mjs",
+  "recorderSha256": "f1bcd237b8e85d5f5cedb4512a382d3be5b96eca8c63669bc0d76633419f858e",
+  "scenarios": [
+    "list-glob-path"
+  ],
+  "set": "tools-fs-search",
+  "totalBytes": 8255
+}
