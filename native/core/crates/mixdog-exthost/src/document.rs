@@ -34,10 +34,11 @@ pub struct DocumentService {
 }
 
 /// The files a paired phone may name by path: a registered project's entry or a file its device holds a one-file grant for
-/// (the workspace's `relay_file`), answering Node's refusal otherwise.
+/// (the workspace's `relay_file`), answering Node's refusal otherwise. The answer is the folder and the entry as admitted
+/// (Node's `target.root`, `target.rel`): the worker is asked for those, not for what the phone sent.
 #[async_trait]
 pub trait RelayFiles: Send + Sync {
-    async fn admit(&self, req: &CoreRequest, root: &str, rel: &str) -> Result<(), CoreError>;
+    async fn admit(&self, req: &CoreRequest, root: &str, rel: &str) -> Result<(String, String), CoreError>;
 }
 
 struct RelayScope {
@@ -108,13 +109,14 @@ impl DocumentService {
         self
     }
 
-    /// A relay connection's page request, checked before the worker is asked.
-    async fn admit_relay(&self, req: &CoreRequest, root: &str, abs: &AbsPath, rel: &str) -> Result<(), CoreError> {
+    /// A relay connection's page request, checked before the worker is asked: the folder and the entry the worker is asked
+    /// for. A pane's are the pane's own root and file, which is what was matched; a file's are the workspace's answer.
+    async fn admit_relay(&self, req: &CoreRequest, root: &str, abs: &AbsPath, rel: &str) -> Result<(String, String), CoreError> {
         let Some(scope) = &self.relay else {
             return Err(CoreError::CapabilityUnavailable { capability: "relayFiles".into(), detail: "noClaimant".into() });
         };
         if scope.panes.page_file(abs.as_path(), rel) {
-            return Ok(());
+            return Ok((root.to_owned(), rel.to_owned()));
         }
         scope.files.admit(req, root, rel).await
     }
@@ -170,10 +172,14 @@ impl DocumentService {
             }
             "document/previewPages" => {
                 let (root, abs) = root()?;
-                let rel = text("rel").ok_or_else(|| invalid("rel", "a project-relative path"))?;
-                if req.ctx.origin == mixdog_protocol::Origin::Relay {
-                    self.admit_relay(req, &root, &abs, rel).await?;
-                }
+                let rel = text("rel").ok_or_else(|| invalid("rel", "a project-relative path"))?.to_owned();
+                let (root, abs, rel) = if req.ctx.origin == mixdog_protocol::Origin::Relay {
+                    let (root, rel) = self.admit_relay(req, &root, &abs, &rel).await?;
+                    let abs = AbsPath::new(PathBuf::from(&root)).ok_or_else(|| invalid("root", "an absolute path"))?;
+                    (root, abs, rel)
+                } else {
+                    (root, abs, rel)
+                };
                 let options = req.params.get("options").cloned().unwrap_or_else(|| json!({}));
                 let params = json!({ "root": root, "rel": rel, "options": options, "cacheRoot": self.cache_root });
                 self.ext(thread, "document.previewPages", params, vec![abs], Some(&req.ctx.cancel)).await
@@ -323,7 +329,7 @@ mod tests {
 
     #[async_trait]
     impl RelayFiles for NoFiles {
-        async fn admit(&self, _: &CoreRequest, _: &str, _: &str) -> Result<(), CoreError> {
+        async fn admit(&self, _: &CoreRequest, _: &str, _: &str) -> Result<(String, String), CoreError> {
             Err(self.0.clone())
         }
     }

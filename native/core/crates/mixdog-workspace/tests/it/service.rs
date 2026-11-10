@@ -384,6 +384,24 @@ async fn a_relay_editor_backup_or_preview_names_a_project_file_or_a_granted_one_
     assert!(names.iter().all(|count| *count == 0), "{names:?}");
 }
 
+/// A folder whose name only trims to a registered project's is not that project (Node trims the phone's `projectPath` and then
+/// acts on the registry's own root). A relay backup named in such a folder is kept under the project's file, which is what the
+/// admission checked, and never reaches the backup the desktop keeps for the other folder's file.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relay_backup_is_kept_under_the_file_that_was_admitted() {
+    let env = env();
+    let twin = PathBuf::from(format!("{}\u{a0}", env.root.to_string_lossy()));
+    std::fs::create_dir_all(&twin).unwrap();
+    let source = twin.join("secret.txt").to_string_lossy().into_owned();
+    call_local(&env, "projectFs/backup/write", json!({ "sourcePath": source, "content": "private", "expectedContent": "" })).await.unwrap();
+    let kept = call_local(&env, "projectFs/backup/read", json!({ "sourcePath": source })).await.unwrap();
+    assert_ne!(kept, Value::Null, "the desktop's backup of the other folder's file");
+
+    assert_eq!(call(&env, "projectFs/backup/read", json!({ "sourcePath": source })).await.unwrap(), Value::Null, "the phone reads the project's file's backup: none");
+    call(&env, "projectFs/backup/delete", json!({ "sourcePath": source })).await.unwrap();
+    assert_eq!(call_local(&env, "projectFs/backup/read", json!({ "sourcePath": source })).await.unwrap(), kept, "the phone's delete did not reach it");
+}
+
 /// With no desktop window to render or trash, the calls that need one answer the missing capability (the adapter words it as Node's
 /// "The desktop app is unavailable on this connection.").
 #[tokio::test(flavor = "multi_thread")]
