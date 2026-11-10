@@ -11,6 +11,25 @@ use mixdog_core_api::domain::computer::InputOutcome;
 use mixdog_core_api::domain::computer::ScreenInput;
 use mixdog_core_api::domain::media::MediaFrameSource;
 
+#[cfg(any(windows, test))]
+mod installer;
+#[cfg(any(windows, test))]
+mod lease;
+#[cfg(any(windows, test))]
+mod router;
+#[cfg(any(windows, test))]
+mod switch;
+#[cfg(test)]
+mod installer_tests;
+#[cfg(test)]
+mod lease_tests;
+#[cfg(test)]
+mod router_tests;
+#[cfg(test)]
+mod switch_tests;
+#[cfg(test)]
+mod testing;
+
 #[cfg(windows)]
 pub(super) use win::Screen;
 
