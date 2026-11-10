@@ -27,6 +27,31 @@ const FIXED = '2026-01-02T03:04:05Z';
 // time), the folder the calls run in (`cwd`, under the workspace), unrecorded `warmup` calls and the calls, in order. `<ROOT>` in an input is the workspace
 // path, written with forward slashes.
 const SCENARIOS = [
+  // gaps-tools item 6: two or more content patterns are answered as independent greps (lib/grep-pattern-fanout.mjs), one
+  // `# grep pattern:"x"` section each, matches already shown dropped, misses summarised, a bad pattern failing its own section.
+  {
+    name: 'grep-multi-pattern',
+    files: {
+      'src/a.ts': 'const alpha = 1;\nconst gamma = 2;\nexport function beta() {\n  return alpha;\n}\n',
+      'src/b.ts': 'import { alpha } from "./a";\n// alpha and beta together\nexport const delta = beta;\n',
+      'docs/x.md': '# Notes\n\nbeta release\n',
+    },
+    warmup: [{ tool: 'grep', input: { pattern: 'warmup-none' } }],
+    calls: [
+      { tool: 'grep', input: { pattern: ['alpha', 'beta'] } },
+      { tool: 'grep', input: { pattern: ['alpha', 'nomatch1', 'nomatch2'] } },
+      { tool: 'grep', input: { pattern: ['zzz', 'yyy'] } },
+      { tool: 'grep', input: { pattern: ['alpha', '(bad'] } },
+      { tool: 'grep', input: { pattern: ['alpha', 'beta'], context: 0 } },
+      { tool: 'grep', input: { pattern: ['alpha', 'beta'], context: 1 } },
+      { tool: 'grep', input: { pattern: ['alpha', 'beta'], head_limit: 1 } },
+      { tool: 'grep', input: { pattern: ['alpha', 'beta'], output_mode: 'files_with_matches' } },
+      { tool: 'grep', input: { pattern: ['alpha', 'beta'], output_mode: 'count' } },
+      { tool: 'grep', input: { pattern: ['alpha', 'beta'], path: 'src/b.ts' } },
+      { tool: 'grep', input: { pattern: '(bad' } },
+      { tool: 'grep', input: { pattern: ['gamma', 'delta'], glob: '*.ts' } },
+    ],
+  },
   // gaps-tools item 5: absolute glob patterns walk from their static prefix (lib/glob-static-prefix.mjs); a miss is expanded
   // straight off the filesystem (lib/absolute-glob-expand.mjs), which reaches through the junction the walker never follows.
   {

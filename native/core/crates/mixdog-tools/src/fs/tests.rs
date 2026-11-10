@@ -250,6 +250,9 @@ async fn replay_fs_search(scenario: &str) {
             other => panic!("no replay for {other}"),
         };
         let (is_error, text) = text_of(outcome);
+        // The recorder's rule: a text that starts as an error is one.
+        let is_error = is_error
+            || text.strip_prefix("Error").and_then(|rest| rest.chars().next()).is_some_and(|c| c.is_whitespace() || c == ':' || c == '[');
         let text = text.replace(&raw, "<ROOT>").replace(&fwd, "<ROOT>");
         let want = call["text"].as_str().unwrap_or_else(|| panic!("call {index} threw in Node"));
         if text != want || is_error != (call["isError"] == true) {
@@ -270,6 +273,12 @@ async fn list_answers_a_glob_shaped_path_as_node_does() {
 #[tokio::test]
 async fn glob_answers_absolute_patterns_as_node_does() {
     replay_fs_search("glob-absolute").await;
+}
+
+/// gaps-tools item 6: several content patterns are independent greps, one section each.
+#[tokio::test]
+async fn grep_answers_several_patterns_as_node_does() {
+    replay_fs_search("grep-multi-pattern").await;
 }
 
 struct NoRoots;

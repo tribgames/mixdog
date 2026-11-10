@@ -798,6 +798,7 @@ impl GrepTool {
         );
         let mut hits = Vec::new();
         let mut errors = 0usize;
+        let mut bad_pattern = None;
         let end = pull_all(ctx, stream.as_mut(), |item| {
             match item {
                 Ok(SearchMatch { path, line, text, .. }) => {
@@ -806,7 +807,10 @@ impl GrepTool {
                     }
                     hits.push(Hit { path, line, text });
                 }
-                Err(_) => errors += 1,
+                Err(e) => match e.kind {
+                    FsErrorKind::InvalidPattern { message } => bad_pattern = Some(message),
+                    _ => errors += 1,
+                },
             }
             true
         })
@@ -816,6 +820,10 @@ impl GrepTool {
             PullEnd::Deadline => false,
             PullEnd::Exhausted => true,
         };
+        // The parser's own text, as Node relays the search server's refusal.
+        if let Some(message) = bad_pattern {
+            return Ok((Vec::new(), true, format!("Error: regex parse error: {message}"), single_file));
+        }
         Ok((hits, complete, String::new(), single_file))
     }
 }
@@ -844,16 +852,36 @@ impl Tool for GrepTool {
         if patterns.is_empty() || patterns.iter().all(|p| p.is_empty()) {
             return Err(invalid("pattern", "required", "Error: grep requires pattern."));
         }
-        let pattern = if patterns.len() == 1 {
-            patterns[0].clone()
-        } else {
-            patterns.iter().map(|p| format!("(?:{p})")).collect::<Vec<_>>().join("|")
-        };
         let mode = match arg_str(&args, "mode") {
             Some("files") => Mode::Files,
             Some("count") => Mode::Count,
             _ => Mode::Content,
         };
+        // Node `runGrepPatternFanout`: several content patterns are independent greps, one section
+        // each; a match line or block an earlier pattern showed is not repeated.
+        if patterns.len() > 1 && mode == Mode::Content {
+            let mut seen = std::collections::HashSet::new();
+            let mut bodies = Vec::with_capacity(patterns.len());
+            for pattern in &patterns {
+                let body = self.search(ctx, &args, pattern, mode, true).await?;
+                bodies.push(dedupe_fanout_match_lines(&body, &mut seen));
+            }
+            return Ok(text_output(fanout_sections(&patterns, &bodies)));
+        }
+        let pattern = if patterns.len() == 1 {
+            patterns[0].clone()
+        } else {
+            patterns.iter().map(|p| format!("(?:{p})")).collect::<Vec<_>>().join("|")
+        };
+        Ok(text_output(self.search(ctx, &args, &pattern, mode, false).await?))
+    }
+}
+
+impl GrepTool {
+    /// One grep of `pattern`, rendered. `fanout`: a section of a several-pattern answer, whose
+    /// bare match lines carry their file (Node's combined pass, `disableContentGrouping`).
+    async fn search(&self, ctx: &ToolContext, args: &JsonValue, pattern: &str, mode: Mode, fanout: bool) -> Result<String, ToolError> {
+        let args = args.clone();
         let limit = match arg_u64(&args, "limit") {
             Some(0) => usize::MAX,
             Some(n) => n as usize,
@@ -896,7 +924,7 @@ impl Tool for GrepTool {
             }
         }
         if all.is_empty() && !errors.is_empty() {
-            return Ok(text_output(errors.join("\n")));
+            return Ok(errors.join("\n"));
         }
         all.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.line.cmp(&b.1.line)));
         all.dedup_by(|a, b| a.0 == b.0 && a.1.line == b.1.line);
@@ -904,7 +932,7 @@ impl Tool for GrepTool {
         let body = match mode {
             Mode::Files => files_body(&all, offset, limit, complete),
             Mode::Count => count_body(&all, offset, limit, complete),
-            Mode::Content => content_body(ctx, &all, offset, limit, before, after, single, complete).await?,
+            Mode::Content => content_body(ctx, &all, offset, limit, before, after, single && !fanout, fanout, complete).await?,
         };
         let mut text = body;
         for e in errors {
@@ -914,8 +942,117 @@ impl Tool for GrepTool {
             text.push_str("\n[warning] search timed out; partial results shown. Narrow path/glob/pattern for a complete result.");
         }
         let _ = (BTreeSet::<u8>::new(), ToolPart::Text(String::new()), ToolOutput::default());
-        Ok(text_output(text))
+        Ok(text)
     }
+}
+
+static CONTEXT_HEADER: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new(r"^# (.+):(\d+) \[lines (\d+)-(\d+)\]$").expect("a fixed pattern"));
+static MATCH_PREFIX: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new(r":(\d+):|-(\d+)-").expect("a fixed pattern"));
+
+/// Node `splitGrepLinePrefix` of a match line: its path and line number when the first
+/// `:N:`/`-N-` marker (past a drive letter) is a match marker.
+fn match_line_key(line: &str) -> Option<String> {
+    let from = if line.len() >= 2 && line.as_bytes()[0].is_ascii_alphabetic() && line.as_bytes()[1] == b':' { 2 } else { 0 };
+    let marker = MATCH_PREFIX.captures(&line[from..])?;
+    let end = from + marker.get(0)?.start();
+    // Only a `:N:` marker is a match line; `-N-` is a context line.
+    let number = marker.get(1)?.as_str().parse::<u64>().ok()?;
+    (end > 0).then(|| format!("{}\0{number}", &line[..end]))
+}
+
+/// Node `dedupeFanoutMatchLines`: drops a numbered match line or a whole context block (keyed by
+/// its header's path and match line) an earlier pattern's section already showed.
+fn dedupe_fanout_match_lines(body: &str, seen: &mut std::collections::HashSet<String>) -> String {
+    if body.starts_with("Error:") {
+        return body.to_owned();
+    }
+    let lines: Vec<&str> = body.split('\n').collect();
+    let mut out = Vec::with_capacity(lines.len());
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let header = CONTEXT_HEADER.captures(line).and_then(|c| {
+            let n = |k: usize| c.get(k)?.as_str().parse::<u64>().ok();
+            let (at, start, end) = (n(2)?, n(3)?, n(4)?);
+            (start >= 1 && end >= start && (start..=end).contains(&at)).then(|| (format!("{}\0{at}", &c[1]), end - start + 1))
+        });
+        if let Some((key, rows)) = header {
+            let duplicate = !seen.insert(key);
+            if !duplicate {
+                out.push(line);
+            }
+            for _ in 0..rows {
+                if i + 1 >= lines.len() {
+                    break;
+                }
+                i += 1;
+                if !duplicate {
+                    out.push(lines[i]);
+                }
+            }
+            i += 1;
+            continue;
+        }
+        if let Some(key) = match_line_key(line)
+            && !seen.insert(key)
+        {
+            i += 1;
+            continue;
+        }
+        out.push(line);
+        i += 1;
+    }
+    out.join("\n")
+}
+
+/// Node `formatGrepFanoutSections` for patterns: `# grep pattern:"x"` sections; the patterns that
+/// matched nothing named in one closing `(no matches) patterns=[…]` line (bare when all missed);
+/// one missing path answered once.
+fn fanout_sections(patterns: &[String], bodies: &[String]) -> String {
+    const MISSING: &str = "Error: path does not exist:";
+    if bodies.len() > 1 && bodies[0].starts_with(MISSING) && bodies.iter().all(|b| *b == bodies[0]) {
+        return bodies[0].clone();
+    }
+    let mut parts = Vec::new();
+    let (mut missed, mut partial_missed) = (Vec::new(), Vec::new());
+    let mut i = 0;
+    while i < patterns.len() {
+        let body = &bodies[i];
+        if body.starts_with(MISSING) {
+            let mut grouped = vec![patterns[i].clone()];
+            while i + 1 < patterns.len() && bodies[i + 1] == *body {
+                i += 1;
+                grouped.push(patterns[i].clone());
+            }
+            let label = if grouped.len() > 1 {
+                format!("patterns:{}", serde_json::to_string(&grouped).unwrap_or_default())
+            } else {
+                format!("pattern:{}", serde_json::to_string(&grouped[0]).unwrap_or_default())
+            };
+            parts.push(format!("# grep {label}\n{body}"));
+        } else if *body == no_matches(true) {
+            missed.push(patterns[i].clone());
+        } else if *body == no_matches(false) {
+            partial_missed.push(patterns[i].clone());
+        } else if !body.trim().is_empty() {
+            parts.push(format!("# grep pattern:{}\n{body}", serde_json::to_string(&patterns[i]).unwrap_or_default()));
+        }
+        i += 1;
+    }
+    for (items, complete) in [(missed, true), (partial_missed, false)] {
+        if items.is_empty() {
+            continue;
+        }
+        let scope = if items.len() == patterns.len() {
+            String::new()
+        } else {
+            format!(" patterns={}", serde_json::to_string(&items).unwrap_or_default())
+        };
+        parts.push(format!("{}{scope}", no_matches(complete)));
+    }
+    parts.join("\n\n")
 }
 
 fn paging_notice(shown: usize, total: usize, complete: bool, offset: usize, next: usize) -> String {
@@ -982,6 +1119,7 @@ async fn content_body(
     before: u64,
     after: u64,
     single: bool,
+    fanout: bool,
     complete: bool,
 ) -> Result<String, ToolError> {
     if all.is_empty() {
@@ -991,7 +1129,9 @@ async fn content_body(
     let window = all.get(offset..).unwrap_or(&[]);
     let hard = limit.min(GREP_CONTENT_MATCH_CAP);
     let page = &window[..window.len().min(hard)];
-    let mut out = if before == 0 && after == 0 {
+    let mut out = if before == 0 && after == 0 && fanout {
+        page.iter().map(|(label, h)| format!("{label}:{}:{}", h.line, clip_match_text(&h.text))).collect::<Vec<_>>().join("\n")
+    } else if before == 0 && after == 0 {
         bare_content(page, single)
     } else {
         context_blocks(ctx, page, before, after).await?
