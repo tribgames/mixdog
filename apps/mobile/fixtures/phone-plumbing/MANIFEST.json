@@ -41,6 +41,10 @@
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
       "sha256": "ad55b52b40440cade7f33e14632f5eac8d4cc64313726ed42ddc96826d7b28b0"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -62,7 +66,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-plumbing.mjs",
-  "recorderSha256": "343ee9afb0dc198a0e7c43bb13c4dcf1e171578ca9b77fbf5ff174f3d486e54d",
+  "recorderSha256": "edae4cc225e31bdf8dba16df061ad0086ded4364e0b4efdc9f85e77491361ada",
   "set": "phone-plumbing",
   "steps": 21,
   "totalBytes": 11090
