@@ -14,7 +14,9 @@ use mixdog_app_protocol::v2::params::{RoomContinueParams, RoomCreateParams, Room
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::Reply;
+use mixdog_core_api::AfterAnswer;
 use mixdog_core_api::ids::ConnectionId;
+use mixdog_rt::CancellationToken;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 use mixdog_core_api::service::DomainService;
@@ -23,6 +25,7 @@ use serde_json::{Map, Value, json};
 
 use super::RoomError;
 use super::config::RoomConfigInput;
+use super::ready::RoomsReady;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_base::rooms::ids::room_member_session_id;
 use mixdog_core_base::rooms::ids::room_session_id;
@@ -59,8 +62,35 @@ pub trait RoomHost: Send + Sync {
     /// `resetSessionConversation({ fork: false })`: a member's session is emptied, nothing kept.
     async fn reset_member(&self, session_id: &str) -> Result<(), RoomError>;
     /// `deps.republishCatalog` (`session-host.ts:353-356`): with the catalog loaded it is published when this returns and its
-    /// failure is the call's; before that the publish is only started, and this returns at once.
-    async fn republish_catalog(&self) -> Result<(), RoomError>;
+    /// failure is the call's. Before that a whole listing is started here and not awaited (`void publishCatalogs()`); it reads at
+    /// once and its rows go out once `publish` is cancelled. The answer is that listing's end.
+    async fn republish_catalog(&self, publish: &CancellationToken) -> Result<Option<ListingEnd>, RoomError>;
+}
+
+/// The end of a background catalog listing a room call started, for a call that joins it.
+pub type ListingEnd = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+
+/// Node's rule for a listing a room call starts before any listing was answered: its rows wait for the daemon's `session.list`
+/// reply (`session-host.ts:797`), so they never overtake an answer the call makes with no I/O after the start, and may come
+/// before an answer the call makes after awaiting I/O. The core's listing has no such round trip, so the call holds its rows
+/// (`publish`, a hold on the reply's place on the connection) and lets go of them where Node's call first awaits I/O.
+/// - create (`agent-rooms.ts:289-290`), remove (`:333-334`, its deletions come before the start), update without removed members
+///   (`:312-319`, `deleteSessions([])` loops over nothing, `agent-room-membership.ts:52-56`): no I/O; held until the reply is queued.
+/// - update removing members (`:315`) and a member forgotten (`:345-346`): each deletion awaits `listSessions()` first
+///   (`session-host-lifecycle.ts:527`), which joins the listing in flight (`session-host.ts:790`): it reads before the deletion and
+///   its rows go out before it ([`join`]).
+/// - reset (`:388-392`): each member's session is read from the daemon (`sessionExists`, `session-host.ts:299-306`): from the first
+///   read on the listing may publish ([`free`]).
+pub(crate) fn free(publish: &CancellationToken) {
+    publish.cancel();
+}
+
+/// [`free`], then the listing's end: Node's deletion joining the listing in flight.
+pub(crate) async fn join(publish: &CancellationToken, listing: Option<ListingEnd>) {
+    free(publish);
+    if let Some(end) = listing {
+        end.await;
+    }
 }
 
 /// The exchange scheduler: one bounded exchange per room at a time, memory-only.
@@ -158,11 +188,20 @@ pub struct RoomService<S: RoomStore, H: RoomHost, R: RoomRunner> {
     ops: OpScopes,
     /// The members' names an answered room summary carries (`refreshNames`, `agent-rooms.ts:304`).
     names: Arc<dyn super::catalog_rows::MemberNames>,
+    /// The rooms' first load, which every room call awaits first (`agent-rooms.ts:267,294,323,365,376,409`).
+    ready: Arc<RoomsReady>,
 }
 
 impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> RoomService<S, H, R> {
-    pub fn new(rooms: Arc<Rooms<S>>, host: Arc<H>, runner: Arc<R>, ops: OpScopes, names: Arc<dyn super::catalog_rows::MemberNames>) -> Self {
-        Self { rooms, host, runner, ops, names }
+    pub fn new(
+        rooms: Arc<Rooms<S>>,
+        host: Arc<H>,
+        runner: Arc<R>,
+        ops: OpScopes,
+        names: Arc<dyn super::catalog_rows::MemberNames>,
+        ready: Arc<RoomsReady>,
+    ) -> Self {
+        Self { rooms, host, runner, ops, names, ready }
     }
 
     async fn known(&self) -> Result<Vec<KnownAgent>, RoomError> {
@@ -195,7 +234,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
         Value::Object(params)
     }
 
-    async fn create(&self, input: &Value) -> Result<Value, RoomError> {
+    async fn create(&self, input: &Value, replied: &AfterAnswer) -> Result<Value, RoomError> {
         let probe = super::config::normalize_room_config(&config_input(input, None))?;
         let known = self.known().await?;
         if let Some(missing) = Self::missing(&known, &probe.members) {
@@ -212,11 +251,11 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
         self.host.create_session(&session_id, &params).await?;
         self.rooms.create(&config_input(input, None), &room_id, now).await?;
         let _ = self.host.rename_session(&session_id, &probe.name).await;
-        self.host.republish_catalog().await?;
+        self.host.republish_catalog(&replied.hold()).await?;
         Ok(json!({ "sessionId": session_id, "roomId": room_id }))
     }
 
-    async fn update(&self, input: &Value) -> Result<Value, RoomError> {
+    async fn update(&self, input: &Value, replied: &AfterAnswer) -> Result<Value, RoomError> {
         let room_id = room_id_of(input)?;
         let current = self.rooms.get(room_id).await?;
         let merged = config_input(input, Some(&current));
@@ -248,8 +287,12 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
                 let _ = self.host.rename_session(&session_id, &updated.room.config.name).await;
             }
         }
-        self.host.republish_catalog().await?;
+        let publish = replied.hold();
+        let listing = self.host.republish_catalog(&publish).await?;
         let sessions: Vec<String> = updated.gone.iter().filter_map(|id| room_member_session_id(room_id, id)).collect();
+        if !sessions.is_empty() {
+            join(&publish, listing).await;
+        }
         let failed = self.host.delete_sessions(&sessions).await;
         if failed > 0 {
             return Err(RoomError::Port(format!(
@@ -260,7 +303,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
         Ok(super::catalog_rows::room_summary(&updated.room, &self.names.names().await, self.runner.is_running(room_id)))
     }
 
-    async fn remove(&self, input: &Value) -> Result<Value, RoomError> {
+    async fn remove(&self, input: &Value, replied: &AfterAnswer) -> Result<Value, RoomError> {
         let room_id = room_id_of(input)?;
         let room = self.rooms.get(room_id).await?;
         if let Some(session_id) = room_session_id(room_id) {
@@ -270,7 +313,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
                 room.config.members.iter().filter_map(|id| room_member_session_id(room_id, id)).collect();
             sessions.push(session_id);
             let failed = self.host.delete_sessions(&sessions).await;
-            self.host.republish_catalog().await?;
+            self.host.republish_catalog(&replied.hold()).await?;
             if failed > 0 {
                 return Err(RoomError::Port(format!("The room was removed, but {failed} of its conversations could not be deleted.")));
             }
@@ -289,7 +332,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
 
     /// "대화 초기화" (`agent-rooms.ts` `reset`): the room's log starts over with the old one archived, every member's
     /// cursor restarts and each member's own session is emptied. Refused while members are speaking.
-    async fn reset(&self, input: &Value) -> Result<Value, RoomError> {
+    async fn reset(&self, input: &Value, replied: &AfterAnswer) -> Result<Value, RoomError> {
         let room_id = room_id_of(input)?;
         let room = self.rooms.get(room_id).await?;
         let session_id = room_session_id(room_id).ok_or_else(|| RoomError::Port("room id is invalid".into()))?;
@@ -298,10 +341,12 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
         }
         let archived = self.host.start_over(&session_id).await?;
         self.rooms.reset(room_id, chrono::Utc::now().timestamp_millis()).await?;
-        self.host.republish_catalog().await?;
+        let publish = replied.hold();
+        self.host.republish_catalog(&publish).await?;
         let mut failed = 0;
         for member in &room.config.members {
             let Some(member_session) = room_member_session_id(room_id, member) else { continue };
+            free(&publish);
             if !self.host.session_exists(&member_session).await {
                 continue;
             }
@@ -343,18 +388,20 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Dom
             other => return Err(wrong_method("room", other)),
         };
         let method = method.to_owned();
+        let replied = &req.ctx.after_answer;
         self.ops
             .run(
                 &req,
                 None,
                 || async {
+                    self.ready.ready().await.map_err(failure)?;
                     let result = match method.as_str() {
-                        "room/create" => self.create(&input).await,
-                        "room/update" => self.update(&input).await,
+                        "room/create" => self.create(&input, replied).await,
+                        "room/update" => self.update(&input, replied).await,
                         "room/continue" => self.proceed(&input).await,
                         "room/leave" => self.leave(&input).await,
-                        "room/reset" => self.reset(&input).await,
-                        _ => self.remove(&input).await,
+                        "room/reset" => self.reset(&input, replied).await,
+                        _ => self.remove(&input, replied).await,
                     };
                     result.map_err(failure)
                 },
@@ -440,8 +487,8 @@ mod tests {
         async fn delete_sessions(&self, _: &[String]) -> usize {
             0
         }
-        async fn republish_catalog(&self) -> Result<(), RoomError> {
-            Ok(())
+        async fn republish_catalog(&self, _: &CancellationToken) -> Result<Option<ListingEnd>, RoomError> {
+            Ok(None)
         }
         async fn start_over(&self, id: &str) -> Result<Option<String>, RoomError> {
             self.calls.lock().unwrap().push(("startOver".into(), id.into()));
@@ -496,11 +543,11 @@ mod tests {
             });
             let rooms = Arc::new(Rooms::new(Mem(Mutex::new(RoomDoc::from([(room_id.to_owned(), before.clone())])))));
             let ops = mixdog_core_base::support::testing::scopes(dir.path(), "room").await;
-            let service = RoomService::new(rooms.clone(), host.clone(), Arc::new(Runs(case["running"] == true)), ops, Arc::new(Unnamed));
+            let service = RoomService::new(rooms.clone(), host.clone(), Arc::new(Runs(case["running"] == true)), ops, Arc::new(Unnamed), RoomsReady::prepared());
 
             // The unknown room is asked for by another id than the one the record sits under.
             let asked = if name == "unknown room" { "nosuchroom" } else { room_id };
-            let answer = service.reset(&json!({ "roomId": asked })).await;
+            let answer = service.reset(&json!({ "roomId": asked }), &AfterAnswer::default()).await;
             match (&case["outcome"]["ok"], answer) {
                 (Value::Bool(true), Ok(value)) => assert_eq!(value, case["outcome"]["value"], "{name}"),
                 (Value::Bool(false), Err(error)) => assert_eq!(error.to_string(), case["outcome"]["error"].as_str().unwrap(), "{name}"),
@@ -576,10 +623,10 @@ mod tests {
         async fn delete_sessions(&self, _: &[String]) -> usize {
             0
         }
-        async fn republish_catalog(&self) -> Result<(), RoomError> {
+        async fn republish_catalog(&self, _: &CancellationToken) -> Result<Option<ListingEnd>, RoomError> {
             self.began.store(true, std::sync::atomic::Ordering::SeqCst);
             let open = self.open.lock().unwrap().take();
-            open.expect("one publish").await.expect("the test opens the gate")
+            open.expect("one publish").await.expect("the test opens the gate").map(|()| None)
         }
         async fn start_over(&self, _: &str) -> Result<Option<String>, RoomError> {
             Ok(None)
@@ -611,7 +658,8 @@ mod tests {
         let (open_tx, open) = tokio::sync::oneshot::channel();
         let (service, host, _dir) = service_over(Some(open)).await;
         let input = json!({ "name": "Release", "members": ["gh", "rel"] });
-        let create = service.create(&input);
+        let replied = AfterAnswer::default();
+        let create = service.create(&input, &replied);
         tokio::pin!(create);
         assert!(polled(&mut create).await.is_pending(), "the creation answered while the catalog publish was held");
         assert!(host.began.load(std::sync::atomic::Ordering::SeqCst), "it is held at the publish");
@@ -629,7 +677,7 @@ mod tests {
         let (service, _host, _dir) = service_over(Some(open)).await;
         open_tx.send(Err(RoomError::Port("the room log was not indexed".into()))).expect("gate");
         let input = json!({ "name": "Release", "members": ["gh", "rel"] });
-        let error = service.create(&input).await.expect_err("the publish failed");
+        let error = service.create(&input, &AfterAnswer::default()).await.expect_err("the publish failed");
         assert_eq!(error, RoomError::Port("the room log was not indexed".into()));
         assert_eq!(service.rooms.list().await.expect("rooms").len(), 1, "the saved room stays");
     }
@@ -641,7 +689,7 @@ mod tests {
         let (open_tx, open) = tokio::sync::oneshot::channel();
         let (service, _host, _dir) = service_over(Some(open)).await;
         open_tx.send(Ok(())).expect("gate");
-        let made = service.create(&json!({ "name": "Release", "members": ["gh", "rel"] })).await.expect("created");
+        let made = service.create(&json!({ "name": "Release", "members": ["gh", "rel"] }), &AfterAnswer::default()).await.expect("created");
         service.leave(&json!({ "roomId": made["roomId"] })).await.expect("left with no second publish");
     }
 
@@ -662,6 +710,7 @@ mod tests {
             Arc::new(Idle),
             mixdog_core_base::support::testing::scopes(dir.path(), "room").await,
             Arc::new(Unnamed),
+            RoomsReady::prepared(),
         );
         (service, host, dir)
     }

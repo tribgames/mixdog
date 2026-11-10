@@ -200,6 +200,26 @@ test('view frames start the lease, send X17 JPEG frames only while viewed, and s
   assert.throws(() => wire.push('host/browser/viewFrames', { tabId: 's1', on: true }), (e) => e.code === -32602);
 });
 
+test('each frame goes out as its facts in host/browser/frame, the picture announced without data, before its X17 picture', async () => {
+  const { wire, host } = build();
+  wire.push('host/browser/viewFrames', { tabId: 's1', streamId: 7, on: true, request: { maxWidth: 800, maxHeight: 600 } });
+  await flush();
+  const sent = [];
+  wire.connection.notify = (method, params) => sent.push(['notify', method, params]);
+  wire.connection.sendBinary = (frame) => sent.push(['binary', frame.length]);
+  const facts = { frameId: 'f1', sessionId: 's1', seq: 3, documentId: 'd1', width: 640, height: 480 };
+  await host.publishRemoteFrame({ ...facts, image: { mimeType: 'image/jpeg', data: Buffer.from([1, 2, 3]).toString('base64') }, fitSettled: true });
+  await host.publishRemoteFrame({ ...facts, seq: 4 });
+  await host.publishRemoteFrame({ ...facts, sessionId: 'other', image: { mimeType: 'image/jpeg', data: 'AQID' } });
+  assert.deepEqual(sent, [
+    ['notify', 'host/browser/frame', { tabId: 's1', frame: { ...facts, image: { mimeType: 'image/jpeg' }, fitSettled: true } }],
+    ['binary', 16 + 3],
+    ['notify', 'host/browser/frame', { tabId: 's1', frame: { ...facts, seq: 4 } }],
+    // A tab nobody views has no stream: its facts go, no picture follows.
+    ['notify', 'host/browser/frame', { tabId: 'other', frame: { ...facts, sessionId: 'other', image: { mimeType: 'image/jpeg' } } }],
+  ]);
+});
+
 test('a live view that cannot start is reported, as nothing answers the notification', async () => {
   const { wire, calls } = build();
   calls.failStream = true;

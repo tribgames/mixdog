@@ -390,8 +390,9 @@ impl ProviderCatalog {
         let mut answers = Vec::new();
         for (provider, listing, ended_at) in listed.entries {
             match listing {
-                Ok(mut list) => {
-                    list.sort_by(|a, b| a.id.cmp(&b.id));
+                // Kept in listing order, as Node's catalog keeps it: the picker's sort is not total (duplicate ids,
+                // comparator ties), so its answer depends on that order.
+                Ok(list) => {
                     answers.push((provider.clone(), list, ProviderStatus::Ok));
                     outcome.refreshed.push(provider);
                 }
