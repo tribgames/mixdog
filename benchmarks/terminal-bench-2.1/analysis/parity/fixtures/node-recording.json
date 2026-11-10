@@ -14,7 +14,7 @@
   "sessionSha256": "235ec09f8c5ffcb8cb56b81526404e110421de2f3bb251e7c339f190f874daf1",
   "scenariosSha256": "50fae38fa9843c336695c711b7b26771b911588e97ad863705ef8faf88676848",
   "harness": {
-   "node-wire-capture.mjs": "152d425c1f152428801e4061b082b6a7e803e37083e776a69c8390ef52214c21",
+   "node-wire-capture.mjs": "e41a1c41f403434eb1163b48b09eccd1249f7b6b79e86048f256e6dad670eb9f",
    "wire-server.mjs": "ad76b30069774a939dc896639bb9e9d5f85bc96028455f6d9a8454294e677d70"
   },
   "replaced": [
@@ -6231,7 +6231,7 @@
      },
      "started": 1,
      "completed": 2,
-     "conn": 42
+     "conn": 41
     },
     {
      "kind": "http",
@@ -6286,7 +6286,7 @@
      },
      "started": 3,
      "completed": 4,
-     "conn": 41
+     "conn": 42
     },
     {
      "kind": "http",
@@ -6341,7 +6341,7 @@
      },
      "started": 5,
      "completed": 6,
-     "conn": 42
+     "conn": 41
     },
     {
      "kind": "http",
@@ -6379,7 +6379,7 @@
      "body": null,
      "started": 7,
      "completed": 8,
-     "conn": 41
+     "conn": 42
     }
    ]
   },
