@@ -1,5 +1,5 @@
-// The terminal script compares what the user sees: a reply's `replay` and each snapped tab's streamed output become the screen the
-// text draws (rows' text and attributes, cursor, size). Differences in how the bytes got there are not differences on screen; any
+// The terminal script's checkpoints compare what the user sees: each snapped tab's streamed output becomes the screen the text draws
+// (rows' text and attributes, cursor, size); a reply's `replay` is kept as sent. Differences in how the bytes got there are not differences on screen; any
 // changed, extra or missing visible text, colour, cursor position or size is (see benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs).
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -52,10 +52,11 @@ test('a different colour on the same text differs', async () => {
   assert.notDeepEqual(await trace({ replay: text, output: text.replace(MARK + '\r\n' + PROMPT, `\x1b[31m${MARK}\x1b[m\r\n${PROMPT}`) }), await trace({ replay: text, output: text }));
 });
 
-test('byte streams that draw the same screen are the same trace', async () => {
+test('streamed output that draws the same screen is the same snapshot; a reply is its bytes', async () => {
   const redrawn = text.replace(`Write-Output ${MARK}`, `Wri\x1b[3DWrite-Output ${MARK}`);
   assert.notEqual(redrawn, text);
-  assert.deepEqual(await trace({ replay: redrawn, output: redrawn }), await trace({ replay: text, output: text }));
+  assert.deepEqual(await trace({ replay: text, output: redrawn }), await trace({ replay: text, output: text }));
+  assert.notDeepEqual(await trace({ replay: redrawn, output: text }), await trace({ replay: text, output: text }));
 });
 
 // Everything a user can see differs: each pair draws the same characters and differs in one visible thing.

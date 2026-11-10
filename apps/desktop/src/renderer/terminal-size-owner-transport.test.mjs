@@ -93,7 +93,7 @@ test('the phone sends the owner claim, the release and the heartbeat as flagged 
   await setSection('terminalTabs', tab({ cols: 50, rows: 20, owner: 'other' }));
   await setSection('terminalTabs', tab(null));
   await setSection('terminalTabs', tab({ cols: 40, rows: 30, owner: 'me' }));
-  // The events Node emitted for these claims are recorded whole (phone-terminal golden.json, trace.claims.sizeOwner, replayed against the real
+  // The events Node emitted for these claims are recorded whole (phone-terminal runs.json, the `sizeOwner` pushes of claims.order, replayed against the real
   // core); this feeds the adapter sections by hand to pin the per-connection own rule, whose input (the held section) Node never had.
   assert.deepEqual(received, [
     { id: 't', cols: 50, rows: 20, own: false },
