@@ -1095,8 +1095,8 @@
       "list": "operations",
       "name": "browserRemoteFrame",
       "target": {
-        "kind": "mediaFrame",
-        "target": "browserView"
+        "kind": "clientNotification",
+        "target": "host/browser/frame"
       }
     },
     {

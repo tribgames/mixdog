@@ -393,11 +393,26 @@ order: number, };
 export type BrowserCommandParams = { action: string, input?: JsonValue, };
 
 /**
- * Params of `browser/stream` (a phone's request, Node's `browserRemoteStream`): `on` starts or
- * stops this connection's stream of the browser session. The first stream of a session makes the
- * core send `host/browser/viewFrames{on:true}` and the last one `{on:false}`; the phone's
- * live-view signals name only a session it streams. `request` is the stream request (fit, quality)
- * the core hands on to the host unchanged.
+ * The `browser/frame` push (Node's `browserRemoteFrame` event): one frame of a session the phone streams
+ * (`DesktopRemoteBrowserStreamFrame`: `sessionId`, `seq`, `documentId`, the page facts and, unless withheld, `image`
+ * `{mimeType, data}` as base64). At most one is unacknowledged per subscription; the newest frame goes next, after the
+ * phone's `browser/streamAck` or 1.5 s.
+ */
+export type BrowserFrameParams = { frame: JsonValue, };
+
+/**
+ * `browser/streamAck` (phone → core notification, Node's `browserRemoteStreamAck([sessionId, seq])`): the phone painted the
+ * `browser/frame` of `seq`, so its next (newest) frame of the session may go out.
+ */
+export type BrowserStreamAckParams = { sessionId: string, seq: number, };
+
+/**
+ * Params of `browser/stream` (a phone's request, Node's `browserRemoteStream([sessionId, options])`): `on` starts or renews this
+ * connection's subscription to the browser session with `request` (Node's `DesktopRemoteBrowserStreamOptions`
+ * `{maxWidth, maxHeight, fit?}`, checked as `normalizeRemoteBrowserStreamOptions` checks it); `on: false` ends it (Node's `null`
+ * options). A subscription lapses 4 s after its last renewal. On every change the core sends the host
+ * `host/browser/viewFrames{on:true, request}` with the largest options of the session's subscribers, and `{on:false}` when the last
+ * one ends; the phone's live-view signals name only a session it streams.
  */
 export type BrowserStreamParams = { sessionId: string, on: boolean, request?: JsonValue, };
 
@@ -506,7 +521,7 @@ version: string, kind: ConnectionKind, build?: string, };
 /**
  * Client notifications (X11): they take no in-flight slot.
  */
-export type ClientNotification = { "method": "initialized" } | { "method": "terminal/input", "params": TerminalInputParams } | { "method": "terminal/resize", "params": TerminalResizeParams } | { "method": "process/input", "params": ProcessInputParams } | { "method": "client/activity", "params": ClientActivityParams } | { "method": "client/perfLog", "params": ClientPerfLogParams } | { "method": "host/power", "params": HostPowerParams } | { "method": "host/update/report", "params": HostUpdateReportParams } | { "method": "host/browser/surface", "params": HostBrowserSurfaceParams } | { "method": "host/browser/page", "params": HostBrowserPageParams } | { "method": "host/notification/clicked", "params": HostNotificationClickedParams } | { "method": "model/proxy/event", "params": ModelProxyEventParams } | { "method": "model/proxy/heartbeat", "params": ModelProxyHeartbeatParams } | { "method": "modelProxy/cancel", "params": ModelProxyRunCancelParams } | { "method": "ui/newTab/created", "params": UiNewTabCreatedParams } | { "method": "ui/terminalRun/claimed", "params": UiTerminalRunClaimedParams } | { "method": "ui/screenSessions/changed", "params": UiScreenSessionsChangedParams };
+export type ClientNotification = { "method": "initialized" } | { "method": "terminal/input", "params": TerminalInputParams } | { "method": "terminal/resize", "params": TerminalResizeParams } | { "method": "process/input", "params": ProcessInputParams } | { "method": "client/activity", "params": ClientActivityParams } | { "method": "client/perfLog", "params": ClientPerfLogParams } | { "method": "host/power", "params": HostPowerParams } | { "method": "host/update/report", "params": HostUpdateReportParams } | { "method": "host/browser/surface", "params": HostBrowserSurfaceParams } | { "method": "host/browser/page", "params": HostBrowserPageParams } | { "method": "host/browser/frame", "params": HostBrowserFrameParams } | { "method": "browser/streamAck", "params": BrowserStreamAckParams } | { "method": "host/notification/clicked", "params": HostNotificationClickedParams } | { "method": "model/proxy/event", "params": ModelProxyEventParams } | { "method": "model/proxy/heartbeat", "params": ModelProxyHeartbeatParams } | { "method": "modelProxy/cancel", "params": ModelProxyRunCancelParams } | { "method": "ui/newTab/created", "params": UiNewTabCreatedParams } | { "method": "ui/terminalRun/claimed", "params": UiTerminalRunClaimedParams } | { "method": "ui/screenSessions/changed", "params": UiScreenSessionsChangedParams };
 
 export type ClientPerfLogParams = { line: string, };
 
@@ -1420,6 +1435,18 @@ export type HeldRunKind = "schedule" | "webhook" | "room";
 export type HistoryResetReason = "rewind" | "clear";
 
 /**
+ * `host/browser/frame` (host → core notification, Node's `browserRemoteFrame` desktop operation): a frame of a viewed
+ * session (`DesktopRemoteBrowserStreamFrame`) without its picture bytes. When `frame.image` is present (`{mimeType:
+ * "image/jpeg"}`, no `data`), the picture is the next X17 frame of the session's stream on the same connection, and the
+ * core sends the frame once it has the picture; a frame without `image` carries facts only.
+ */
+export type HostBrowserFrameParams = {
+/**
+ * The session, as in `host/browser/viewFrames`.
+ */
+tabId: string, frame: JsonValue, };
+
+/**
  * Params of `host/browser/liveControl` (core → host): a live-view control that is not page
  * input. The page input itself goes as `host/browser/command{action:"input"}`. The result is null;
  * a failure is a JSON-RPC error.
@@ -1452,7 +1479,8 @@ geometry?: JsonValue, };
 export type HostBrowserSurfaceParams = { sessionId: string, reveal?: boolean, hide?: boolean, handoff?: boolean, tabId?: string, title?: string, error?: string, };
 
 /**
- * First viewer → `on`, last viewer gone → `off` (SPEC §4.7.3).
+ * A subscriber change → `on` with the largest options of the session's subscribers, last subscriber gone → `off`
+ * (SPEC §4.7.3; Node's `browserRemote('stream', [sessionId, options | null])`).
  */
 export type HostBrowserViewFramesParams = { tabId: string,
 /**
@@ -1460,7 +1488,8 @@ export type HostBrowserViewFramesParams = { tabId: string,
  */
 streamId: number, on: boolean,
 /**
- * Phone stream request (fit, quality) as today's take-over request.
+ * The largest `{maxWidth, maxHeight, fit?}` of the session's subscribers (Node's `largest`, `remote-browser-streams.ts`);
+ * `null` with `on: false`.
  */
 request: JsonValue, };
 
@@ -3503,7 +3532,7 @@ revision: number, value?: JsonValue, removed?: boolean, stub?: SectionStub, };
  */
 export type ServerCapabilities = { office: CapabilityState, jsSkills: CapabilityState, browser: CapabilityState, computer: CapabilityState, voice: CapabilityState, };
 
-export type ServerNotification = { "method": "thread/snapshot", "params": ThreadSnapshotParams } | { "method": "thread/closed", "params": ThreadIdParams } | { "method": "thread/status/changed", "params": ThreadStatusChangedParams } | { "method": "thread/name/updated", "params": ThreadNameUpdatedParams } | { "method": "thread/tokenUsage/updated", "params": TokenUsageUpdatedParams } | { "method": "thread/goal/updated", "params": ThreadValueParams } | { "method": "thread/goal/cleared", "params": ThreadIdParams } | { "method": "thread/queue/changed", "params": ThreadQueueChangedParams } | { "method": "turn/started", "params": TurnNotificationParams } | { "method": "turn/completed", "params": TurnNotificationParams } | { "method": "thread/notification", "params": ThreadNotificationParams } | { "method": "thread/modelRequest/updated", "params": ModelRequestUpdatedParams } | { "method": "thread/toolBatch/updated", "params": ToolBatchUpdatedParams } | { "method": "item/started", "params": ItemNotificationParams } | { "method": "item/completed", "params": ItemNotificationParams } | { "method": "item/agentMessage/delta", "params": ItemDeltaParams } | { "method": "item/reasoning/textDelta", "params": ItemDeltaParams } | { "method": "item/reasoning/summaryTextDelta", "params": ItemDeltaParams } | { "method": "thread/historyReset", "params": ThreadHistoryResetParams } | { "method": "thread/runtime/updated", "params": ThreadSectionParams<ThreadRuntime> } | { "method": "thread/route/updated", "params": ThreadSectionParams<ThreadRoute> } | { "method": "thread/context/updated", "params": ThreadSectionParams<ThreadContext> } | { "method": "thread/todo/updated", "params": ThreadSectionParams<JsonValue | null> } | { "method": "thread/quotaResume/updated", "params": ThreadSectionParams<QuotaResume | null> } | { "method": "thread/agents/updated", "params": ThreadSectionParams<ThreadAgents> } | { "method": "thread/shellJobs/updated", "params": ThreadSectionParams<JsonValue> } | { "method": "thread/workflow/updated", "params": ThreadSectionParams<ThreadWorkflow> } | { "method": "thread/workspace/updated", "params": ThreadSectionParams<JsonValue | null> } | { "method": "thread/approvals/updated", "params": ThreadSectionParams<ThreadApprovals> } | { "method": "thread/promptRestore", "params": ThreadSectionParams<PromptRestore | null> } | { "method": "thread/providerAccount/changed", "params": ThreadSectionParams<ProviderAccountChange | null> } | { "method": "thread/promptHistory/updated", "params": ThreadSectionParams<PromptHistoryChange> } | { "method": "thread/remote/updated", "params": ThreadSectionParams<boolean> } | { "method": "thread/setupUiRequest/updated", "params": ThreadSectionParams<SetupUiRequest | null> } | { "method": "thread/roomView/updated", "params": ThreadSectionParams<ThreadRoomView | null> } | { "method": "error", "params": ErrorNotificationParams } | { "method": "serverRequest/resolved", "params": ServerRequestResolvedParams } | { "method": "host/notification/show", "params": HostNotificationShowParams } | { "method": "host/browser/viewFrames", "params": HostBrowserViewFramesParams } | { "method": "browser/webrtcSignal", "params": BrowserWebrtcSignalParams } | { "method": "modelProxy/run/event", "params": ModelProxyRunEventParams } | { "method": "model/proxy/cancel", "params": ModelProxyCancelParams } | { "method": "app/snapshot", "params": AppSnapshotParams } | { "method": "thread/started", "params": ThreadStartedParams } | { "method": "thread/summary/updated", "params": ThreadSummaryUpdatedParams } | { "method": "thread/deleted", "params": ThreadIdParams } | { "method": "thread/archived", "params": ThreadIdParams } | { "method": "thread/unarchived", "params": ThreadIdParams } | { "method": "warning", "params": WarningParams } | { "method": "configWarning", "params": WarningParams } | { "method": "ui/openRequested", "params": UiOpenRequestedParams } | { "method": "remote/pointer", "params": RemotePointerParams } | { "method": "core/drain", "params": CoreDrainParams } | { "method": "config/updated", "params": SectionUpdate } | { "method": "project/updated", "params": SectionUpdate } | { "method": "agent/pool/updated", "params": SectionUpdate } | { "method": "agent/list/updated", "params": SectionUpdate } | { "method": "agent/botOrder/updated", "params": SectionUpdate } | { "method": "model/presets/updated", "params": SectionUpdate } | { "method": "model/catalog/updated", "params": SectionUpdate } | { "method": "workflow/list/updated", "params": SectionUpdate } | { "method": "webSearch/updated", "params": SectionUpdate } | { "method": "toolModules/updated", "params": SectionUpdate } | { "method": "account/updated", "params": SectionUpdate } | { "method": "usage/updated", "params": SectionUpdate } | { "method": "shellJobs/host/updated", "params": SectionUpdate } | { "method": "terminal/activity/updated", "params": SectionUpdate } | { "method": "terminal/tabs/updated", "params": SectionUpdate } | { "method": "remote/state/updated", "params": SectionUpdate } | { "method": "notice/updated", "params": SectionUpdate } | { "method": "update/status/updated", "params": SectionUpdate } | { "method": "host/state/updated", "params": SectionUpdate } | { "method": "computer/updated", "params": SectionUpdate } | { "method": "approval/inbox/updated", "params": SectionUpdate } | { "method": "core/state/updated", "params": SectionUpdate } | { "method": "core/health/updated", "params": SectionUpdate } | { "method": "migration/progress", "params": SectionUpdate } | { "method": "review/diff/updated", "params": SectionUpdate } | { "method": "feed/snapshot", "params": FeedSnapshotParams } | { "method": "fs/changed", "params": FsChangedParams } | { "method": "search/updated", "params": SearchUpdatedParams } | { "method": "search/completed", "params": SearchCompletedParams } | { "method": "process/outputDelta", "params": ProcessOutputDeltaParams } | { "method": "process/exited", "params": ProcessExitedParams } | { "method": "login/updated", "params": LoginUpdatedParams } | { "method": "git/status/updated", "params": SectionUpdate } | { "method": "lsp/status/updated", "params": SectionUpdate } | { "method": "lsp/diagnostics/updated", "params": SectionUpdate } | { "method": "media/job/updated", "params": SectionUpdate } | { "method": "system/ports/updated", "params": SectionUpdate };
+export type ServerNotification = { "method": "thread/snapshot", "params": ThreadSnapshotParams } | { "method": "thread/closed", "params": ThreadIdParams } | { "method": "thread/status/changed", "params": ThreadStatusChangedParams } | { "method": "thread/name/updated", "params": ThreadNameUpdatedParams } | { "method": "thread/tokenUsage/updated", "params": TokenUsageUpdatedParams } | { "method": "thread/goal/updated", "params": ThreadValueParams } | { "method": "thread/goal/cleared", "params": ThreadIdParams } | { "method": "thread/queue/changed", "params": ThreadQueueChangedParams } | { "method": "turn/started", "params": TurnNotificationParams } | { "method": "turn/completed", "params": TurnNotificationParams } | { "method": "thread/notification", "params": ThreadNotificationParams } | { "method": "thread/modelRequest/updated", "params": ModelRequestUpdatedParams } | { "method": "thread/toolBatch/updated", "params": ToolBatchUpdatedParams } | { "method": "item/started", "params": ItemNotificationParams } | { "method": "item/completed", "params": ItemNotificationParams } | { "method": "item/agentMessage/delta", "params": ItemDeltaParams } | { "method": "item/reasoning/textDelta", "params": ItemDeltaParams } | { "method": "item/reasoning/summaryTextDelta", "params": ItemDeltaParams } | { "method": "thread/historyReset", "params": ThreadHistoryResetParams } | { "method": "thread/runtime/updated", "params": ThreadSectionParams<ThreadRuntime> } | { "method": "thread/route/updated", "params": ThreadSectionParams<ThreadRoute> } | { "method": "thread/context/updated", "params": ThreadSectionParams<ThreadContext> } | { "method": "thread/todo/updated", "params": ThreadSectionParams<JsonValue | null> } | { "method": "thread/quotaResume/updated", "params": ThreadSectionParams<QuotaResume | null> } | { "method": "thread/agents/updated", "params": ThreadSectionParams<ThreadAgents> } | { "method": "thread/shellJobs/updated", "params": ThreadSectionParams<JsonValue> } | { "method": "thread/workflow/updated", "params": ThreadSectionParams<ThreadWorkflow> } | { "method": "thread/workspace/updated", "params": ThreadSectionParams<JsonValue | null> } | { "method": "thread/approvals/updated", "params": ThreadSectionParams<ThreadApprovals> } | { "method": "thread/promptRestore", "params": ThreadSectionParams<PromptRestore | null> } | { "method": "thread/providerAccount/changed", "params": ThreadSectionParams<ProviderAccountChange | null> } | { "method": "thread/promptHistory/updated", "params": ThreadSectionParams<PromptHistoryChange> } | { "method": "thread/remote/updated", "params": ThreadSectionParams<boolean> } | { "method": "thread/setupUiRequest/updated", "params": ThreadSectionParams<SetupUiRequest | null> } | { "method": "thread/roomView/updated", "params": ThreadSectionParams<ThreadRoomView | null> } | { "method": "error", "params": ErrorNotificationParams } | { "method": "serverRequest/resolved", "params": ServerRequestResolvedParams } | { "method": "host/notification/show", "params": HostNotificationShowParams } | { "method": "host/browser/viewFrames", "params": HostBrowserViewFramesParams } | { "method": "browser/webrtcSignal", "params": BrowserWebrtcSignalParams } | { "method": "browser/frame", "params": BrowserFrameParams } | { "method": "modelProxy/run/event", "params": ModelProxyRunEventParams } | { "method": "model/proxy/cancel", "params": ModelProxyCancelParams } | { "method": "app/snapshot", "params": AppSnapshotParams } | { "method": "thread/started", "params": ThreadStartedParams } | { "method": "thread/summary/updated", "params": ThreadSummaryUpdatedParams } | { "method": "thread/deleted", "params": ThreadIdParams } | { "method": "thread/archived", "params": ThreadIdParams } | { "method": "thread/unarchived", "params": ThreadIdParams } | { "method": "warning", "params": WarningParams } | { "method": "configWarning", "params": WarningParams } | { "method": "ui/openRequested", "params": UiOpenRequestedParams } | { "method": "remote/pointer", "params": RemotePointerParams } | { "method": "core/drain", "params": CoreDrainParams } | { "method": "config/updated", "params": SectionUpdate } | { "method": "project/updated", "params": SectionUpdate } | { "method": "agent/pool/updated", "params": SectionUpdate } | { "method": "agent/list/updated", "params": SectionUpdate } | { "method": "agent/botOrder/updated", "params": SectionUpdate } | { "method": "model/presets/updated", "params": SectionUpdate } | { "method": "model/catalog/updated", "params": SectionUpdate } | { "method": "workflow/list/updated", "params": SectionUpdate } | { "method": "webSearch/updated", "params": SectionUpdate } | { "method": "toolModules/updated", "params": SectionUpdate } | { "method": "account/updated", "params": SectionUpdate } | { "method": "usage/updated", "params": SectionUpdate } | { "method": "shellJobs/host/updated", "params": SectionUpdate } | { "method": "terminal/activity/updated", "params": SectionUpdate } | { "method": "terminal/tabs/updated", "params": SectionUpdate } | { "method": "remote/state/updated", "params": SectionUpdate } | { "method": "notice/updated", "params": SectionUpdate } | { "method": "update/status/updated", "params": SectionUpdate } | { "method": "host/state/updated", "params": SectionUpdate } | { "method": "computer/updated", "params": SectionUpdate } | { "method": "approval/inbox/updated", "params": SectionUpdate } | { "method": "core/state/updated", "params": SectionUpdate } | { "method": "core/health/updated", "params": SectionUpdate } | { "method": "migration/progress", "params": SectionUpdate } | { "method": "review/diff/updated", "params": SectionUpdate } | { "method": "feed/snapshot", "params": FeedSnapshotParams } | { "method": "fs/changed", "params": FsChangedParams } | { "method": "search/updated", "params": SearchUpdatedParams } | { "method": "search/completed", "params": SearchCompletedParams } | { "method": "process/outputDelta", "params": ProcessOutputDeltaParams } | { "method": "process/exited", "params": ProcessExitedParams } | { "method": "login/updated", "params": LoginUpdatedParams } | { "method": "git/status/updated", "params": SectionUpdate } | { "method": "lsp/status/updated", "params": SectionUpdate } | { "method": "lsp/diagnostics/updated", "params": SectionUpdate } | { "method": "media/job/updated", "params": SectionUpdate } | { "method": "system/ports/updated", "params": SectionUpdate };
 
 /**
  * Request from the core to a client.
@@ -5495,6 +5524,7 @@ export type ServerNotificationMethods = {
   "host/notification/show": HostNotificationShowParams;
   "host/browser/viewFrames": HostBrowserViewFramesParams;
   "browser/webrtcSignal": BrowserWebrtcSignalParams;
+  "browser/frame": BrowserFrameParams;
   "modelProxy/run/event": ModelProxyRunEventParams;
   "model/proxy/cancel": ModelProxyCancelParams;
   "app/snapshot": AppSnapshotParams;
@@ -16110,6 +16140,16 @@ export const methodTable = {
     },
     {
       "delivery": null,
+      "method": "host/browser/frame",
+      "params": "HostBrowserFrameParams"
+    },
+    {
+      "delivery": null,
+      "method": "browser/streamAck",
+      "params": "BrowserStreamAckParams"
+    },
+    {
+      "delivery": null,
       "method": "host/notification/clicked",
       "params": "HostNotificationClickedParams"
     },
@@ -16344,6 +16384,11 @@ export const methodTable = {
       "delivery": "connection",
       "method": "browser/webrtcSignal",
       "params": "BrowserWebrtcSignalParams"
+    },
+    {
+      "delivery": "connection",
+      "method": "browser/frame",
+      "params": "BrowserFrameParams"
     },
     {
       "delivery": "connection",

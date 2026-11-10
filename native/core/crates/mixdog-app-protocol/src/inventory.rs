@@ -730,7 +730,8 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Operations,
         "browserRemoteFrame",
-        Target::MediaFrame("browserView"),
+        // The frame's facts; its picture follows as the X17 frame of purpose `browserView`.
+        Target::ClientNotification("host/browser/frame"),
     ),
     (
         InventoryList::Operations,

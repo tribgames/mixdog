@@ -1234,7 +1234,7 @@
       "type": "object"
     },
     "BrowserStreamParams": {
-      "description": "Params of `browser/stream` (a phone's request, Node's `browserRemoteStream`): `on` starts or stops this connection's stream of the browser session. The first stream of a session makes the core send `host/browser/viewFrames{on:true}` and the last one `{on:false}`; the phone's live-view signals name only a session it streams. `request` is the stream request (fit, quality) the core hands on to the host unchanged.",
+      "description": "Params of `browser/stream` (a phone's request, Node's `browserRemoteStream([sessionId, options])`): `on` starts or renews this connection's subscription to the browser session with `request` (Node's `DesktopRemoteBrowserStreamOptions` `{maxWidth, maxHeight, fit?}`, checked as `normalizeRemoteBrowserStreamOptions` checks it); `on: false` ends it (Node's `null` options). A subscription lapses 4 s after its last renewal. On every change the core sends the host `host/browser/viewFrames{on:true, request}` with the largest options of the session's subscribers, and `{on:false}` when the last one ends; the phone's live-view signals name only a session it streams.",
       "properties": {
         "on": {
           "type": "boolean"

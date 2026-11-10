@@ -2949,7 +2949,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     });
     let model_proxy = Arc::new(mixdog_core_domains::domains::ai_admin::model_proxy_service::ModelProxyService::new(proxy_runner, b.host.clone(), b.notifier.clone()));
     builder.register(model_proxy.clone())?;
-    // browser/stream, browser/webrtcSignal, browser/screenDisplays, host/browser/page: the phone's live view of Browser Use (SPEC R36).
+    // browser/stream, browser/webrtcSignal, browser/screenDisplays, browser/streamAck, host/browser/page, host/browser/frame: the phone's live
+    // view of Browser Use (SPEC R36) and its JPEG view.
     let live_view = Arc::new(crate::live_view::LiveViewService::new(b.host.clone(), b.notifier.clone(), b.host_media.clone(), built_remote.runtime.clone(), b.tokens.media_thread, Arc::new(crate::live_view::PairedScreenAccess::new(crate::domain_seams::remote::phone_credential(built_remote.registry.clone()), crate::domain_seams::remote::screen_revoked(built_remote.registry.clone())))));
     builder.register(live_view.clone())?;
     // host/claim is answered by the server itself (it owns the connection registry, ClientRequest::HostClaim), so no domain service claims it.

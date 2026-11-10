@@ -19,6 +19,7 @@ use crate::rpc::JsonRpcErrorBody;
 use crate::v2::approval::ServerRequestResolvedParams;
 use crate::v2::feed::AppSnapshotParams;
 use crate::v2::feed::FeedSnapshotParams;
+use crate::v2::host::BrowserFrameParams;
 use crate::v2::host::BrowserWebrtcSignalParams;
 use crate::v2::host::HostBrowserViewFramesParams;
 use crate::v2::host::CoreDrainParams;
@@ -174,6 +175,8 @@ crate::notification_definitions! {
     HostBrowserViewFrames => "host/browser/viewFrames" (HostBrowserViewFramesParams) @connection,
     /// The core's live-view signal to one phone (offer, candidate, promote, demote, close, geometry).
     BrowserWebrtcSignal => "browser/webrtcSignal" (BrowserWebrtcSignalParams) @connection,
+    /// A JPEG-view frame of a browser session the phone streams (Node's `browserRemoteFrame` push): one in flight until `browser/streamAck`.
+    BrowserFrame => "browser/frame" (BrowserFrameParams) @connection,
     ModelProxyRunEvent => "modelProxy/run/event" (ModelProxyRunEventParams) @connection,
     ModelProxyCancel => "model/proxy/cancel" (ModelProxyCancelParams) @connection,
     // ---- app feed (P §6.2, DS §2.4)
@@ -303,6 +306,14 @@ pub enum ClientNotification {
     #[serde(rename = "host/browser/page")]
     #[cfg_attr(feature = "codegen", ts(rename = "host/browser/page"))]
     HostBrowserPage(crate::v2::host::HostBrowserPageParams),
+    /// A viewed browser page's frame facts; a picture announced in them follows as the next X17 frame of the stream.
+    #[serde(rename = "host/browser/frame")]
+    #[cfg_attr(feature = "codegen", ts(rename = "host/browser/frame"))]
+    HostBrowserFrame(crate::v2::host::HostBrowserFrameParams),
+    /// The phone painted a JPEG-view frame (`browser/frame`): its next one may go out.
+    #[serde(rename = "browser/streamAck")]
+    #[cfg_attr(feature = "codegen", ts(rename = "browser/streamAck"))]
+    BrowserStreamAck(crate::v2::host::BrowserStreamAckParams),
     #[serde(rename = "host/notification/clicked")]
     #[cfg_attr(feature = "codegen", ts(rename = "host/notification/clicked"))]
     HostNotificationClicked(crate::v2::host::HostNotificationClickedParams),
@@ -381,6 +392,16 @@ pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
     crate::common::NotificationSpec {
         method: "host/browser/page",
         params: "HostBrowserPageParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
+        method: "host/browser/frame",
+        params: "HostBrowserFrameParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
+        method: "browser/streamAck",
+        params: "BrowserStreamAckParams",
         delivery: None,
     },
     crate::common::NotificationSpec {

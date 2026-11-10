@@ -10559,6 +10559,16 @@
     },
     {
       "delivery": null,
+      "method": "host/browser/frame",
+      "params": "HostBrowserFrameParams"
+    },
+    {
+      "delivery": null,
+      "method": "browser/streamAck",
+      "params": "BrowserStreamAckParams"
+    },
+    {
+      "delivery": null,
       "method": "host/notification/clicked",
       "params": "HostNotificationClickedParams"
     },
@@ -10793,6 +10803,11 @@
       "delivery": "connection",
       "method": "browser/webrtcSignal",
       "params": "BrowserWebrtcSignalParams"
+    },
+    {
+      "delivery": "connection",
+      "method": "browser/frame",
+      "params": "BrowserFrameParams"
     },
     {
       "delivery": "connection",
