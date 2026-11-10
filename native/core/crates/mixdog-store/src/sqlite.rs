@@ -289,7 +289,12 @@ pub struct RowEdge {
 /// Told, in write order and after the transaction that wrote them committed, of every row write that changed a row (Node's
 /// `onSessionCatalogDbChange`). Called on the index writer thread: it must not block.
 pub trait RowSink: Send + Sync {
+    /// Before the transaction that wrote `count` changed rows commits: a reader that sees one of those rows was told of it here
+    /// first. Each is then [`Self::written`] once committed, or all of them [`Self::dropped`] when the commit failed.
+    fn writing(&self, _count: usize) {}
     fn written(&self, edge: RowEdge);
+    /// The transaction told of in [`Self::writing`] did not commit: its `count` rows are never written.
+    fn dropped(&self, _count: usize) {}
 }
 
 /// The sink of a store, set once after the store opens.
@@ -874,6 +879,8 @@ impl Writer {
         let mut bytes = 0usize;
         let mut waiting: Vec<(String, CatalogHead)> = Vec::new();
         let mut edges: Vec<RowEdge> = Vec::new();
+        // The edges the sink was told are about to commit.
+        let mut told = 0usize;
         let watch = self.sink.get().is_some();
         let result = (|| -> rusqlite::Result<()> {
             let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -963,6 +970,10 @@ impl Writer {
                 bytes += written;
                 acks.extend(waiters);
             }
+            if let Some(sink) = self.sink.get().filter(|_| !edges.is_empty()) {
+                sink.writing(edges.len());
+                told = edges.len();
+            }
             tx.commit()
         })();
         let result = result.map_err(|e| e.to_string());
@@ -989,6 +1000,10 @@ impl Writer {
                     sink.written(edge);
                 }
             }
+        } else if told > 0
+            && let Some(sink) = self.sink.get()
+        {
+            sink.dropped(told);
         }
         send(acks, &result);
     }
