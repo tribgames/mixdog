@@ -17,7 +17,7 @@ use super::RoomError;
 use super::home::{HomePlan, HomePorts, Presence};
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use super::records::{RoomStore, Rooms};
-use super::service::{KnownAgent, RoomHost, RoomRunner, route_params};
+use super::service::{AfterAnswer, KnownAgent, Later, RoomHost, RoomRunner, route_params};
 
 /// The agent definitions the rooms module needs (files owned by the agent service).
 #[async_trait]
@@ -155,7 +155,8 @@ impl<S: RoomStore + 'static> HomePorts for SessionHomePorts<S> {
         for gone in &left {
             self.runner.cancel_owed_to(&gone.room_id, std::slice::from_ref(&gone.agent_id));
         }
-        self.room_host.republish_catalog().await?;
+        let after = AfterAnswer::default();
+        self.room_host.republish_catalog(&after).await?;
         let sessions: Vec<String> = left.iter().filter_map(|l| l.session_id()).collect();
         let failed = self.room_host.delete_sessions(&sessions).await;
         if failed > 0 {
@@ -188,8 +189,9 @@ pub struct SessionRoomHost {
     republish: Republish,
 }
 
-/// A catalog publish that ends when the catalog is published, or says why it was not.
-pub type Republish = Arc<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), RoomError>> + Send>> + Send + Sync>;
+/// A catalog publish that ends when the catalog is published, or says why it was not; or, before the catalog is loaded, the
+/// background listing to start once the call has answered.
+pub type Republish = Arc<dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<Later>, RoomError>> + Send>> + Send + Sync>;
 
 impl SessionRoomHost {
     pub fn new(catalog: Arc<dyn AgentCatalog>, sessions: Arc<dyn SessionOps>, republish: Republish) -> Self {
@@ -237,8 +239,11 @@ impl RoomHost for SessionRoomHost {
         failed
     }
 
-    async fn republish_catalog(&self) -> Result<(), RoomError> {
-        (self.republish)().await
+    async fn republish_catalog(&self, after: &AfterAnswer) -> Result<(), RoomError> {
+        if let Some(later) = (self.republish)().await? {
+            after.defer(later);
+        }
+        Ok(())
     }
 
     /// As an agent home's reset: the archive mark is written before the copy exists, so the copy never lists as a live chat.
@@ -331,7 +336,7 @@ mod tests {
         async fn delete_sessions(&self, _: &[String]) -> usize {
             0
         }
-        async fn republish_catalog(&self) -> Result<(), RoomError> {
+        async fn republish_catalog(&self, _: &AfterAnswer) -> Result<(), RoomError> {
             Ok(())
         }
         async fn start_over(&self, _: &str) -> Result<Option<String>, RoomError> {
@@ -503,7 +508,7 @@ mod tests {
     #[tokio::test]
     async fn a_room_reset_archives_the_log_and_empties_a_member_keeping_nothing() {
         let clears = Arc::new(Clears::default());
-        let host = SessionRoomHost::new(Arc::new(Catalog), clears.clone(), Arc::new(|| Box::pin(async { Ok(()) })));
+        let host = SessionRoomHost::new(Arc::new(Catalog), clears.clone(), Arc::new(|| Box::pin(async { Ok(None) })));
         let archived = host.start_over("room_log").await.unwrap().expect("the log had a conversation to keep");
         assert!(archived.starts_with("sess_"));
         assert_eq!(clears.0.lock().unwrap()[0], ("room_log".to_owned(), archived.clone()));
@@ -514,7 +519,7 @@ mod tests {
 
     #[tokio::test]
     async fn deleting_sessions_counts_the_failures() {
-        let host = SessionRoomHost::new(Arc::new(Catalog), Arc::new(Spy::default()), Arc::new(|| Box::pin(async { Ok(()) })));
+        let host = SessionRoomHost::new(Arc::new(Catalog), Arc::new(Spy::default()), Arc::new(|| Box::pin(async { Ok(None) })));
         assert_eq!(host.delete_sessions(&["a".into(), "bad".into(), "b".into()]).await, 1);
     }
 }

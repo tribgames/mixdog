@@ -378,6 +378,20 @@ pub struct RoomSummaries {
     directory: Arc<super::SessionDirectory>,
     /// One pass at a time, in the order they were asked for.
     pass: Arc<mixdog_rt::SerialChain>,
+    /// The background listings handed out by [`Self::republish_catalog`] that have not ended.
+    background: tokio::sync::watch::Sender<usize>,
+    /// Where a test holds the next background listing handed out (see [`Self::hold_background`]).
+    #[cfg(any(test, feature = "test-support"))]
+    held: std::sync::Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+}
+
+/// One background listing handed out and not yet ended; counted down when dropped, run or not.
+struct Background(tokio::sync::watch::Sender<usize>);
+
+impl Drop for Background {
+    fn drop(&mut self) {
+        self.0.send_modify(|open| *open -= 1);
+    }
 }
 
 impl RoomSummaries {
@@ -386,21 +400,56 @@ impl RoomSummaries {
         app: Arc<mixdog_core_base::state::SectionFeedState>,
         directory: Arc<super::SessionDirectory>,
     ) -> Arc<Self> {
-        Arc::new(Self { list, app, directory, pass: mixdog_rt::SerialChain::new() })
+        Arc::new(Self {
+            list,
+            app,
+            directory,
+            pass: mixdog_rt::SerialChain::new(),
+            background: tokio::sync::watch::Sender::new(0),
+            #[cfg(any(test, feature = "test-support"))]
+            held: std::sync::Mutex::new(None),
+        })
+    }
+
+    /// The next background listing handed out waits, before its first step, until the returned sender is used or dropped (a
+    /// replay reads what a call sent by its answer before letting the listing that call started run). Replaces an unused hold.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn hold_background(&self) -> tokio::sync::oneshot::Sender<()> {
+        let (release, held) = tokio::sync::oneshot::channel();
+        *self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(held);
+        release
+    }
+
+    /// Waits until every background listing handed out so far has ended, published or failed (a replay's step boundary, as
+    /// Node's recorder awaits the background listing a call started before the next step: `record-room-catalog-states.mjs`).
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn background_ended(&self) {
+        let mut open = self.background.subscribe();
+        open.wait_for(|open| *open == 0).await.expect("the sender is held by the summaries");
     }
 
     /// `deps.republishCatalog` as a room call makes it (`session-host.ts:353-356`). Once a listing has been answered (Node's
     /// `sessionCatalogLoaded`) the pass runs inside the call, and its error is the call's (`agent-rooms.ts:289` lets the
-    /// synchronous publish throw, the room already saved). Before that a whole listing is started and not awaited, as Node's
-    /// `publishCatalogs` runs `listSessions` (`session-host-catalog.ts:217-238`): a listing that answers marks the catalog loaded
-    /// (`session-host.ts:807`) and its room rows go out; a failed one is dropped (`() => undefined`).
-    pub async fn republish_catalog(self: &Arc<Self>) -> Result<(), CoreError> {
+    /// synchronous publish throw, the room already saved). Before that the answer is a whole listing for the caller to start once
+    /// it has answered, as Node's `publishCatalogs` runs `listSessions` (`session-host-catalog.ts:217-238`) and only publishes after
+    /// the daemon's listing reply: a listing that answers marks the catalog loaded (`session-host.ts:807`) and its rows go out; a
+    /// failed one is dropped (`() => undefined`).
+    pub async fn republish_catalog(self: &Arc<Self>) -> Result<Option<std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>>, CoreError> {
         if self.list.catalog_loaded() {
-            return self.publish_rooms().await;
+            return self.publish_rooms().await.map(|()| None);
         }
-        let this = self.clone();
-        tokio::spawn(async move { drop(this.publish_listing().await) });
-        Ok(())
+        self.background.send_modify(|open| *open += 1);
+        let (this, open) = (self.clone(), Background(self.background.clone()));
+        #[cfg(any(test, feature = "test-support"))]
+        let held = self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+        Ok(Some(Box::pin(async move {
+            #[cfg(any(test, feature = "test-support"))]
+            if let Some(held) = held {
+                let _ = held.await;
+            }
+            drop(this.publish_listing().await);
+            drop(open);
+        })))
     }
 
     /// Node's `publishCatalogs` awaited, as a room log's rename does (`session-host-lifecycle.ts:225-233` `renameSession`): the whole
@@ -789,10 +838,11 @@ mod tests {
         let (summaries, app) = room_rig(list.clone());
 
         assert!(!list.catalog_loaded());
-        summaries.republish_catalog().await.expect("the first call answers without the publication");
+        let later = summaries.republish_catalog().await.expect("the first call answers without the publication").expect("a background listing");
+        tokio::spawn(later);
         tokio::time::timeout(std::time::Duration::from_secs(10), listed).await.expect("the background publication never listed").expect("told");
         assert!(list.catalog_loaded(), "the background publication left the catalog unloaded");
-        summaries.republish_catalog().await.expect("the second call publishes inside the call");
+        assert!(summaries.republish_catalog().await.expect("the second call publishes inside the call").is_none(), "the second call is loaded");
         // Every row of the background listing, then the second call's two room rows, all sent when the second call answers (one
         // pass chain: the second call's pass starts after the background pass has sent its rows).
         let sent = app.drain_text().into_iter().filter(|text| text.contains(SUMMARY_UPDATED)).count();
