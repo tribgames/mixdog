@@ -87,7 +87,7 @@ fn execution_tokens(ctx: &TailContext<'_>, messages: &[AgentMessage]) -> u64 {
     if messages.is_empty() {
         return 0;
     }
-    let rows: Vec<JsonValue> = messages.iter().map(|m| ctx.rows.row(m)).collect();
+    let rows: Vec<JsonValue> = messages.iter().map(|m| without_message_ids(ctx.rows.row(m))).collect();
     ctx.meter
         .messages(messages)
         .max(estimate_tokens(&mixdog_js::json_stringify(&JsonValue::Array(rows))))
@@ -154,13 +154,34 @@ fn without_stale_replay(messages: &[AgentMessage]) -> Vec<AgentMessage> {
         .collect()
 }
 
+/// `row` without its display bookkeeping (`withoutMessageIdsReplacer`): a meta whose transcript
+/// holds a stable id loses the id and the reactions, and a meta left empty goes.
+fn without_message_ids(mut row: JsonValue) -> JsonValue {
+    let Some(fields) = row.as_object_mut() else { return row };
+    let Some(meta) = fields.get_mut("meta").and_then(JsonValue::as_object_mut) else { return row };
+    if !meta.get("transcript").and_then(|t| t.get("messageId")).is_some_and(JsonValue::is_string) {
+        return row;
+    }
+    if let Some(transcript) = meta.get_mut("transcript").and_then(JsonValue::as_object_mut) {
+        transcript.shift_remove("messageId");
+        transcript.shift_remove("reactions");
+        if transcript.is_empty() {
+            meta.shift_remove("transcript");
+        }
+    }
+    if meta.is_empty() {
+        fields.shift_remove("meta");
+    }
+    row
+}
+
 /// One message per line (JSONL): line N + 1 holds message index N. A line that
 /// reaches `ARCHIVE_BLOB_MIN_BYTES` is stored once per session as its own
 /// content-addressed file and the dump repeats only a reference to it.
 async fn serialize_archive(ctx: &TailContext<'_>, transcript: &[AgentMessage]) -> Result<String, String> {
     let mut out = String::new();
     for message in transcript {
-        let line = format!("{}\n", mixdog_js::json_stringify(&ctx.rows.row(message)));
+        let line = format!("{}\n", mixdog_js::json_stringify(&without_message_ids(ctx.rows.row(message))));
         if line.len() < ARCHIVE_BLOB_MIN_BYTES {
             out.push_str(&line);
             continue;
