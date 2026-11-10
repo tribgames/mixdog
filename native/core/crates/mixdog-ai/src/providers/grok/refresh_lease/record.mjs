@@ -1,14 +1,15 @@
 // Records what Node's own Grok token refresh (b6f10295a: `GrokOAuthProvider.ensureAuth`, grok-oauth.mjs:338-399, and
 // `refreshTokens`, grok-oauth-tokens.mjs:384-433, under `withFileLock`, shared/file-lock.mjs) decides over a grid of
 // cases: the margin, the lease's wait and expiry, the takeover of a stale lease, a credential another process rewrites
-// while the caller waits, the refresh attempts and the grace window, and concurrent callers in one process and in two.
+// while the caller waits, the refresh attempts and the grace window, and concurrent callers of one owner and of two
+// owners in one process. Two real processes are `processes.mjs`'s.
 // The cases are written into `node-recorded.json` beside what Node did in each, and the core replays them
 // (`refresh_lease/tests.rs`). It writes the set's MANIFEST.json and refuses a tree that is not exactly b6f10295a.
 //
-// Two processes: the tree's modules are loaded twice (a resolve hook gives every module of the tree a `?copy=A` or
-// `?copy=B` copy), so each copy has its own file-lock owner token and line, its own refreshes in flight, its own
-// provider, exactly as a second process sharing the credential file has. Both share the pid, which `ownerIsLive` takes
-// for live, as it takes another live process.
+// Two owners in one process: the tree's modules are loaded twice (a resolve hook gives every module of the tree a
+// `?copy=A` or `?copy=B` copy), so each copy has its own file-lock owner token and line, its own refreshes in flight,
+// its own provider. Both share the pid, which `ownerIsLive` takes for live without asking the system
+// (file-lock.mjs:138-148): a dead holder and a foreign pid are `processes.mjs`'s cases.
 //
 // Inputs that are fixed, not observed:
 // - the clock: `Date.now()` is a virtual clock that starts each case at T0, and every timer of the product's code is a
@@ -76,9 +77,9 @@ function cases() {
     add(`expiry-at-${name}`, { file: stored('a0', 'r0', T0 + SKEW + delta), replies: [ok('a1', 'r1')], callers: [caller(0)] });
   }
   add('one-process-two-callers', { file: stored('a0', 'r0', T0 + 1000), replies: [ok('a1', 'r1', 1000)], callers: [caller(0), caller(0)] });
-  add('two-processes', { file: stored('a0', 'r0', T0 + 1000), replies: [ok('a1', 'r1', 1000)], callers: [caller(0, 'A'), caller(0, 'B')] });
-  add('two-processes-the-second-forced', { file: stored('a0', 'r0', T0 + 1000), replies: [ok('a1', 'r1', 1000)], callers: [caller(0, 'A'), caller(0, 'B', true)] });
-  add('two-processes-the-first-forced', { file: stored('a0', 'r0', T0 + 1000), replies: [ok('a1', 'r1', 1000)], callers: [caller(0, 'A', true), caller(0, 'B')] });
+  add('two-owners-in-one-process', { file: stored('a0', 'r0', T0 + 1000), replies: [ok('a1', 'r1', 1000)], callers: [caller(0, 'A'), caller(0, 'B')] });
+  add('two-owners-in-one-process-the-second-forced', { file: stored('a0', 'r0', T0 + 1000), replies: [ok('a1', 'r1', 1000)], callers: [caller(0, 'A'), caller(0, 'B', true)] });
+  add('two-owners-in-one-process-the-first-forced', { file: stored('a0', 'r0', T0 + 1000), replies: [ok('a1', 'r1', 1000)], callers: [caller(0, 'A', true), caller(0, 'B')] });
   for (const [name, delta] of [['minus-1', -1], ['exact', 0], ['plus-1', 1]]) {
     add(`rewritten-while-waiting-expiry-at-valid-after-${name}`, {
       file: stored('a0', 'r0', T0 + 1000),
@@ -95,6 +96,14 @@ function cases() {
     file: stored('a0', 'r0', T0 + 1000),
     lock: { kind: 'live', ageMs: 0 },
     actions: [{ at: 500, kind: 'write', text: stored('a9', 'r9', T0 + ACQUIRED_AFTER_500 + 1) }, { at: 500, kind: 'release' }],
+    replies: [ok('a1', 'r1')],
+    callers: [caller(0, 'A', true)],
+  });
+  // The forced refresh's boundary: a rewritten generation whose expiry is the instant the lease is taken.
+  add('rewritten-while-waiting-forced-expiry-at-now', {
+    file: stored('a0', 'r0', T0 + 1000),
+    lock: { kind: 'live', ageMs: 0 },
+    actions: [{ at: 500, kind: 'write', text: stored('a9', 'r9', T0 + ACQUIRED_AFTER_500) }, { at: 500, kind: 'release' }],
     replies: [ok('a1', 'r1')],
     callers: [caller(0, 'A', true)],
   });
@@ -392,7 +401,7 @@ if (only) {
 }
 const stage = stageSet(finalDir, ['node-recorded.json', 'MANIFEST.json']);
 writeJson(join(stage, 'node-recorded.json'), { t0: T0, skewMs: SKEW, cases: recorded });
-const extra = { recorderSha256: sha256(fs.readFileSync(fileURLToPath(import.meta.url))), runtime: { node: process.versions.node, electron: process.versions.electron ?? null } };
+const extra = { scripts: { 'benchmarks/rust-core/recorders/lib/common.mjs': sha256(fs.readFileSync(join(repo, 'benchmarks/rust-core/recorders/lib/common.mjs'))) }, recorderSha256: sha256(fs.readFileSync(fileURLToPath(import.meta.url))), runtime: { node: process.versions.node, electron: process.versions.electron ?? null } };
 writeSetManifest(stage, { set: 'grok-refresh-lease', recorder, command: `node ${recorder} --tree <b6f10295a export>`, identity, extra });
 commitStage(stage, finalDir);
 console.log(`${recorded.length} cases recorded from ${COMMIT}`);

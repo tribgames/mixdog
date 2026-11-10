@@ -3,8 +3,9 @@
 //! steps and token-endpoint script, on a virtual clock driven like the recorder's (timers fire in due-time then
 //! registration order, one at a time, after everything that can run without the clock has run), and what it did (each
 //! token request, each lease or backoff wait as it fires, each caller's result, the file and its directory at the end)
-//! is compared whole with what Node did. Two processes are two credentials with lease owners and refreshes in flight of
-//! their own over one file, as the recording's two copies of Node's modules are.
+//! is compared whole with what Node did. Two owners in one process are two credentials with lease owners and refreshes
+//! in flight of their own over one file, as the recording's two copies of Node's modules are; two real processes are
+//! [`processes`]'s.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "a test sets up and reads its own files")]
 
 use std::collections::HashMap;
@@ -37,6 +38,9 @@ use mixdog_core_api::domain::provider::TransportFault;
 use crate::transport::BodyStream;
 use crate::transport::Exchange;
 use crate::transport::HttpResponse;
+
+#[path = "processes.rs"]
+mod processes;
 
 const RECORDER: &str = "native/core/crates/mixdog-ai/src/providers/grok/refresh_lease/record.mjs";
 /// A pid no process has: not a multiple of 4 (Windows) and past every `pid_max` (Linux), the recorder's.

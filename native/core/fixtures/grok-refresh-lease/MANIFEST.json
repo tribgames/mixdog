@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 187970,
+      "bytes": 189737,
       "path": "node-recorded.json",
-      "sha256": "d52a66143c0d67ae939eadab046d8593015e6875f5053d4886b7b72c283554c6"
+      "sha256": "a97df90f3d81bbca972a27cbcf65ff8e121ecbc4582d2e9ec582374bbaf20bc2"
     }
   ],
   "product": {
@@ -26,11 +26,14 @@
     "version": "1.4.5"
   },
   "recorder": "native/core/crates/mixdog-ai/src/providers/grok/refresh_lease/record.mjs",
-  "recorderSha256": "f5cc661da23f0f8e470386b938fbc4976e0f51d6290f4c2c4316763aec2a68d5",
+  "recorderSha256": "21021cef19bf96c7c11ac00f942fd7277ffb01bd0facdb4ecb5ee3bfb7158782",
   "runtime": {
     "electron": "43.8.4",
     "node": "24.22.1"
   },
+  "scripts": {
+    "benchmarks/rust-core/recorders/lib/common.mjs": "9589fead747478ec019ecaf501b504bb240bfc83723f69039ea16c1ebc2d088a"
+  },
   "set": "grok-refresh-lease",
-  "totalBytes": 187970
+  "totalBytes": 189737
 }

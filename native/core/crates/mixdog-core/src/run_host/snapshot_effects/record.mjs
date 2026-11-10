@@ -47,7 +47,7 @@ Object.assign(process.env, {
   LOCALAPPDATA: dirs.localappdata,
 });
 const repo = dirs.repo;
-execFileSync('git', ['init', '-q'], { cwd: repo });
+execFileSync('git', ['init', '-q'], { cwd: repo, stdio: 'pipe', windowsHide: true });
 fs.writeFileSync(join(repo, 'note.txt'), 'x');
 fs.writeFileSync(join(repo, '.gitignore'), 'build/\ngenerated/\n');
 fs.mkdirSync(join(repo, 'build'));
@@ -218,7 +218,7 @@ for (const c of cases) console.log(`${c.name}: ${c.request ? `${c.request.messag
 
 const stage = stageSet(finalDir, ['node-recorded.json', 'MANIFEST.json']);
 writeJson(join(stage, 'node-recorded.json'), { observerCheck, cases });
-const extra = { recorderSha256: sha256(fs.readFileSync(fileURLToPath(import.meta.url))), runtime: { node: process.version, electron: process.versions.electron ?? null } };
+const extra = { scripts: { 'benchmarks/rust-core/recorders/lib/common.mjs': sha256(fs.readFileSync(join(repoRoot, 'benchmarks/rust-core/recorders/lib/common.mjs'))) }, recorderSha256: sha256(fs.readFileSync(fileURLToPath(import.meta.url))), runtime: { node: process.version, electron: process.versions.electron ?? null } };
 writeSetManifest(stage, { set: 'request-snapshot-effects', recorder, command: `node ${recorder} --tree <b6f10295a export>`, identity, extra });
 commitStage(stage, finalDir);
 process.exit(0);

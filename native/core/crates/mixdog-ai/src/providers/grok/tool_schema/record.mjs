@@ -33,6 +33,7 @@ const cases = inputs.map(({ source, name, input }) => {
 const stage = stageSet(finalDir, ['node-recorded.json', 'MANIFEST.json']);
 writeJson(join(stage, 'node-recorded.json'), { cases });
 const extra = {
+  scripts: { 'benchmarks/rust-core/recorders/lib/common.mjs': sha256(readFileSync(join(repo, 'benchmarks/rust-core/recorders/lib/common.mjs'))) },
   recorderSha256: sha256(readFileSync(fileURLToPath(import.meta.url))),
   runtime: { node: process.version, electron: process.versions.electron ?? null },
 };
