@@ -8,9 +8,12 @@ const run = promisify(execFile);
 const WINDOWS = process.platform === 'win32';
 const POWERSHELL = ['-NoProfile', '-NonInteractive', '-Command'];
 
-async function powershell(script, timeout) {
+// `script` is fixed text. A value that came from outside (a path, a start time) travels in `values` as PROBE_<NAME>
+// environment variables and is read there as `$env:PROBE_<NAME>`: it is data to the script and never parsed as PowerShell.
+async function powershell(script, timeout, values = {}) {
+  const env = { ...process.env, ...Object.fromEntries(Object.entries(values).map(([name, value]) => [`PROBE_${name}`, String(value)])) };
   try {
-    return (await run('powershell.exe', [...POWERSHELL, `$ProgressPreference = 'SilentlyContinue'; ${script}`], { timeout, windowsHide: true })).stdout.trim();
+    return (await run('powershell.exe', [...POWERSHELL, `$ProgressPreference = 'SilentlyContinue'; ${script}`], { timeout, windowsHide: true, env })).stdout.trim();
   } catch (error) {
     throw new Error(`process query failed: ${error.stderr?.trim() || error.message}`);
   }
@@ -58,11 +61,11 @@ export async function assertTreeGone(members, deadlineMs = 30_000) {
     if (start === null) continue;
     if (WINDOWS) {
       const left = Math.max(1, stop - Date.now());
-      const answer = await powershell(`${WIN_FIND(pid)}; if ([string]$p.StartTime.ToFileTimeUtc() -ne '${start}') { exit 0 }; if ($p.WaitForExit(${left})) { exit 0 } else { 'running' }`, left + 30_000);
+      const answer = await powershell(`${WIN_FIND(pid)}; if ([string]$p.StartTime.ToFileTimeUtc() -ne $env:PROBE_START) { exit 0 }; if ($p.WaitForExit(${Math.trunc(left)})) { exit 0 } else { 'running' }`, left + 30_000, { START: start });
       if (answer === 'running') throw new Error(`pid ${pid} (start ${start}) is still running ${deadlineMs}ms after its tree was ended`);
       continue;
     }
-    const { stdout } = await run('ps', ['-o', 'stat=,lstart=', '-p', String(pid)]).catch((error) => {
+    const { stdout } = await run('ps', ['-o', 'stat=,lstart=', '-p', String(pid)], { timeout: 60_000 }).catch((error) => {
       if (error.code === 1) return { stdout: '' };
       throw new Error(`process query failed: ${error.stderr?.trim() || error.message}`);
     });
@@ -74,8 +77,9 @@ export async function assertTreeGone(members, deadlineMs = 30_000) {
 /** The processes whose executable path (Windows) or command line (POSIX) lies inside `dir`: a read, nothing is signalled. */
 export async function processesInside(dir) {
   if (WINDOWS) {
-    const wql = `${dir.replace(/[\\/]+$/, '')}\\`.replaceAll('\\', '\\\\').replaceAll("'", "\\'").replaceAll('%', '[%]').replaceAll('_', '[_]');
-    const stdout = await powershell(`Get-CimInstance Win32_Process -Filter "ExecutablePath LIKE '${wql.replaceAll('"', '""')}%'" | ForEach-Object { "$($_.ProcessId)\`t$($_.ExecutablePath)" }`, 60_000);
+    // WQL LIKE: the directory with a trailing separator, its backslash and quote escaped, its wildcards made literal.
+    const script = String.raw`$d = $env:PROBE_DIR.TrimEnd('\', '/') + '\'; $q = $d.Replace('\', '\\').Replace("'", "\'").Replace('%', '[%]').Replace('_', '[_]'); Get-CimInstance Win32_Process -Filter "ExecutablePath LIKE '$q%'" | ForEach-Object { "$($_.ProcessId)` + '`' + String.raw`t$($_.ExecutablePath)" }`;
+    const stdout = await powershell(script, 60_000, { DIR: dir });
     return stdout.split(/\r?\n/).filter(Boolean).map((line) => ({ pid: Number(line.split('\t')[0]), what: line.split('\t')[1] }));
   }
   const { stdout } = await run('ps', ['-A', '-ww', '-o', 'pid=,args='], { timeout: 60_000 });
@@ -104,8 +108,8 @@ export async function assertNothingInside(dir) {
 /** The pids of the processes running the executable at `path`. */
 export async function pidsOfExecutable(path) {
   if (WINDOWS) {
-    const wql = path.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
-    const stdout = await powershell(`Get-CimInstance Win32_Process -Filter "ExecutablePath='${wql.replaceAll('"', '""')}'" | ForEach-Object { $_.ProcessId }`, 60_000);
+    const script = String.raw`$q = $env:PROBE_PATH.Replace('\', '\\').Replace("'", "\'"); Get-CimInstance Win32_Process -Filter "ExecutablePath='$q'" | ForEach-Object { $_.ProcessId }`;
+    const stdout = await powershell(script, 60_000, { PATH: path });
     return stdout.split(/\r?\n/).filter(Boolean).map(Number);
   }
   const { stdout } = await run('ps', ['-A', '-o', 'pid=,args='], { timeout: 60_000 });
