@@ -161,16 +161,16 @@ const SCENARIOS = [
     },
   },
   {
-    // integration.live.test.mjs :5 and :37: the live exit of a findstr miss through pwsh and of `git diff --quiet` on a dirty
-    // repo, and whether Node's shell takes that exit (no stderr) as a benign miss.
-    name: 'benign-live',
+    // integration.live.test.mjs, its three tests: each command run live through the whole tool (pwsh, as the tests' host
+    // shell): the findstr miss, the failed producer under a filter, and `git diff --quiet` in a dirty repo (its cwd).
+    name: 'integration-live',
     test: 'scripts/shellhardening/integration.live.test.mjs',
     async run(tree, work) {
-      const { _isBenignSearchExitOne } = await load(tree, `${B}/bash-tool/benign-exit.mjs`);
+      process.env.MIXDOG_SHELL_WARM_STANDBY = '0';
+      const { executeBashTool } = await load(tree, `${B}/bash-tool.mjs`);
+      const { normalizeToolEnvelope } = await load(tree, 'src/runtime/agent/orchestrator/session/tool-envelope.mjs');
       const { spawnSync } = await import('node:child_process');
       const { writeFileSync } = await import('node:fs');
-      const findstr = "'aaa' | findstr zzz; exit $LASTEXITCODE";
-      const f = spawnSync('pwsh', ['-NoProfile', '-Command', findstr], { encoding: 'utf8' });
       const dir = join(work, 'repo');
       mkdirSync(dir);
       const git = (args) => spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8' });
@@ -183,12 +183,17 @@ const SCENARIOS = [
       git(['add', '-A']);
       git(['commit', '-q', '-m', 'init']);
       writeFileSync(join(dir, 'f.txt'), 'two\n');
-      const d = git(['diff', '--quiet']);
-      const cases = [
-        { command: "'aaa' | findstr zzz", exitCode: f.status, stderr: f.stderr },
-        { command: 'git diff --quiet', exitCode: d.status, stderr: d.stderr },
+      const runs = [
+        { command: "'aaa' | findstr zzz; exit $LASTEXITCODE", inRepo: false },
+        { command: `node -e 'process.stdout.write("producer-failed"); process.exit(7)' 2>&1 | Select-String impossible`, timeout_ms: 10_000, inRepo: false },
+        { command: 'git diff --quiet', inRepo: true },
       ];
-      return { cases: cases.map((c) => ({ ...c, benign: _isBenignSearchExitOne(c.command, c.exitCode, null, c.stderr) })) };
+      const cases = [];
+      for (const { inRepo, ...input } of runs) {
+        const r = normalizeToolEnvelope(await executeBashTool(input, inRepo ? dir : work));
+        cases.push({ input, inRepo, result: r.result });
+      }
+      return { cases };
     },
   },
   {
@@ -325,7 +330,7 @@ async function parent(args) {
         'filter-plan-groups': 'whether a plan is made; the plan text carries a random token',
         'powershell-live': 'the whole result text of each live run on pwsh',
         'bash-byte-identity': "the exit and stdout of each body, run through Rust's bash transport on the recorded Git Bash. Node's case runs below the tool (execShellCommand), so the tool's `cat` read-tool note line is removed from the Rust result before comparing",
-        'benign-live': 'whether the recorded live exit (with its stderr) is a benign search miss',
+        'integration-live': 'the whole result text of each live run; the repo case runs in a repo the replay builds the same way',
         'output-silence':"the warning at each read. Not recorded: the test's unreadable-capture case (a capture file that cannot be stat'd): Rust reads silence from the output it received, held in memory, and has no capture file to fail",
         'wmic-note': 'the result text and the hard limit; the executed text ends with the rewritten command (Rust puts its UTF-8 preamble before it in the same script, Node in execShellCommand)',
       },
