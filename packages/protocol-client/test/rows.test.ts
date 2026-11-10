@@ -29,6 +29,14 @@ test('a tool call still running is its own card, never part of an aggregate; rea
   assert.equal('result' in (rows[1] ?? {}), false);
 });
 
+test('a live card completes at its result\'s time (aggregate-result.mjs completedAt: Date.now()); a restored one reads its message time', () => {
+  const call = (run: Obj): Obj => ({ type: 'toolCall', id: 'a', name: 'read', input: { path: 'a' }, output: 'one', run, meta: { status: 'completed', at: 1000 } });
+  const live = rowOf(call({ live: true, completedAt: 1015 }));
+  assert.deepEqual([live?.startedAt, live?.completedAt], [1000, 1015]);
+  const restored = rowOf(call({ completedAt: 1015 }));
+  assert.deepEqual([restored?.startedAt, restored?.completedAt], [1000, 1000]);
+});
+
 test('a turn end is the turndone row, with the live end\'s counters from ext and the typed message id on prompt, reply and end', () => {
   const rows = project([
     { type: 'userMessage', id: 'u', content: [{ type: 'text', text: 'go' }], meta: { at: 1, messageId: 'msg_u' } },

@@ -94,6 +94,92 @@ async fn an_output_that_commits_while_the_stop_is_reading_hands_nothing_back() {
     assert!(rows(&handle).contains(&("user", "draft".to_owned())), "the prompt stays: {:?}", rows(&handle));
 }
 
+/// A runtime's own prompt (a kickoff) that a Stop finds uncommitted goes back to the front of the queue and runs again (Node's drain
+/// gives the turn its entries as `requeueOnAbort`, drain.mjs:140; the Stop puts them back, abort.mjs:160-199, queue.mjs:50-76): the
+/// stopped turn shows no end, nothing is handed to a composer, and the next turn runs the same prompt under the same submission.
+#[tokio::test]
+async fn a_stopped_runtime_prompt_runs_again() {
+    let rig = Rig::new();
+    let (count, mut counted) = tokio::sync::watch::channel(0usize);
+    let inputs: Arc<std::sync::Mutex<Vec<Value>>> = Arc::default();
+    let seen = inputs.clone();
+    rig.set_script(Arc::new(move |run| {
+        let (seen, count) = (seen.clone(), count.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            seen.lock().unwrap().push(serde_json::to_value(&run.input).expect("input serializes"));
+            count.send_modify(|n| *n += 1);
+            run.cancel.cancelled().await;
+            RunOutcome::Interrupted
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    handle
+        .request(super::tests::request(
+            "turn/start",
+            json!({ "threadId": handle.id, "opId": "op-1", "input": { "prompt": "greet the user", "options": { "clientSubmissionId": "sub-k", "kickoff": true } } }),
+            "op-1",
+        ))
+        .await
+        .expect("started");
+    awaiting(|| "the runtime's turn to start".to_owned(), counted.wait_for(|n| *n == 1)).await.expect("count");
+    let reply = awaiting(|| "the Stop's reply".to_owned(), stop(&handle)).await.expect("stop task");
+    assert_eq!((reply["restoreText"].clone(), reply["restoredSubmissionIds"].clone()), (json!(""), json!([])), "nothing goes to a composer");
+    awaiting(|| "the requeued prompt to run as the next turn".to_owned(), counted.wait_for(|n| *n == 2)).await.expect("count");
+    let inputs = inputs.lock().unwrap().clone();
+    assert_eq!(inputs[1], inputs[0], "the same prompt and submission run again");
+    let view = handle.cell.view.load_full();
+    assert!(!view.items.iter().any(|item| matches!(item.as_ref(), mixdog_protocol::ThreadItem::TurnEnd { .. })), "the stopped turn shows no end: {:?}", view.items);
+}
+
+/// A Stop while the person is asked (ask_user's question pending): the question's wait ends with the abort, so the call's card
+/// reads the abort's `Error: <reason>` with the Stop's reason `user-cancel` (Node: `runAbortable` rejects with the signal's
+/// `SessionClosedError`, ask-user-tool.mjs:249; the eager entry notices `Error: <message>` to the card, eager-dispatch/entry.mjs:39-44;
+/// `abortRuntime(reason)`, session-close.mjs:98-102, with `user-cancel` from abort.mjs:118), while the stored result is the
+/// interruption's `Cancelled`. Recorded from Node: remote-protocol-chat-abort.recorded.json `running-approval-pending`.
+#[tokio::test]
+async fn a_question_the_stop_ended_reads_the_aborts_error_on_its_card() {
+    use mixdog_core_api::domain::approval::{ApprovalAsk, ApprovalGate as _, ApprovalKind};
+    let rig = Rig::new();
+    rig.set_script(Arc::new(move |run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let call = json!({ "id": "c1", "name": "ask_user", "arguments": { "questions": [{ "question": "Add the file?" }] } });
+            let commit = |iid: &str, role: &str, body: Value| super::run::ItemCommit { iid: ItemId::from(iid.to_owned()), role: Some(role.into()), model: true, visible: true, body, prompt: None };
+            run.port.commit_item(commit("a-1", "assistant", json!({ "text": "", "toolCalls": [call] }))).await.expect("call");
+            let _ = run.port.request(ApprovalAsk {
+                kind: ApprovalKind::UserInput,
+                call_id: Some("c1".into()),
+                tool: Some("ask_user".into()),
+                action_kind: None,
+                reason: None,
+                payload: json!({ "questions": [{ "question": "Add the file?" }] }),
+                remember: Vec::new(),
+                expires_after: None,
+            })
+            .await;
+            // The interruption closes the unanswered call as Node's finalizer does.
+            run.port.closing().commit_item(commit("t-1", "tool", json!({ "toolCallId": "c1", "text": "Cancelled", "isError": true }))).await.expect("stub");
+            RunOutcome::Interrupted
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    start(&handle).await;
+    eventually_on!(&[&handle.cell.stepped], || directory.member_approval(&handle.id).map(drop)).await;
+    awaiting(|| "the Stop's reply".to_owned(), stop(&handle)).await.expect("stop task");
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let view = handle.cell.view.load_full();
+    let result = view.items.iter().find_map(|item| match item.as_ref() {
+        mixdog_protocol::ThreadItem::ToolCall { run, meta, .. } => Some((run.result.clone(), run.is_error, meta.status)),
+        _ => None,
+    });
+    let expected = format!("Error: Session \"{}\" closed: runtime abort (reason=user-cancel)", handle.id.as_str());
+    // The error result ends the card as failed (the update's status, not the call's `inProgress`).
+    assert_eq!(result, Some((Some(mixdog_protocol::MaybeBlob::Inline(expected)), Some(true), Some(mixdog_protocol::ItemStatus::Failed))));
+}
+
 /// The Stop decides first and the output commits after: the hand-back stands (Node's "prompt handed back"), and the prompt leaves.
 #[tokio::test]
 async fn an_output_that_commits_after_the_stop_decided_does_not_take_the_hand_back_away() {

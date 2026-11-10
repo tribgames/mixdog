@@ -16,15 +16,16 @@ import { ABORT_CASES, DEVICES, PROJECT_FILE } from './remote-protocol-chat-abort
 import { startAbortProvider } from './remote-protocol-chat-abort-provider.mjs';
 
 /**
- * Ends the memory cluster the killed core left running. The harness's `killStrayPostgres` matches the pgdata path with backslashes, but
- * pg_ctl starts postgres with the path in forward slashes, so it matched nothing and the next run's folder removal hit EBUSY on pg.log.
+ * Ends the memory cluster the killed core left running: every postgres.exe run from this env's data folder (its runtime binary lives
+ * there), the postmaster and its children. The harness's `killStrayPostgres` matches the pgdata path with backslashes, but pg_ctl starts
+ * postgres with paths in forward slashes and a child's command line names only the binary, so it matched nothing and the next run's
+ * folder removal hit EBUSY on pg.log.
  */
 function killCluster(dataDir) {
-  const pgdata = join(dataDir, 'pgdata');
-  const forms = [pgdata, pgdata.replaceAll('\\', '/')].map((p) => `'*${p.replace(/'/g, "''")}*'`).join(', ');
-  const script = `Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" | Where-Object { $c = $_.CommandLine; @(${forms}) | Where-Object { $c -like $_ } } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`;
+  const forms = [dataDir, dataDir.replaceAll('\\', '/')].map((p) => `'*${p.replace(/'/g, "''")}*'`).join(', ');
+  const script = `Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" | Where-Object { $c = $_.CommandLine; @(${forms}) | Where-Object { $c -like $_ } } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
   const out = spawnSync('powershell', ['-NoProfile', '-Command', script], { encoding: 'utf8', timeout: 60_000 });
-  if (out.status !== 0) throw new Error(`ending the memory cluster under ${pgdata} failed (${out.status ?? out.error}): ${out.stderr}`);
+  if (out.status !== 0) throw new Error(`ending the memory cluster under ${dataDir} failed (${out.status ?? out.error}): ${out.stderr}`);
 }
 
 /** `only` names one case of ABORT_CASES to run alone; without it every case runs (what the test's full run compares). */
@@ -153,6 +154,8 @@ export async function runAbortLive({ only } = {}) {
       const reply = await canceller.call('turn/interrupt', stop).catch((error) => ({ error: error.rpc }));
       // A stopped turn closes with turn/completed; a steering prompt then runs as the next turn.
       await until(() => completed(c.then ? 2 : 1), `the turn(s) of ${c.name} to complete after its Stop`);
+      // As Node's recording waits: a runtime's prompt the Stop put back runs again, up to the model's request.
+      if (c.requeued) await deadline.race(provider.held(c.prompt, 2), `the model endpoint to receive the second, requeued turn of ${c.name}`);
       let again;
       if (c.again) {
         const request = { threadId: id, ...c.again };

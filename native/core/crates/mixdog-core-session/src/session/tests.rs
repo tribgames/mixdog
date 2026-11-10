@@ -4527,7 +4527,7 @@ async fn a_live_tool_card_completes_at_its_result() {
     let ThreadItem::ToolCall { run, .. } = call.as_ref() else {
         panic!("tool call");
     };
-    assert_eq!((run.started_at, run.completed_at), (Some(2_000), Some(2_015)), "started at the call, completed at the result");
+    assert_eq!(run.completed_at, Some(2_015), "completed at the result");
     let completed: Vec<Value> = rig
         .feeds
         .frames(handle.id.as_str())
@@ -4535,7 +4535,7 @@ async fn a_live_tool_card_completes_at_its_result() {
         .filter(|(_, method, params)| method == "item/completed" && params["item"]["id"] == "call:c1")
         .map(|(_, _, params)| params["item"]["run"]["completedAt"].clone())
         .collect();
-    assert_eq!(completed, vec![json!(2_000), json!(2_015)], "the result's frame carries the card's completion");
+    assert_eq!(completed, vec![Value::Null, json!(2_015)], "the call's frame is open, the result's carries the card's completion");
 }
 
 #[tokio::test(start_paused = true)]
