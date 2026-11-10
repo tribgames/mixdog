@@ -67,8 +67,8 @@ bytes = { workspace = true }
 flate2 = { workspace = true }
 tokio-tungstenite = { workspace = true }
 zstd = { workspace = true }
-# The loopback TLS server of the wire parity check (run_host/wire_loopback.rs) and the client that trusts only its certificate.
-rcgen = { workspace = true }
+# The loopback TLS server of the wire parity check (`mixdog_ai::transport::loopback`) and the client that trusts only its certificate.
+mixdog-ai = { workspace = true, features = ["test-support"] }
 reqwest = { workspace = true }
 rustls = { workspace = true, features = ["ring", "std"] }
 tokio-rustls = { workspace = true, features = ["ring"] }

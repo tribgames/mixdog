@@ -24,7 +24,6 @@ mod process_tests;
 #[cfg(test)]
 mod process_services_tests;
 #[cfg(test)]
-mod wire_loopback;
 #[cfg(test)]
 mod wire_parity_tests;
 pub mod tool_exposure;

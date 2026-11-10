@@ -1,4 +1,5 @@
-//! The loopback server of the Rust half of the wire parity check; `wire-server.mjs` is its Node twin. A TLS listener on
+//! The loopback server of the Rust half of the wire parity checks, shared by every provider's check; `wire-server.mjs` is
+//! its Node twin. A TLS listener on
 //! 127.0.0.1 that records, byte for byte, what the production clients (`ReqwestLink`, `KeepaliveDialer`) write, and
 //! answers as the scenario's script says. Nothing is parsed by a library: the request line, the headers (name, value, in
 //! the order sent) and the body come from the bytes read off the socket, a WebSocket frame from its header and its
