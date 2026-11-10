@@ -1,0 +1,41 @@
+{
+  "cases": 46,
+  "command": "node benchmarks/rust-core/recorders/record-tool-arg-answers.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 15713,
+      "path": "answers.json",
+      "sha256": "5d3841f3d2275b8deb4364a5533d0e57787210b6f6618691fe189533a380dd2a"
+    }
+  ],
+  "node": "v22.20.0",
+  "platform": "win32",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-tool-arg-answers.mjs",
+  "recorderSha256": "88632f56ef8fa5c739b63b7f9621c4f246fe0cb1389d1b1a40fc963d5e14cb5e",
+  "set": "tool-arg-answers",
+  "syntheticInputs": {
+    "workspace": {
+      "a.txt": "hello\n",
+      "sub/": "a directory"
+    }
+  },
+  "totalBytes": 15713
+}

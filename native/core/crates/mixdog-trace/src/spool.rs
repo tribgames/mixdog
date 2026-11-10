@@ -48,12 +48,6 @@ impl Kind {
         }
     }
 
-    fn rotate_warning(self) -> (&'static str, &'static str) {
-        match self {
-            Kind::Trace => ("local-rotate", "local rotate failed"),
-            Kind::Failures => ("rotate", "rotate check failed"),
-        }
-    }
 }
 
 struct State {
@@ -163,8 +157,11 @@ impl Spool {
         if size <= MAX_BYTES {
             return None;
         }
-        let (name, text) = self.kind.rotate_warning();
-        self.rotate().err().map(|error| self.warning(name, text, &error))
+        // Both files rotate through `_rotateLocalTraceIfNeeded`, whose one handler warns under the trace's key.
+        self.rotate().err().map(|error| Warning {
+            key: "agent-trace:local-rotate".to_owned(),
+            message: format!("[agent-trace] local rotate failed ({error})"),
+        })
     }
 
     /// `.N-1 -> .N` … `.1 -> .2`, live -> `.1`; the oldest generation is overwritten.
