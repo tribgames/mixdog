@@ -25,6 +25,13 @@ const submit = (id, content) => ({ op: 'submit', id, content });
 const crash = (id, content, at) => ({ op: 'crash', id, content, at });
 
 /** Bytes written into the receipts folder as the file of an id, for the corrupt-receipt scenarios. */
+/** A step's reply as the caller received it, the same way on both sides: an answer whole with `ok: true`, a rejection as its message and every own
+ *  field of the error (`code`, `data`, ...). */
+export const asReceived = {
+  answer: (result) => ({ ok: true, ...result }),
+  rejection: (error) => ({ ok: false, error: String(error?.message ?? error), ...(error && typeof error === 'object' ? { ...error } : {}) }),
+};
+
 export const CORRUPT = {
   empty: '',
   'nul-filled': '\u0000'.repeat(64),
@@ -44,11 +51,28 @@ export const COMPARISON = {
   notCompared: {
     'recorded[].daemonCalls':
       "Node's calls from the desktop host to its daemon client inside one request (create, configure, submit, unsubscribe, read; the daemon is a model, leg.mjs): the core runs these steps inside its own `thread/start` with no wire between them. What they do is compared through `sessions` (a session made, given its prompt, or removed again) and `receipts`",
+    'recorded[].reply.snapshot':
+      "Node's answer carries the session snapshot its daemon returned (session-host-lifecycle.ts:922,951: the leg's daemon model, leg.mjs `full`, with the host's remote fields): the recording has no real one. The core's answer has no snapshot (its session state travels on the subscription's feed)",
+  },
+  /** Paths of the core's answer (each step's `reply`, every element of a `together` reply) that Node's answer has no counterpart for; every other path of the core's answer is compared. */
+  coreNotCompared: {
+    'reply.subscription': "the core's subscription to the session's feed (`thread/start` subscribes its caller); Node's host keeps its feed inside the process",
+    'reply.thread.activityAt': "the core's thread summary (`thread/start`'s `thread`), whose Node counterpart is the snapshot the recording does not hold (see `notCompared`)",
+    'reply.thread.classification': 'as `reply.thread.activityAt`',
+    'reply.thread.compactCount': 'as `reply.thread.activityAt`',
+    'reply.thread.createdAt': 'as `reply.thread.activityAt`',
+    'reply.thread.cwd': 'as `reply.thread.activityAt`',
+    'reply.thread.messageCount': 'as `reply.thread.activityAt`',
+    'reply.thread.preview': 'as `reply.thread.activityAt`',
+    'reply.thread.projectPath': 'as `reply.thread.activityAt`',
+    'reply.thread.title': 'as `reply.thread.activityAt`',
+    'reply.thread.updatedAt': 'as `reply.thread.activityAt`',
+    'reply.turn': "the first turn the attempt started (`thread/start`'s `turn`); Node's turn starts in its daemon's `submit`, a model in the recording, whose answer the recording does not hold",
   },
   translated: {
     'recorded[].step': 'the step the replay drives (scenarios.mjs), the same list the recording ran',
     'recorded[].reply':
-      "`submitNewTask` through the desktop's service lane (service-route.ts: `thread/start`): an answer is `{ok: true, accepted: true, sessionId: thread.id}` (the core answers only a started task; Node's recording has no `accepted: false`), a rejection `{ok: false, error: message, code?}`; a crash step's reply is `{crashed: at}` on both sides",
+      "`submitNewTask` through the desktop's service lane (service-route.ts: `thread/start`), as received on both sides (`asReceived`): an answer is compared with `thread.id` as `sessionId` and `accepted: true` (the core answers only a started task, Node's `accepted` answer), less the paths of `coreNotCompared`; a rejection is its message and every own field of the error on both sides; a crash step's reply is `{crashed: at}` on both sides",
     'recorded[].receipts': 'the files of `<userdata>/new-task-receipts`, by name, byte for byte (latin1), as the recorder reads them',
     'recorded[].sessions':
       "every thread `thread/list` lists, with `prompts` = its `userMessage` items (`thread/items/list`) and `reserved` = no prompt yet (Node's daemon model sets `reserved` false exactly when it records a prompt, leg.mjs `submit`, and removes a reserved session without one on `unsubscribe`)",

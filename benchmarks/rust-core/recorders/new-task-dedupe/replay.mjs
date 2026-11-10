@@ -4,9 +4,9 @@
 // whole, in order, with what Node gave (golden.json). A crash step ends the core at its gate (MIXDOG_NEW_TASK_CRASH_AT) and starts it
 // again over the same data directory.
 //
-// Compared as Node's recording states them: a reply is `{ok, accepted, sessionId}` or `{ok:false, error}` (the core answers the new
-// session in `thread.id`; the snapshot Node returns travels on the thread's feed); the receipt files are compared byte for byte; the
-// sessions are those holding a prompt, with the number of prompts. Fresh addresses are numbered `<fresh:N>` by first appearance.
+// Compared as the fixture's manifest declares (scenarios.mjs COMPARISON): each recorded step whole, by subtraction; a reply as the caller
+// received it, the core's answer translated (`thread.id` is `sessionId`) less the paths declared without a Node counterpart; the receipt
+// files byte for byte; the sessions with their prompts. Fresh addresses are numbered `<fresh:N>` by first appearance.
 import { spawnSync } from 'node:child_process';
 import net from 'node:net';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, watch, writeFileSync } from 'node:fs';
@@ -15,7 +15,7 @@ import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { REPO_ROOT } from '../lib/common.mjs';
 import { killTree, startCore } from '../lib/phone-files-replay.mjs';
-import { COMPARISON, CONTENTS, CORRUPT } from './scenarios.mjs';
+import { asReceived, COMPARISON, CONTENTS, CORRUPT } from './scenarios.mjs';
 
 // A connection that is dropped on purpose (the core ended at a gate, or was stopped) ends the client's reconnect ladder with this error, which nobody awaits.
 process.on('unhandledRejection', (error) => {
@@ -152,10 +152,9 @@ async function connectLane(core) {
 const reply = async (lane, { id, content }) => {
   const { prompt, options, draft } = CONTENTS[content];
   try {
-    const result = await lane.call('submitNewTask', [prompt, { ...options, id }, structuredClone(draft)]);
-    return { ok: true, accepted: true, sessionId: result.thread.id };
+    return asReceived.answer(await lane.call('submitNewTask', [prompt, { ...options, id }, structuredClone(draft)]));
   } catch (error) {
-    return { ok: false, error: error.message, ...(typeof error.code === 'string' && error.code ? { code: error.code } : {}) };
+    return asReceived.rejection(error);
   }
 };
 
@@ -315,9 +314,35 @@ async function endAtGate({ core, connect, step, survivors }) {
   databaseEnded(core.dataDir);
 }
 
+/** Removes `path` (dot-separated) from `value`, applying to every element of an array on the way (a `together` step's replies). */
+const without = (value, [key, ...rest]) => {
+  if (Array.isArray(value)) return value.forEach((element) => without(element, [key, ...rest]));
+  if (!value || typeof value !== 'object' || !(key in value)) return;
+  if (rest.length) without(value[key], rest);
+  else delete value[key];
+};
+const paths = (declared, prefix) => Object.keys(declared).filter((path) => path.startsWith(prefix)).map((path) => path.slice(prefix.length).split('.'));
+
 /** A recorded step less the paths the manifest declares not compared (COMPARISON.notCompared), nothing else. */
-const NOT_COMPARED = Object.keys(COMPARISON.notCompared).map((path) => path.replace(/^recorded\[\]\./, ''));
-const nodeSide = (recorded) => recorded.map((step) => Object.fromEntries(Object.entries(step).filter(([key]) => !NOT_COMPARED.includes(key))));
+const nodeSide = (recorded) =>
+  recorded.map((step) => {
+    const copy = structuredClone(step);
+    for (const path of paths(COMPARISON.notCompared, 'recorded[].')) without(copy, path);
+    return copy;
+  });
+
+/** One answer of the core in the recording's terms (COMPARISON.translated `recorded[].reply`): `thread.id` is `sessionId`, an answer is `accepted`, and the paths of
+ *  `coreNotCompared` are left out; whatever else the core answered stays and is compared (a `thread` that keeps a field not declared stays too). */
+const translatedAnswer = (answer) => {
+  if (!answer || answer.ok !== true || !('thread' in answer)) return answer;
+  const copy = structuredClone(answer);
+  for (const path of paths(COMPARISON.coreNotCompared, 'reply.')) without(copy, path);
+  const { id, ...rest } = copy.thread ?? {};
+  if (Object.keys(rest).length) copy.thread = rest;
+  else delete copy.thread;
+  return { ...copy, accepted: true, sessionId: id };
+};
+const coreSide = (got) => got.map((step) => ({ ...step, reply: Array.isArray(step.reply) ? step.reply.map(translatedAnswer) : translatedAnswer(step.reply) }));
 
 /** The core's memory database takes the first free port from 55432 and keeps it in its data directory; other runs on this PC start and end their own databases on those ports, so a
  *  restart over the same data directory could find its port taken or another one free. The ports the product scans first are held here for the whole replay, so the core's port is above them and stays. */
@@ -344,7 +369,7 @@ export async function replayNewTaskDedupe({ exe, scenarios, golden, numberFresh 
   try {
     for (const scenario of scenarios) {
       const expected = nodeSide(golden[scenario.name].recorded);
-      const got = await replayScenario({ exe, scenario, numberFresh });
+      const got = coreSide(await replayScenario({ exe, scenario, numberFresh }));
       const unexpected = [];
       // The recording ran the steps the replay drives.
       if (!isDeepStrictEqual(golden[scenario.name].steps, scenario.steps)) unexpected.push({ index: 'steps', paths: ['steps'], node: golden[scenario.name].steps, core: scenario.steps });
@@ -357,8 +382,8 @@ export async function replayNewTaskDedupe({ exe, scenarios, golden, numberFresh 
       for (const entry of unexpected) {
         failed += 1;
         console.log(`  DIFF step ${entry.index} ${JSON.stringify(entry.step ?? '')} at ${entry.paths.join(', ')}`);
-        console.log(`    node: ${JSON.stringify(entry.node).slice(0, 700)}`);
-        console.log(`    core: ${JSON.stringify(entry.core).slice(0, 700)}`);
+        console.log(`    node: ${JSON.stringify(entry.node).slice(0, 4000)}`);
+        console.log(`    core: ${JSON.stringify(entry.core).slice(0, 4000)}`);
       }
     }
   } catch (error) {
