@@ -240,6 +240,8 @@ impl Run {
         if self.turn_limit_noticed
             || self.config.limits.is_some_and(|l| l.max_tool_calls.is_some() || l.wrap_up_at_ms.is_some())
             || call.id.is_empty()
+            // Never admitted for an eager run (`admit`): the batch answers it with the retry notice.
+            || crate::tools::is_invalid_args_marker(&call.arguments)
             || self.eager_started.iter().any(|e| e.id == call.id)
         {
             return;
@@ -351,6 +353,9 @@ impl Run {
         // A `call_tool` that names no tool answers its wire id with the bridge error; it never meets a guard.
         if let Some(text) = unprojected {
             return Decision::Skip(AgentMessage::tool_text(&call.id, text.clone(), ToolKind::Error));
+        }
+        if crate::tools::is_invalid_args_marker(&call.arguments) {
+            return Decision::Run;
         }
         let gate_call = GateCall::new(call.name.clone(), call.arguments.clone());
         if let Some(text) = self.env.gate.pre_dispatch_deny(&gate_call) {
@@ -662,7 +667,8 @@ impl Run {
                     // it settles (`notifyEarlyResult`), a failed run included; one early-result path feeds the UI's
                     // live row and the interrupted-turn finalizer. A call decided without a run (stub, cache hit,
                     // refusal) never reaches this arm.
-                    if !streamed.contains(&idx) {
+                    // (Node answers an unparsed call in its turn, instantly: `markInstant`, no early notice.)
+                    if !streamed.contains(&idx) && !crate::tools::is_invalid_args_marker(&calls[idx].arguments) {
                         self.emit(RunEvent::EarlyResult(early_result(&calls[idx].id, &result)));
                     }
                     executed[idx] = Some(result);

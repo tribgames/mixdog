@@ -273,8 +273,31 @@ SCENARIOS.push(
     ],
   }
 );
+
+// ---- arguments that were not JSON, and a guard that waits for the calls before it -------------------------------------------------
+// A provider that could not parse a call's arguments hands the loop a marker instead (`makeInvalidToolArgsMarker`,
+// providers/lib/openai-tool-args.mjs:22); the call is answered with the retry notice, never admitted for an eager run and never dispatched
+// (tool-batch/execute-call.mjs `executeBatchCall`, eager-dispatch/admission.mjs `admit`).
+const NOT_JSON = { __invalidToolArgs: true, __rawArguments: '{"q":', __parseError: 'Unexpected end of JSON input' };
+SCENARIOS.push(
+  {
+    name: 'calls whose arguments were not JSON: a tool, call_tool and a tool of the session',
+    script: [round(call('c1', 'probe_read', NOT_JSON), call('c2', 'call_tool', NOT_JSON), call('c3', 'read', NOT_JSON), call('c4', 'probe_write', { q: 'ok' })), FINAL],
+  },
+  {
+    // The 4th decision waits for the failures before it (repeat-failure guard, limit 3): the calls after it still get their results.
+    name: 'a repeat-failure guard that waits for the failures before it in one batch',
+    script: [
+      round(call('c1', 'probe_write', { q: 'x', fail: true })),
+      round(call('c2', 'probe_write', { q: 'x', fail: true })),
+      round(call('c3', 'probe_write', { q: 'x', fail: true }), call('c4', 'probe_write', { q: 'x', fail: true }), call('c5', 'probe_read', { q: 'r' })),
+      FINAL,
+    ],
+  }
+);
 // The same turns with a provider that streams its tool calls: each call reaches the loop (and starts its eager dispatch) before the response ends.
 const STREAMED = [
+  'calls whose arguments were not JSON: a tool, call_tool and a tool of the session',
   'a read-only deferred tool through call_tool, twice in one turn and again in the next',
   'every refusal of call_tool in one batch',
   'a target that needs approval, approved',

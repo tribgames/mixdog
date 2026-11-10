@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 595183,
+      "bytes": 647634,
       "path": "golden.json",
-      "sha256": "b8e559e4fa7a5104d8074e35a40313b18af511eef8ac139b62e92269c3f3e9c6"
+      "sha256": "cea7c1ccfd0bf7404fc21250665a88e1248cb8f364a21448f4495bdb46ed183e"
     }
   ],
   "product": {
@@ -26,7 +26,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-call-tool.mjs",
-  "scenarios": 52,
+  "scenarios": 55,
   "set": "call-tool",
-  "totalBytes": 595183
+  "totalBytes": 647634
 }

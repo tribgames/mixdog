@@ -983,12 +983,13 @@ fn recorded(scenario: &Value) -> Value {
 async fn differences() -> (usize, Vec<String>) {
     let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
     let scenarios = golden["scenarios"].as_array().expect("scenarios");
-    assert_eq!(scenarios.len(), 52, "the recorded scenario list");
+    assert_eq!(scenarios.len(), 55, "the recorded scenario list");
     let mut failures = Vec::new();
     let mut compared = 0;
     for scenario in scenarios {
-        if let Ok(only) = std::env::var("CALL_TOOL_ONLY") && scenario["name"] != only.as_str() { continue; }
         compared += 1;
+        // A scenario that hangs ends the test with a panic that names what never happened; this names the scenario.
+        eprintln!("scenario: {}", scenario["name"]);
         let (got, want) = (observed(scenario, golden["tools"].as_array().expect("tools")).await, recorded(scenario));
         for key in want.as_object().expect("view").keys() {
             if got[key] != want[key] {
@@ -1003,6 +1004,6 @@ async fn differences() -> (usize, Vec<String>) {
 #[tokio::test(start_paused = true)]
 async fn every_recorded_call_tool_scenario_is_the_same_in_the_core() {
     let (compared, failures) = differences().await;
-    if std::env::var("CALL_TOOL_ONLY").is_err() { assert_eq!(compared, 52); }
+    assert_eq!(compared, 55);
     assert!(failures.is_empty(), "{} difference(s):\n{}", failures.len(), failures.join("\n"));
 }

@@ -49,7 +49,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -134,7 +134,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281263559,
+          "createdAt": 1794282468801,
           "content": "",
           "toolCalls": [
             {
@@ -156,7 +156,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281263574,
+          "createdAt": 1794282468812,
           "content": "",
           "toolCalls": [
             {
@@ -188,7 +188,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 200
+                "elapsedMs": 208
               }
             }
           }
@@ -208,7 +208,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281263559,
+            "createdAt": 1794282468801,
             "content": "",
             "toolCalls": [
               {
@@ -228,11 +228,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281263561,
-              "executionStartedAt": 1794281263561,
-              "executionCompletedAt": 1794281263567,
-              "postprocessStartedAt": 1794281263568,
-              "resultCompletedAt": 1794281263569
+              "dispatchStartedAt": 1794282468802,
+              "executionStartedAt": 1794282468802,
+              "executionCompletedAt": 1794282468807,
+              "postprocessStartedAt": 1794282468808,
+              "resultCompletedAt": 1794282468808
             }
           }
         ],
@@ -243,7 +243,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281263559,
+            "createdAt": 1794282468801,
             "content": "",
             "toolCalls": [
               {
@@ -263,16 +263,16 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281263561,
-              "executionStartedAt": 1794281263561,
-              "executionCompletedAt": 1794281263567,
-              "postprocessStartedAt": 1794281263568,
-              "resultCompletedAt": 1794281263569
+              "dispatchStartedAt": 1794282468802,
+              "executionStartedAt": 1794282468802,
+              "executionCompletedAt": 1794282468807,
+              "postprocessStartedAt": 1794282468808,
+              "resultCompletedAt": 1794282468808
             }
           },
           {
             "role": "assistant",
-            "createdAt": 1794281263574,
+            "createdAt": 1794282468812,
             "content": "",
             "toolCalls": [
               {
@@ -294,11 +294,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281263574,
-              "executionStartedAt": 1794281263574,
-              "executionCompletedAt": 1794281263580,
-              "postprocessStartedAt": 1794281263581,
-              "resultCompletedAt": 1794281263581
+              "dispatchStartedAt": 1794282468813,
+              "executionStartedAt": 1794282468813,
+              "executionCompletedAt": 1794282468819,
+              "postprocessStartedAt": 1794282468819,
+              "resultCompletedAt": 1794282468819
             }
           }
         ]
@@ -555,7 +555,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -626,7 +626,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281263674,
+          "createdAt": 1794282468903,
           "content": "",
           "toolCalls": [
             {
@@ -657,7 +657,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 93
+                "elapsedMs": 60
               }
             }
           }
@@ -677,7 +677,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281263674,
+            "createdAt": 1794282468903,
             "content": "",
             "toolCalls": [
               {
@@ -698,11 +698,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281263675,
-              "executionStartedAt": 1794281263675,
-              "executionCompletedAt": 1794281263703,
-              "postprocessStartedAt": 1794281263703,
-              "resultCompletedAt": 1794281263703
+              "dispatchStartedAt": 1794282468903,
+              "executionStartedAt": 1794282468903,
+              "executionCompletedAt": 1794282468905,
+              "postprocessStartedAt": 1794282468905,
+              "resultCompletedAt": 1794282468905
             }
           }
         ]
@@ -848,7 +848,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -929,7 +929,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281263780,
+          "createdAt": 1794282469001,
           "content": "",
           "toolCalls": [
             {
@@ -951,7 +951,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281263785,
+          "createdAt": 1794282469008,
           "content": "",
           "toolCalls": [
             {
@@ -979,7 +979,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 66
+                "elapsedMs": 87
               }
             }
           }
@@ -999,7 +999,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281263780,
+            "createdAt": 1794282469001,
             "content": "",
             "toolCalls": [
               {
@@ -1019,11 +1019,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281263780,
-              "executionStartedAt": 1794281263780,
-              "executionCompletedAt": 1794281263783,
-              "postprocessStartedAt": 1794281263783,
-              "resultCompletedAt": 1794281263783
+              "dispatchStartedAt": 1794282469001,
+              "executionStartedAt": 1794282469001,
+              "executionCompletedAt": 1794282469005,
+              "postprocessStartedAt": 1794282469005,
+              "resultCompletedAt": 1794282469005
             }
           }
         ],
@@ -1034,7 +1034,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281263780,
+            "createdAt": 1794282469001,
             "content": "",
             "toolCalls": [
               {
@@ -1054,16 +1054,16 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281263780,
-              "executionStartedAt": 1794281263780,
-              "executionCompletedAt": 1794281263783,
-              "postprocessStartedAt": 1794281263783,
-              "resultCompletedAt": 1794281263783
+              "dispatchStartedAt": 1794282469001,
+              "executionStartedAt": 1794282469001,
+              "executionCompletedAt": 1794282469005,
+              "postprocessStartedAt": 1794282469005,
+              "resultCompletedAt": 1794282469005
             }
           },
           {
             "role": "assistant",
-            "createdAt": 1794281263785,
+            "createdAt": 1794282469008,
             "content": "",
             "toolCalls": [
               {
@@ -1081,11 +1081,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281263785,
-              "executionStartedAt": 1794281263785,
-              "executionCompletedAt": 1794281263790,
-              "postprocessStartedAt": 1794281263790,
-              "resultCompletedAt": 1794281263790
+              "dispatchStartedAt": 1794282469008,
+              "executionStartedAt": 1794282469008,
+              "executionCompletedAt": 1794282469013,
+              "postprocessStartedAt": 1794282469013,
+              "resultCompletedAt": 1794282469013
             }
           }
         ]
@@ -1332,7 +1332,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -1400,7 +1400,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281263867,
+          "createdAt": 1794282469086,
           "content": "",
           "toolCalls": [
             {
@@ -1428,7 +1428,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 63
+                "elapsedMs": 57
               }
             }
           }
@@ -1448,7 +1448,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281263867,
+            "createdAt": 1794282469086,
             "content": "",
             "toolCalls": [
               {
@@ -1466,11 +1466,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281263867,
-              "executionStartedAt": 1794281263867,
-              "executionCompletedAt": 1794281263870,
-              "postprocessStartedAt": 1794281263870,
-              "resultCompletedAt": 1794281263870
+              "dispatchStartedAt": 1794282469087,
+              "executionStartedAt": 1794282469087,
+              "executionCompletedAt": 1794282469089,
+              "postprocessStartedAt": 1794282469089,
+              "resultCompletedAt": 1794282469089
             }
           }
         ]
@@ -1613,7 +1613,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -1718,7 +1718,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281263938,
+          "createdAt": 1794282469190,
           "content": "",
           "toolCalls": [
             {
@@ -1773,7 +1773,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281263943,
+          "createdAt": 1794282469196,
           "content": "",
           "toolCalls": [
             {
@@ -1804,7 +1804,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 66
+                "elapsedMs": 92
               }
             }
           }
@@ -1824,7 +1824,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281263938,
+            "createdAt": 1794282469190,
             "content": "",
             "toolCalls": [
               {
@@ -1865,11 +1865,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281263938,
-              "executionStartedAt": 1794281263938,
-              "executionCompletedAt": 1794281263940,
-              "postprocessStartedAt": 1794281263941,
-              "resultCompletedAt": 1794281263941
+              "dispatchStartedAt": 1794282469191,
+              "executionStartedAt": 1794282469191,
+              "executionCompletedAt": 1794282469194,
+              "postprocessStartedAt": 1794282469194,
+              "resultCompletedAt": 1794282469194
             }
           },
           {
@@ -1884,11 +1884,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281263938,
-              "executionStartedAt": 1794281263939,
-              "executionCompletedAt": 1794281263941,
-              "postprocessStartedAt": 1794281263941,
-              "resultCompletedAt": 1794281263941
+              "dispatchStartedAt": 1794282469191,
+              "executionStartedAt": 1794282469191,
+              "executionCompletedAt": 1794282469194,
+              "postprocessStartedAt": 1794282469194,
+              "resultCompletedAt": 1794282469194
             }
           }
         ],
@@ -1899,7 +1899,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281263938,
+            "createdAt": 1794282469190,
             "content": "",
             "toolCalls": [
               {
@@ -1940,11 +1940,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281263938,
-              "executionStartedAt": 1794281263938,
-              "executionCompletedAt": 1794281263940,
-              "postprocessStartedAt": 1794281263941,
-              "resultCompletedAt": 1794281263941
+              "dispatchStartedAt": 1794282469191,
+              "executionStartedAt": 1794282469191,
+              "executionCompletedAt": 1794282469194,
+              "postprocessStartedAt": 1794282469194,
+              "resultCompletedAt": 1794282469194
             }
           },
           {
@@ -1959,16 +1959,16 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281263938,
-              "executionStartedAt": 1794281263939,
-              "executionCompletedAt": 1794281263941,
-              "postprocessStartedAt": 1794281263941,
-              "resultCompletedAt": 1794281263941
+              "dispatchStartedAt": 1794282469191,
+              "executionStartedAt": 1794282469191,
+              "executionCompletedAt": 1794282469194,
+              "postprocessStartedAt": 1794282469194,
+              "resultCompletedAt": 1794282469194
             }
           },
           {
             "role": "assistant",
-            "createdAt": 1794281263943,
+            "createdAt": 1794282469196,
             "content": "",
             "toolCalls": [
               {
@@ -1989,11 +1989,11 @@
             "toolCallId": "c4",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281263943,
-              "executionStartedAt": 1794281263943,
-              "executionCompletedAt": 1794281263952,
-              "postprocessStartedAt": 1794281263952,
-              "resultCompletedAt": 1794281263953
+              "dispatchStartedAt": 1794282469196,
+              "executionStartedAt": 1794282469196,
+              "executionCompletedAt": 1794282469199,
+              "postprocessStartedAt": 1794282469199,
+              "resultCompletedAt": 1794282469200
             }
           }
         ]
@@ -2364,7 +2364,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -2435,7 +2435,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281264281,
+          "createdAt": 1794282469269,
           "content": "",
           "toolCalls": [
             {
@@ -2466,7 +2466,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 310
+                "elapsedMs": 49
               }
             }
           }
@@ -2486,7 +2486,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281264281,
+            "createdAt": 1794282469269,
             "content": "",
             "toolCalls": [
               {
@@ -2507,11 +2507,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281264281,
-              "executionStartedAt": 1794281264281,
-              "executionCompletedAt": 1794281264284,
-              "postprocessStartedAt": 1794281264284,
-              "resultCompletedAt": 1794281264284
+              "dispatchStartedAt": 1794282469269,
+              "executionStartedAt": 1794282469269,
+              "executionCompletedAt": 1794282469271,
+              "postprocessStartedAt": 1794282469271,
+              "resultCompletedAt": 1794282469271
             }
           }
         ]
@@ -2661,7 +2661,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -2844,7 +2844,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281264481,
+          "createdAt": 1794282469374,
           "content": "",
           "toolCalls": [
             {
@@ -3072,7 +3072,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 171
+                "elapsedMs": 79
               }
             }
           }
@@ -3092,7 +3092,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281264481,
+            "createdAt": 1794282469374,
             "content": "",
             "toolCalls": [
               {
@@ -3788,7 +3788,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -3893,7 +3893,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281264616,
+          "createdAt": 1794282469443,
           "content": "",
           "toolCalls": [
             {
@@ -3914,7 +3914,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281264618,
+          "createdAt": 1794282469444,
           "content": "",
           "toolCalls": [
             {
@@ -3935,7 +3935,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281264620,
+          "createdAt": 1794282469445,
           "content": "",
           "toolCalls": [
             {
@@ -3956,7 +3956,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281264621,
+          "createdAt": 1794282469446,
           "content": "",
           "toolCalls": [
             {
@@ -3985,7 +3985,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 107
+                "elapsedMs": 49
               }
             }
           }
@@ -4005,7 +4005,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281264616,
+            "createdAt": 1794282469443,
             "content": "",
             "toolCalls": [
               {
@@ -4032,7 +4032,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281264616,
+            "createdAt": 1794282469443,
             "content": "",
             "toolCalls": [
               {
@@ -4053,7 +4053,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281264618,
+            "createdAt": 1794282469444,
             "content": "",
             "toolCalls": [
               {
@@ -4080,7 +4080,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281264616,
+            "createdAt": 1794282469443,
             "content": "",
             "toolCalls": [
               {
@@ -4101,7 +4101,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281264618,
+            "createdAt": 1794282469444,
             "content": "",
             "toolCalls": [
               {
@@ -4122,7 +4122,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281264620,
+            "createdAt": 1794282469445,
             "content": "",
             "toolCalls": [
               {
@@ -4149,7 +4149,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281264616,
+            "createdAt": 1794282469443,
             "content": "",
             "toolCalls": [
               {
@@ -4170,7 +4170,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281264618,
+            "createdAt": 1794282469444,
             "content": "",
             "toolCalls": [
               {
@@ -4191,7 +4191,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281264620,
+            "createdAt": 1794282469445,
             "content": "",
             "toolCalls": [
               {
@@ -4212,7 +4212,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281264621,
+            "createdAt": 1794282469446,
             "content": "",
             "toolCalls": [
               {
@@ -4473,7 +4473,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -4545,7 +4545,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281264734,
+          "createdAt": 1794282469506,
           "content": "",
           "toolCalls": [
             {
@@ -4576,7 +4576,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 92
+                "elapsedMs": 47
               }
             }
           }
@@ -4596,7 +4596,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281264734,
+            "createdAt": 1794282469506,
             "content": "",
             "toolCalls": [
               {
@@ -4617,11 +4617,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281264735,
-              "executionStartedAt": 1794281264735,
-              "executionCompletedAt": 1794281264739,
-              "postprocessStartedAt": 1794281264740,
-              "resultCompletedAt": 1794281264740
+              "dispatchStartedAt": 1794282469506,
+              "executionStartedAt": 1794282469506,
+              "executionCompletedAt": 1794282469511,
+              "postprocessStartedAt": 1794282469511,
+              "resultCompletedAt": 1794282469511
             }
           }
         ]
@@ -4767,7 +4767,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -4845,7 +4845,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281264823,
+          "createdAt": 1794282469589,
           "content": "",
           "toolCalls": [
             {
@@ -4888,7 +4888,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 62
+                "elapsedMs": 54
               }
             }
           }
@@ -4908,7 +4908,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281264823,
+            "createdAt": 1794282469589,
             "content": "",
             "toolCalls": [
               {
@@ -5052,7 +5052,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [
         "probe_write"
       ],
@@ -5129,7 +5129,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281264897,
+          "createdAt": 1794282469644,
           "content": "",
           "toolCalls": [
             {
@@ -5160,7 +5160,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 66
+                "elapsedMs": 46
               }
             }
           }
@@ -5180,7 +5180,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281264897,
+            "createdAt": 1794282469644,
             "content": "",
             "toolCalls": [
               {
@@ -5201,11 +5201,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281264898,
-              "executionStartedAt": 1794281264898,
-              "executionCompletedAt": 1794281264906,
-              "postprocessStartedAt": 1794281264906,
-              "resultCompletedAt": 1794281264906
+              "dispatchStartedAt": 1794282469645,
+              "executionStartedAt": 1794282469645,
+              "executionCompletedAt": 1794282469653,
+              "postprocessStartedAt": 1794282469653,
+              "resultCompletedAt": 1794282469653
             }
           }
         ]
@@ -5261,7 +5261,7 @@
           "args": {
             "q": "x"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
           "sessionId": "sess_call_tool_11",
           "toolCallId": "c1",
           "reason": "needs approval"
@@ -5377,7 +5377,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [
         "probe_write"
       ],
@@ -5455,7 +5455,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281264966,
+          "createdAt": 1794282469722,
           "content": "",
           "toolCalls": [
             {
@@ -5486,7 +5486,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 50
+                "elapsedMs": 53
               }
             }
           }
@@ -5506,7 +5506,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281264966,
+            "createdAt": 1794282469722,
             "content": "",
             "toolCalls": [
               {
@@ -5527,11 +5527,11 @@
             "toolCallId": "c1",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281264966,
-              "executionStartedAt": 1794281264966,
-              "executionCompletedAt": 1794281264973,
-              "postprocessStartedAt": 1794281264973,
-              "resultCompletedAt": 1794281264975
+              "dispatchStartedAt": 1794282469722,
+              "executionStartedAt": 1794282469722,
+              "executionCompletedAt": 1794282469727,
+              "postprocessStartedAt": 1794282469728,
+              "resultCompletedAt": 1794282469730
             }
           }
         ]
@@ -5587,7 +5587,7 @@
           "args": {
             "q": "x"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
           "sessionId": "sess_call_tool_12",
           "toolCallId": "c1",
           "reason": "needs approval"
@@ -5674,7 +5674,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [
         "probe_write"
       ],
@@ -5748,7 +5748,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281265036,
+          "createdAt": 1794282469934,
           "content": "",
           "toolCalls": [
             {
@@ -5776,7 +5776,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 47
+                "elapsedMs": 50
               }
             }
           }
@@ -5796,7 +5796,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281265036,
+            "createdAt": 1794282469934,
             "content": "",
             "toolCalls": [
               {
@@ -5814,11 +5814,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265037,
-              "executionStartedAt": 1794281265037,
-              "executionCompletedAt": 1794281265042,
-              "postprocessStartedAt": 1794281265043,
-              "resultCompletedAt": 1794281265043
+              "dispatchStartedAt": 1794282469934,
+              "executionStartedAt": 1794282469934,
+              "executionCompletedAt": 1794282469937,
+              "postprocessStartedAt": 1794282469937,
+              "resultCompletedAt": 1794282469937
             }
           }
         ]
@@ -5871,7 +5871,7 @@
           "args": {
             "q": "x"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
           "sessionId": "sess_call_tool_13",
           "toolCallId": "c1",
           "reason": "needs approval"
@@ -5987,7 +5987,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [
         "call_tool"
       ],
@@ -6060,7 +6060,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281265090,
+          "createdAt": 1794282469997,
           "content": "",
           "toolCalls": [
             {
@@ -6091,7 +6091,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 34
+                "elapsedMs": 38
               }
             }
           }
@@ -6111,7 +6111,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281265090,
+            "createdAt": 1794282469997,
             "content": "",
             "toolCalls": [
               {
@@ -6132,11 +6132,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265090,
-              "executionStartedAt": 1794281265090,
-              "executionCompletedAt": 1794281265092,
-              "postprocessStartedAt": 1794281265092,
-              "resultCompletedAt": 1794281265092
+              "dispatchStartedAt": 1794282469997,
+              "executionStartedAt": 1794282469997,
+              "executionCompletedAt": 1794282469998,
+              "postprocessStartedAt": 1794282469998,
+              "resultCompletedAt": 1794282469998
             }
           }
         ]
@@ -6282,7 +6282,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [
         "mcp__mail__send"
       ],
@@ -6360,7 +6360,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281265159,
+          "createdAt": 1794282470048,
           "content": "",
           "toolCalls": [
             {
@@ -6391,7 +6391,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 53
+                "elapsedMs": 39
               }
             }
           }
@@ -6411,7 +6411,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281265159,
+            "createdAt": 1794282470048,
             "content": "",
             "toolCalls": [
               {
@@ -6432,11 +6432,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265159,
-              "executionStartedAt": 1794281265159,
-              "executionCompletedAt": 1794281265165,
-              "postprocessStartedAt": 1794281265165,
-              "resultCompletedAt": 1794281265165
+              "dispatchStartedAt": 1794282470048,
+              "executionStartedAt": 1794282470048,
+              "executionCompletedAt": 1794282470054,
+              "postprocessStartedAt": 1794282470054,
+              "resultCompletedAt": 1794282470054
             }
           }
         ]
@@ -6492,7 +6492,7 @@
           "args": {
             "to": "a@b.c"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
           "sessionId": "sess_call_tool_15",
           "toolCallId": "c1",
           "reason": "needs approval"
@@ -6608,7 +6608,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [
         "probe_write"
       ],
@@ -6703,7 +6703,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281265220,
+          "createdAt": 1794282470114,
           "content": "",
           "toolCalls": [
             {
@@ -6764,7 +6764,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 49
+                "elapsedMs": 48
               }
             }
           }
@@ -6784,7 +6784,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281265220,
+            "createdAt": 1794282470114,
             "content": "",
             "toolCalls": [
               {
@@ -6823,11 +6823,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265220,
-              "executionStartedAt": 1794281265220,
-              "executionCompletedAt": 1794281265230,
-              "postprocessStartedAt": 1794281265231,
-              "resultCompletedAt": 1794281265231
+              "dispatchStartedAt": 1794282470114,
+              "executionStartedAt": 1794282470114,
+              "executionCompletedAt": 1794282470121,
+              "postprocessStartedAt": 1794282470121,
+              "resultCompletedAt": 1794282470122
             }
           },
           {
@@ -6842,11 +6842,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265220,
-              "executionStartedAt": 1794281265220,
-              "executionCompletedAt": 1794281265226,
-              "postprocessStartedAt": 1794281265231,
-              "resultCompletedAt": 1794281265231
+              "dispatchStartedAt": 1794282470114,
+              "executionStartedAt": 1794282470114,
+              "executionCompletedAt": 1794282470119,
+              "postprocessStartedAt": 1794282470122,
+              "resultCompletedAt": 1794282470122
             }
           }
         ]
@@ -6948,7 +6948,7 @@
           "args": {
             "q": "1"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
           "sessionId": "sess_call_tool_16",
           "toolCallId": "c1",
           "reason": "needs approval"
@@ -7135,7 +7135,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -7220,7 +7220,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281265295,
+          "createdAt": 1794282470182,
           "content": "",
           "toolCalls": [
             {
@@ -7278,7 +7278,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 45
+                "elapsedMs": 42
               }
             }
           }
@@ -7298,7 +7298,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281265295,
+            "createdAt": 1794282470182,
             "content": "",
             "toolCalls": [
               {
@@ -7346,11 +7346,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265295,
-              "executionStartedAt": 1794281265295,
-              "executionCompletedAt": 1794281265296,
-              "postprocessStartedAt": 1794281265296,
-              "resultCompletedAt": 1794281265296
+              "dispatchStartedAt": 1794282470182,
+              "executionStartedAt": 1794282470182,
+              "executionCompletedAt": 1794282470183,
+              "postprocessStartedAt": 1794282470183,
+              "resultCompletedAt": 1794282470183
             }
           }
         ]
@@ -7546,7 +7546,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -7621,7 +7621,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281265377,
+          "createdAt": 1794282470257,
           "content": "",
           "toolCalls": [
             {
@@ -7663,7 +7663,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 56
+                "elapsedMs": 52
               }
             }
           }
@@ -7683,7 +7683,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281265377,
+            "createdAt": 1794282470257,
             "content": "",
             "toolCalls": [
               {
@@ -7832,7 +7832,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -7900,7 +7900,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281265447,
+          "createdAt": 1794282470314,
           "content": "",
           "toolCalls": [
             {
@@ -7969,7 +7969,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 50
+                "elapsedMs": 43
               }
             }
           }
@@ -7989,7 +7989,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281265447,
+            "createdAt": 1794282470314,
             "content": "",
             "toolCalls": [
               {
@@ -8030,11 +8030,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265447,
-              "executionStartedAt": 1794281265447,
-              "executionCompletedAt": 1794281265448,
-              "postprocessStartedAt": 1794281265449,
-              "resultCompletedAt": 1794281265449
+              "dispatchStartedAt": 1794282470314,
+              "executionStartedAt": 1794282470314,
+              "executionCompletedAt": 1794282470316,
+              "postprocessStartedAt": 1794282470317,
+              "resultCompletedAt": 1794282470317
             }
           },
           {
@@ -8049,11 +8049,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265447,
-              "executionStartedAt": 1794281265447,
-              "executionCompletedAt": 1794281265449,
-              "postprocessStartedAt": 1794281265449,
-              "resultCompletedAt": 1794281265449
+              "dispatchStartedAt": 1794282470314,
+              "executionStartedAt": 1794282470314,
+              "executionCompletedAt": 1794282470317,
+              "postprocessStartedAt": 1794282470317,
+              "resultCompletedAt": 1794282470317
             }
           },
           {
@@ -8325,7 +8325,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -8417,7 +8417,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281265523,
+          "createdAt": 1794282470379,
           "content": "",
           "toolCalls": [
             {
@@ -8487,7 +8487,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 58
+                "elapsedMs": 49
               }
             }
           }
@@ -8507,7 +8507,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281265523,
+            "createdAt": 1794282470379,
             "content": "",
             "toolCalls": [
               {
@@ -8549,11 +8549,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265523,
-              "executionStartedAt": 1794281265523,
-              "executionCompletedAt": 1794281265525,
-              "postprocessStartedAt": 1794281265526,
-              "resultCompletedAt": 1794281265526
+              "dispatchStartedAt": 1794282470379,
+              "executionStartedAt": 1794282470379,
+              "executionCompletedAt": 1794282470381,
+              "postprocessStartedAt": 1794282470382,
+              "resultCompletedAt": 1794282470382
             }
           },
           {
@@ -8562,11 +8562,11 @@
             "toolCallId": "c2",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265523,
-              "executionStartedAt": 1794281265523,
-              "executionCompletedAt": 1794281265523,
-              "postprocessStartedAt": 1794281265526,
-              "resultCompletedAt": 1794281265526
+              "dispatchStartedAt": 1794282470379,
+              "executionStartedAt": 1794282470379,
+              "executionCompletedAt": 1794282470379,
+              "postprocessStartedAt": 1794282470382,
+              "resultCompletedAt": 1794282470382
             }
           },
           {
@@ -8575,11 +8575,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265523,
-              "executionStartedAt": 1794281265523,
-              "executionCompletedAt": 1794281265526,
-              "postprocessStartedAt": 1794281265526,
-              "resultCompletedAt": 1794281265526
+              "dispatchStartedAt": 1794282470379,
+              "executionStartedAt": 1794282470379,
+              "executionCompletedAt": 1794282470382,
+              "postprocessStartedAt": 1794282470382,
+              "resultCompletedAt": 1794282470382
             }
           },
           {
@@ -8588,11 +8588,11 @@
             "toolCallId": "c4",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265523,
-              "executionStartedAt": 1794281265523,
-              "executionCompletedAt": 1794281265523,
-              "postprocessStartedAt": 1794281265526,
-              "resultCompletedAt": 1794281265526
+              "dispatchStartedAt": 1794282470379,
+              "executionStartedAt": 1794282470379,
+              "executionCompletedAt": 1794282470380,
+              "postprocessStartedAt": 1794282470382,
+              "resultCompletedAt": 1794282470382
             }
           }
         ]
@@ -8911,7 +8911,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -8998,7 +8998,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281265587,
+          "createdAt": 1794282470443,
           "content": "",
           "toolCalls": [
             {
@@ -9063,7 +9063,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 43
+                "elapsedMs": 44
               }
             }
           }
@@ -9083,7 +9083,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281265587,
+            "createdAt": 1794282470443,
             "content": "",
             "toolCalls": [
               {
@@ -9120,11 +9120,11 @@
             "toolCallId": "c1",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265587,
-              "executionStartedAt": 1794281265587,
-              "executionCompletedAt": 1794281265588,
-              "postprocessStartedAt": 1794281265589,
-              "resultCompletedAt": 1794281265589
+              "dispatchStartedAt": 1794282470443,
+              "executionStartedAt": 1794282470443,
+              "executionCompletedAt": 1794282470443,
+              "postprocessStartedAt": 1794282470446,
+              "resultCompletedAt": 1794282470446
             }
           },
           {
@@ -9133,11 +9133,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265587,
-              "executionStartedAt": 1794281265587,
-              "executionCompletedAt": 1794281265589,
-              "postprocessStartedAt": 1794281265589,
-              "resultCompletedAt": 1794281265589
+              "dispatchStartedAt": 1794282470443,
+              "executionStartedAt": 1794282470443,
+              "executionCompletedAt": 1794282470446,
+              "postprocessStartedAt": 1794282470446,
+              "resultCompletedAt": 1794282470446
             }
           },
           {
@@ -9146,11 +9146,11 @@
             "toolCallId": "c3",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265587,
-              "executionStartedAt": 1794281265587,
-              "executionCompletedAt": 1794281265588,
-              "postprocessStartedAt": 1794281265590,
-              "resultCompletedAt": 1794281265590
+              "dispatchStartedAt": 1794282470443,
+              "executionStartedAt": 1794282470443,
+              "executionCompletedAt": 1794282470444,
+              "postprocessStartedAt": 1794282470446,
+              "resultCompletedAt": 1794282470446
             }
           },
           {
@@ -9159,11 +9159,11 @@
             "toolCallId": "c4",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265587,
-              "executionStartedAt": 1794281265587,
-              "executionCompletedAt": 1794281265589,
-              "postprocessStartedAt": 1794281265590,
-              "resultCompletedAt": 1794281265590
+              "dispatchStartedAt": 1794282470443,
+              "executionStartedAt": 1794282470443,
+              "executionCompletedAt": 1794282470446,
+              "postprocessStartedAt": 1794282470446,
+              "resultCompletedAt": 1794282470446
             }
           }
         ]
@@ -9464,7 +9464,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -9543,7 +9543,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281265654,
+          "createdAt": 1794282470516,
           "content": "",
           "toolCalls": [
             {
@@ -9593,7 +9593,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 49
+                "elapsedMs": 56
               }
             }
           }
@@ -9613,7 +9613,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281265654,
+            "createdAt": 1794282470516,
             "content": "",
             "toolCalls": [
               {
@@ -9641,11 +9641,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265654,
-              "executionStartedAt": 1794281265654,
-              "executionCompletedAt": 1794281265657,
-              "postprocessStartedAt": 1794281265658,
-              "resultCompletedAt": 1794281265658
+              "dispatchStartedAt": 1794282470516,
+              "executionStartedAt": 1794282470516,
+              "executionCompletedAt": 1794282470519,
+              "postprocessStartedAt": 1794282470519,
+              "resultCompletedAt": 1794282470519
             }
           },
           {
@@ -9654,11 +9654,11 @@
             "toolCallId": "c2",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265654,
-              "executionStartedAt": 1794281265655,
-              "executionCompletedAt": 1794281265655,
-              "postprocessStartedAt": 1794281265658,
-              "resultCompletedAt": 1794281265658
+              "dispatchStartedAt": 1794282470516,
+              "executionStartedAt": 1794282470516,
+              "executionCompletedAt": 1794282470517,
+              "postprocessStartedAt": 1794282470519,
+              "resultCompletedAt": 1794282470519
             }
           },
           {
@@ -9667,11 +9667,11 @@
             "toolCallId": "c3",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265655,
-              "executionStartedAt": 1794281265655,
-              "executionCompletedAt": 1794281265655,
-              "postprocessStartedAt": 1794281265658,
-              "resultCompletedAt": 1794281265658
+              "dispatchStartedAt": 1794282470516,
+              "executionStartedAt": 1794282470516,
+              "executionCompletedAt": 1794282470517,
+              "postprocessStartedAt": 1794282470519,
+              "resultCompletedAt": 1794282470519
             }
           }
         ]
@@ -9912,7 +9912,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -9999,7 +9999,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281265725,
+          "createdAt": 1794282470592,
           "content": "",
           "toolCalls": [
             {
@@ -10055,7 +10055,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 49
+                "elapsedMs": 57
               }
             }
           }
@@ -10075,7 +10075,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281265725,
+            "createdAt": 1794282470592,
             "content": "",
             "toolCalls": [
               {
@@ -10115,11 +10115,11 @@
             "toolCallId": "c2",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265725,
-              "executionStartedAt": 1794281265725,
-              "executionCompletedAt": 1794281265725,
-              "postprocessStartedAt": 1794281265727,
-              "resultCompletedAt": 1794281265727
+              "dispatchStartedAt": 1794282470592,
+              "executionStartedAt": 1794282470592,
+              "executionCompletedAt": 1794282470593,
+              "postprocessStartedAt": 1794282470595,
+              "resultCompletedAt": 1794282470595
             }
           },
           {
@@ -10128,11 +10128,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265725,
-              "executionStartedAt": 1794281265725,
-              "executionCompletedAt": 1794281265727,
-              "postprocessStartedAt": 1794281265727,
-              "resultCompletedAt": 1794281265727
+              "dispatchStartedAt": 1794282470592,
+              "executionStartedAt": 1794282470592,
+              "executionCompletedAt": 1794282470594,
+              "postprocessStartedAt": 1794282470595,
+              "resultCompletedAt": 1794282470595
             }
           }
         ]
@@ -10355,7 +10355,7 @@
       "nonBridge": true,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -10419,7 +10419,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281265791,
+          "createdAt": 1794282470662,
           "content": "",
           "toolCalls": [
             {
@@ -10463,7 +10463,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 46
+                "elapsedMs": 53
               }
             }
           }
@@ -10483,7 +10483,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281265791,
+            "createdAt": 1794282470662,
             "content": "",
             "toolCalls": [
               {
@@ -10511,11 +10511,11 @@
             "toolCallId": "c1",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265791,
-              "executionStartedAt": 1794281265791,
-              "executionCompletedAt": 1794281265794,
-              "postprocessStartedAt": 1794281265794,
-              "resultCompletedAt": 1794281265794
+              "dispatchStartedAt": 1794282470663,
+              "executionStartedAt": 1794282470663,
+              "executionCompletedAt": 1794282470664,
+              "postprocessStartedAt": 1794282470665,
+              "resultCompletedAt": 1794282470665
             }
           },
           {
@@ -10524,11 +10524,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265791,
-              "executionStartedAt": 1794281265791,
-              "executionCompletedAt": 1794281265794,
-              "postprocessStartedAt": 1794281265794,
-              "resultCompletedAt": 1794281265794
+              "dispatchStartedAt": 1794282470663,
+              "executionStartedAt": 1794282470663,
+              "executionCompletedAt": 1794282470665,
+              "postprocessStartedAt": 1794282470665,
+              "resultCompletedAt": 1794282470665
             }
           }
         ]
@@ -10755,7 +10755,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": {
@@ -10833,7 +10833,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281265852,
+          "createdAt": 1794282470733,
           "content": "",
           "toolCalls": [
             {
@@ -10864,7 +10864,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 41
+                "elapsedMs": 54
               }
             }
           }
@@ -10884,7 +10884,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281265852,
+            "createdAt": 1794282470733,
             "content": "",
             "toolCalls": [
               {
@@ -10905,11 +10905,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265852,
-              "executionStartedAt": 1794281265852,
-              "executionCompletedAt": 1794281265853,
-              "postprocessStartedAt": 1794281265854,
-              "resultCompletedAt": 1794281265854
+              "dispatchStartedAt": 1794282470734,
+              "executionStartedAt": 1794282470734,
+              "executionCompletedAt": 1794282470735,
+              "postprocessStartedAt": 1794282470735,
+              "resultCompletedAt": 1794282470735
             }
           }
         ]
@@ -11055,7 +11055,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -11135,7 +11135,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281265920,
+          "createdAt": 1794282470803,
           "content": "",
           "toolCalls": [
             {
@@ -11179,7 +11179,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 49
+                "elapsedMs": 52
               }
             }
           }
@@ -11199,7 +11199,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281265920,
+            "createdAt": 1794282470803,
             "content": "",
             "toolCalls": [
               {
@@ -11227,11 +11227,11 @@
             "toolCallId": "c1",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265920,
-              "executionStartedAt": 1794281265920,
-              "executionCompletedAt": 1794281265921,
-              "postprocessStartedAt": 1794281265922,
-              "resultCompletedAt": 1794281265922
+              "dispatchStartedAt": 1794282470803,
+              "executionStartedAt": 1794282470803,
+              "executionCompletedAt": 1794282470803,
+              "postprocessStartedAt": 1794282470803,
+              "resultCompletedAt": 1794282470803
             }
           },
           {
@@ -11240,11 +11240,11 @@
             "toolCallId": "c2",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281265920,
-              "executionStartedAt": 1794281265920,
-              "executionCompletedAt": 1794281265922,
-              "postprocessStartedAt": 1794281265922,
-              "resultCompletedAt": 1794281265922
+              "dispatchStartedAt": 1794282470803,
+              "executionStartedAt": 1794282470803,
+              "executionCompletedAt": 1794282470803,
+              "postprocessStartedAt": 1794282470803,
+              "resultCompletedAt": 1794282470804
             }
           }
         ]
@@ -11416,7 +11416,7 @@
       "nonBridge": false,
       "stream": true,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -11502,7 +11502,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281266067,
+          "createdAt": 1794282470935,
           "content": "",
           "toolCalls": [
             {
@@ -11548,7 +11548,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 62
+                "elapsedMs": 53
               }
             }
           }
@@ -11568,7 +11568,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281266067,
+            "createdAt": 1794282470935,
             "content": "",
             "toolCalls": [
               {
@@ -11598,11 +11598,11 @@
             "toolCallId": "c1",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266064,
-              "executionStartedAt": 1794281266064,
-              "executionCompletedAt": 1794281266065,
-              "postprocessStartedAt": 1794281266069,
-              "resultCompletedAt": 1794281266069
+              "dispatchStartedAt": 1794282470932,
+              "executionStartedAt": 1794282470932,
+              "executionCompletedAt": 1794282470933,
+              "postprocessStartedAt": 1794282470938,
+              "resultCompletedAt": 1794282470938
             }
           },
           {
@@ -11611,11 +11611,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266067,
-              "executionStartedAt": 1794281266067,
-              "executionCompletedAt": 1794281266069,
-              "postprocessStartedAt": 1794281266069,
-              "resultCompletedAt": 1794281266069
+              "dispatchStartedAt": 1794282470935,
+              "executionStartedAt": 1794282470935,
+              "executionCompletedAt": 1794282470938,
+              "postprocessStartedAt": 1794282470938,
+              "resultCompletedAt": 1794282470938
             }
           }
         ]
@@ -11866,7 +11866,7 @@
       "nonBridge": false,
       "stream": true,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -11947,7 +11947,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281266211,
+          "createdAt": 1794282471064,
           "content": "",
           "toolCalls": [
             {
@@ -11993,7 +11993,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 51
+                "elapsedMs": 49
               }
             }
           }
@@ -12013,7 +12013,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281266211,
+            "createdAt": 1794282471064,
             "content": "",
             "toolCalls": [
               {
@@ -12049,11 +12049,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266209,
-              "executionStartedAt": 1794281266209,
-              "executionCompletedAt": 1794281266210,
-              "postprocessStartedAt": 1794281266211,
-              "resultCompletedAt": 1794281266211
+              "dispatchStartedAt": 1794282471062,
+              "executionStartedAt": 1794282471062,
+              "executionCompletedAt": 1794282471064,
+              "postprocessStartedAt": 1794282471064,
+              "resultCompletedAt": 1794282471065
             }
           }
         ]
@@ -12230,7 +12230,7 @@
       "internal": [
         "edit"
       ],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -12335,7 +12335,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281266347,
+          "createdAt": 1794282471573,
           "content": "",
           "toolCalls": [
             {
@@ -12412,7 +12412,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 66
+                "elapsedMs": 55
               }
             }
           }
@@ -12432,7 +12432,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281266347,
+            "createdAt": 1794282471573,
             "content": "",
             "toolCalls": [
               {
@@ -12481,11 +12481,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266342,
-              "executionStartedAt": 1794281266342,
-              "executionCompletedAt": 1794281266345,
-              "postprocessStartedAt": 1794281266350,
-              "resultCompletedAt": 1794281266350
+              "dispatchStartedAt": 1794282471567,
+              "executionStartedAt": 1794282471567,
+              "executionCompletedAt": 1794282471569,
+              "postprocessStartedAt": 1794282471581,
+              "resultCompletedAt": 1794282471581
             }
           },
           {
@@ -12494,11 +12494,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266347,
-              "executionStartedAt": 1794281266347,
-              "executionCompletedAt": 1794281266350,
-              "postprocessStartedAt": 1794281266350,
-              "resultCompletedAt": 1794281266350
+              "dispatchStartedAt": 1794282471574,
+              "executionStartedAt": 1794282471574,
+              "executionCompletedAt": 1794282471581,
+              "postprocessStartedAt": 1794282471581,
+              "resultCompletedAt": 1794282471581
             }
           },
           {
@@ -12507,11 +12507,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266345,
-              "executionStartedAt": 1794281266345,
-              "executionCompletedAt": 1794281266346,
-              "postprocessStartedAt": 1794281266350,
-              "resultCompletedAt": 1794281266350
+              "dispatchStartedAt": 1794282471568,
+              "executionStartedAt": 1794282471568,
+              "executionCompletedAt": 1794282471572,
+              "postprocessStartedAt": 1794282471581,
+              "resultCompletedAt": 1794282471581
             }
           },
           {
@@ -12520,11 +12520,11 @@
             "toolCallId": "c4",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266345,
-              "executionStartedAt": 1794281266345,
-              "executionCompletedAt": 1794281266346,
-              "postprocessStartedAt": 1794281266350,
-              "resultCompletedAt": 1794281266350
+              "dispatchStartedAt": 1794282471569,
+              "executionStartedAt": 1794282471569,
+              "executionCompletedAt": 1794282471573,
+              "postprocessStartedAt": 1794282471581,
+              "resultCompletedAt": 1794282471581
             }
           }
         ]
@@ -12989,7 +12989,7 @@
       "internal": [
         "computer"
       ],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -13068,7 +13068,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281266507,
+          "createdAt": 1794282471711,
           "content": "",
           "toolCalls": [
             {
@@ -13109,7 +13109,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 62
+                "elapsedMs": 46
               }
             }
           }
@@ -13129,7 +13129,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281266507,
+            "createdAt": 1794282471711,
             "content": "",
             "toolCalls": [
               {
@@ -13154,11 +13154,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266505,
-              "executionStartedAt": 1794281266505,
-              "executionCompletedAt": 1794281266506,
-              "postprocessStartedAt": 1794281266507,
-              "resultCompletedAt": 1794281266507
+              "dispatchStartedAt": 1794282471709,
+              "executionStartedAt": 1794282471709,
+              "executionCompletedAt": 1794282471710,
+              "postprocessStartedAt": 1794282471711,
+              "resultCompletedAt": 1794282471711
             }
           },
           {
@@ -13334,7 +13334,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -13420,7 +13420,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281266564,
+          "createdAt": 1794282471788,
           "content": "",
           "toolCalls": [
             {
@@ -13461,7 +13461,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 35
+                "elapsedMs": 62
               }
             }
           }
@@ -13481,7 +13481,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281266564,
+            "createdAt": 1794282471788,
             "content": "",
             "toolCalls": [
               {
@@ -13506,11 +13506,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266564,
-              "executionStartedAt": 1794281266564,
-              "executionCompletedAt": 1794281266565,
-              "postprocessStartedAt": 1794281266565,
-              "resultCompletedAt": 1794281266565
+              "dispatchStartedAt": 1794282471788,
+              "executionStartedAt": 1794282471788,
+              "executionCompletedAt": 1794282471790,
+              "postprocessStartedAt": 1794282471791,
+              "resultCompletedAt": 1794282471791
             }
           },
           {
@@ -13519,11 +13519,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266564,
-              "executionStartedAt": 1794281266564,
-              "executionCompletedAt": 1794281266565,
-              "postprocessStartedAt": 1794281266565,
-              "resultCompletedAt": 1794281266566
+              "dispatchStartedAt": 1794282471788,
+              "executionStartedAt": 1794282471788,
+              "executionCompletedAt": 1794282471790,
+              "postprocessStartedAt": 1794282471791,
+              "resultCompletedAt": 1794282471791
             }
           }
         ]
@@ -13748,7 +13748,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -13834,7 +13834,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281266617,
+          "createdAt": 1794282471863,
           "content": "",
           "toolCalls": [
             {
@@ -13875,7 +13875,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 37
+                "elapsedMs": 61
               }
             }
           }
@@ -13895,7 +13895,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281266617,
+            "createdAt": 1794282471863,
             "content": "",
             "toolCalls": [
               {
@@ -13920,11 +13920,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266617,
-              "executionStartedAt": 1794281266617,
-              "executionCompletedAt": 1794281266618,
-              "postprocessStartedAt": 1794281266618,
-              "resultCompletedAt": 1794281266618
+              "dispatchStartedAt": 1794282471863,
+              "executionStartedAt": 1794282471863,
+              "executionCompletedAt": 1794282471870,
+              "postprocessStartedAt": 1794282471870,
+              "resultCompletedAt": 1794282471870
             }
           },
           {
@@ -13933,11 +13933,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266617,
-              "executionStartedAt": 1794281266617,
-              "executionCompletedAt": 1794281266618,
-              "postprocessStartedAt": 1794281266618,
-              "resultCompletedAt": 1794281266618
+              "dispatchStartedAt": 1794282471863,
+              "executionStartedAt": 1794282471863,
+              "executionCompletedAt": 1794282471869,
+              "postprocessStartedAt": 1794282471870,
+              "resultCompletedAt": 1794282471870
             }
           }
         ]
@@ -14162,7 +14162,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -14269,7 +14269,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281266677,
+          "createdAt": 1794282471950,
           "content": "",
           "toolCalls": [
             {
@@ -14323,7 +14323,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 46
+                "elapsedMs": 60
               }
             }
           }
@@ -14343,7 +14343,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281266677,
+            "createdAt": 1794282471950,
             "content": "",
             "toolCalls": [
               {
@@ -14375,11 +14375,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266677,
-              "executionStartedAt": 1794281266677,
-              "executionCompletedAt": 1794281266680,
-              "postprocessStartedAt": 1794281266680,
-              "resultCompletedAt": 1794281266680
+              "dispatchStartedAt": 1794282471950,
+              "executionStartedAt": 1794282471950,
+              "executionCompletedAt": 1794282471955,
+              "postprocessStartedAt": 1794282471955,
+              "resultCompletedAt": 1794282471955
             }
           },
           {
@@ -14388,11 +14388,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266677,
-              "executionStartedAt": 1794281266677,
-              "executionCompletedAt": 1794281266679,
-              "postprocessStartedAt": 1794281266680,
-              "resultCompletedAt": 1794281266680
+              "dispatchStartedAt": 1794282471950,
+              "executionStartedAt": 1794282471950,
+              "executionCompletedAt": 1794282471955,
+              "postprocessStartedAt": 1794282471955,
+              "resultCompletedAt": 1794282471955
             }
           },
           {
@@ -14401,11 +14401,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266677,
-              "executionStartedAt": 1794281266677,
-              "executionCompletedAt": 1794281266679,
-              "postprocessStartedAt": 1794281266680,
-              "resultCompletedAt": 1794281266680
+              "dispatchStartedAt": 1794282471950,
+              "executionStartedAt": 1794282471950,
+              "executionCompletedAt": 1794282471955,
+              "postprocessStartedAt": 1794282471955,
+              "resultCompletedAt": 1794282471955
             }
           }
         ]
@@ -14712,7 +14712,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -14800,7 +14800,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281266731,
+          "createdAt": 1794282472037,
           "content": "",
           "toolCalls": [
             {
@@ -14841,7 +14841,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 34
+                "elapsedMs": 66
               }
             }
           }
@@ -14861,7 +14861,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281266731,
+            "createdAt": 1794282472037,
             "content": "",
             "toolCalls": [
               {
@@ -14886,11 +14886,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266732,
-              "executionStartedAt": 1794281266732,
-              "executionCompletedAt": 1794281266733,
-              "postprocessStartedAt": 1794281266733,
-              "resultCompletedAt": 1794281266733
+              "dispatchStartedAt": 1794282472037,
+              "executionStartedAt": 1794282472037,
+              "executionCompletedAt": 1794282472045,
+              "postprocessStartedAt": 1794282472045,
+              "resultCompletedAt": 1794282472045
             }
           },
           {
@@ -14899,11 +14899,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266732,
-              "executionStartedAt": 1794281266732,
-              "executionCompletedAt": 1794281266733,
-              "postprocessStartedAt": 1794281266733,
-              "resultCompletedAt": 1794281266733
+              "dispatchStartedAt": 1794282472037,
+              "executionStartedAt": 1794282472037,
+              "executionCompletedAt": 1794282472045,
+              "postprocessStartedAt": 1794282472045,
+              "resultCompletedAt": 1794282472045
             }
           }
         ]
@@ -15128,7 +15128,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [
         "probe_write"
       ],
@@ -15217,7 +15217,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281266789,
+          "createdAt": 1794282472122,
           "content": "",
           "toolCalls": [
             {
@@ -15258,7 +15258,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 44
+                "elapsedMs": 66
               }
             }
           }
@@ -15278,7 +15278,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281266789,
+            "createdAt": 1794282472122,
             "content": "",
             "toolCalls": [
               {
@@ -15303,11 +15303,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266789,
-              "executionStartedAt": 1794281266789,
-              "executionCompletedAt": 1794281266797,
-              "postprocessStartedAt": 1794281266797,
-              "resultCompletedAt": 1794281266798
+              "dispatchStartedAt": 1794282472122,
+              "executionStartedAt": 1794282472122,
+              "executionCompletedAt": 1794282472127,
+              "postprocessStartedAt": 1794282472127,
+              "resultCompletedAt": 1794282472128
             }
           },
           {
@@ -15316,11 +15316,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266789,
-              "executionStartedAt": 1794281266789,
-              "executionCompletedAt": 1794281266792,
-              "postprocessStartedAt": 1794281266798,
-              "resultCompletedAt": 1794281266798
+              "dispatchStartedAt": 1794282472122,
+              "executionStartedAt": 1794282472122,
+              "executionCompletedAt": 1794282472125,
+              "postprocessStartedAt": 1794282472128,
+              "resultCompletedAt": 1794282472128
             }
           }
         ]
@@ -15399,7 +15399,7 @@
           "args": {
             "q": "1"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
           "sessionId": "sess_call_tool_35",
           "toolCallId": "c1",
           "reason": "needs approval"
@@ -15573,7 +15573,7 @@
       "internal": [
         "edit"
       ],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -15677,7 +15677,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281266853,
+          "createdAt": 1794282472196,
           "content": "",
           "toolCalls": [
             {
@@ -15737,7 +15737,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 47
+                "elapsedMs": 54
               }
             }
           }
@@ -15757,7 +15757,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281266853,
+            "createdAt": 1794282472196,
             "content": "",
             "toolCalls": [
               {
@@ -15795,11 +15795,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266853,
-              "executionStartedAt": 1794281266853,
-              "executionCompletedAt": 1794281266854,
-              "postprocessStartedAt": 1794281266859,
-              "resultCompletedAt": 1794281266860
+              "dispatchStartedAt": 1794282472196,
+              "executionStartedAt": 1794282472196,
+              "executionCompletedAt": 1794282472197,
+              "postprocessStartedAt": 1794282472198,
+              "resultCompletedAt": 1794282472198
             }
           },
           {
@@ -15808,11 +15808,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266853,
-              "executionStartedAt": 1794281266853,
-              "executionCompletedAt": 1794281266854,
-              "postprocessStartedAt": 1794281266860,
-              "resultCompletedAt": 1794281266860
+              "dispatchStartedAt": 1794282472196,
+              "executionStartedAt": 1794282472196,
+              "executionCompletedAt": 1794282472197,
+              "postprocessStartedAt": 1794282472198,
+              "resultCompletedAt": 1794282472198
             }
           },
           {
@@ -15821,11 +15821,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266853,
-              "executionStartedAt": 1794281266854,
-              "executionCompletedAt": 1794281266859,
-              "postprocessStartedAt": 1794281266860,
-              "resultCompletedAt": 1794281266860
+              "dispatchStartedAt": 1794282472196,
+              "executionStartedAt": 1794282472197,
+              "executionCompletedAt": 1794282472197,
+              "postprocessStartedAt": 1794282472198,
+              "resultCompletedAt": 1794282472198
             }
           }
         ]
@@ -16177,7 +16177,7 @@
         "apply_patch",
         "shell"
       ],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -16268,7 +16268,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281266908,
+          "createdAt": 1794282472270,
           "content": "",
           "toolCalls": [
             {
@@ -16322,7 +16322,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 42
+                "elapsedMs": 58
               }
             }
           }
@@ -16342,7 +16342,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281266908,
+            "createdAt": 1794282472270,
             "content": "",
             "toolCalls": [
               {
@@ -16374,11 +16374,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266908,
-              "executionStartedAt": 1794281266908,
-              "executionCompletedAt": 1794281266909,
-              "postprocessStartedAt": 1794281266916,
-              "resultCompletedAt": 1794281266916
+              "dispatchStartedAt": 1794282472270,
+              "executionStartedAt": 1794282472270,
+              "executionCompletedAt": 1794282472271,
+              "postprocessStartedAt": 1794282472278,
+              "resultCompletedAt": 1794282472279
             }
           },
           {
@@ -16387,11 +16387,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266908,
-              "executionStartedAt": 1794281266909,
-              "executionCompletedAt": 1794281266916,
-              "postprocessStartedAt": 1794281266916,
-              "resultCompletedAt": 1794281266916
+              "dispatchStartedAt": 1794282472270,
+              "executionStartedAt": 1794282472271,
+              "executionCompletedAt": 1794282472278,
+              "postprocessStartedAt": 1794282472279,
+              "resultCompletedAt": 1794282472279
             }
           },
           {
@@ -16400,11 +16400,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266908,
-              "executionStartedAt": 1794281266908,
-              "executionCompletedAt": 1794281266909,
-              "postprocessStartedAt": 1794281266916,
-              "resultCompletedAt": 1794281266916
+              "dispatchStartedAt": 1794282472270,
+              "executionStartedAt": 1794282472270,
+              "executionCompletedAt": 1794282472271,
+              "postprocessStartedAt": 1794282472279,
+              "resultCompletedAt": 1794282472279
             }
           }
         ]
@@ -16714,7 +16714,7 @@
         "apply_patch",
         "shell"
       ],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -16797,7 +16797,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281266980,
+          "createdAt": 1794282472351,
           "content": "",
           "toolCalls": [
             {
@@ -16852,7 +16852,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 51
+                "elapsedMs": 59
               }
             }
           }
@@ -16872,7 +16872,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281266980,
+            "createdAt": 1794282472351,
             "content": "",
             "toolCalls": [
               {
@@ -16905,11 +16905,11 @@
             "toolCallId": "c1",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266980,
-              "executionStartedAt": 1794281266980,
-              "executionCompletedAt": 1794281266984,
-              "postprocessStartedAt": 1794281266984,
-              "resultCompletedAt": 1794281266985
+              "dispatchStartedAt": 1794282472351,
+              "executionStartedAt": 1794282472351,
+              "executionCompletedAt": 1794282472352,
+              "postprocessStartedAt": 1794282472353,
+              "resultCompletedAt": 1794282472354
             }
           },
           {
@@ -16918,11 +16918,11 @@
             "toolCallId": "c2",
             "toolKind": "skipped",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266980,
-              "executionStartedAt": 1794281266984,
-              "executionCompletedAt": 1794281266984,
-              "postprocessStartedAt": 1794281266985,
-              "resultCompletedAt": 1794281266985
+              "dispatchStartedAt": 1794282472351,
+              "executionStartedAt": 1794282472352,
+              "executionCompletedAt": 1794282472352,
+              "postprocessStartedAt": 1794282472354,
+              "resultCompletedAt": 1794282472354
             }
           },
           {
@@ -16931,11 +16931,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281266980,
-              "executionStartedAt": 1794281266980,
-              "executionCompletedAt": 1794281266984,
-              "postprocessStartedAt": 1794281266985,
-              "resultCompletedAt": 1794281266985
+              "dispatchStartedAt": 1794282472351,
+              "executionStartedAt": 1794282472351,
+              "executionCompletedAt": 1794282472353,
+              "postprocessStartedAt": 1794282472354,
+              "resultCompletedAt": 1794282472354
             }
           }
         ]
@@ -17193,7 +17193,7 @@
       "nonBridge": false,
       "stream": true,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -17283,7 +17283,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281267106,
+          "createdAt": 1794282472476,
           "content": "",
           "toolCalls": [
             {
@@ -17324,7 +17324,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 33
+                "elapsedMs": 43
               }
             }
           }
@@ -17344,7 +17344,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281267106,
+            "createdAt": 1794282472476,
             "content": "",
             "toolCalls": [
               {
@@ -17369,11 +17369,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281267104,
-              "executionStartedAt": 1794281267104,
-              "executionCompletedAt": 1794281267105,
-              "postprocessStartedAt": 1794281267106,
-              "resultCompletedAt": 1794281267106
+              "dispatchStartedAt": 1794282472474,
+              "executionStartedAt": 1794282472474,
+              "executionCompletedAt": 1794282472475,
+              "postprocessStartedAt": 1794282472476,
+              "resultCompletedAt": 1794282472476
             }
           },
           {
@@ -17382,11 +17382,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281267105,
-              "executionStartedAt": 1794281267105,
-              "executionCompletedAt": 1794281267105,
-              "postprocessStartedAt": 1794281267106,
-              "resultCompletedAt": 1794281267106
+              "dispatchStartedAt": 1794282472474,
+              "executionStartedAt": 1794282472474,
+              "executionCompletedAt": 1794282472475,
+              "postprocessStartedAt": 1794282472476,
+              "resultCompletedAt": 1794282472476
             }
           }
         ]
@@ -17611,7 +17611,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [
         "probe_write"
       ],
@@ -17723,7 +17723,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281267166,
+          "createdAt": 1794282472549,
           "content": "",
           "toolCalls": [
             {
@@ -17770,7 +17770,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 45
+                "elapsedMs": 61
               }
             }
           }
@@ -17790,7 +17790,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281267166,
+            "createdAt": 1794282472549,
             "content": "",
             "toolCalls": [
               {
@@ -17821,11 +17821,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281267166,
-              "executionStartedAt": 1794281267166,
-              "executionCompletedAt": 1794281267172,
-              "postprocessStartedAt": 1794281267172,
-              "resultCompletedAt": 1794281267172
+              "dispatchStartedAt": 1794282472549,
+              "executionStartedAt": 1794282472549,
+              "executionCompletedAt": 1794282472555,
+              "postprocessStartedAt": 1794282472555,
+              "resultCompletedAt": 1794282472555
             }
           },
           {
@@ -17834,11 +17834,11 @@
             "toolCallId": "c2",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281267166,
-              "executionStartedAt": 1794281267166,
-              "executionCompletedAt": 1794281267172,
-              "postprocessStartedAt": 1794281267172,
-              "resultCompletedAt": 1794281267172
+              "dispatchStartedAt": 1794282472549,
+              "executionStartedAt": 1794282472549,
+              "executionCompletedAt": 1794282472555,
+              "postprocessStartedAt": 1794282472555,
+              "resultCompletedAt": 1794282472555
             }
           }
         ]
@@ -17923,7 +17923,7 @@
           "args": {
             "q": "1"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
           "sessionId": "sess_call_tool_40",
           "toolCallId": "c1",
           "reason": "needs approval"
@@ -17941,7 +17941,7 @@
           "args": {
             "q": "2"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
           "sessionId": "sess_call_tool_40",
           "toolCallId": "c2",
           "reason": "needs approval"
@@ -18093,7 +18093,7 @@
       "nonBridge": false,
       "stream": false,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [
         "probe_write"
       ],
@@ -18205,7 +18205,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281267232,
+          "createdAt": 1794282472614,
           "content": "",
           "toolCalls": [
             {
@@ -18252,7 +18252,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 46
+                "elapsedMs": 54
               }
             }
           }
@@ -18272,7 +18272,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281267232,
+            "createdAt": 1794282472614,
             "content": "",
             "toolCalls": [
               {
@@ -18303,11 +18303,11 @@
             "toolCallId": "c1",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281267232,
-              "executionStartedAt": 1794281267232,
-              "executionCompletedAt": 1794281267236,
-              "postprocessStartedAt": 1794281267237,
-              "resultCompletedAt": 1794281267237
+              "dispatchStartedAt": 1794282472614,
+              "executionStartedAt": 1794282472614,
+              "executionCompletedAt": 1794282472620,
+              "postprocessStartedAt": 1794282472625,
+              "resultCompletedAt": 1794282472625
             }
           },
           {
@@ -18316,11 +18316,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281267232,
-              "executionStartedAt": 1794281267232,
-              "executionCompletedAt": 1794281267237,
-              "postprocessStartedAt": 1794281267237,
-              "resultCompletedAt": 1794281267237
+              "dispatchStartedAt": 1794282472614,
+              "executionStartedAt": 1794282472614,
+              "executionCompletedAt": 1794282472625,
+              "postprocessStartedAt": 1794282472625,
+              "resultCompletedAt": 1794282472625
             }
           }
         ]
@@ -18405,7 +18405,7 @@
           "args": {
             "q": "2"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
           "sessionId": "sess_call_tool_41",
           "toolCallId": "c2",
           "reason": "needs approval"
@@ -18423,7 +18423,7 @@
           "args": {
             "q": "1"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
           "sessionId": "sess_call_tool_41",
           "toolCallId": "c1",
           "reason": "needs approval"
@@ -18569,13 +18569,1934 @@
       ]
     },
     {
+      "name": "calls whose arguments were not JSON: a tool, call_tool and a tool of the session",
+      "session": {},
+      "mcp": false,
+      "nonBridge": false,
+      "stream": false,
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
+      "ask": [],
+      "answers": [],
+      "hookRewrite": null,
+      "hookDeny": [],
+      "gates": [],
+      "script": [
+        {
+          "calls": [
+            {
+              "id": "c1",
+              "name": "probe_read",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"q\":",
+                "__parseError": "Unexpected end of JSON input"
+              }
+            },
+            {
+              "id": "c2",
+              "name": "call_tool",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"q\":",
+                "__parseError": "Unexpected end of JSON input"
+              }
+            },
+            {
+              "id": "c3",
+              "name": "read",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"q\":",
+                "__parseError": "Unexpected end of JSON input"
+              }
+            },
+            {
+              "id": "c4",
+              "name": "probe_write",
+              "arguments": {
+                "q": "ok"
+              }
+            }
+          ]
+        },
+        {
+          "text": "all done"
+        }
+      ],
+      "surface": {
+        "exposure": "bridge-v1",
+        "toolSpec": "full",
+        "tools": [
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "code_graph",
+          "read",
+          "edit",
+          "git",
+          "shell",
+          "task",
+          "todo",
+          "load_tool",
+          "call_tool"
+        ],
+        "catalog": [
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "code_graph",
+          "read",
+          "edit",
+          "git",
+          "github",
+          "shell",
+          "task",
+          "load_tool",
+          "probe_denied",
+          "probe_read",
+          "probe_write",
+          "todo"
+        ],
+        "mcpNames": null
+      },
+      "answer": "all done",
+      "stored": [
+        {
+          "role": "user",
+          "content": "go"
+        },
+        {
+          "role": "assistant",
+          "createdAt": 1794282472713,
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "probe_read",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"q\":",
+                "__parseError": "Unexpected end of JSON input"
+              }
+            },
+            {
+              "id": "c2",
+              "name": "call_tool",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"q\":",
+                "__parseError": "Unexpected end of JSON input"
+              }
+            },
+            {
+              "id": "c3",
+              "name": "read",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"q\":",
+                "__parseError": "Unexpected end of JSON input"
+              }
+            },
+            {
+              "id": "c4",
+              "name": "probe_write",
+              "arguments": {
+                "q": "ok"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "The arguments provided to `probe_read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.",
+          "toolCallId": "c1",
+          "toolKind": "error"
+        },
+        {
+          "role": "tool",
+          "content": "The arguments provided to `call_tool` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.",
+          "toolCallId": "c2",
+          "toolKind": "error"
+        },
+        {
+          "role": "tool",
+          "content": "The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.",
+          "toolCallId": "c3",
+          "toolKind": "error"
+        },
+        {
+          "role": "tool",
+          "content": "ran probe_write {\"q\":\"ok\"}",
+          "toolCallId": "c4",
+          "toolKind": "normal"
+        },
+        {
+          "role": "assistant",
+          "content": "all done",
+          "iterations": 2,
+          "toolCallsTotal": 4,
+          "meta": {
+            "transcript": {
+              "completion": {
+                "status": "done",
+                "verb": "Thought",
+                "elapsedMs": 72
+              }
+            }
+          }
+        }
+      ],
+      "requests": [
+        [
+          {
+            "role": "user",
+            "content": "go"
+          }
+        ],
+        [
+          {
+            "role": "user",
+            "content": "go"
+          },
+          {
+            "role": "assistant",
+            "createdAt": 1794282472713,
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "c1",
+                "name": "probe_read",
+                "arguments": {
+                  "__invalidToolArgs": true,
+                  "__rawArguments": "{\"q\":",
+                  "__parseError": "Unexpected end of JSON input"
+                }
+              },
+              {
+                "id": "c2",
+                "name": "call_tool",
+                "arguments": {
+                  "__invalidToolArgs": true,
+                  "__rawArguments": "{\"q\":",
+                  "__parseError": "Unexpected end of JSON input"
+                }
+              },
+              {
+                "id": "c3",
+                "name": "read",
+                "arguments": {
+                  "__invalidToolArgs": true,
+                  "__rawArguments": "{\"q\":",
+                  "__parseError": "Unexpected end of JSON input"
+                }
+              },
+              {
+                "id": "c4",
+                "name": "probe_write",
+                "arguments": {
+                  "q": "ok"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "The arguments provided to `probe_read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.",
+            "toolCallId": "c1",
+            "toolKind": "error",
+            "toolTiming": {
+              "dispatchStartedAt": 1794282472713,
+              "executionStartedAt": 1794282472713,
+              "executionCompletedAt": 1794282472713,
+              "postprocessStartedAt": 1794282472715,
+              "resultCompletedAt": 1794282472715
+            }
+          },
+          {
+            "role": "tool",
+            "content": "The arguments provided to `call_tool` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.",
+            "toolCallId": "c2",
+            "toolKind": "error"
+          },
+          {
+            "role": "tool",
+            "content": "The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.",
+            "toolCallId": "c3",
+            "toolKind": "error",
+            "toolTiming": {
+              "dispatchStartedAt": 1794282472713,
+              "executionStartedAt": 1794282472713,
+              "executionCompletedAt": 1794282472713,
+              "postprocessStartedAt": 1794282472715,
+              "resultCompletedAt": 1794282472715
+            }
+          },
+          {
+            "role": "tool",
+            "content": "ran probe_write {\"q\":\"ok\"}",
+            "toolCallId": "c4",
+            "toolKind": "normal",
+            "toolTiming": {
+              "dispatchStartedAt": 1794282472713,
+              "executionStartedAt": 1794282472713,
+              "executionCompletedAt": 1794282472715,
+              "postprocessStartedAt": 1794282472715,
+              "resultCompletedAt": 1794282472715
+            }
+          }
+        ]
+      ],
+      "events": [
+        {
+          "ev": "toolCall",
+          "iteration": 1,
+          "calls": [
+            {
+              "id": "c1",
+              "name": "probe_read",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"q\":",
+                "__parseError": "Unexpected end of JSON input"
+              }
+            },
+            {
+              "id": "c2",
+              "name": "call_tool",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"q\":",
+                "__parseError": "Unexpected end of JSON input"
+              }
+            },
+            {
+              "id": "c3",
+              "name": "read",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"q\":",
+                "__parseError": "Unexpected end of JSON input"
+              }
+            },
+            {
+              "id": "c4",
+              "name": "probe_write",
+              "arguments": {
+                "q": "ok"
+              }
+            }
+          ]
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "toolCallId": "c4",
+            "content": "ran probe_write {\"q\":\"ok\"}",
+            "isError": false,
+            "__earlyNotify": true
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "The arguments provided to `probe_read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.",
+            "toolCallId": "c1",
+            "toolKind": "error"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "The arguments provided to `call_tool` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.",
+            "toolCallId": "c2",
+            "toolKind": "error"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.",
+            "toolCallId": "c3",
+            "toolKind": "error"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "ran probe_write {\"q\":\"ok\"}",
+            "toolCallId": "c4",
+            "toolKind": "normal"
+          }
+        }
+      ],
+      "cards": [],
+      "hooks": {
+        "before": [
+          {
+            "name": "probe_write",
+            "args": {
+              "q": "ok"
+            }
+          }
+        ],
+        "after": [
+          {
+            "name": "probe_write",
+            "args": {
+              "q": "ok"
+            },
+            "result": "ran probe_write {\"q\":\"ok\"}"
+          }
+        ]
+      },
+      "executed": [
+        {
+          "name": "probe_write",
+          "args": {
+            "q": "ok"
+          }
+        }
+      ],
+      "timeline": [
+        {
+          "ev": "sent",
+          "n": 1
+        },
+        {
+          "ev": "answered",
+          "n": 1
+        },
+        {
+          "ev": "toolCall",
+          "ids": [
+            "c1",
+            "c2",
+            "c3",
+            "c4"
+          ]
+        },
+        {
+          "ev": "pre",
+          "name": "probe_write",
+          "args": {
+            "q": "ok"
+          }
+        },
+        {
+          "ev": "ran",
+          "name": "probe_write",
+          "args": {
+            "q": "ok"
+          }
+        },
+        {
+          "ev": "post",
+          "name": "probe_write",
+          "args": {
+            "q": "ok"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "id": "c4",
+          "early": true
+        },
+        {
+          "ev": "toolResult",
+          "id": "c1",
+          "early": false
+        },
+        {
+          "ev": "toolResult",
+          "id": "c2",
+          "early": false
+        },
+        {
+          "ev": "toolResult",
+          "id": "c3",
+          "early": false
+        },
+        {
+          "ev": "toolResult",
+          "id": "c4",
+          "early": false
+        },
+        {
+          "ev": "sent",
+          "n": 2
+        },
+        {
+          "ev": "answered",
+          "n": 2
+        }
+      ],
+      "batches": [
+        {
+          "iteration": 1,
+          "toolCallCount": 4,
+          "calls": [
+            {
+              "tool_call_id": "c1",
+              "tool_name": "probe_read",
+              "array_lengths": null
+            },
+            {
+              "tool_call_id": "c2",
+              "tool_name": "call_tool",
+              "array_lengths": null
+            },
+            {
+              "tool_call_id": "c3",
+              "tool_name": "read",
+              "array_lengths": {}
+            },
+            {
+              "tool_call_id": "c4",
+              "tool_name": "probe_write",
+              "array_lengths": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a repeat-failure guard that waits for the failures before it in one batch",
+      "session": {},
+      "mcp": false,
+      "nonBridge": false,
+      "stream": false,
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
+      "ask": [],
+      "answers": [],
+      "hookRewrite": null,
+      "hookDeny": [],
+      "gates": [],
+      "script": [
+        {
+          "calls": [
+            {
+              "id": "c1",
+              "name": "probe_write",
+              "arguments": {
+                "q": "x",
+                "fail": true
+              }
+            }
+          ]
+        },
+        {
+          "calls": [
+            {
+              "id": "c2",
+              "name": "probe_write",
+              "arguments": {
+                "q": "x",
+                "fail": true
+              }
+            }
+          ]
+        },
+        {
+          "calls": [
+            {
+              "id": "c3",
+              "name": "probe_write",
+              "arguments": {
+                "q": "x",
+                "fail": true
+              }
+            },
+            {
+              "id": "c4",
+              "name": "probe_write",
+              "arguments": {
+                "q": "x",
+                "fail": true
+              }
+            },
+            {
+              "id": "c5",
+              "name": "probe_read",
+              "arguments": {
+                "q": "r"
+              }
+            }
+          ]
+        },
+        {
+          "text": "all done"
+        }
+      ],
+      "surface": {
+        "exposure": "bridge-v1",
+        "toolSpec": "full",
+        "tools": [
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "code_graph",
+          "read",
+          "edit",
+          "git",
+          "shell",
+          "task",
+          "todo",
+          "load_tool",
+          "call_tool"
+        ],
+        "catalog": [
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "code_graph",
+          "read",
+          "edit",
+          "git",
+          "github",
+          "shell",
+          "task",
+          "load_tool",
+          "probe_denied",
+          "probe_read",
+          "probe_write",
+          "todo"
+        ],
+        "mcpNames": null
+      },
+      "answer": "all done",
+      "stored": [
+        {
+          "role": "user",
+          "content": "go"
+        },
+        {
+          "role": "assistant",
+          "createdAt": 1794282472776,
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "probe_write",
+              "arguments": {
+                "q": "x",
+                "fail": true
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "Error: probe_write failed",
+          "toolCallId": "c1",
+          "toolKind": "error"
+        },
+        {
+          "role": "assistant",
+          "createdAt": 1794282472778,
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c2",
+              "name": "probe_write",
+              "arguments": {
+                "q": "x",
+                "fail": true
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "Error: probe_write failed",
+          "toolCallId": "c2",
+          "toolKind": "error"
+        },
+        {
+          "role": "assistant",
+          "createdAt": 1794282472780,
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c3",
+              "name": "probe_write",
+              "arguments": {
+                "q": "x",
+                "fail": true
+              }
+            },
+            {
+              "id": "c4",
+              "name": "probe_write",
+              "arguments": {
+                "q": "x",
+                "fail": true
+              }
+            },
+            {
+              "id": "c5",
+              "name": "probe_read",
+              "arguments": {
+                "q": "r"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "Error: probe_write failed",
+          "toolCallId": "c3",
+          "toolKind": "error"
+        },
+        {
+          "role": "tool",
+          "content": "[repeat-failure-guard] Identical normalized `probe_write` call failed 3 times; not re-executed. Retry only after its inputs or subject change; otherwise leave it unresolved.",
+          "toolCallId": "c4",
+          "toolKind": "error"
+        },
+        {
+          "role": "tool",
+          "content": "ran probe_read {\"q\":\"r\"}",
+          "toolCallId": "c5",
+          "toolKind": "normal"
+        },
+        {
+          "role": "assistant",
+          "content": "all done",
+          "iterations": 4,
+          "toolCallsTotal": 5,
+          "meta": {
+            "transcript": {
+              "completion": {
+                "status": "done",
+                "verb": "Thought",
+                "elapsedMs": 49
+              }
+            }
+          }
+        }
+      ],
+      "requests": [
+        [
+          {
+            "role": "user",
+            "content": "go"
+          }
+        ],
+        [
+          {
+            "role": "user",
+            "content": "go"
+          },
+          {
+            "role": "assistant",
+            "createdAt": 1794282472776,
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "c1",
+                "name": "probe_write",
+                "arguments": {
+                  "q": "x",
+                  "fail": true
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "Error: probe_write failed",
+            "toolCallId": "c1",
+            "toolKind": "error",
+            "toolTiming": {
+              "dispatchStartedAt": 1794282472776,
+              "executionStartedAt": 1794282472776,
+              "executionCompletedAt": 1794282472777,
+              "postprocessStartedAt": 1794282472777,
+              "resultCompletedAt": 1794282472777
+            }
+          }
+        ],
+        [
+          {
+            "role": "user",
+            "content": "go"
+          },
+          {
+            "role": "assistant",
+            "createdAt": 1794282472776,
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "c1",
+                "name": "probe_write",
+                "arguments": {
+                  "q": "x",
+                  "fail": true
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "Error: probe_write failed",
+            "toolCallId": "c1",
+            "toolKind": "error",
+            "toolTiming": {
+              "dispatchStartedAt": 1794282472776,
+              "executionStartedAt": 1794282472776,
+              "executionCompletedAt": 1794282472777,
+              "postprocessStartedAt": 1794282472777,
+              "resultCompletedAt": 1794282472777
+            }
+          },
+          {
+            "role": "assistant",
+            "createdAt": 1794282472778,
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "c2",
+                "name": "probe_write",
+                "arguments": {
+                  "q": "x",
+                  "fail": true
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "Error: probe_write failed",
+            "toolCallId": "c2",
+            "toolKind": "error",
+            "toolTiming": {
+              "dispatchStartedAt": 1794282472778,
+              "executionStartedAt": 1794282472778,
+              "executionCompletedAt": 1794282472779,
+              "postprocessStartedAt": 1794282472779,
+              "resultCompletedAt": 1794282472779
+            }
+          }
+        ],
+        [
+          {
+            "role": "user",
+            "content": "go"
+          },
+          {
+            "role": "assistant",
+            "createdAt": 1794282472776,
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "c1",
+                "name": "probe_write",
+                "arguments": {
+                  "q": "x",
+                  "fail": true
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "Error: probe_write failed",
+            "toolCallId": "c1",
+            "toolKind": "error",
+            "toolTiming": {
+              "dispatchStartedAt": 1794282472776,
+              "executionStartedAt": 1794282472776,
+              "executionCompletedAt": 1794282472777,
+              "postprocessStartedAt": 1794282472777,
+              "resultCompletedAt": 1794282472777
+            }
+          },
+          {
+            "role": "assistant",
+            "createdAt": 1794282472778,
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "c2",
+                "name": "probe_write",
+                "arguments": {
+                  "q": "x",
+                  "fail": true
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "Error: probe_write failed",
+            "toolCallId": "c2",
+            "toolKind": "error",
+            "toolTiming": {
+              "dispatchStartedAt": 1794282472778,
+              "executionStartedAt": 1794282472778,
+              "executionCompletedAt": 1794282472779,
+              "postprocessStartedAt": 1794282472779,
+              "resultCompletedAt": 1794282472779
+            }
+          },
+          {
+            "role": "assistant",
+            "createdAt": 1794282472780,
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "c3",
+                "name": "probe_write",
+                "arguments": {
+                  "q": "x",
+                  "fail": true
+                }
+              },
+              {
+                "id": "c4",
+                "name": "probe_write",
+                "arguments": {
+                  "q": "x",
+                  "fail": true
+                }
+              },
+              {
+                "id": "c5",
+                "name": "probe_read",
+                "arguments": {
+                  "q": "r"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "Error: probe_write failed",
+            "toolCallId": "c3",
+            "toolKind": "error",
+            "toolTiming": {
+              "dispatchStartedAt": 1794282472780,
+              "executionStartedAt": 1794282472780,
+              "executionCompletedAt": 1794282472780,
+              "postprocessStartedAt": 1794282472781,
+              "resultCompletedAt": 1794282472781
+            }
+          },
+          {
+            "role": "tool",
+            "content": "[repeat-failure-guard] Identical normalized `probe_write` call failed 3 times; not re-executed. Retry only after its inputs or subject change; otherwise leave it unresolved.",
+            "toolCallId": "c4",
+            "toolKind": "error"
+          },
+          {
+            "role": "tool",
+            "content": "ran probe_read {\"q\":\"r\"}",
+            "toolCallId": "c5",
+            "toolKind": "normal",
+            "toolTiming": {
+              "dispatchStartedAt": 1794282472780,
+              "executionStartedAt": 1794282472780,
+              "executionCompletedAt": 1794282472781,
+              "postprocessStartedAt": 1794282472781,
+              "resultCompletedAt": 1794282472781
+            }
+          }
+        ]
+      ],
+      "events": [
+        {
+          "ev": "toolCall",
+          "iteration": 1,
+          "calls": [
+            {
+              "id": "c1",
+              "name": "probe_write",
+              "arguments": {
+                "q": "x",
+                "fail": true
+              }
+            }
+          ]
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "toolCallId": "c1",
+            "content": "Error: probe_write failed",
+            "isError": true,
+            "__earlyNotify": true
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "Error: probe_write failed",
+            "toolCallId": "c1",
+            "toolKind": "error"
+          }
+        },
+        {
+          "ev": "toolCall",
+          "iteration": 2,
+          "calls": [
+            {
+              "id": "c2",
+              "name": "probe_write",
+              "arguments": {
+                "q": "x",
+                "fail": true
+              }
+            }
+          ]
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "toolCallId": "c2",
+            "content": "Error: probe_write failed",
+            "isError": true,
+            "__earlyNotify": true
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "Error: probe_write failed",
+            "toolCallId": "c2",
+            "toolKind": "error"
+          }
+        },
+        {
+          "ev": "toolCall",
+          "iteration": 3,
+          "calls": [
+            {
+              "id": "c3",
+              "name": "probe_write",
+              "arguments": {
+                "q": "x",
+                "fail": true
+              }
+            },
+            {
+              "id": "c4",
+              "name": "probe_write",
+              "arguments": {
+                "q": "x",
+                "fail": true
+              }
+            },
+            {
+              "id": "c5",
+              "name": "probe_read",
+              "arguments": {
+                "q": "r"
+              }
+            }
+          ]
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "toolCallId": "c3",
+            "content": "Error: probe_write failed",
+            "isError": true,
+            "__earlyNotify": true
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "toolCallId": "c4",
+            "content": "Error: probe_write failed",
+            "isError": true,
+            "__earlyNotify": true
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "toolCallId": "c5",
+            "content": "ran probe_read {\"q\":\"r\"}",
+            "isError": false,
+            "__earlyNotify": true
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "Error: probe_write failed",
+            "toolCallId": "c3",
+            "toolKind": "error"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "[repeat-failure-guard] Identical normalized `probe_write` call failed 3 times; not re-executed. Retry only after its inputs or subject change; otherwise leave it unresolved.",
+            "toolCallId": "c4",
+            "toolKind": "error"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "ran probe_read {\"q\":\"r\"}",
+            "toolCallId": "c5",
+            "toolKind": "normal"
+          }
+        }
+      ],
+      "cards": [],
+      "hooks": {
+        "before": [
+          {
+            "name": "probe_write",
+            "args": {
+              "q": "x",
+              "fail": true
+            }
+          },
+          {
+            "name": "probe_write",
+            "args": {
+              "q": "x",
+              "fail": true
+            }
+          },
+          {
+            "name": "probe_write",
+            "args": {
+              "q": "x",
+              "fail": true
+            }
+          },
+          {
+            "name": "probe_write",
+            "args": {
+              "q": "x",
+              "fail": true
+            }
+          },
+          {
+            "name": "probe_read",
+            "args": {
+              "q": "r"
+            }
+          }
+        ],
+        "after": [
+          {
+            "name": "probe_read",
+            "args": {
+              "q": "r"
+            },
+            "result": "ran probe_read {\"q\":\"r\"}"
+          }
+        ]
+      },
+      "executed": [
+        {
+          "name": "probe_write",
+          "args": {
+            "q": "x",
+            "fail": true
+          }
+        },
+        {
+          "name": "probe_write",
+          "args": {
+            "q": "x",
+            "fail": true
+          }
+        },
+        {
+          "name": "probe_write",
+          "args": {
+            "q": "x",
+            "fail": true
+          }
+        },
+        {
+          "name": "probe_write",
+          "args": {
+            "q": "x",
+            "fail": true
+          }
+        },
+        {
+          "name": "probe_read",
+          "args": {
+            "q": "r"
+          }
+        }
+      ],
+      "timeline": [
+        {
+          "ev": "sent",
+          "n": 1
+        },
+        {
+          "ev": "answered",
+          "n": 1
+        },
+        {
+          "ev": "toolCall",
+          "ids": [
+            "c1"
+          ]
+        },
+        {
+          "ev": "pre",
+          "name": "probe_write",
+          "args": {
+            "q": "x",
+            "fail": true
+          }
+        },
+        {
+          "ev": "ran",
+          "name": "probe_write",
+          "args": {
+            "q": "x",
+            "fail": true
+          }
+        },
+        {
+          "ev": "toolResult",
+          "id": "c1",
+          "early": true
+        },
+        {
+          "ev": "toolResult",
+          "id": "c1",
+          "early": false
+        },
+        {
+          "ev": "sent",
+          "n": 2
+        },
+        {
+          "ev": "answered",
+          "n": 2
+        },
+        {
+          "ev": "toolCall",
+          "ids": [
+            "c2"
+          ]
+        },
+        {
+          "ev": "pre",
+          "name": "probe_write",
+          "args": {
+            "q": "x",
+            "fail": true
+          }
+        },
+        {
+          "ev": "ran",
+          "name": "probe_write",
+          "args": {
+            "q": "x",
+            "fail": true
+          }
+        },
+        {
+          "ev": "toolResult",
+          "id": "c2",
+          "early": true
+        },
+        {
+          "ev": "toolResult",
+          "id": "c2",
+          "early": false
+        },
+        {
+          "ev": "sent",
+          "n": 3
+        },
+        {
+          "ev": "answered",
+          "n": 3
+        },
+        {
+          "ev": "toolCall",
+          "ids": [
+            "c3",
+            "c4",
+            "c5"
+          ]
+        },
+        {
+          "ev": "pre",
+          "name": "probe_write",
+          "args": {
+            "q": "x",
+            "fail": true
+          }
+        },
+        {
+          "ev": "pre",
+          "name": "probe_write",
+          "args": {
+            "q": "x",
+            "fail": true
+          }
+        },
+        {
+          "ev": "pre",
+          "name": "probe_read",
+          "args": {
+            "q": "r"
+          }
+        },
+        {
+          "ev": "ran",
+          "name": "probe_write",
+          "args": {
+            "q": "x",
+            "fail": true
+          }
+        },
+        {
+          "ev": "ran",
+          "name": "probe_write",
+          "args": {
+            "q": "x",
+            "fail": true
+          }
+        },
+        {
+          "ev": "ran",
+          "name": "probe_read",
+          "args": {
+            "q": "r"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "id": "c3",
+          "early": true
+        },
+        {
+          "ev": "toolResult",
+          "id": "c4",
+          "early": true
+        },
+        {
+          "ev": "post",
+          "name": "probe_read",
+          "args": {
+            "q": "r"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "id": "c5",
+          "early": true
+        },
+        {
+          "ev": "toolResult",
+          "id": "c3",
+          "early": false
+        },
+        {
+          "ev": "toolResult",
+          "id": "c4",
+          "early": false
+        },
+        {
+          "ev": "toolResult",
+          "id": "c5",
+          "early": false
+        },
+        {
+          "ev": "sent",
+          "n": 4
+        },
+        {
+          "ev": "answered",
+          "n": 4
+        }
+      ],
+      "batches": [
+        {
+          "iteration": 1,
+          "toolCallCount": 1,
+          "calls": [
+            {
+              "tool_call_id": "c1",
+              "tool_name": "probe_write",
+              "array_lengths": null
+            }
+          ]
+        },
+        {
+          "iteration": 2,
+          "toolCallCount": 1,
+          "calls": [
+            {
+              "tool_call_id": "c2",
+              "tool_name": "probe_write",
+              "array_lengths": null
+            }
+          ]
+        },
+        {
+          "iteration": 3,
+          "toolCallCount": 3,
+          "calls": [
+            {
+              "tool_call_id": "c3",
+              "tool_name": "probe_write",
+              "array_lengths": null
+            },
+            {
+              "tool_call_id": "c4",
+              "tool_name": "probe_write",
+              "array_lengths": null
+            },
+            {
+              "tool_call_id": "c5",
+              "tool_name": "probe_read",
+              "array_lengths": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "calls whose arguments were not JSON: a tool, call_tool and a tool of the session (streamed)",
+      "session": {},
+      "mcp": false,
+      "nonBridge": false,
+      "stream": true,
+      "internal": [],
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
+      "ask": [],
+      "answers": [],
+      "hookRewrite": null,
+      "hookDeny": [],
+      "gates": [],
+      "script": [
+        {
+          "calls": [
+            {
+              "id": "c1",
+              "name": "probe_read",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"q\":",
+                "__parseError": "Unexpected end of JSON input"
+              }
+            },
+            {
+              "id": "c2",
+              "name": "call_tool",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"q\":",
+                "__parseError": "Unexpected end of JSON input"
+              }
+            },
+            {
+              "id": "c3",
+              "name": "read",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"q\":",
+                "__parseError": "Unexpected end of JSON input"
+              }
+            },
+            {
+              "id": "c4",
+              "name": "probe_write",
+              "arguments": {
+                "q": "ok"
+              }
+            }
+          ],
+          "settles": [
+            "c4"
+          ]
+        },
+        {
+          "text": "all done"
+        }
+      ],
+      "surface": {
+        "exposure": "bridge-v1",
+        "toolSpec": "full",
+        "tools": [
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "code_graph",
+          "read",
+          "edit",
+          "git",
+          "shell",
+          "task",
+          "todo",
+          "load_tool",
+          "call_tool"
+        ],
+        "catalog": [
+          "find",
+          "glob",
+          "list",
+          "grep",
+          "code_graph",
+          "read",
+          "edit",
+          "git",
+          "github",
+          "shell",
+          "task",
+          "load_tool",
+          "probe_denied",
+          "probe_read",
+          "probe_write",
+          "todo"
+        ],
+        "mcpNames": null
+      },
+      "answer": "all done",
+      "stored": [
+        {
+          "role": "user",
+          "content": "go"
+        },
+        {
+          "role": "assistant",
+          "createdAt": 1794282472948,
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "c1",
+              "name": "probe_read",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"q\":",
+                "__parseError": "Unexpected end of JSON input"
+              }
+            },
+            {
+              "id": "c2",
+              "name": "call_tool",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"q\":",
+                "__parseError": "Unexpected end of JSON input"
+              }
+            },
+            {
+              "id": "c3",
+              "name": "read",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"q\":",
+                "__parseError": "Unexpected end of JSON input"
+              }
+            },
+            {
+              "id": "c4",
+              "name": "probe_write",
+              "arguments": {
+                "q": "ok"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "The arguments provided to `probe_read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.",
+          "toolCallId": "c1",
+          "toolKind": "error"
+        },
+        {
+          "role": "tool",
+          "content": "The arguments provided to `call_tool` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.",
+          "toolCallId": "c2",
+          "toolKind": "error"
+        },
+        {
+          "role": "tool",
+          "content": "The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.",
+          "toolCallId": "c3",
+          "toolKind": "error"
+        },
+        {
+          "role": "tool",
+          "content": "ran probe_write {\"q\":\"ok\"}",
+          "toolCallId": "c4",
+          "toolKind": "normal"
+        },
+        {
+          "role": "assistant",
+          "content": "all done",
+          "iterations": 2,
+          "toolCallsTotal": 4,
+          "meta": {
+            "transcript": {
+              "completion": {
+                "status": "done",
+                "verb": "Thought",
+                "elapsedMs": 75
+              }
+            }
+          }
+        }
+      ],
+      "requests": [
+        [
+          {
+            "role": "user",
+            "content": "go"
+          }
+        ],
+        [
+          {
+            "role": "user",
+            "content": "go"
+          },
+          {
+            "role": "assistant",
+            "createdAt": 1794282472948,
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "c1",
+                "name": "probe_read",
+                "arguments": {
+                  "__invalidToolArgs": true,
+                  "__rawArguments": "{\"q\":",
+                  "__parseError": "Unexpected end of JSON input"
+                }
+              },
+              {
+                "id": "c2",
+                "name": "call_tool",
+                "arguments": {
+                  "__invalidToolArgs": true,
+                  "__rawArguments": "{\"q\":",
+                  "__parseError": "Unexpected end of JSON input"
+                }
+              },
+              {
+                "id": "c3",
+                "name": "read",
+                "arguments": {
+                  "__invalidToolArgs": true,
+                  "__rawArguments": "{\"q\":",
+                  "__parseError": "Unexpected end of JSON input"
+                }
+              },
+              {
+                "id": "c4",
+                "name": "probe_write",
+                "arguments": {
+                  "q": "ok"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "content": "The arguments provided to `probe_read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.",
+            "toolCallId": "c1",
+            "toolKind": "error",
+            "toolTiming": {
+              "dispatchStartedAt": 1794282472949,
+              "executionStartedAt": 1794282472949,
+              "executionCompletedAt": 1794282472949,
+              "postprocessStartedAt": 1794282472949,
+              "resultCompletedAt": 1794282472949
+            }
+          },
+          {
+            "role": "tool",
+            "content": "The arguments provided to `call_tool` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.",
+            "toolCallId": "c2",
+            "toolKind": "error"
+          },
+          {
+            "role": "tool",
+            "content": "The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.",
+            "toolCallId": "c3",
+            "toolKind": "error",
+            "toolTiming": {
+              "dispatchStartedAt": 1794282472949,
+              "executionStartedAt": 1794282472949,
+              "executionCompletedAt": 1794282472949,
+              "postprocessStartedAt": 1794282472949,
+              "resultCompletedAt": 1794282472949
+            }
+          },
+          {
+            "role": "tool",
+            "content": "ran probe_write {\"q\":\"ok\"}",
+            "toolCallId": "c4",
+            "toolKind": "normal",
+            "toolTiming": {
+              "dispatchStartedAt": 1794282472942,
+              "executionStartedAt": 1794282472942,
+              "executionCompletedAt": 1794282472947,
+              "postprocessStartedAt": 1794282472949,
+              "resultCompletedAt": 1794282472949
+            }
+          }
+        ]
+      ],
+      "events": [
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "toolCallId": "c4",
+            "content": "ran probe_write {\"q\":\"ok\"}",
+            "isError": false,
+            "__earlyNotify": true
+          }
+        },
+        {
+          "ev": "toolCall",
+          "iteration": 1,
+          "calls": [
+            {
+              "id": "c1",
+              "name": "probe_read",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"q\":",
+                "__parseError": "Unexpected end of JSON input"
+              }
+            },
+            {
+              "id": "c2",
+              "name": "call_tool",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"q\":",
+                "__parseError": "Unexpected end of JSON input"
+              }
+            },
+            {
+              "id": "c3",
+              "name": "read",
+              "arguments": {
+                "__invalidToolArgs": true,
+                "__rawArguments": "{\"q\":",
+                "__parseError": "Unexpected end of JSON input"
+              }
+            },
+            {
+              "id": "c4",
+              "name": "probe_write",
+              "arguments": {
+                "q": "ok"
+              }
+            }
+          ]
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "The arguments provided to `probe_read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.",
+            "toolCallId": "c1",
+            "toolKind": "error"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "The arguments provided to `call_tool` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.",
+            "toolCallId": "c2",
+            "toolKind": "error"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "The arguments provided to `read` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments.",
+            "toolCallId": "c3",
+            "toolKind": "error"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "message": {
+            "role": "tool",
+            "content": "ran probe_write {\"q\":\"ok\"}",
+            "toolCallId": "c4",
+            "toolKind": "normal"
+          }
+        }
+      ],
+      "cards": [],
+      "hooks": {
+        "before": [
+          {
+            "name": "probe_write",
+            "args": {
+              "q": "ok"
+            }
+          }
+        ],
+        "after": [
+          {
+            "name": "probe_write",
+            "args": {
+              "q": "ok"
+            },
+            "result": "ran probe_write {\"q\":\"ok\"}"
+          }
+        ]
+      },
+      "executed": [
+        {
+          "name": "probe_write",
+          "args": {
+            "q": "ok"
+          }
+        }
+      ],
+      "timeline": [
+        {
+          "ev": "sent",
+          "n": 1
+        },
+        {
+          "ev": "pre",
+          "name": "probe_write",
+          "args": {
+            "q": "ok"
+          }
+        },
+        {
+          "ev": "ran",
+          "name": "probe_write",
+          "args": {
+            "q": "ok"
+          }
+        },
+        {
+          "ev": "post",
+          "name": "probe_write",
+          "args": {
+            "q": "ok"
+          }
+        },
+        {
+          "ev": "toolResult",
+          "id": "c4",
+          "early": true
+        },
+        {
+          "ev": "answered",
+          "n": 1
+        },
+        {
+          "ev": "toolCall",
+          "ids": [
+            "c1",
+            "c2",
+            "c3",
+            "c4"
+          ]
+        },
+        {
+          "ev": "toolResult",
+          "id": "c1",
+          "early": false
+        },
+        {
+          "ev": "toolResult",
+          "id": "c2",
+          "early": false
+        },
+        {
+          "ev": "toolResult",
+          "id": "c3",
+          "early": false
+        },
+        {
+          "ev": "toolResult",
+          "id": "c4",
+          "early": false
+        },
+        {
+          "ev": "sent",
+          "n": 2
+        },
+        {
+          "ev": "answered",
+          "n": 2
+        }
+      ],
+      "batches": [
+        {
+          "iteration": 1,
+          "toolCallCount": 4,
+          "calls": [
+            {
+              "tool_call_id": "c1",
+              "tool_name": "probe_read",
+              "array_lengths": null
+            },
+            {
+              "tool_call_id": "c2",
+              "tool_name": "call_tool",
+              "array_lengths": null
+            },
+            {
+              "tool_call_id": "c3",
+              "tool_name": "read",
+              "array_lengths": {}
+            },
+            {
+              "tool_call_id": "c4",
+              "tool_name": "probe_write",
+              "array_lengths": null
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "a read-only deferred tool through call_tool, twice in one turn and again in the next (streamed)",
       "session": {},
       "mcp": false,
       "nonBridge": false,
       "stream": true,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -18687,7 +20608,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281267342,
+          "createdAt": 1794282473097,
           "content": "",
           "toolCalls": [
             {
@@ -18742,7 +20663,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281267343,
+          "createdAt": 1794282473100,
           "content": "",
           "toolCalls": [
             {
@@ -18773,7 +20694,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 35
+                "elapsedMs": 64
               }
             }
           }
@@ -18793,7 +20714,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281267342,
+            "createdAt": 1794282473097,
             "content": "",
             "toolCalls": [
               {
@@ -18834,11 +20755,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281267339,
-              "executionStartedAt": 1794281267339,
-              "executionCompletedAt": 1794281267340,
-              "postprocessStartedAt": 1794281267342,
-              "resultCompletedAt": 1794281267342
+              "dispatchStartedAt": 1794282473095,
+              "executionStartedAt": 1794282473095,
+              "executionCompletedAt": 1794282473096,
+              "postprocessStartedAt": 1794282473097,
+              "resultCompletedAt": 1794282473097
             }
           },
           {
@@ -18853,11 +20774,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281267340,
-              "executionStartedAt": 1794281267340,
-              "executionCompletedAt": 1794281267341,
-              "postprocessStartedAt": 1794281267342,
-              "resultCompletedAt": 1794281267342
+              "dispatchStartedAt": 1794282473096,
+              "executionStartedAt": 1794282473096,
+              "executionCompletedAt": 1794282473096,
+              "postprocessStartedAt": 1794282473097,
+              "resultCompletedAt": 1794282473097
             }
           }
         ],
@@ -18868,7 +20789,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281267342,
+            "createdAt": 1794282473097,
             "content": "",
             "toolCalls": [
               {
@@ -18909,11 +20830,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281267339,
-              "executionStartedAt": 1794281267339,
-              "executionCompletedAt": 1794281267340,
-              "postprocessStartedAt": 1794281267342,
-              "resultCompletedAt": 1794281267342
+              "dispatchStartedAt": 1794282473095,
+              "executionStartedAt": 1794282473095,
+              "executionCompletedAt": 1794282473096,
+              "postprocessStartedAt": 1794282473097,
+              "resultCompletedAt": 1794282473097
             }
           },
           {
@@ -18928,16 +20849,16 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281267340,
-              "executionStartedAt": 1794281267340,
-              "executionCompletedAt": 1794281267341,
-              "postprocessStartedAt": 1794281267342,
-              "resultCompletedAt": 1794281267342
+              "dispatchStartedAt": 1794282473096,
+              "executionStartedAt": 1794282473096,
+              "executionCompletedAt": 1794282473096,
+              "postprocessStartedAt": 1794282473097,
+              "resultCompletedAt": 1794282473097
             }
           },
           {
             "role": "assistant",
-            "createdAt": 1794281267343,
+            "createdAt": 1794282473100,
             "content": "",
             "toolCalls": [
               {
@@ -18958,11 +20879,11 @@
             "toolCallId": "c4",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281267343,
-              "executionStartedAt": 1794281267343,
-              "executionCompletedAt": 1794281267343,
-              "postprocessStartedAt": 1794281267344,
-              "resultCompletedAt": 1794281267344
+              "dispatchStartedAt": 1794282473098,
+              "executionStartedAt": 1794282473098,
+              "executionCompletedAt": 1794282473099,
+              "postprocessStartedAt": 1794282473100,
+              "resultCompletedAt": 1794282473100
             }
           }
         ]
@@ -19337,7 +21258,7 @@
       "nonBridge": false,
       "stream": true,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -19521,7 +21442,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281267522,
+          "createdAt": 1794282473284,
           "content": "",
           "toolCalls": [
             {
@@ -19749,7 +21670,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 109
+                "elapsedMs": 111
               }
             }
           }
@@ -19769,7 +21690,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281267522,
+            "createdAt": 1794282473284,
             "content": "",
             "toolCalls": [
               {
@@ -20465,7 +22386,7 @@
       "nonBridge": false,
       "stream": true,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [
         "probe_write"
       ],
@@ -20545,7 +22466,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281267662,
+          "createdAt": 1794282473438,
           "content": "",
           "toolCalls": [
             {
@@ -20576,7 +22497,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 56
+                "elapsedMs": 52
               }
             }
           }
@@ -20596,7 +22517,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281267662,
+            "createdAt": 1794282473438,
             "content": "",
             "toolCalls": [
               {
@@ -20617,11 +22538,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281267656,
-              "executionStartedAt": 1794281267656,
-              "executionCompletedAt": 1794281267661,
-              "postprocessStartedAt": 1794281267662,
-              "resultCompletedAt": 1794281267662
+              "dispatchStartedAt": 1794282473428,
+              "executionStartedAt": 1794282473428,
+              "executionCompletedAt": 1794282473437,
+              "postprocessStartedAt": 1794282473438,
+              "resultCompletedAt": 1794282473438
             }
           }
         ]
@@ -20677,8 +22598,8 @@
           "args": {
             "q": "x"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
-          "sessionId": "sess_call_tool_44",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
+          "sessionId": "sess_call_tool_47",
           "toolCallId": "c1",
           "reason": "needs approval"
         }
@@ -20793,7 +22714,7 @@
       "nonBridge": false,
       "stream": true,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [
         "probe_write"
       ],
@@ -20892,7 +22813,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281267789,
+          "createdAt": 1794282473552,
           "content": "",
           "toolCalls": [
             {
@@ -20953,7 +22874,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 42
+                "elapsedMs": 39
               }
             }
           }
@@ -20973,7 +22894,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281267789,
+            "createdAt": 1794282473552,
             "content": "",
             "toolCalls": [
               {
@@ -21012,11 +22933,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281267785,
-              "executionStartedAt": 1794281267785,
-              "executionCompletedAt": 1794281267788,
-              "postprocessStartedAt": 1794281267789,
-              "resultCompletedAt": 1794281267789
+              "dispatchStartedAt": 1794282473546,
+              "executionStartedAt": 1794282473546,
+              "executionCompletedAt": 1794282473552,
+              "postprocessStartedAt": 1794282473552,
+              "resultCompletedAt": 1794282473552
             }
           },
           {
@@ -21031,11 +22952,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281267786,
-              "executionStartedAt": 1794281267786,
-              "executionCompletedAt": 1794281267788,
-              "postprocessStartedAt": 1794281267789,
-              "resultCompletedAt": 1794281267789
+              "dispatchStartedAt": 1794282473547,
+              "executionStartedAt": 1794282473547,
+              "executionCompletedAt": 1794282473551,
+              "postprocessStartedAt": 1794282473552,
+              "resultCompletedAt": 1794282473553
             }
           }
         ]
@@ -21137,8 +23058,8 @@
           "args": {
             "q": "1"
           },
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
-          "sessionId": "sess_call_tool_45",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
+          "sessionId": "sess_call_tool_48",
           "toolCallId": "c1",
           "reason": "needs approval"
         }
@@ -21289,7 +23210,29 @@
           "n": 2
         }
       ],
-      "batches": []
+      "batches": [
+        {
+          "iteration": 1,
+          "toolCallCount": 3,
+          "calls": [
+            {
+              "tool_call_id": "c1",
+              "tool_name": "probe_write",
+              "array_lengths": null
+            },
+            {
+              "tool_call_id": "c2",
+              "tool_name": "call_tool",
+              "array_lengths": null
+            },
+            {
+              "tool_call_id": "c3",
+              "tool_name": "probe_read",
+              "array_lengths": null
+            }
+          ]
+        }
+      ]
     },
     {
       "name": "a session that denies a tool (streamed)",
@@ -21302,7 +23245,7 @@
       "nonBridge": false,
       "stream": true,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -21390,7 +23333,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281267896,
+          "createdAt": 1794282473666,
           "content": "",
           "toolCalls": [
             {
@@ -21448,7 +23391,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 39
+                "elapsedMs": 32
               }
             }
           }
@@ -21468,7 +23411,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281267896,
+            "createdAt": 1794282473666,
             "content": "",
             "toolCalls": [
               {
@@ -21516,11 +23459,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281267895,
-              "executionStartedAt": 1794281267895,
-              "executionCompletedAt": 1794281267896,
-              "postprocessStartedAt": 1794281267896,
-              "resultCompletedAt": 1794281267896
+              "dispatchStartedAt": 1794282473664,
+              "executionStartedAt": 1794282473664,
+              "executionCompletedAt": 1794282473665,
+              "postprocessStartedAt": 1794282473666,
+              "resultCompletedAt": 1794282473666
             }
           }
         ]
@@ -21678,7 +23621,29 @@
           "n": 2
         }
       ],
-      "batches": []
+      "batches": [
+        {
+          "iteration": 1,
+          "toolCallCount": 3,
+          "calls": [
+            {
+              "tool_call_id": "c1",
+              "tool_name": "call_tool",
+              "array_lengths": null
+            },
+            {
+              "tool_call_id": "c2",
+              "tool_name": "probe_write",
+              "array_lengths": null
+            },
+            {
+              "tool_call_id": "c3",
+              "tool_name": "probe_read",
+              "array_lengths": null
+            }
+          ]
+        }
+      ]
     },
     {
       "name": "a read-only session (streamed)",
@@ -21689,7 +23654,7 @@
       "nonBridge": false,
       "stream": true,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -21787,7 +23752,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281268003,
+          "createdAt": 1794282473799,
           "content": "",
           "toolCalls": [
             {
@@ -21857,7 +23822,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 44
+                "elapsedMs": 45
               }
             }
           }
@@ -21877,7 +23842,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281268003,
+            "createdAt": 1794282473799,
             "content": "",
             "toolCalls": [
               {
@@ -21919,11 +23884,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281268001,
-              "executionStartedAt": 1794281268001,
-              "executionCompletedAt": 1794281268002,
-              "postprocessStartedAt": 1794281268004,
-              "resultCompletedAt": 1794281268004
+              "dispatchStartedAt": 1794282473797,
+              "executionStartedAt": 1794282473797,
+              "executionCompletedAt": 1794282473798,
+              "postprocessStartedAt": 1794282473799,
+              "resultCompletedAt": 1794282473799
             }
           },
           {
@@ -21932,11 +23897,11 @@
             "toolCallId": "c2",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281268001,
-              "executionStartedAt": 1794281268001,
-              "executionCompletedAt": 1794281268002,
-              "postprocessStartedAt": 1794281268004,
-              "resultCompletedAt": 1794281268004
+              "dispatchStartedAt": 1794282473797,
+              "executionStartedAt": 1794282473797,
+              "executionCompletedAt": 1794282473798,
+              "postprocessStartedAt": 1794282473799,
+              "resultCompletedAt": 1794282473799
             }
           },
           {
@@ -21945,11 +23910,11 @@
             "toolCallId": "c3",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281268002,
-              "executionStartedAt": 1794281268002,
-              "executionCompletedAt": 1794281268003,
-              "postprocessStartedAt": 1794281268004,
-              "resultCompletedAt": 1794281268004
+              "dispatchStartedAt": 1794282473798,
+              "executionStartedAt": 1794282473798,
+              "executionCompletedAt": 1794282473798,
+              "postprocessStartedAt": 1794282473799,
+              "resultCompletedAt": 1794282473799
             }
           },
           {
@@ -21958,11 +23923,11 @@
             "toolCallId": "c4",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281268002,
-              "executionStartedAt": 1794281268002,
-              "executionCompletedAt": 1794281268002,
-              "postprocessStartedAt": 1794281268004,
-              "resultCompletedAt": 1794281268004
+              "dispatchStartedAt": 1794282473798,
+              "executionStartedAt": 1794282473798,
+              "executionCompletedAt": 1794282473798,
+              "postprocessStartedAt": 1794282473799,
+              "resultCompletedAt": 1794282473800
             }
           }
         ]
@@ -22243,7 +24208,34 @@
           "n": 2
         }
       ],
-      "batches": []
+      "batches": [
+        {
+          "iteration": 1,
+          "toolCallCount": 4,
+          "calls": [
+            {
+              "tool_call_id": "c1",
+              "tool_name": "load_tool",
+              "array_lengths": null
+            },
+            {
+              "tool_call_id": "c2",
+              "tool_name": "probe_write",
+              "array_lengths": null
+            },
+            {
+              "tool_call_id": "c3",
+              "tool_name": "probe_read",
+              "array_lengths": null
+            },
+            {
+              "tool_call_id": "c4",
+              "tool_name": "probe_write",
+              "array_lengths": null
+            }
+          ]
+        }
+      ]
     },
     {
       "name": "a session with no resolved tool mode (streamed)",
@@ -22254,7 +24246,7 @@
       "nonBridge": false,
       "stream": true,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -22347,7 +24339,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281268124,
+          "createdAt": 1794282473923,
           "content": "",
           "toolCalls": [
             {
@@ -22412,7 +24404,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 48
+                "elapsedMs": 35
               }
             }
           }
@@ -22432,7 +24424,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281268124,
+            "createdAt": 1794282473923,
             "content": "",
             "toolCalls": [
               {
@@ -22469,11 +24461,11 @@
             "toolCallId": "c1",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281268121,
-              "executionStartedAt": 1794281268121,
-              "executionCompletedAt": 1794281268121,
-              "postprocessStartedAt": 1794281268124,
-              "resultCompletedAt": 1794281268124
+              "dispatchStartedAt": 1794282473921,
+              "executionStartedAt": 1794282473921,
+              "executionCompletedAt": 1794282473922,
+              "postprocessStartedAt": 1794282473923,
+              "resultCompletedAt": 1794282473924
             }
           },
           {
@@ -22482,11 +24474,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281268121,
-              "executionStartedAt": 1794281268121,
-              "executionCompletedAt": 1794281268123,
-              "postprocessStartedAt": 1794281268124,
-              "resultCompletedAt": 1794281268124
+              "dispatchStartedAt": 1794282473922,
+              "executionStartedAt": 1794282473922,
+              "executionCompletedAt": 1794282473923,
+              "postprocessStartedAt": 1794282473924,
+              "resultCompletedAt": 1794282473924
             }
           },
           {
@@ -22495,11 +24487,11 @@
             "toolCallId": "c3",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281268122,
-              "executionStartedAt": 1794281268122,
-              "executionCompletedAt": 1794281268122,
-              "postprocessStartedAt": 1794281268124,
-              "resultCompletedAt": 1794281268124
+              "dispatchStartedAt": 1794282473922,
+              "executionStartedAt": 1794282473922,
+              "executionCompletedAt": 1794282473923,
+              "postprocessStartedAt": 1794282473924,
+              "resultCompletedAt": 1794282473924
             }
           },
           {
@@ -22508,11 +24500,11 @@
             "toolCallId": "c4",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281268122,
-              "executionStartedAt": 1794281268122,
-              "executionCompletedAt": 1794281268123,
-              "postprocessStartedAt": 1794281268124,
-              "resultCompletedAt": 1794281268124
+              "dispatchStartedAt": 1794282473922,
+              "executionStartedAt": 1794282473922,
+              "executionCompletedAt": 1794282473923,
+              "postprocessStartedAt": 1794282473924,
+              "resultCompletedAt": 1794282473924
             }
           }
         ]
@@ -22777,7 +24769,34 @@
           "n": 2
         }
       ],
-      "batches": []
+      "batches": [
+        {
+          "iteration": 1,
+          "toolCallCount": 4,
+          "calls": [
+            {
+              "tool_call_id": "c1",
+              "tool_name": "probe_write",
+              "array_lengths": null
+            },
+            {
+              "tool_call_id": "c2",
+              "tool_name": "probe_read",
+              "array_lengths": null
+            },
+            {
+              "tool_call_id": "c3",
+              "tool_name": "probe_write",
+              "array_lengths": null
+            },
+            {
+              "tool_call_id": "c4",
+              "tool_name": "probe_read",
+              "array_lengths": null
+            }
+          ]
+        }
+      ]
     },
     {
       "name": "a loaded deferred tool called directly (streamed)",
@@ -22786,7 +24805,7 @@
       "nonBridge": false,
       "stream": true,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -22873,7 +24892,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281268230,
+          "createdAt": 1794282474052,
           "content": "",
           "toolCalls": [
             {
@@ -22895,7 +24914,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281268231,
+          "createdAt": 1794282474053,
           "content": "",
           "toolCalls": [
             {
@@ -22923,7 +24942,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 38
+                "elapsedMs": 40
               }
             }
           }
@@ -22943,7 +24962,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281268230,
+            "createdAt": 1794282474052,
             "content": "",
             "toolCalls": [
               {
@@ -22963,11 +24982,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281268228,
-              "executionStartedAt": 1794281268229,
-              "executionCompletedAt": 1794281268229,
-              "postprocessStartedAt": 1794281268230,
-              "resultCompletedAt": 1794281268230
+              "dispatchStartedAt": 1794282474050,
+              "executionStartedAt": 1794282474050,
+              "executionCompletedAt": 1794282474051,
+              "postprocessStartedAt": 1794282474052,
+              "resultCompletedAt": 1794282474052
             }
           }
         ],
@@ -22978,7 +24997,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281268230,
+            "createdAt": 1794282474052,
             "content": "",
             "toolCalls": [
               {
@@ -22998,16 +25017,16 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281268228,
-              "executionStartedAt": 1794281268229,
-              "executionCompletedAt": 1794281268229,
-              "postprocessStartedAt": 1794281268230,
-              "resultCompletedAt": 1794281268230
+              "dispatchStartedAt": 1794282474050,
+              "executionStartedAt": 1794282474050,
+              "executionCompletedAt": 1794282474051,
+              "postprocessStartedAt": 1794282474052,
+              "resultCompletedAt": 1794282474052
             }
           },
           {
             "role": "assistant",
-            "createdAt": 1794281268231,
+            "createdAt": 1794282474053,
             "content": "",
             "toolCalls": [
               {
@@ -23025,11 +25044,11 @@
             "toolCallId": "c2",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281268230,
-              "executionStartedAt": 1794281268230,
-              "executionCompletedAt": 1794281268231,
-              "postprocessStartedAt": 1794281268231,
-              "resultCompletedAt": 1794281268231
+              "dispatchStartedAt": 1794282474052,
+              "executionStartedAt": 1794282474052,
+              "executionCompletedAt": 1794282474053,
+              "postprocessStartedAt": 1794282474054,
+              "resultCompletedAt": 1794282474054
             }
           }
         ]
@@ -23244,7 +25263,30 @@
           "n": 3
         }
       ],
-      "batches": []
+      "batches": [
+        {
+          "iteration": 1,
+          "toolCallCount": 1,
+          "calls": [
+            {
+              "tool_call_id": "c1",
+              "tool_name": "load_tool",
+              "array_lengths": null
+            }
+          ]
+        },
+        {
+          "iteration": 2,
+          "toolCallCount": 1,
+          "calls": [
+            {
+              "tool_call_id": "c2",
+              "tool_name": "probe_write",
+              "array_lengths": null
+            }
+          ]
+        }
+      ]
     },
     {
       "name": "an MCP tool of a connected server through call_tool (streamed)",
@@ -23253,7 +25295,7 @@
       "nonBridge": false,
       "stream": true,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -23328,7 +25370,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281268332,
+          "createdAt": 1794282474168,
           "content": "",
           "toolCalls": [
             {
@@ -23379,7 +25421,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281268332,
+            "createdAt": 1794282474168,
             "content": "",
             "toolCalls": [
               {
@@ -23400,11 +25442,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281268330,
-              "executionStartedAt": 1794281268330,
-              "executionCompletedAt": 1794281268332,
-              "postprocessStartedAt": 1794281268332,
-              "resultCompletedAt": 1794281268332
+              "dispatchStartedAt": 1794282474166,
+              "executionStartedAt": 1794282474166,
+              "executionCompletedAt": 1794282474168,
+              "postprocessStartedAt": 1794282474169,
+              "resultCompletedAt": 1794282474169
             }
           }
         ]
@@ -23538,7 +25580,7 @@
       "nonBridge": false,
       "stream": true,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": null,
@@ -23622,7 +25664,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281268496,
+          "createdAt": 1794282474284,
           "content": "",
           "toolCalls": [
             {
@@ -23666,7 +25708,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 47
+                "elapsedMs": 36
               }
             }
           }
@@ -23686,7 +25728,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281268496,
+            "createdAt": 1794282474284,
             "content": "",
             "toolCalls": [
               {
@@ -23714,11 +25756,11 @@
             "toolCallId": "c1",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281268495,
-              "executionStartedAt": 1794281268495,
-              "executionCompletedAt": 1794281268495,
-              "postprocessStartedAt": 1794281268496,
-              "resultCompletedAt": 1794281268496
+              "dispatchStartedAt": 1794282474282,
+              "executionStartedAt": 1794282474282,
+              "executionCompletedAt": 1794282474283,
+              "postprocessStartedAt": 1794282474284,
+              "resultCompletedAt": 1794282474284
             }
           },
           {
@@ -23727,11 +25769,11 @@
             "toolCallId": "c2",
             "toolKind": "error",
             "toolTiming": {
-              "dispatchStartedAt": 1794281268495,
-              "executionStartedAt": 1794281268495,
-              "executionCompletedAt": 1794281268495,
-              "postprocessStartedAt": 1794281268496,
-              "resultCompletedAt": 1794281268496
+              "dispatchStartedAt": 1794282474283,
+              "executionStartedAt": 1794282474283,
+              "executionCompletedAt": 1794282474283,
+              "postprocessStartedAt": 1794282474284,
+              "resultCompletedAt": 1794282474284
             }
           }
         ]
@@ -23886,7 +25928,7 @@
       "nonBridge": false,
       "stream": true,
       "internal": [],
-      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-Wc7eZw\\work",
+      "workdir": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.800a87ad72873c0e\\rec-call-tool-zCszaw\\work",
       "ask": [],
       "answers": [],
       "hookRewrite": {
@@ -23967,7 +26009,7 @@
         },
         {
           "role": "assistant",
-          "createdAt": 1794281268591,
+          "createdAt": 1794282474415,
           "content": "",
           "toolCalls": [
             {
@@ -23998,7 +26040,7 @@
               "completion": {
                 "status": "done",
                 "verb": "Thought",
-                "elapsedMs": 36
+                "elapsedMs": 41
               }
             }
           }
@@ -24018,7 +26060,7 @@
           },
           {
             "role": "assistant",
-            "createdAt": 1794281268591,
+            "createdAt": 1794282474415,
             "content": "",
             "toolCalls": [
               {
@@ -24039,11 +26081,11 @@
             "toolCallId": "c1",
             "toolKind": "normal",
             "toolTiming": {
-              "dispatchStartedAt": 1794281268590,
-              "executionStartedAt": 1794281268590,
-              "executionCompletedAt": 1794281268590,
-              "postprocessStartedAt": 1794281268591,
-              "resultCompletedAt": 1794281268591
+              "dispatchStartedAt": 1794282474414,
+              "executionStartedAt": 1794282474414,
+              "executionCompletedAt": 1794282474414,
+              "postprocessStartedAt": 1794282474415,
+              "resultCompletedAt": 1794282474415
             }
           }
         ]

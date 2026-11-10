@@ -147,7 +147,8 @@ impl ToolSet {
     /// What a call to `call_tool` stands for, when the surface carries a projecting tool under that
     /// name (a bridge session): the call of its target, or the text the call is answered with.
     pub(crate) fn project(&self, thread: &mixdog_protocol::ThreadId, call: &ToolCall) -> Projection {
-        if call.name != "call_tool" {
+        // A call the provider could not parse is never projected: it is answered with the retry notice as it stands.
+        if call.name != "call_tool" || is_invalid_args_marker(&call.arguments) {
             return Projection::Plain;
         }
         let Some(projection) = self.get("call_tool").and_then(|tool| tool.projection()) else {
@@ -609,9 +610,24 @@ fn denial_for_unapproved(name: &str, detail: &str) -> String {
     )
 }
 
+/// `isInvalidToolArgsMarker` (`providers/lib/openai-tool-args.mjs`).
+pub(crate) fn is_invalid_args_marker(arguments: &JsonValue) -> bool {
+    arguments.get("__invalidToolArgs").and_then(JsonValue::as_bool) == Some(true)
+}
+
 /// Policy, approval wait, then the tool task. Awaiting the approval is a
 /// cancel-safe wait: the run's token ends it from outside.
 pub(crate) async fn execute_call(call: ToolCall, env: Arc<CallEnv>) -> Executed {
+    // `executeBatchCall`'s invalid-args guard (`session/tool-batch/execute-call.mjs`): a call whose arguments the provider
+    // could not parse is answered with the retry notice and never dispatched, whatever its name (a `call_tool` included).
+    if is_invalid_args_marker(&call.arguments) {
+        let detail = call.arguments.get("__parseError").and_then(JsonValue::as_str).filter(|d| !d.is_empty()).unwrap_or("arguments were not valid JSON");
+        let name = if call.name.is_empty() { "tool" } else { call.name.as_str() };
+        return Executed::error(
+            &call.id,
+            format!("The arguments provided to `{name}` are invalid JSON and could not be parsed: {detail}. Re-issue this tool call with valid JSON arguments."),
+        );
+    }
     let executed = execute_gated(&call, &env).await;
     // PostToolUseFailure: a tool that resolved to a failure fires the hook;
     // it never breaks the loop.
