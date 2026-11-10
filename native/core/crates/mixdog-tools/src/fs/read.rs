@@ -1652,6 +1652,7 @@ impl ReadTool {
                 include_hidden: false,
                 respect_ignore: true,
                 include_dirs: false,
+                prune: Vec::new(),
             },
         );
         let mut hits = Vec::new();

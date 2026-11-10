@@ -714,6 +714,10 @@ impl FileService for LocalFileService {
                 }
             };
             ignore_rules(&mut builder, request.respect_ignore);
+            let prune: Vec<PathBuf> = request.prune.iter().map(|p| p.as_path().to_path_buf()).collect();
+            if !prune.is_empty() {
+                builder.filter_entry(move |entry| !prune.iter().any(|p| entry.path() == p));
+            }
             for item in builder.build() {
                 if stop() {
                     return;
@@ -1268,7 +1272,7 @@ mod tests {
         };
         assert_eq!(search(root.clone()).await, vec!["a.txt"]);
         assert_eq!(search(root.join(".git")).await, vec!["config"]);
-        let mut walk = fs.walk(l.maintenance, WalkRequest { root: root.clone(), recursive: true, include_dirs: true, include_hidden: true, respect_ignore: false });
+        let mut walk = fs.walk(l.maintenance, WalkRequest { root: root.clone(), recursive: true, include_dirs: true, include_hidden: true, respect_ignore: false, prune: Vec::new() });
         let mut names = Vec::new();
         while let Some(e) = walk.next().await {
             names.push(e.unwrap().path.as_path().file_name().unwrap().to_string_lossy().into_owned());

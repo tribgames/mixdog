@@ -86,6 +86,8 @@ pub struct WalkRequest {
     /// Honour `.gitignore` and friends.
     pub respect_ignore: bool,
     pub include_dirs: bool,
+    /// Directories the walk neither lists nor enters.
+    pub prune: Vec<AbsPath>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
