@@ -22,6 +22,7 @@ use std::task::Waker;
 
 use serde_json::Value;
 
+use super::installer::TimerHandle;
 use super::installer::Timers;
 use super::router::BoxFuture;
 
@@ -278,13 +279,18 @@ impl Drop for Sleep {
 }
 
 struct Timer {
+    /// Nanoseconds since the start.
     due: u64,
     seq: u64,
     state: Arc<Mutex<TimerState>>,
+    /// A `set_timeout` callback, run by `advance` itself as Node's timer queue runs it; `None` for a sleep,
+    /// whose task is woken instead.
+    callback: Option<Box<dyn FnOnce() + Send>>,
 }
 
 #[derive(Default)]
 struct Clock {
+    /// Nanoseconds since the start.
     now: u64,
     seq: u64,
     timers: Vec<Timer>,
@@ -307,15 +313,20 @@ impl VirtualTimers {
         self.clock.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Time elapsed since the start.
-    pub(super) fn elapsed(&self) -> u64 {
-        self.clock().now
+    /// Milliseconds elapsed since the start, as the recorder writes them (a whole number when it is one).
+    pub(super) fn elapsed(&self) -> Value {
+        ms_value(self.clock().now)
+    }
+
+    /// Timers armed and neither run nor dropped.
+    pub(super) fn pending(&self) -> usize {
+        self.clock().timers.iter().filter(|timer| !lock(&timer.state).cancelled).count()
     }
 
     /// Moves the clock forward by `ms`, running each timer that falls due, in order, one at a time; returns
     /// how many ran.
     pub(super) async fn advance(&self, ms: u64) -> usize {
-        let until = self.clock().now + ms;
+        let until = self.clock().now + ms * 1_000_000;
         let mut ran = 0;
         loop {
             let due = {
@@ -342,6 +353,9 @@ impl VirtualTimers {
             if let Some(waker) = waker {
                 waker.wake();
             }
+            if let Some(callback) = timer.callback {
+                callback();
+            }
             self.replay.settle().await;
             ran += 1;
         }
@@ -350,13 +364,22 @@ impl VirtualTimers {
     }
 }
 
+/// Nanoseconds as a JSON number of milliseconds: whole when they are, as Node's numbers are.
+pub(super) fn ms_value(nanos: u64) -> Value {
+    if nanos % 1_000_000 == 0 { Value::from(nanos / 1_000_000) } else { Value::from(nanos as f64 / 1e6) }
+}
+
 impl Timers for VirtualTimers {
-    fn sleep(&self, ms: u64) -> BoxFuture<()> {
+    fn now_ms(&self) -> f64 {
+        self.clock().now as f64 / 1e6
+    }
+
+    fn sleep(&self, after: std::time::Duration) -> BoxFuture<()> {
         let state = Arc::new(Mutex::new(TimerState { fired: false, cancelled: false, waker: None }));
         {
             let mut clock = self.clock();
             clock.seq += 1;
-            let timer = Timer { due: clock.now + ms, seq: clock.seq, state: state.clone() };
+            let timer = Timer { due: clock.now + after.as_nanos() as u64, seq: clock.seq, state: state.clone(), callback: None };
             clock.timers.push(timer);
         }
         Box::pin(Sleep(state))
@@ -364,5 +387,16 @@ impl Timers for VirtualTimers {
 
     fn spawn(&self, task: BoxFuture<()>) {
         self.replay.spawn(task);
+    }
+
+    fn set_timeout(&self, after: std::time::Duration, callback: Box<dyn FnOnce() + Send>) -> TimerHandle {
+        let state = Arc::new(Mutex::new(TimerState { fired: false, cancelled: false, waker: None }));
+        {
+            let mut clock = self.clock();
+            clock.seq += 1;
+            let timer = Timer { due: clock.now + after.as_nanos() as u64, seq: clock.seq, state: state.clone(), callback: Some(callback) };
+            clock.timers.push(timer);
+        }
+        TimerHandle::new(move || lock(&state).cancelled = true)
     }
 }

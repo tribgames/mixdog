@@ -19,6 +19,8 @@ mod lease;
 mod router;
 #[cfg(any(windows, test))]
 mod switch;
+#[cfg(any(windows, test))]
+mod video;
 #[cfg(test)]
 mod installer_tests;
 #[cfg(test)]
@@ -29,6 +31,8 @@ mod router_tests;
 mod switch_tests;
 #[cfg(test)]
 mod testing;
+#[cfg(test)]
+mod video_tests;
 
 #[cfg(windows)]
 pub(super) use win::Screen;

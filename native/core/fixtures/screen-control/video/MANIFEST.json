@@ -1,0 +1,55 @@
+{
+  "command": "(cd <tree>/apps/desktop && node --import tsx benchmarks/rust-core/recorders/record-screen-control-video.mjs --tree <tree>)",
+  "common": "benchmarks/rust-core/recorders/lib/common.mjs",
+  "commonSha256": "d4d0064b5b40d5fcb833a69fb3d68a69b1c1317606b5fe341c3445d5d0bbefd4",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 47023,
+      "path": "scenarios.json",
+      "sha256": "299dc4fb27f59ed0f279de2cb11405056cba9bb72c97184e6955ebc33a4173e5"
+    }
+  ],
+  "inputs": {
+    "scenarios": [
+      "a started capture run declares its epoch and the session geometry; the channel state carries status and video",
+      "a start the session refuses reports no geometry and the error",
+      "the helper path: a new unannounced run, the drawn track, frames at the plan’s rate; a delivery announces it and a seen grants control",
+      "a delivery or seen of another run, off the helper path, or while not running counts for nothing",
+      "the stall watchdog: 216 ms before two deliveries, then max(3 × average, average + 150) of the last 30 intervals",
+      "leaving the helper path ends the run, withdraws control and switches the track back; the watchdog is cleared",
+      "taking the helper hold starts a fresh run on the same path",
+      "the viewer’s channel lost on the helper path starts a new run and releases input; on the capture path it only releases",
+      "a helper challenge goes to the phone with the current run; a malformed one is never forwarded",
+      "a grant signed for the current run is relayed, one for another run dropped",
+      "screen input reaches the session with the geometry’s generation; page input and a rejection are errors",
+      "the session’s status, cursor, geometry and stop reach the sink and the channel",
+      "install and password requests reach the session"
+    ],
+    "tree": "exact export of b6f10295a2f698afc85332467192de28500bd146"
+  },
+  "lib": "benchmarks/rust-core/recorders/record-screen-control-lib.mjs",
+  "libSha256": "df30cfea6d1ec4218b1670d673285f8eb2738556726665ab0df78d21a56c46b1",
+  "node": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-screen-control-video.mjs",
+  "recorderSha256": "92a78ed3382bebcebb8685a878c31ac33673c5ca4f3f01d42debc5c51ea832e6",
+  "set": "screen-control/video",
+  "totalBytes": 47023
+}
