@@ -22,6 +22,8 @@ use super::consts::CHUNK_BYTES;
 use super::consts::CHUNK_HEADER_BYTES;
 use super::consts::CONTROL_RESERVE_BYTES;
 use super::consts::MAX_APPLICATION_MESSAGE_BYTES;
+use super::consts::MAX_OUTSTANDING_BYTES;
+use super::consts::MAX_RECORD_BYTES;
 use super::consts::MAX_RECORDS_IN_FLIGHT;
 use super::consts::NEGOTIATION_TIMEOUT_MS;
 use super::consts::PING_MS;
@@ -223,6 +225,19 @@ pub struct SendOptions {
     pub stream: Option<String>,
     /// Asks the host for `relay_meter` with the bytes of each relay message of this payload.
     pub meter: Option<u64>,
+    /// A write the phone may be refused at (the live view's, `DeviceRegistry::write_view`): the message enters the stream whole, in
+    /// one step under the gate, or not at all.
+    pub gate: Option<WriteGate>,
+}
+
+/// Runs a write (its argument) only while it is allowed, in one step with what ends the permission; false when it refused.
+#[derive(Clone)]
+pub struct WriteGate(pub std::sync::Arc<dyn Fn(&mut dyn FnMut()) -> bool + Send + Sync>);
+
+impl std::fmt::Debug for WriteGate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("WriteGate")
+    }
 }
 
 pub enum Sent {
@@ -369,6 +384,7 @@ struct Outgoing {
     wire_bytes: usize,
     meter: Option<u64>,
     ticket: u64,
+    gate: Option<WriteGate>,
 }
 
 struct Held {
@@ -1510,6 +1526,13 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
                 self.pumping = false;
                 return;
             }
+            if let Some(gate) = self.queue[0].gate.clone() {
+                if self.write_gated(gate) {
+                    continue;
+                }
+                self.pumping = false;
+                return;
+            }
             let (stream, buffered_needed) = {
                 let item = &self.queue[0];
                 (item.stream.clone(), item.stream.is_some())
@@ -1544,6 +1567,68 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
             self.jobs.push_back(Job::Encrypted(result));
             return;
         }
+    }
+
+    /// The head message is asked about at its write (`SendOptions::gate`): once the window has room for all its records, the gate is
+    /// asked, and its records are sealed and pushed in that same step (the seal is synchronous here), so a phone whose permission
+    /// ended is sent no part of it and the stream has no hole. A message the empty window cannot hold whole is not sent; a droppable
+    /// one is dropped when the room is missing now. False: it waits for room.
+    fn write_gated(&mut self, gate: WriteGate) -> bool {
+        let room = self.queue[0].pieces.len() * MAX_RECORD_BYTES;
+        if self.sender.stats().outstanding_bytes + room > MAX_OUTSTANDING_BYTES {
+            if room <= MAX_OUTSTANDING_BYTES && !self.queue[0].droppable {
+                return false;
+            }
+            if let Some(item) = self.queue.pop_front() {
+                self.host.send_settled(item.ticket, Ok(None));
+            }
+            return true;
+        }
+        let Some(item) = self.queue.pop_front() else { return true };
+        let (channel, sender, relay_writers) = (&mut self.channel, &mut self.sender, &mut self.relay_writers);
+        let mut written: Option<Result<(usize, u64), (usize, SealFault)>> = None;
+        let allowed = (gate.0)(&mut || {
+            let (mut wire_bytes, mut last) = (0, 0);
+            for (index, piece) in item.pieces.iter().enumerate() {
+                let sealed = channel.encrypt_binary(piece).and_then(|box_bytes| {
+                    let length = box_bytes.len();
+                    sender.push(box_bytes, &Admission::default()).map(|sequence| (sequence, length)).map_err(|_| SealFault::Broken)
+                });
+                match sealed {
+                    Ok((sequence, length)) => {
+                        if let Some(token) = item.meter {
+                            relay_writers.insert(sequence, token);
+                        }
+                        wire_bytes += record_wire_bytes(length);
+                        last = sequence;
+                    }
+                    Err(fault) => {
+                        written = Some(Err((index, fault)));
+                        return;
+                    }
+                }
+            }
+            written = Some(Ok((wire_bytes, last)));
+        });
+        match written {
+            _ if !allowed => self.host.send_settled(item.ticket, Ok(None)),
+            Some(Ok((wire_bytes, last))) => {
+                if let Some(call_id) = item.call_id {
+                    self.call_ids.insert(last, call_id);
+                }
+                self.host.send_settled(item.ticket, Ok(Some(wire_bytes)));
+                let at = self.host.now();
+                self.note_outstanding(at);
+                self.flush_carrier();
+            }
+            // A size refusal of the first record runs before its sequence is assigned: nothing was consumed.
+            Some(Err((0, SealFault::Oversize))) => self.host.send_settled(item.ticket, Err(SendError::Range)),
+            Some(Err(_)) | None => {
+                self.fail(EndReason::SealFailed);
+                return false;
+            }
+        }
+        true
     }
 
     fn on_encrypted(&mut self, result: Result<Vec<u8>, SealFault>) {
@@ -1644,6 +1729,7 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
             wire_bytes: 0,
             meter: options.meter,
             ticket,
+            gate: options.gate,
         });
         self.pump_outbound();
         Sent::Queued(ticket)

@@ -10,8 +10,9 @@
 //! `screen_revoked`, Node's `revokeCredential`), then the live view's `unpaired` runs for each of them in the order they were admitted
 //! (`PairedDeviceCleanup::unpaired`, Node's `dropClient` of each connection `revokeCredential` names); a missed drop is the revocation
 //! alone. A departed phone is no longer attached (`peer_attached`) and its connection closed. The relay's close is `relay_closed`,
-//! Node's `dispose`. A `hold` is Node's delivery encrypting every push until the `release`: the core's pushes stop on their way,
-//! before the view gate and its check (`Seams::on_its_way`), until then. The recording is of b6f10295a with
+//! Node's `dispose`. A `hold` is Node's delivery encrypting every push until the `release`: a frame the core queued for its phone
+//! is written then, asked again as the runtime asks at the write (`DeviceRegistry::write_view`), and a WebRTC signal's send, which
+//! Node's relay awaits, stops on its way before the view gate (`Seams::on_its_way`) until then. The recording is of b6f10295a with
 //! `node-fix-unpair-keeps-stream.patch` (see the manifest).
 //!
 //! What each step sent is compared with what Node sent, as serialized text: every message whole, in order, with its fields in the
@@ -160,8 +161,25 @@ impl HostChannel for Desktop {
     }
 }
 
-/// The phones: each push under the name table above, as the relay's encrypted push `{event, payload}`.
-struct Phones(Log);
+/// A push held between a `hold` and its `release`, in the order it was held.
+enum Parked {
+    /// A frame queued for its phone, written at the release where the runtime writes it (`DeviceRegistry::write_view`: only while the
+    /// phone is attached and not revoked for the view).
+    Write(Box<dyn FnOnce() + Send>),
+    /// A WebRTC signal's send, stopped on its way (`Seams::on_its_way`): it goes on at the release.
+    Send(std::sync::mpsc::Sender<()>),
+}
+
+/// The phones: each push under the name table above, as the relay's encrypted push `{event, payload}`, written when the runtime
+/// writes it.
+struct Phones {
+    log: Log,
+    holding: Arc<AtomicBool>,
+    parked: Arc<Mutex<Vec<Parked>>>,
+    /// The connections revoked for the view and those whose peer left (the registry's facts the write is asked about).
+    revoked: Arc<Mutex<HashSet<u64>>>,
+    left: Arc<Mutex<HashSet<u64>>>,
+}
 
 impl ConnectionNotifier for Phones {
     fn notify(&self, to: ConnectionId, method: Method, params: Value) -> Result<(), CoreError> {
@@ -170,7 +188,17 @@ impl ConnectionNotifier for Phones {
             "browser/webrtcSignal" if keys(&params) == ["signal"] => json!({ "event": "browserRemoteWebrtc", "payload": params["signal"] }),
             other => json!({ "unexpected": other, "params": params }),
         };
-        lock(&self.0).push(json!(["push", client_name(to.0), pushed]));
+        let entry = json!(["push", client_name(to.0), pushed]);
+        if !self.holding.load(Ordering::SeqCst) {
+            lock(&self.log).push(entry);
+            return Ok(());
+        }
+        let (log, revoked, left) = (self.log.clone(), self.revoked.clone(), self.left.clone());
+        lock(&self.parked).push(Parked::Write(Box::new(move || {
+            if !lock(&revoked).contains(&to.0) && !lock(&left).contains(&to.0) {
+                lock(&log).push(entry);
+            }
+        })));
         Ok(())
     }
 }
@@ -219,14 +247,14 @@ struct World {
     revoked: Arc<Mutex<HashSet<u64>>>,
     /// Connections whose peer left (no longer `peer_attached`).
     left: Arc<Mutex<HashSet<u64>>>,
-    /// Between a `hold` and its `release`: every push to a phone stops on its way (`Seams::on_its_way`, where Node's delivery
-    /// encrypts it) until the release.
+    /// Between a `hold` and its `release` (Node's delivery encrypting every push until then): a frame is queued and written at the
+    /// release, a WebRTC signal's send waits on its way (Node's relay awaits that delivery, its streams do not await a frame's).
     holding: Arc<AtomicBool>,
-    /// The pushes stopped on their way, in the order they stopped: each goes on when its sender is sent to.
-    parked: Arc<Mutex<Vec<std::sync::mpsc::Sender<()>>>>,
-    /// Told each time a push stops on its way.
+    /// The held pushes, in the order they were held.
+    parked: Arc<Mutex<Vec<Parked>>>,
+    /// Told each time a send stops on its way.
     parked_events: tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<()>>,
-    /// The steps whose push stopped on its way, still running on their own threads, in the order they stopped.
+    /// The steps whose send stopped on its way, still running on their own threads, in the order they stopped.
     running: Mutex<Vec<tokio::sync::oneshot::Receiver<()>>>,
 }
 
@@ -242,24 +270,25 @@ impl World {
             Arc::new(move |connection| lock(&held).contains(&connection.0)),
             Arc::new(move |connection| !lock(&gone).contains(&connection.0)),
         );
+        let (holding, parked): (Arc<AtomicBool>, Arc<Mutex<Vec<Parked>>>) = Default::default();
+        let phones = Phones { log: log.clone(), holding: holding.clone(), parked: parked.clone(), revoked: revoked.clone(), left: left.clone() };
         let service = Arc::new(LiveViewService::with_clock(
             Arc::new(Desktop { log: log.clone(), streams: Mutex::default() }),
-            Arc::new(Phones(log.clone())),
+            Arc::new(phones),
             media.clone(),
             runtime(dir),
             Arc::new(Scripted::default()),
             Arc::new(access),
             clock.clone(),
         ));
-        let (holding, parked): (Arc<AtomicBool>, Arc<Mutex<Vec<std::sync::mpsc::Sender<()>>>>) = Default::default();
         let (parked_tx, parked_rx) = tokio::sync::mpsc::unbounded_channel();
         let (on, stopped) = (holding.clone(), parked.clone());
-        lock(&service.inner.seams).on_its_way = Some(Arc::new(move |_connection| {
-            if !on.load(Ordering::SeqCst) {
+        lock(&service.inner.seams).on_its_way = Some(Arc::new(move |_connection, method| {
+            if method != "browser/webrtcSignal" || !on.load(Ordering::SeqCst) {
                 return;
             }
             let (go_tx, go_rx) = std::sync::mpsc::channel();
-            lock(&stopped).push(go_tx);
+            lock(&stopped).push(Parked::Send(go_tx));
             let _ = parked_tx.send(());
             go_rx.recv_timeout(GATE_DEADLINE).expect("the release let the held push go on within 30 s");
         }));
@@ -278,7 +307,7 @@ impl World {
         })
     }
 
-    /// A step between a `hold` and its `release`, on its own thread: done when it ends, or once a push of it stopped on its way.
+    /// A step between a `hold` and its `release`, on its own thread: done when it ends, or once a send of it stopped on its way.
     async fn held_step(self: &Arc<Self>, step: &Value, what: &str) {
         let (done_tx, mut done_rx) = tokio::sync::oneshot::channel::<()>();
         let (runtime, world, step, label) = (tokio::runtime::Handle::current(), self.clone(), step.clone(), what.to_owned());
@@ -307,19 +336,26 @@ impl World {
         }
     }
 
-    /// The `release`: each push stopped on its way goes on, in the order they stopped, and its step ends before the next goes on.
+    /// The `release`: each held push goes on in the order it was held (as Node's encryptions complete), a send's step ending before
+    /// the next goes on.
     async fn release(&self, what: &str) {
         self.holding.store(false, Ordering::SeqCst);
         let parked = std::mem::take(&mut *lock(&self.parked));
-        let running = std::mem::take(&mut *lock(&self.running));
-        assert_eq!(parked.len(), running.len(), "{what}: one stopped push per held step");
-        for (go, done) in parked.into_iter().zip(running) {
-            go.send(()).unwrap();
-            tokio::time::timeout(GATE_DEADLINE, done)
-                .await
-                .unwrap_or_else(|_| panic!("{what}: a released step did not end within 30 s"))
-                .unwrap_or_else(|_| panic!("{what}: a released step failed"));
+        let mut running = std::mem::take(&mut *lock(&self.running)).into_iter();
+        for held in parked {
+            match held {
+                Parked::Write(write) => write(),
+                Parked::Send(go) => {
+                    let done = running.next().unwrap_or_else(|| panic!("{what}: a stopped send without its step"));
+                    go.send(()).unwrap();
+                    tokio::time::timeout(GATE_DEADLINE, done)
+                        .await
+                        .unwrap_or_else(|_| panic!("{what}: a released step did not end within 30 s"))
+                        .unwrap_or_else(|_| panic!("{what}: a released step failed"));
+                }
+            }
         }
+        assert!(running.next().is_none(), "{what}: one stopped send per held step");
     }
 
     /// The connections of a device, in the order they were admitted.
@@ -427,37 +463,23 @@ fn scenario<'a>(recorded: &'a Value, name: &str) -> (&'a [Value], &'a [Value]) {
     (steps, outcomes)
 }
 
-/// Runs steps one after the other, each compared with its recorded outcome. From a `hold` to its `release` the steps run until they
-/// end or a push of theirs stops on its way, and what went out over that span is compared as a whole: one delivery of the streams
-/// runs at a time, so an unpair's own effects leave once the held frame's delivery went on, where Node's left at the unpair.
+/// Runs steps one after the other, each compared with its recorded outcome. Between a `hold` and its `release` a step runs until it
+/// ends or a send of it stops on its way.
 async fn replay_steps(world: &Arc<World>, name: &str, steps: &[Value], outcomes: &[Value], from: usize) {
-    let mut held: Option<(usize, Vec<Value>)> = None;
+    let mut holding = false;
     for (number, (step, want)) in steps.iter().zip(outcomes).enumerate() {
         let what = format!("{name} step {} {step}", from + number);
-        let op = step["op"].as_str().unwrap();
-        if op == "hold" {
-            held = Some((from + number, Vec::new()));
-        }
-        match &mut held {
-            Some((start, wanted)) => {
-                if matches!(op, "hold" | "release") {
-                    world.step(step, &what).await;
-                } else {
-                    world.held_step(step, &what).await;
-                }
-                wanted.extend(want.as_array().unwrap().iter().cloned());
-                if op == "release" {
-                    same_on_the_wire(world.take(), wanted, &format!("{name} steps {start}..={}, pushes held on their way", from + number));
-                    held = None;
-                }
-            }
-            None => {
+        match step["op"].as_str().unwrap() {
+            "hold" | "release" => {
+                holding = step["op"] == "hold";
                 world.step(step, &what).await;
-                same_on_the_wire(world.take(), want.as_array().unwrap(), &what);
             }
+            _ if holding => world.held_step(step, &what).await,
+            _ => world.step(step, &what).await,
         }
+        same_on_the_wire(world.take(), want.as_array().unwrap(), &what);
     }
-    assert!(held.is_none(), "{name}: a hold without its release");
+    assert!(!holding, "{name}: a hold without its release");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -595,9 +617,10 @@ async fn a_subscribe_that_meets_an_unpair_is_refused() {
 
 const UNPAIR: &str = "unpair-step";
 
-/// A push to a phone (step `held`: a frame, or the host's WebRTC signal) is held where it passed its check, and the device's unpair
-/// (step `unpair`) runs meanwhile. The unpair's cleanup must wait at the view gate until the push is enqueued: what goes out is Node's
-/// push then Node's unpair, and nothing reaches the device once the cleanup returned.
+/// A push to a phone (step `held`) is held where it passed its check, and the device's unpair (step `unpair`) runs meanwhile: it
+/// revokes, drops the device's streams (their effects wait for the delivery the held push is in), then must wait at the view gate
+/// until the push is enqueued. What goes out is Node's push then Node's unpair, and nothing reaches the device once the cleanup
+/// returned.
 async fn forced_push(name: &str, before: usize, held: usize, unpair: usize) {
     let (recorded, clock_start) = recording();
     let (steps, outcomes) = scenario(&recorded, name);
@@ -626,28 +649,12 @@ async fn forced_push(name: &str, before: usize, held: usize, unpair: usize) {
             let _ = waits.send("waited at the view gate");
         }));
     }
-    // The unpair's own effects wait for the held step's end: one delivery order, the held step's effects then the unpair's.
-    let held_done: Arc<(Mutex<bool>, std::sync::Condvar)> = Arc::default();
-    let (passed, ended) = (events_tx.clone(), held_done.clone());
-    *lock(&world.service.inner.streams().released) = Some(Arc::new(move || {
-        if std::thread::current().name() != Some(UNPAIR) {
-            return;
-        }
-        let _ = passed.send("dropped the phone");
-        let (done, signal) = &*ended;
-        let (guard, waited) = signal.wait_timeout_while(lock(done), GATE_DEADLINE, |done| !*done).unwrap_or_else(PoisonError::into_inner);
-        drop(guard);
-        assert!(!waited.timed_out(), "the held step ended within 30 s");
-    }));
-
     let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
-    let (runtime, held_world, held_step, finished) = (tokio::runtime::Handle::current(), world.clone(), steps[held].clone(), held_done.clone());
+    let (runtime, held_world, held_step) = (tokio::runtime::Handle::current(), world.clone(), steps[held].clone());
     std::thread::Builder::new()
         .name(HELD.to_owned())
         .spawn(move || {
             runtime.block_on(held_world.step(&held_step, "the held push"));
-            *lock(&finished.0) = true;
-            finished.1.notify_all();
             let _ = done_tx.send(());
         })
         .unwrap();
@@ -695,8 +702,6 @@ async fn forced_push(name: &str, before: usize, held: usize, unpair: usize) {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_push_past_its_check_is_enqueued_before_the_unpairs_cleanup_returns() {
     mixdog_rt::testing::tokens();
-    // A frame, to the phone that alone streams the session.
+    // A frame, to the phone that alone streams the session (the WebRTC signal goes through the same `push_view`).
     forced_push("an unpaired phone that alone streams a session stops the desktop view", 1, 1, 3).await;
-    // The host's WebRTC offer, to a phone streaming with two others.
-    forced_push(UNPAIRED_LEFT_OPEN, 4, 4, 5).await;
 }

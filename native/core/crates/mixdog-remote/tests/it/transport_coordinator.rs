@@ -158,6 +158,8 @@ struct ChannelFake {
     encrypt_sequence: u64,
     control_sequence: u64,
     lanes: HashMap<String, (&'static str, u64)>,
+    /// Runs as each application record is sealed, with its sequence.
+    on_seal: Option<Box<dyn FnMut(u64) + Send>>,
 }
 
 impl StreamChannel for ChannelFake {
@@ -171,6 +173,9 @@ impl StreamChannel for ChannelFake {
             return Err(SealFault::Oversize);
         }
         self.encrypt_sequence += 1;
+        if let Some(on_seal) = self.on_seal.as_mut() {
+            on_seal(self.encrypt_sequence);
+        }
         Ok(make_box(APP_MAGIC, self.encrypt_sequence, plaintext))
     }
 
@@ -464,6 +469,7 @@ fn run_step(step: &Value, coordinator: &mut Coordinator<ChannelFake, HostFake>, 
                 droppable: step.get("droppable").and_then(Value::as_bool) == Some(true),
                 stream: step.get("stream").and_then(Value::as_str).map(str::to_owned),
                 meter,
+                gate: None,
             };
             let sent = coordinator.send(&text, options);
             queue(coordinator, sent, json!({ "id": id }));
@@ -520,7 +526,7 @@ fn run_step(step: &Value, coordinator: &mut Coordinator<ChannelFake, HostFake>, 
         "media-send" => {
             let text = step["text"].as_str().expect("text");
             let stream = step.get("stream").and_then(Value::as_str).map(str::to_owned);
-            let sent = coordinator.send(text, SendOptions { droppable: false, stream, meter: None });
+            let sent = coordinator.send(text, SendOptions { droppable: false, stream, meter: None, gate: None });
             queue(coordinator, sent, json!({ "media": true }));
         }
         "media-can-admit" => {
@@ -557,7 +563,7 @@ fn the_coordinator_does_what_node_did_over_every_recorded_scenario() {
             creates: 0,
             minted: 0,
         })));
-        let channel = ChannelFake { log: log.clone(), encrypt_sequence: 0, control_sequence: 0, lanes: HashMap::new() };
+        let channel = ChannelFake { log: log.clone(), encrypt_sequence: 0, control_sequence: 0, lanes: HashMap::new(), on_seal: None };
         let host = HostFake { log: log.clone(), now: now.clone() };
         let mut coordinator = Coordinator::new(scenario["sessionId"].as_str().expect("session"), channel, host, AssemblyPool::default());
         if scenario["options"]["media"] == true {
@@ -575,4 +581,84 @@ fn the_coordinator_does_what_node_did_over_every_recorded_scenario() {
         }
     }
     assert!(steps_checked > 300);
+}
+
+/// A live-view write is asked about once, at its write, and enters the stream whole in that step: an unpair that lands while a later
+/// fragment of a large frame is sealed waits for the write, and the next write after it is refused whole with no hole in the stream
+/// (the patched Node's `mayWrite`, asked after its last fragment is sealed).
+#[test]
+fn an_unpair_that_lands_while_a_later_fragment_is_sealed_waits_for_the_whole_write() {
+    let log: Log = std::sync::Arc::new(Guarded(std::sync::Mutex::new(Shared {
+        effects: Vec::new(),
+        results: Vec::new(),
+        options: json!({}),
+        refuse: false,
+        buffered: 0,
+        encrypt: None,
+        seal_control: None,
+        pending_deliver: 0,
+        meters: Vec::new(),
+        tickets: HashMap::new(),
+        peers: Vec::new(),
+        creates: 0,
+        minted: 0,
+    })));
+    // The registry's write gate: the permission, and the lock a write and a revocation each take.
+    let allowed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let writes = std::sync::Arc::new(std::sync::Mutex::new(()));
+    let gate = {
+        let (allowed, writes) = (allowed.clone(), writes.clone());
+        mixdog_remote::transport::coordinator::WriteGate(std::sync::Arc::new(move |write: &mut dyn FnMut()| {
+            let _writes = writes.lock().unwrap();
+            let open = allowed.load(std::sync::atomic::Ordering::SeqCst);
+            if open {
+                write();
+            }
+            open
+        }))
+    };
+    // The unpair, at the seal of the frame's second record: it revokes at once when no write holds the gate, else after the write.
+    let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::<&'static str>::new()));
+    let on_seal = {
+        let (allowed, writes, events) = (allowed.clone(), writes.clone(), events.clone());
+        Box::new(move |sequence: u64| {
+            if sequence != 2 {
+                return;
+            }
+            match writes.try_lock() {
+                Ok(_) => {
+                    allowed.store(false, std::sync::atomic::Ordering::SeqCst);
+                    events.lock().unwrap().push("revoked between the frame's records");
+                }
+                Err(_) => events.lock().unwrap().push("the revocation waits for the write"),
+            }
+        })
+    };
+    let channel = ChannelFake { log: log.clone(), encrypt_sequence: 0, control_sequence: 0, lanes: HashMap::new(), on_seal: Some(on_seal) };
+    let host = HostFake { log: log.clone(), now: Rc::new(Cell::new(1_000)) };
+    let mut coordinator = Coordinator::new("session-1", channel, host, AssemblyPool::default());
+    // How each send settled: `{"media": true}` in the stream, `{"media": false}` sent nothing (no ticket is tagged here).
+    let send = |coordinator: &mut Coordinator<ChannelFake, HostFake>, text: &str, gate: Option<mixdog_remote::transport::coordinator::WriteGate>| {
+        let sent = coordinator.send(text, SendOptions { droppable: false, stream: None, meter: None, gate });
+        coordinator.settle();
+        match sent {
+            Sent::Settled(result) => panic!("settled at once: {result:?}"),
+            Sent::Queued(_) => log.borrow_mut().results.pop().expect("the send settled"),
+        }
+    };
+    let frame = format!("{{\"method\":\"browser/frame\",\"params\":{{\"data\":\"{}\"}}}}", "a".repeat(1_200_000));
+
+    let entered = send(&mut coordinator, &frame, Some(gate.clone()));
+    assert_eq!(*events.lock().unwrap(), ["the revocation waits for the write"], "the unpair landed between the frame's records");
+    assert_eq!(entered, json!({ "media": true }), "the frame, allowed at its write, entered whole");
+    assert_eq!(coordinator.next_sequence(), 3, "its two records are in the stream");
+    // The revocation, once the write let it.
+    {
+        let _writes = writes.lock().unwrap();
+        allowed.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+    assert_eq!(send(&mut coordinator, &frame, Some(gate)), json!({ "media": false }), "the next frame is refused whole");
+    assert_eq!(coordinator.next_sequence(), 3, "no record of it is in the stream");
+    assert_eq!(send(&mut coordinator, r#"{"method":"event","params":{}}"#, None), json!({ "media": true }));
+    assert_eq!(coordinator.next_sequence(), 4, "the next message takes the next sequence: the stream has no hole");
 }
