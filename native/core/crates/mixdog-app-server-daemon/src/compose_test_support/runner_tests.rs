@@ -410,14 +410,88 @@ fn every_composed_test_is_run_by_the_pg_profile_with_its_time() {
     tests.extend(ignored_tests(&own).into_iter().map(|name| this(&name)));
     assert!(!tests.is_empty(), "no composed test was found");
     let nextest = std::fs::read_to_string(crate_dir.join("../../.config/nextest.toml")).unwrap();
-    let profile = predicates(filter_after(&nextest, "[profile.pg]"));
-    let time = predicates(filter_before(&nextest, "slow-timeout = { period = \"120s\", terminate-after = 6 }"));
+    let profile = predicates(positive(filter_after(&nextest, "[profile.pg]")));
+    let time = predicates(positive(filter_before(&nextest, "slow-timeout = { period = \"120s\", terminate-after = 6 }")));
     let unmatched = |predicates: &[String]| tests.iter().filter(|test| !predicates.iter().any(|predicate| matches(predicate, test))).cloned().collect::<Vec<_>>();
     assert_eq!(unmatched(&profile), Vec::<String>::new(), "composed tests the `pg` profile's filter does not run (found: {tests:?})");
     assert_eq!(unmatched(&time), Vec::<String>::new(), "composed tests without the 720 s override (found: {tests:?})");
 }
 
-const CALL: &str = "in_child(module_path!(),";
+#[test]
+fn the_scan_reads_a_call_however_it_is_spaced_and_refuses_a_use_it_cannot_read() {
+    let read = |source: &str| std::panic::catch_unwind(|| runner_calls(source, "source")).ok().map(|calls| calls.into_iter().map(|(_, name)| name).collect::<Vec<_>>());
+    assert_eq!(read("x::in_child(module_path!(), \"a\", runtime, body);"), Some(vec!["a".to_owned()]));
+    assert_eq!(read("in_child (\n    module_path!() ,\n    \"b\",\n);"), Some(vec!["b".to_owned()]));
+    assert_eq!(read("/// see `in_child`\npub fn in_child<F>() {}\nfn not_in_child_at_all() {}"), Some(Vec::new()));
+    assert_eq!(read("use crate::compose_test_support::in_child as run;"), None);
+    assert_eq!(read("in_child(module, name, runtime, body);"), None);
+}
+
+#[test]
+fn a_filter_that_takes_tests_out_again_is_refused() {
+    assert!(std::panic::catch_unwind(|| positive("package(a) & (test(/^b::(c|d)::/) | test(=e))")).is_ok());
+    for filter in ["test(/^a::/) & not test(=a::b)", "test(/^a::/) - test(=a::b)", "test(/^a::/) & !test(=a::b)"] {
+        assert!(std::panic::catch_unwind(|| positive(filter)).is_err(), "{filter}");
+    }
+}
+
+const RUNNER: &str = "in_child";
+
+/// Every use of the runner in `source`: where it is and the test's name. A use that is not a call with `module_path!()` and a literal name (an import, an
+/// alias, a name made at run time) is one this scan cannot follow, and fails it.
+fn runner_calls(source: &str, shown: &str) -> Vec<(usize, String)> {
+    let is_ident = |byte: u8| byte.is_ascii_alphanumeric() || byte == b'_';
+    let bytes = source.as_bytes();
+    let mut calls = Vec::new();
+    for (at, _) in source.match_indices(RUNNER) {
+        let end = at + RUNNER.len();
+        if (at > 0 && is_ident(bytes[at - 1])) || bytes.get(end).is_some_and(|byte| is_ident(*byte)) {
+            continue;
+        }
+        let line = &source[source[..at].rfind('\n').map_or(0, |start| start + 1)..at];
+        // A comment that names the runner, and the runner's own definition.
+        if line.trim_start().starts_with("//") || line.trim_end().ends_with("fn") {
+            continue;
+        }
+        let name = ["(", "module_path!()", ","]
+            .iter()
+            .try_fold(source[end..].trim_start(), |rest, token| rest.strip_prefix(*token).map(str::trim_start))
+            .and_then(|rest| rest.strip_prefix('"'))
+            .and_then(|rest| rest.split_once('"'))
+            .map(|(name, _)| name)
+            .unwrap_or_else(|| panic!("{shown}: line {}: a use of the runner this scan cannot read (not `in_child(module_path!(), \"<name>\"`)", source[..at].matches('\n').count() + 1));
+        calls.push((at, name.to_owned()));
+    }
+    calls
+}
+
+/// `filter`, refused unless it is `test(…)` and `package(…)` predicates joined by `&`, `|` and parentheses: a `not`, `!` or `-` takes a test out again
+/// without [`predicates`] seeing it.
+fn positive(filter: &str) -> &str {
+    let mut skeleton = String::new();
+    let mut rest = filter;
+    while let Some((at, open)) = ["test(", "package("].iter().filter_map(|open| rest.find(open).map(|at| (at, open.len()))).min() {
+        skeleton.push_str(&rest[..at]);
+        let body = &rest[at + open..];
+        let mut depth = 1;
+        let end = body
+            .char_indices()
+            .find(|(_, c)| {
+                depth += match c {
+                    '(' => 1,
+                    ')' => -1,
+                    _ => 0,
+                };
+                depth == 0
+            })
+            .map(|(end, _)| end)
+            .expect("a closed predicate");
+        rest = &body[end + 1..];
+    }
+    skeleton.push_str(rest);
+    assert!(skeleton.chars().all(|c| c.is_whitespace() || "&|()".contains(c)), "a filter with an operator this scan does not read ({skeleton:?}): {filter}");
+    filter
+}
 
 #[allow(clippy::disallowed_methods, reason = "test: reads the crate's sources")]
 fn composed_tests(src: &Path, dir: &Path, found: &mut Vec<String>) {
@@ -439,15 +513,11 @@ fn composed_tests(src: &Path, dir: &Path, found: &mut Vec<String>) {
         if module.last().is_some_and(|last| ["mod", "lib", "main"].contains(&last.as_str())) {
             module.pop();
         }
-        let mut from = 0;
-        while let Some(at) = source[from..].find(CALL).map(|at| at + from) {
-            let rest = source[at + CALL.len()..].trim_start();
-            let name = rest.strip_prefix('"').and_then(|rest| rest.split_once('"')).map(|(name, _)| name).unwrap_or_else(|| panic!("{}: a call without a literal name", path.display()));
+        for (at, name) in runner_calls(&source, &path.display().to_string()) {
             let mut parts = module.clone();
             parts.extend(modules_around(&source, at));
-            parts.push(name.to_owned());
+            parts.push(name);
             found.push(parts.join("::"));
-            from = at + CALL.len();
         }
     }
 }
