@@ -46,7 +46,7 @@ pub use pricing::UsageArgs;
 pub use oauth_cache::OauthModelCache;
 pub use readiness::CacheDrop;
 pub use readiness::ProviderReadiness;
-pub use readiness::Ready;
+pub use readiness::CATALOG_REFRESH_INTERVAL;
 pub use readiness::is_known_provider;
 pub use record::BudgetSpec;
 pub use rosters::CachedWindows;
