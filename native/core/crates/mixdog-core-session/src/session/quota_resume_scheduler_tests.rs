@@ -361,7 +361,7 @@ async fn overlapping_ticks_fire_once() {
         let scheduler = scheduler.clone();
         async move { scheduler.tick().await }
     });
-    crate::session::testing::awaiting("the second tick to find the pass in flight and wait for it", async {
+    crate::session::testing::awaiting(|| "the second tick to find the pass in flight and wait for it".to_owned(), async {
         tokio::select! {
             biased;
             () = scheduler.joined() => {}

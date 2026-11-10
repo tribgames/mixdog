@@ -68,7 +68,7 @@ impl TurnLiveness {
     #[cfg(test)]
     async fn watcher_ended(&self) {
         let watcher = self.watcher.lock().unwrap_or_else(PoisonError::into_inner).take().expect("awaited once");
-        mixdog_core_session::session::testing::awaiting("the follower to publish the last progress and end", watcher).await.unwrap();
+        mixdog_core_session::session::testing::awaiting(|| "the follower to publish the last progress and end".to_owned(), watcher).await.unwrap();
     }
 }
 

@@ -148,7 +148,7 @@ impl DelegatedApprovalHost {
     async fn deferred_offers(&self) {
         loop {
             let Some(offer) = self.deferred.lock().unwrap().pop() else { return };
-            crate::session::testing::awaiting("a deferred offer to end", offer).await.unwrap();
+            crate::session::testing::awaiting(|| "a deferred offer to end".to_owned(), offer).await.unwrap();
         }
     }
 

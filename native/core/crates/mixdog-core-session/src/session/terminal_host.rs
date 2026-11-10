@@ -191,7 +191,7 @@ mod tests {
                 waits.notify(Method("ui/terminalRun/claimed"), json!({ "requestId": request }), ConnectionId(1));
             };
             claim.await;
-            crate::session::testing::awaiting("the reveal to end once its request is claimed", reveal).await
+            crate::session::testing::awaiting(|| "the reveal to end once its request is claimed".to_owned(), reveal).await
         };
         assert!(claimer, "a claimed request is shown");
     }

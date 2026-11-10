@@ -30,7 +30,7 @@ use super::tests::turn;
 /// The context's rows once one of them carries its turn's completion, woken by each store commit; the wait is registered
 /// before the read so a commit between the read and the wait is not missed.
 async fn rows_with_completion(rig: &Rig, context: &super::run::ModelContext) -> Vec<Value> {
-    super::testing::awaiting("a committed row carrying the turn's completion", async {
+    super::testing::awaiting(|| "a committed row carrying the turn's completion".to_owned(), async {
         loop {
             let committed = rig.store.committed.notified();
             tokio::pin!(committed);
