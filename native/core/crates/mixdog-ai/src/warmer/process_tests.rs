@@ -257,7 +257,7 @@ async fn the_setting_is_read_from_the_config_as_node_reads_it() {
     }
 }
 
-// The timers are tokio's, so the test moves the paused clock itself: 60 ms is before the 150 ms delay, 460 ms after it.
+// The timers are tokio's, so the test moves the paused clock itself, to 1 ms before the 150 ms delay and then onto it.
 #[tokio::test(start_paused = true)]
 async fn a_timer_runs_after_its_delay_and_a_cancelled_one_never_does() {
     // TokioTimers spawns through mixdog-rt, which needs its (test) backend installed.
@@ -272,10 +272,13 @@ async fn a_timer_runs_after_its_delay_and_a_cancelled_one_never_does() {
         }
     }
     drop(fired);
-    tokio::time::advance(std::time::Duration::from_millis(60)).await;
-    assert_eq!(ran.recv().await, Some("negative"), "a negative delay runs at once");
-    assert!(ran.try_recv().is_err(), "nothing else has run 60 ms in");
-    tokio::time::advance(std::time::Duration::from_millis(400)).await;
-    assert_eq!(ran.recv().await, Some("late"), "the 150 ms timer has run 460 ms in");
+    // A wait on the paused clock lets it run ahead to the next timer when nothing else can run, so each wait is followed by
+    // the time on the clock: it is only where the test put it.
+    let (began, ms) = (tokio::time::Instant::now(), std::time::Duration::from_millis);
+    assert_eq!((ran.recv().await, began.elapsed()), (Some("negative"), ms(0)), "a negative delay runs with no time passed");
+    tokio::time::advance(ms(149)).await;
+    assert!(ran.try_recv().is_err(), "nothing has run 149 ms in");
+    tokio::time::advance(ms(1)).await;
+    assert_eq!((ran.recv().await, began.elapsed()), (Some("late"), ms(150)), "the 150 ms timer runs at 150 ms");
     assert_eq!(ran.recv().await, None, "the cancelled timer never runs");
 }
