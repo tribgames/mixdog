@@ -4292,6 +4292,650 @@
       ]
     },
     {
+      "name": "a demote or a close gives the phone the frame withheld while WebRTC owned the view",
+      "steps": [
+        {
+          "op": "call",
+          "client": "phone_A",
+          "method": "browserRemoteStream",
+          "params": [
+            "sess_1",
+            {
+              "maxWidth": 800,
+              "maxHeight": 600
+            }
+          ]
+        },
+        {
+          "op": "frame",
+          "frame": {
+            "frameId": "frame-1",
+            "sessionId": "sess_1",
+            "seq": 1,
+            "documentId": "p1:1",
+            "url": "https://example.test/page",
+            "title": "Example page",
+            "loading": false,
+            "canGoBack": false,
+            "canGoForward": true,
+            "width": 800,
+            "height": 600,
+            "viewportWidth": 400,
+            "viewportHeight": 300,
+            "image": {
+              "mimeType": "image/jpeg",
+              "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMQ=="
+            }
+          }
+        },
+        {
+          "op": "call",
+          "client": "phone_A",
+          "method": "browserRemoteStreamAck",
+          "params": [
+            "sess_1",
+            1
+          ]
+        },
+        {
+          "op": "send",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "offer",
+            "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+            "fingerprints": [
+              {
+                "algorithm": "sha-256",
+                "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+              }
+            ],
+            "iceServers": [],
+            "iceTransportPolicy": "all",
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 390,
+              "cssHeight": 844,
+              "deviceScaleFactor": 3,
+              "pixelWidth": 1170,
+              "pixelHeight": 2532
+            },
+            "inputEpoch": 1
+          }
+        },
+        {
+          "op": "send",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "promote",
+            "inputEpoch": 2,
+            "geometryGeneration": 1
+          }
+        },
+        {
+          "op": "accept",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "promote-ack",
+            "inputEpoch": 2
+          }
+        },
+        {
+          "op": "frame",
+          "frame": {
+            "frameId": "frame-2",
+            "sessionId": "sess_1",
+            "seq": 2,
+            "documentId": "p1:1",
+            "url": "https://example.test/page",
+            "title": "Example page",
+            "loading": false,
+            "canGoBack": false,
+            "canGoForward": true,
+            "width": 800,
+            "height": 600,
+            "viewportWidth": 400,
+            "viewportHeight": 300,
+            "image": {
+              "mimeType": "image/jpeg",
+              "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMg=="
+            }
+          }
+        },
+        {
+          "op": "call",
+          "client": "phone_A",
+          "method": "browserRemoteStreamAck",
+          "params": [
+            "sess_1",
+            2
+          ]
+        },
+        {
+          "op": "send",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "demote",
+            "inputEpoch": 3,
+            "reason": "channel-failed"
+          }
+        },
+        {
+          "op": "call",
+          "client": "phone_A",
+          "method": "browserRemoteStreamAck",
+          "params": [
+            "sess_1",
+            2
+          ]
+        },
+        {
+          "op": "accept",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "demote-ack",
+            "inputEpoch": 3
+          }
+        },
+        {
+          "op": "send",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "offer",
+            "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+            "fingerprints": [
+              {
+                "algorithm": "sha-256",
+                "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+              }
+            ],
+            "iceServers": [],
+            "iceTransportPolicy": "all",
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 390,
+              "cssHeight": 844,
+              "deviceScaleFactor": 3,
+              "pixelWidth": 1170,
+              "pixelHeight": 2532
+            },
+            "inputEpoch": 1
+          }
+        },
+        {
+          "op": "send",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "promote",
+            "inputEpoch": 4,
+            "geometryGeneration": 1
+          }
+        },
+        {
+          "op": "accept",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "promote-ack",
+            "inputEpoch": 4
+          }
+        },
+        {
+          "op": "frame",
+          "frame": {
+            "frameId": "frame-3",
+            "sessionId": "sess_1",
+            "seq": 3,
+            "documentId": "p1:1",
+            "url": "https://example.test/page",
+            "title": "Example page",
+            "loading": false,
+            "canGoBack": false,
+            "canGoForward": true,
+            "width": 800,
+            "height": 600,
+            "viewportWidth": 400,
+            "viewportHeight": 300,
+            "image": {
+              "mimeType": "image/jpeg",
+              "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMw=="
+            }
+          }
+        },
+        {
+          "op": "call",
+          "client": "phone_A",
+          "method": "browserRemoteStreamAck",
+          "params": [
+            "sess_1",
+            3
+          ]
+        },
+        {
+          "op": "send",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "close",
+            "reason": "ice-failed"
+          }
+        },
+        {
+          "op": "call",
+          "client": "phone_A",
+          "method": "browserRemoteStreamAck",
+          "params": [
+            "sess_1",
+            3
+          ]
+        }
+      ],
+      "recorded": [
+        [
+          [
+            "request",
+            "sess_1",
+            {
+              "maxWidth": 800,
+              "maxHeight": 600
+            }
+          ],
+          [
+            "reply",
+            "phone_A",
+            {
+              "id": 1,
+              "ok": true,
+              "value": null
+            }
+          ]
+        ],
+        [
+          [
+            "push",
+            "phone_A",
+            {
+              "event": "browserRemoteFrame",
+              "payload": {
+                "frameId": "frame-1",
+                "sessionId": "sess_1",
+                "seq": 1,
+                "documentId": "p1:1",
+                "url": "https://example.test/page",
+                "title": "Example page",
+                "loading": false,
+                "canGoBack": false,
+                "canGoForward": true,
+                "width": 800,
+                "height": 600,
+                "viewportWidth": 400,
+                "viewportHeight": 300,
+                "image": {
+                  "mimeType": "image/jpeg",
+                  "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMQ=="
+                }
+              }
+            }
+          ]
+        ],
+        [],
+        [
+          [
+            "push",
+            "phone_A",
+            {
+              "event": "browserRemoteWebrtc",
+              "payload": {
+                "v": 1,
+                "source": {
+                  "kind": "browser",
+                  "sessionId": "sess_1"
+                },
+                "connectionId": "connection-id-0001",
+                "generation": 1,
+                "type": "offer",
+                "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+                "fingerprints": [
+                  {
+                    "algorithm": "sha-256",
+                    "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+                  }
+                ],
+                "iceServers": [],
+                "iceTransportPolicy": "all",
+                "geometry": {
+                  "generation": 1,
+                  "cssWidth": 390,
+                  "cssHeight": 844,
+                  "deviceScaleFactor": 3,
+                  "pixelWidth": 1170,
+                  "pixelHeight": 2532
+                },
+                "inputEpoch": 1
+              }
+            }
+          ],
+          [
+            "sent"
+          ]
+        ],
+        [
+          [
+            "push",
+            "phone_A",
+            {
+              "event": "browserRemoteWebrtc",
+              "payload": {
+                "v": 1,
+                "source": {
+                  "kind": "browser",
+                  "sessionId": "sess_1"
+                },
+                "connectionId": "connection-id-0001",
+                "generation": 1,
+                "type": "promote",
+                "inputEpoch": 2,
+                "geometryGeneration": 1
+              }
+            }
+          ],
+          [
+            "sent"
+          ]
+        ],
+        [
+          [
+            "accepted"
+          ]
+        ],
+        [
+          [
+            "push",
+            "phone_A",
+            {
+              "event": "browserRemoteFrame",
+              "payload": {
+                "frameId": "frame-2",
+                "sessionId": "sess_1",
+                "seq": 2,
+                "documentId": "p1:1",
+                "url": "https://example.test/page",
+                "title": "Example page",
+                "loading": false,
+                "canGoBack": false,
+                "canGoForward": true,
+                "width": 800,
+                "height": 600,
+                "viewportWidth": 400,
+                "viewportHeight": 300
+              }
+            }
+          ]
+        ],
+        [],
+        [
+          [
+            "push",
+            "phone_A",
+            {
+              "event": "browserRemoteFrame",
+              "payload": {
+                "frameId": "frame-2",
+                "sessionId": "sess_1",
+                "seq": 2,
+                "documentId": "p1:1",
+                "url": "https://example.test/page",
+                "title": "Example page",
+                "loading": false,
+                "canGoBack": false,
+                "canGoForward": true,
+                "width": 800,
+                "height": 600,
+                "viewportWidth": 400,
+                "viewportHeight": 300,
+                "image": {
+                  "mimeType": "image/jpeg",
+                  "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMg=="
+                }
+              }
+            }
+          ],
+          [
+            "push",
+            "phone_A",
+            {
+              "event": "browserRemoteWebrtc",
+              "payload": {
+                "v": 1,
+                "source": {
+                  "kind": "browser",
+                  "sessionId": "sess_1"
+                },
+                "connectionId": "connection-id-0001",
+                "generation": 1,
+                "type": "demote",
+                "inputEpoch": 3,
+                "reason": "channel-failed"
+              }
+            }
+          ],
+          [
+            "sent"
+          ]
+        ],
+        [],
+        [
+          [
+            "accepted"
+          ]
+        ],
+        [
+          [
+            "push",
+            "phone_A",
+            {
+              "event": "browserRemoteWebrtc",
+              "payload": {
+                "v": 1,
+                "source": {
+                  "kind": "browser",
+                  "sessionId": "sess_1"
+                },
+                "connectionId": "connection-id-0001",
+                "generation": 1,
+                "type": "offer",
+                "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+                "fingerprints": [
+                  {
+                    "algorithm": "sha-256",
+                    "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+                  }
+                ],
+                "iceServers": [],
+                "iceTransportPolicy": "all",
+                "geometry": {
+                  "generation": 1,
+                  "cssWidth": 390,
+                  "cssHeight": 844,
+                  "deviceScaleFactor": 3,
+                  "pixelWidth": 1170,
+                  "pixelHeight": 2532
+                },
+                "inputEpoch": 1
+              }
+            }
+          ],
+          [
+            "sent"
+          ]
+        ],
+        [
+          [
+            "push",
+            "phone_A",
+            {
+              "event": "browserRemoteWebrtc",
+              "payload": {
+                "v": 1,
+                "source": {
+                  "kind": "browser",
+                  "sessionId": "sess_1"
+                },
+                "connectionId": "connection-id-0001",
+                "generation": 1,
+                "type": "promote",
+                "inputEpoch": 4,
+                "geometryGeneration": 1
+              }
+            }
+          ],
+          [
+            "sent"
+          ]
+        ],
+        [
+          [
+            "accepted"
+          ]
+        ],
+        [
+          [
+            "push",
+            "phone_A",
+            {
+              "event": "browserRemoteFrame",
+              "payload": {
+                "frameId": "frame-3",
+                "sessionId": "sess_1",
+                "seq": 3,
+                "documentId": "p1:1",
+                "url": "https://example.test/page",
+                "title": "Example page",
+                "loading": false,
+                "canGoBack": false,
+                "canGoForward": true,
+                "width": 800,
+                "height": 600,
+                "viewportWidth": 400,
+                "viewportHeight": 300
+              }
+            }
+          ]
+        ],
+        [],
+        [
+          [
+            "push",
+            "phone_A",
+            {
+              "event": "browserRemoteFrame",
+              "payload": {
+                "frameId": "frame-3",
+                "sessionId": "sess_1",
+                "seq": 3,
+                "documentId": "p1:1",
+                "url": "https://example.test/page",
+                "title": "Example page",
+                "loading": false,
+                "canGoBack": false,
+                "canGoForward": true,
+                "width": 800,
+                "height": 600,
+                "viewportWidth": 400,
+                "viewportHeight": 300,
+                "image": {
+                  "mimeType": "image/jpeg",
+                  "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMw=="
+                }
+              }
+            }
+          ],
+          [
+            "push",
+            "phone_A",
+            {
+              "event": "browserRemoteWebrtc",
+              "payload": {
+                "v": 1,
+                "source": {
+                  "kind": "browser",
+                  "sessionId": "sess_1"
+                },
+                "connectionId": "connection-id-0001",
+                "generation": 1,
+                "type": "close",
+                "reason": "ice-failed"
+              }
+            }
+          ],
+          [
+            "sent"
+          ]
+        ],
+        []
+      ]
+    },
+    {
       "name": "a phone that left is dropped at the next frame or its lapse",
       "steps": [
         {
@@ -4449,7 +5093,7 @@
           [
             "state",
             {
-              "subscribed": true,
+              "subscribed": false,
               "awaitingFit": false
             }
           ]
@@ -4503,7 +5147,7 @@
           [
             "state",
             {
-              "subscribed": true,
+              "subscribed": false,
               "awaitingFit": false
             }
           ]
@@ -4921,8 +5565,8 @@
           }
         },
         {
-          "op": "dropClient",
-          "client": "phone_A"
+          "op": "unpair",
+          "credential": "cred_1"
         },
         {
           "op": "query",
@@ -5222,8 +5866,8 @@
           }
         },
         {
-          "op": "dropClient",
-          "client": "phone_A"
+          "op": "unpair",
+          "credential": "cred_1"
         },
         {
           "op": "query",
@@ -5324,6 +5968,948 @@
         ],
         [],
         []
+      ]
+    },
+    {
+      "name": "an unpaired device whose connections stay open is refused and sent nothing",
+      "steps": [
+        {
+          "op": "call",
+          "client": "phone_A",
+          "method": "browserRemoteStream",
+          "params": [
+            "sess_1",
+            {
+              "maxWidth": 1200,
+              "maxHeight": 900
+            }
+          ]
+        },
+        {
+          "op": "call",
+          "client": "phone_C",
+          "method": "browserRemoteStream",
+          "params": [
+            "sess_1",
+            {
+              "maxWidth": 640,
+              "maxHeight": 480
+            }
+          ]
+        },
+        {
+          "op": "call",
+          "client": "phone_B",
+          "method": "browserRemoteStream",
+          "params": [
+            "sess_1",
+            {
+              "maxWidth": 800,
+              "maxHeight": 600
+            }
+          ]
+        },
+        {
+          "op": "frame",
+          "frame": {
+            "frameId": "frame-1",
+            "sessionId": "sess_1",
+            "seq": 1,
+            "documentId": "p1:1",
+            "url": "https://example.test/page",
+            "title": "Example page",
+            "loading": false,
+            "canGoBack": false,
+            "canGoForward": true,
+            "width": 800,
+            "height": 600,
+            "viewportWidth": 400,
+            "viewportHeight": 300,
+            "image": {
+              "mimeType": "image/jpeg",
+              "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMQ=="
+            }
+          }
+        },
+        {
+          "op": "send",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "offer",
+            "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+            "fingerprints": [
+              {
+                "algorithm": "sha-256",
+                "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+              }
+            ],
+            "iceServers": [],
+            "iceTransportPolicy": "all",
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 390,
+              "cssHeight": 844,
+              "deviceScaleFactor": 3,
+              "pixelWidth": 1170,
+              "pixelHeight": 2532
+            },
+            "inputEpoch": 1
+          }
+        },
+        {
+          "op": "unpair",
+          "credential": "cred_1"
+        },
+        {
+          "op": "query",
+          "client": "phone_A",
+          "session": "sess_1"
+        },
+        {
+          "op": "query",
+          "client": "phone_C",
+          "session": "sess_1"
+        },
+        {
+          "op": "call",
+          "client": "phone_A",
+          "method": "browserRemoteStream",
+          "params": [
+            "sess_1",
+            {
+              "maxWidth": 1200,
+              "maxHeight": 900
+            }
+          ]
+        },
+        {
+          "op": "call",
+          "client": "phone_C",
+          "method": "browserRemoteStream",
+          "params": [
+            "sess_2",
+            {
+              "maxWidth": 640,
+              "maxHeight": 480
+            }
+          ]
+        },
+        {
+          "op": "accept",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "type": "ready",
+            "receiveCodecs": [
+              "video/VP8",
+              "video/H264"
+            ]
+          }
+        },
+        {
+          "op": "accept",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "answer",
+            "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+            "fingerprints": [
+              {
+                "algorithm": "sha-256",
+                "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+              }
+            ]
+          }
+        },
+        {
+          "op": "send",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "offer",
+            "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+            "fingerprints": [
+              {
+                "algorithm": "sha-256",
+                "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+              }
+            ],
+            "iceServers": [],
+            "iceTransportPolicy": "all",
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 390,
+              "cssHeight": 844,
+              "deviceScaleFactor": 3,
+              "pixelWidth": 1170,
+              "pixelHeight": 2532
+            },
+            "inputEpoch": 1
+          }
+        },
+        {
+          "op": "send",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "close",
+            "reason": "ice-failed"
+          }
+        },
+        {
+          "op": "frame",
+          "frame": {
+            "frameId": "frame-2",
+            "sessionId": "sess_1",
+            "seq": 2,
+            "documentId": "p1:1",
+            "url": "https://example.test/page",
+            "title": "Example page",
+            "loading": false,
+            "canGoBack": false,
+            "canGoForward": true,
+            "width": 800,
+            "height": 600,
+            "viewportWidth": 400,
+            "viewportHeight": 300,
+            "image": {
+              "mimeType": "image/jpeg",
+              "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMg=="
+            }
+          }
+        },
+        {
+          "op": "call",
+          "client": "phone_A",
+          "method": "browserRemoteStreamAck",
+          "params": [
+            "sess_1",
+            1
+          ]
+        },
+        {
+          "op": "advance",
+          "ms": 1500
+        },
+        {
+          "op": "call",
+          "client": "phone_A",
+          "method": "browserRemoteStream",
+          "params": [
+            "sess_1",
+            null
+          ]
+        },
+        {
+          "op": "query",
+          "client": "phone_B",
+          "session": "sess_1"
+        }
+      ],
+      "recorded": [
+        [
+          [
+            "request",
+            "sess_1",
+            {
+              "maxWidth": 1200,
+              "maxHeight": 900
+            }
+          ],
+          [
+            "reply",
+            "phone_A",
+            {
+              "id": 1,
+              "ok": true,
+              "value": null
+            }
+          ]
+        ],
+        [
+          [
+            "request",
+            "sess_1",
+            {
+              "maxWidth": 1200,
+              "maxHeight": 900
+            }
+          ],
+          [
+            "reply",
+            "phone_C",
+            {
+              "id": 2,
+              "ok": true,
+              "value": null
+            }
+          ]
+        ],
+        [
+          [
+            "request",
+            "sess_1",
+            {
+              "maxWidth": 1200,
+              "maxHeight": 900
+            }
+          ],
+          [
+            "reply",
+            "phone_B",
+            {
+              "id": 3,
+              "ok": true,
+              "value": null
+            }
+          ]
+        ],
+        [
+          [
+            "push",
+            "phone_A",
+            {
+              "event": "browserRemoteFrame",
+              "payload": {
+                "frameId": "frame-1",
+                "sessionId": "sess_1",
+                "seq": 1,
+                "documentId": "p1:1",
+                "url": "https://example.test/page",
+                "title": "Example page",
+                "loading": false,
+                "canGoBack": false,
+                "canGoForward": true,
+                "width": 800,
+                "height": 600,
+                "viewportWidth": 400,
+                "viewportHeight": 300,
+                "image": {
+                  "mimeType": "image/jpeg",
+                  "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMQ=="
+                }
+              }
+            }
+          ],
+          [
+            "push",
+            "phone_C",
+            {
+              "event": "browserRemoteFrame",
+              "payload": {
+                "frameId": "frame-1",
+                "sessionId": "sess_1",
+                "seq": 1,
+                "documentId": "p1:1",
+                "url": "https://example.test/page",
+                "title": "Example page",
+                "loading": false,
+                "canGoBack": false,
+                "canGoForward": true,
+                "width": 800,
+                "height": 600,
+                "viewportWidth": 400,
+                "viewportHeight": 300,
+                "image": {
+                  "mimeType": "image/jpeg",
+                  "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMQ=="
+                }
+              }
+            }
+          ],
+          [
+            "push",
+            "phone_B",
+            {
+              "event": "browserRemoteFrame",
+              "payload": {
+                "frameId": "frame-1",
+                "sessionId": "sess_1",
+                "seq": 1,
+                "documentId": "p1:1",
+                "url": "https://example.test/page",
+                "title": "Example page",
+                "loading": false,
+                "canGoBack": false,
+                "canGoForward": true,
+                "width": 800,
+                "height": 600,
+                "viewportWidth": 400,
+                "viewportHeight": 300,
+                "image": {
+                  "mimeType": "image/jpeg",
+                  "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMQ=="
+                }
+              }
+            }
+          ]
+        ],
+        [
+          [
+            "push",
+            "phone_A",
+            {
+              "event": "browserRemoteWebrtc",
+              "payload": {
+                "v": 1,
+                "source": {
+                  "kind": "browser",
+                  "sessionId": "sess_1"
+                },
+                "connectionId": "connection-id-0001",
+                "generation": 1,
+                "type": "offer",
+                "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+                "fingerprints": [
+                  {
+                    "algorithm": "sha-256",
+                    "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+                  }
+                ],
+                "iceServers": [],
+                "iceTransportPolicy": "all",
+                "geometry": {
+                  "generation": 1,
+                  "cssWidth": 390,
+                  "cssHeight": 844,
+                  "deviceScaleFactor": 3,
+                  "pixelWidth": 1170,
+                  "pixelHeight": 2532
+                },
+                "inputEpoch": 1
+              }
+            }
+          ],
+          [
+            "sent"
+          ]
+        ],
+        [
+          [
+            "request",
+            "sess_1",
+            {
+              "maxWidth": 800,
+              "maxHeight": 600
+            }
+          ],
+          [
+            "request",
+            "sess_1",
+            {
+              "maxWidth": 800,
+              "maxHeight": 600
+            }
+          ]
+        ],
+        [
+          [
+            "state",
+            {
+              "subscribed": false,
+              "awaitingFit": false
+            }
+          ]
+        ],
+        [
+          [
+            "state",
+            {
+              "subscribed": false,
+              "awaitingFit": false
+            }
+          ]
+        ],
+        [
+          [
+            "reply",
+            "phone_A",
+            {
+              "id": 4,
+              "ok": false,
+              "error": "Remote browser view is not allowed for this device."
+            }
+          ]
+        ],
+        [
+          [
+            "reply",
+            "phone_C",
+            {
+              "id": 5,
+              "ok": false,
+              "error": "Remote browser view is not allowed for this device."
+            }
+          ]
+        ],
+        [
+          [
+            "refused",
+            "remote webrtc source is not streamed by this client."
+          ]
+        ],
+        [
+          [
+            "refused",
+            "remote webrtc source is not streamed by this client."
+          ]
+        ],
+        [
+          [
+            "sent"
+          ]
+        ],
+        [
+          [
+            "sent"
+          ]
+        ],
+        [],
+        [],
+        [
+          [
+            "push",
+            "phone_B",
+            {
+              "event": "browserRemoteFrame",
+              "payload": {
+                "frameId": "frame-2",
+                "sessionId": "sess_1",
+                "seq": 2,
+                "documentId": "p1:1",
+                "url": "https://example.test/page",
+                "title": "Example page",
+                "loading": false,
+                "canGoBack": false,
+                "canGoForward": true,
+                "width": 800,
+                "height": 600,
+                "viewportWidth": 400,
+                "viewportHeight": 300,
+                "image": {
+                  "mimeType": "image/jpeg",
+                  "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMg=="
+                }
+              }
+            }
+          ]
+        ],
+        [
+          [
+            "reply",
+            "phone_A",
+            {
+              "id": 6,
+              "ok": true,
+              "value": null
+            }
+          ]
+        ],
+        [
+          [
+            "state",
+            {
+              "subscribed": true,
+              "awaitingFit": false
+            }
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "a missed drop: an unpaired phone still subscribed is sent no frame and no resend",
+      "steps": [
+        {
+          "op": "call",
+          "client": "phone_A",
+          "method": "browserRemoteStream",
+          "params": [
+            "sess_1",
+            {
+              "maxWidth": 1200,
+              "maxHeight": 900
+            }
+          ]
+        },
+        {
+          "op": "call",
+          "client": "phone_B",
+          "method": "browserRemoteStream",
+          "params": [
+            "sess_1",
+            {
+              "maxWidth": 800,
+              "maxHeight": 600
+            }
+          ]
+        },
+        {
+          "op": "frame",
+          "frame": {
+            "frameId": "frame-1",
+            "sessionId": "sess_1",
+            "seq": 1,
+            "documentId": "p1:1",
+            "url": "https://example.test/page",
+            "title": "Example page",
+            "loading": false,
+            "canGoBack": false,
+            "canGoForward": true,
+            "width": 800,
+            "height": 600,
+            "viewportWidth": 400,
+            "viewportHeight": 300,
+            "image": {
+              "mimeType": "image/jpeg",
+              "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMQ=="
+            }
+          }
+        },
+        {
+          "op": "frame",
+          "frame": {
+            "frameId": "frame-2",
+            "sessionId": "sess_1",
+            "seq": 2,
+            "documentId": "p1:1",
+            "url": "https://example.test/page",
+            "title": "Example page",
+            "loading": false,
+            "canGoBack": false,
+            "canGoForward": true,
+            "width": 800,
+            "height": 600,
+            "viewportWidth": 400,
+            "viewportHeight": 300,
+            "image": {
+              "mimeType": "image/jpeg",
+              "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMg=="
+            }
+          }
+        },
+        {
+          "op": "revokeOnly",
+          "credential": "cred_1"
+        },
+        {
+          "op": "query",
+          "client": "phone_A",
+          "session": "sess_1"
+        },
+        {
+          "op": "frame",
+          "frame": {
+            "frameId": "frame-3",
+            "sessionId": "sess_1",
+            "seq": 3,
+            "documentId": "p1:1",
+            "url": "https://example.test/page",
+            "title": "Example page",
+            "loading": false,
+            "canGoBack": false,
+            "canGoForward": true,
+            "width": 800,
+            "height": 600,
+            "viewportWidth": 400,
+            "viewportHeight": 300,
+            "image": {
+              "mimeType": "image/jpeg",
+              "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMw=="
+            }
+          }
+        },
+        {
+          "op": "advance",
+          "ms": 1500
+        },
+        {
+          "op": "call",
+          "client": "phone_B",
+          "method": "browserRemoteStreamAck",
+          "params": [
+            "sess_1",
+            1
+          ]
+        },
+        {
+          "op": "accept",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "type": "ready",
+            "receiveCodecs": [
+              "video/VP8",
+              "video/H264"
+            ]
+          }
+        },
+        {
+          "op": "send",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "offer",
+            "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+            "fingerprints": [
+              {
+                "algorithm": "sha-256",
+                "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+              }
+            ],
+            "iceServers": [],
+            "iceTransportPolicy": "all",
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 390,
+              "cssHeight": 844,
+              "deviceScaleFactor": 3,
+              "pixelWidth": 1170,
+              "pixelHeight": 2532
+            },
+            "inputEpoch": 1
+          }
+        },
+        {
+          "op": "call",
+          "client": "phone_A",
+          "method": "browserRemoteStream",
+          "params": [
+            "sess_1",
+            {
+              "maxWidth": 1200,
+              "maxHeight": 900
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "ms": 2500
+        },
+        {
+          "op": "query",
+          "client": "phone_B",
+          "session": "sess_1"
+        }
+      ],
+      "recorded": [
+        [
+          [
+            "request",
+            "sess_1",
+            {
+              "maxWidth": 1200,
+              "maxHeight": 900
+            }
+          ],
+          [
+            "reply",
+            "phone_A",
+            {
+              "id": 1,
+              "ok": true,
+              "value": null
+            }
+          ]
+        ],
+        [
+          [
+            "request",
+            "sess_1",
+            {
+              "maxWidth": 1200,
+              "maxHeight": 900
+            }
+          ],
+          [
+            "reply",
+            "phone_B",
+            {
+              "id": 2,
+              "ok": true,
+              "value": null
+            }
+          ]
+        ],
+        [
+          [
+            "push",
+            "phone_A",
+            {
+              "event": "browserRemoteFrame",
+              "payload": {
+                "frameId": "frame-1",
+                "sessionId": "sess_1",
+                "seq": 1,
+                "documentId": "p1:1",
+                "url": "https://example.test/page",
+                "title": "Example page",
+                "loading": false,
+                "canGoBack": false,
+                "canGoForward": true,
+                "width": 800,
+                "height": 600,
+                "viewportWidth": 400,
+                "viewportHeight": 300,
+                "image": {
+                  "mimeType": "image/jpeg",
+                  "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMQ=="
+                }
+              }
+            }
+          ],
+          [
+            "push",
+            "phone_B",
+            {
+              "event": "browserRemoteFrame",
+              "payload": {
+                "frameId": "frame-1",
+                "sessionId": "sess_1",
+                "seq": 1,
+                "documentId": "p1:1",
+                "url": "https://example.test/page",
+                "title": "Example page",
+                "loading": false,
+                "canGoBack": false,
+                "canGoForward": true,
+                "width": 800,
+                "height": 600,
+                "viewportWidth": 400,
+                "viewportHeight": 300,
+                "image": {
+                  "mimeType": "image/jpeg",
+                  "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMQ=="
+                }
+              }
+            }
+          ]
+        ],
+        [],
+        [],
+        [
+          [
+            "state",
+            {
+              "subscribed": false,
+              "awaitingFit": false
+            }
+          ]
+        ],
+        [],
+        [
+          [
+            "push",
+            "phone_B",
+            {
+              "event": "browserRemoteFrame",
+              "payload": {
+                "frameId": "frame-3",
+                "sessionId": "sess_1",
+                "seq": 3,
+                "documentId": "p1:1",
+                "url": "https://example.test/page",
+                "title": "Example page",
+                "loading": false,
+                "canGoBack": false,
+                "canGoForward": true,
+                "width": 800,
+                "height": 600,
+                "viewportWidth": 400,
+                "viewportHeight": 300,
+                "image": {
+                  "mimeType": "image/jpeg",
+                  "data": "anBlZyBieXRlcyBvZiBzZXNzXzEjMw=="
+                }
+              }
+            }
+          ]
+        ],
+        [],
+        [
+          [
+            "refused",
+            "remote webrtc source is not streamed by this client."
+          ]
+        ],
+        [
+          [
+            "sent"
+          ]
+        ],
+        [
+          [
+            "reply",
+            "phone_A",
+            {
+              "id": 3,
+              "ok": false,
+              "error": "Remote browser view is not allowed for this device."
+            }
+          ]
+        ],
+        [
+          [
+            "request",
+            "sess_1",
+            {
+              "maxWidth": 800,
+              "maxHeight": 600
+            }
+          ],
+          [
+            "request",
+            "sess_1",
+            null
+          ]
+        ],
+        [
+          [
+            "state",
+            {
+              "subscribed": false,
+              "awaitingFit": false
+            }
+          ]
+        ]
       ]
     },
     {
@@ -7489,6 +9075,226 @@
               "ok": true,
               "value": null
             }
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "gate: a lapse, then a promote-ack",
+      "steps": [
+        {
+          "op": "call",
+          "client": "phone_B",
+          "method": "browserRemoteStream",
+          "params": [
+            "sess_1",
+            {
+              "maxWidth": 800,
+              "maxHeight": 600
+            }
+          ]
+        },
+        {
+          "op": "advance",
+          "ms": 2000
+        },
+        {
+          "op": "call",
+          "client": "phone_A",
+          "method": "browserRemoteStream",
+          "params": [
+            "sess_1",
+            {
+              "maxWidth": 1200,
+              "maxHeight": 900
+            }
+          ]
+        },
+        {
+          "op": "send",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "offer",
+            "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+            "fingerprints": [
+              {
+                "algorithm": "sha-256",
+                "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+              }
+            ],
+            "iceServers": [],
+            "iceTransportPolicy": "all",
+            "geometry": {
+              "generation": 1,
+              "cssWidth": 390,
+              "cssHeight": 844,
+              "deviceScaleFactor": 3,
+              "pixelWidth": 1170,
+              "pixelHeight": 2532
+            },
+            "inputEpoch": 1
+          }
+        },
+        {
+          "op": "send",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "promote",
+            "inputEpoch": 2,
+            "geometryGeneration": 1
+          }
+        },
+        {
+          "op": "advance",
+          "ms": 2000
+        },
+        {
+          "op": "accept",
+          "client": "phone_A",
+          "raw": {
+            "v": 1,
+            "source": {
+              "kind": "browser",
+              "sessionId": "sess_1"
+            },
+            "connectionId": "connection-id-0001",
+            "generation": 1,
+            "type": "promote-ack",
+            "inputEpoch": 2
+          }
+        }
+      ],
+      "recorded": [
+        [
+          [
+            "request",
+            "sess_1",
+            {
+              "maxWidth": 800,
+              "maxHeight": 600
+            }
+          ],
+          [
+            "reply",
+            "phone_B",
+            {
+              "id": 1,
+              "ok": true,
+              "value": null
+            }
+          ]
+        ],
+        [],
+        [
+          [
+            "request",
+            "sess_1",
+            {
+              "maxWidth": 1200,
+              "maxHeight": 900
+            }
+          ],
+          [
+            "reply",
+            "phone_A",
+            {
+              "id": 2,
+              "ok": true,
+              "value": null
+            }
+          ]
+        ],
+        [
+          [
+            "push",
+            "phone_A",
+            {
+              "event": "browserRemoteWebrtc",
+              "payload": {
+                "v": 1,
+                "source": {
+                  "kind": "browser",
+                  "sessionId": "sess_1"
+                },
+                "connectionId": "connection-id-0001",
+                "generation": 1,
+                "type": "offer",
+                "sdp": "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n",
+                "fingerprints": [
+                  {
+                    "algorithm": "sha-256",
+                    "value": "01:08:0F:16:1D:24:2B:32:39:40:47:4E:55:5C:63:6A:71:78:7F:86:8D:94:9B:A2:A9:B0:B7:BE:C5:CC:D3:DA"
+                  }
+                ],
+                "iceServers": [],
+                "iceTransportPolicy": "all",
+                "geometry": {
+                  "generation": 1,
+                  "cssWidth": 390,
+                  "cssHeight": 844,
+                  "deviceScaleFactor": 3,
+                  "pixelWidth": 1170,
+                  "pixelHeight": 2532
+                },
+                "inputEpoch": 1
+              }
+            }
+          ],
+          [
+            "sent"
+          ]
+        ],
+        [
+          [
+            "push",
+            "phone_A",
+            {
+              "event": "browserRemoteWebrtc",
+              "payload": {
+                "v": 1,
+                "source": {
+                  "kind": "browser",
+                  "sessionId": "sess_1"
+                },
+                "connectionId": "connection-id-0001",
+                "generation": 1,
+                "type": "promote",
+                "inputEpoch": 2,
+                "geometryGeneration": 1
+              }
+            }
+          ],
+          [
+            "sent"
+          ]
+        ],
+        [
+          [
+            "request",
+            "sess_1",
+            {
+              "maxWidth": 1200,
+              "maxHeight": 900
+            }
+          ]
+        ],
+        [
+          [
+            "accepted"
           ]
         ]
       ]

@@ -3,8 +3,9 @@
 // fixture-set manifest writer. Node built-ins only.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // A git call that has not answered in this long has hung (execFileSync kills it and throws).
@@ -174,6 +175,42 @@ export function exactProductIdentity(tree, commit) {
     throw new Error(`tree ${tree} is not exactly ${commit}: ${filesDifferingFromCommit} file(s) differ, ${commitFilesMissingFromTree} missing`);
   }
   return { ...identity, exact: true };
+}
+
+/**
+ * `exactProductIdentity` for an exported tree that is `commit` with one fix patch applied (a clear Node bug fixed on both sides): every
+ * `src`/`apps` file is the commit's except exactly the patch's files, and each of those is byte for byte the commit's blob with the
+ * patch applied (`git apply` in a fresh folder). Throws otherwise. The identity names the base commit and the patch's sha256.
+ */
+export function patchedProductIdentity(tree, commit, patchPath) {
+  if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error(`commit must be a full id, got ${commit}`);
+  const patch = readFileSync(patchPath);
+  const files = [...patch.toString('utf8').matchAll(/^diff --git a\/(\S+) b\/\S+$/gm)].map((match) => match[1]);
+  if (!files.length) throw new Error(`patch ${patchPath} names no file`);
+  const identity = productIdentity(tree, commit);
+  const { filesDifferingFromCommit, commitFilesMissingFromTree } = identity.refComparison;
+  if (filesDifferingFromCommit !== files.length || commitFilesMissingFromTree !== 0) {
+    throw new Error(`tree ${tree} is not ${commit} with ${patchPath}: ${filesDifferingFromCommit} file(s) differ (the patch has ${files.length}), ${commitFilesMissingFromTree} missing`);
+  }
+  const scratch = mkdtempSync(join(tmpdir(), 'patched-tree-'));
+  try {
+    const options = { encoding: 'buffer', maxBuffer: 256 * 1024 * 1024, timeout: GIT_TIMEOUT_MS, windowsHide: true };
+    for (const file of files) {
+      const target = join(scratch, ...file.split('/'));
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, execFileSync('git', ['show', `${commit}:${file}`], { ...options, cwd: REPO_ROOT }));
+    }
+    // The blobs as committed (LF): no line-ending conversion on the way out.
+    execFileSync('git', ['-c', 'core.autocrlf=false', 'apply', '--unsafe-paths', resolve(patchPath)], { ...options, cwd: scratch });
+    for (const file of files) {
+      if (!readFileSync(join(scratch, ...file.split('/'))).equals(readFileSync(join(tree, ...file.split('/'))))) {
+        throw new Error(`tree ${tree}: ${file} is not ${commit}'s with ${patchPath} applied`);
+      }
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+  return { ...identity, commit, exact: true, patch: { file: basename(patchPath), sha256: sha256(patch), files } };
 }
 
 /** Nearest-rank percentile of an ascending numeric array. */

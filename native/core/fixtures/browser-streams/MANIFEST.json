@@ -1,10 +1,10 @@
 {
-  "command": "node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-browser-streams.mjs --tree <tree>",
+  "command": "node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-browser-streams.mjs --tree <b6f10295a with the patch> --patch <node-fix-unpair-keeps-stream.patch>",
   "exact": true,
   "excluded": [
     {
-      "what": "the relay's calls into the window process: `forward` (remote-relay.ts:383-399, the window's `webrtcSignal`), `viewerLeft` (:400-401, `webrtcViewerLeft`), `screenAuthorized`, `screenDisplays`, `resolveIceServers`",
-      "why": "scripted here (`forward`/`viewerLeft` resolve, no screen access, no displays, no ICE servers): in the core that window is the live view's own host (live_view.rs `LiveHost`), with no boundary to compare; its signals are recorded where they leave the relay (`browserRemoteWebrtc` pushes)"
+      "what": "the relay's calls into the window process: `forward` (remote-relay.ts:383-399, the window's `webrtcSignal`), `viewerLeft` (:400-401, `webrtcViewerLeft`), `screenAuthorized`, `screenDisplays`, `resolveIceServers`, and the screen-access publisher's `send` (the window's `screenAccess`)",
+      "why": "scripted here (`forward`/`viewerLeft`/`send` resolve, no screen access, no displays, no ICE servers): in the core that window is the live view's own host (live_view.rs `LiveHost`), with no boundary to compare; its signals are recorded where they leave the relay (`browserRemoteWebrtc` pushes)"
     },
     {
       "what": "the relay-client call dispatch's other methods and its host/method table (`host: {}`, `methods: {}`, `browserTabs`)",
@@ -18,9 +18,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 191372,
+      "bytes": 239676,
       "path": "streams.json",
-      "sha256": "d031fe42fd1c933432fecb16f7f9f3d54ec95c2ac96d004cbf48d0127a2b150d"
+      "sha256": "92744fa487ee3d51329da5412d92dcea4ef34f7bdfec77b2a7cd9763b20b881f"
     }
   ],
   "inputs": {
@@ -65,6 +65,10 @@
         "steps": 29
       },
       {
+        "name": "a demote or a close gives the phone the frame withheld while WebRTC owned the view",
+        "steps": 18
+      },
+      {
         "name": "a phone that left is dropped at the next frame or its lapse",
         "steps": 11
       },
@@ -79,6 +83,14 @@
       {
         "name": "an unpaired phone that alone streams a session stops the desktop view",
         "steps": 7
+      },
+      {
+        "name": "an unpaired device whose connections stay open is refused and sent nothing",
+        "steps": 19
+      },
+      {
+        "name": "a missed drop: an unpaired phone still subscribed is sent no frame and no resend",
+        "steps": 14
       },
       {
         "name": "the relay closing ends every subscription and every resend",
@@ -121,6 +133,10 @@
         "steps": 3
       },
       {
+        "name": "gate: a lapse, then a promote-ack",
+        "steps": 7
+      },
+      {
         "name": "a settled metadata frame over a settled picture ends a take-over wait",
         "steps": 12
       }
@@ -130,18 +146,47 @@
       "sess_2"
     ]
   },
+  "inventory": {
+    "exclusions": 3,
+    "gates": 6,
+    "scenarios": 27,
+    "sequential": 21,
+    "statement": "27 scenarios: 21 sequential and 6 gates (each gate a pair the core forces into its losing interleaving, recorded as the one order Node's single thread runs); 3 documented exclusions, listed under `excluded`."
+  },
+  "nodePatch": {
+    "file": "node-fix-unpair-keeps-stream.patch",
+    "files": [
+      "apps/desktop/src/main/remote-browser-streams.test.mjs",
+      "apps/desktop/src/main/remote-browser-streams.ts",
+      "apps/desktop/src/main/remote-relay.ts",
+      "apps/desktop/src/main/remote-screen/screen-access-publisher.test.mjs",
+      "apps/desktop/src/main/remote-screen/screen-access-publisher.ts"
+    ],
+    "sha256": "0f8dd34fdf0cc6f69b6b66fc01b7d1c3232209f94d9bd76e7915780e71f03a61"
+  },
   "nodeVersion": "v22.20.0",
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "appsSha256": "75d8671ff56c018b6ec01737c20d49ca9103a7f8fd37c5b60a8a83a3b4bfe1af",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
     "files": 9139,
+    "patch": {
+      "file": "node-fix-unpair-keeps-stream.patch",
+      "files": [
+        "apps/desktop/src/main/remote-browser-streams.test.mjs",
+        "apps/desktop/src/main/remote-browser-streams.ts",
+        "apps/desktop/src/main/remote-relay.ts",
+        "apps/desktop/src/main/remote-screen/screen-access-publisher.test.mjs",
+        "apps/desktop/src/main/remote-screen/screen-access-publisher.ts"
+      ],
+      "sha256": "0f8dd34fdf0cc6f69b6b66fc01b7d1c3232209f94d9bd76e7915780e71f03a61"
+    },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "exact": false,
+      "filesDifferingFromCommit": 5
     },
     "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
@@ -153,11 +198,11 @@
   "recorderFiles": [
     {
       "path": "benchmarks/rust-core/recorders/record-browser-streams.mjs",
-      "sha256": "e7fa01c9b5143606fc9e6b5812bf40ac31b81d4a2d6e27b880eb3b902f8c5630"
+      "sha256": "9b901a2a28662787fc8f4af1e4cc48350e0c866c6e142edf0f74d84baf0b36ac"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+      "sha256": "e7be03dd63961b50fc7a25072bf252fdbc3ec952769d82e73b9b1805d5c4e73b"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/ts-register.mjs",
@@ -168,8 +213,8 @@
       "sha256": "d8e596c1bcd597ee71ad7007dcd2362605a2ca5d87a77801cba8b3cdc2c22ac6"
     }
   ],
-  "recorderSha256": "e7fa01c9b5143606fc9e6b5812bf40ac31b81d4a2d6e27b880eb3b902f8c5630",
+  "recorderSha256": "9b901a2a28662787fc8f4af1e4cc48350e0c866c6e142edf0f74d84baf0b36ac",
   "replayProjections": [],
   "set": "browser-streams",
-  "totalBytes": 191372
+  "totalBytes": 239676
 }

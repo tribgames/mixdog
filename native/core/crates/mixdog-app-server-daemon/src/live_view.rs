@@ -95,8 +95,10 @@ const SESSION_PREFIX: &str = "browser:";
 /// Whether a connection may see this PC's screens.
 pub trait ScreenAccess: Send + Sync {
     fn allowed(&self, connection: ConnectionId) -> bool;
-    /// Whether a connection may still be sent pictures of a browser session it streams: its peer is attached and its device was not
-    /// unpaired while it was connected. Asked at every send, so an unpair whose drop was missed still sends nothing.
+    /// Whether a connection may still be shown the browser view: its peer is attached and its device was not unpaired while it was
+    /// connected (nor admitted while an unpair was in force). Asked at every subscribe (`browser/stream`, a WebRTC `ready` and every
+    /// phone signal through the subscription), at every frame and at every WebRTC signal the host sends, so an unpair whose drop was
+    /// missed still shows the phone nothing.
     fn view_allowed(&self, connection: ConnectionId) -> bool;
 }
 
@@ -351,6 +353,12 @@ impl RelayDeps for RelayAdapter {
         }
     }
 
+    fn released(&self) {
+        if let Some(inner) = self.0.upgrade() {
+            inner.streams().deliver_queued();
+        }
+    }
+
     async fn resolve_ice_servers(&self) -> Result<Vec<IceServer>, String> {
         let inner = self.0.upgrade().ok_or("the live view stopped.")?;
         Ok(inner.runtime.resolve_ice().await.into_iter().map(|s| IceServer { urls: s.urls, username: s.username, credential: s.credential }).collect())
@@ -375,6 +383,11 @@ impl RelayDeps for RelayAdapter {
     async fn send(&self, client: &str, payload: Value) -> Result<(), String> {
         let inner = self.0.upgrade().ok_or("the live view stopped.")?;
         let connection = client_connection(client).ok_or("remote webrtc client id is invalid.")?;
+        // A phone that may no longer view gets no signal, also one the host sent before the unpair and that is only now going out (the
+        // patched Node's `send` guard in `remote-relay.ts`); like a push to a phone that left, that is no failure of the host's send.
+        if !inner.access.view_allowed(connection) {
+            return Ok(());
+        }
         inner
             .notifier
             .notify(connection, Method("browser/webrtcSignal"), json!({ "signal": payload["payload"] }))
@@ -409,6 +422,13 @@ impl StreamsDeps for StreamsAdapter {
     fn request(&self, session: &str, options: Option<Value>) {
         if let Some(inner) = self.0.upgrade() {
             inner.stream_request(session, options);
+        }
+    }
+
+    fn allowed(&self, client: &str) -> bool {
+        match (self.0.upgrade(), client_connection(client)) {
+            (Some(inner), Some(connection)) => inner.access.view_allowed(connection),
+            _ => false,
         }
     }
 
@@ -737,7 +757,7 @@ impl DomainService for LiveViewService {
                 let session = required_session_id(&params.session_id).map_err(domain_error)?;
                 let streams = self.inner.streams();
                 if params.on {
-                    streams.subscribe(&client, &session, normalize_stream_options(params.request.as_ref()).map_err(domain_error)?);
+                    streams.subscribe(&client, &session, normalize_stream_options(params.request.as_ref()).map_err(domain_error)?).map_err(domain_error)?;
                 } else {
                     streams.unsubscribe(&client, &session);
                 }
@@ -792,6 +812,14 @@ impl LiveViewService {
     /// The relay closed: every phone's browser stream ends (`remote-relay.ts:658`, `browserStreams.dispose()`).
     pub fn relay_closed(&self) {
         self.inner.streams().dispose();
+    }
+
+    /// A signal of the live-view host to a phone, as the host sends it (`HostEnv::send_signal`): the returned future is the send on its
+    /// way, run when it is awaited.
+    #[cfg(test)]
+    pub(crate) fn host_signal(&self, connection: ConnectionId, raw: &Value) -> BoxFuture<'static, Result<(), String>> {
+        let signal = DesktopSignal::parse(raw).expect("a recorded host signal");
+        LiveEnv(Arc::downgrade(&self.inner)).send_signal(&connection.0.to_string(), &signal)
     }
 }
 
