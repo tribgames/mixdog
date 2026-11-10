@@ -24,6 +24,32 @@ function untilLogged(text, timeoutMs) {
     if (logged()) finish();
   });
 }
+// The daemon log's length now, in UTF-16 units of its text, so a later wait can look only at what was logged after it.
+function logMark() {
+  const file = join(process.env.MIXDOG_DATA_DIR, 'daemon.log');
+  return existsSync(file) ? readFileSync(file, 'utf8').length : 0;
+}
+// Resolves when the daemon's log holds, past `from` (a logMark), `first` and after it `then`: the same watch and deadline
+// as untilLogged. Marks the boot logged before `from` (its own refresh-ready and warm-ready) do not count.
+function untilLoggedInOrder(from, first, then, timeoutMs) {
+  const file = join(process.env.MIXDOG_DATA_DIR, 'daemon.log');
+  return new Promise((resolve, reject) => {
+    const logged = () => {
+      if (!existsSync(file)) return false;
+      const text = readFileSync(file, 'utf8').slice(from);
+      const at = text.indexOf(first);
+      return at >= 0 && text.indexOf(then, at + first.length) >= 0;
+    };
+    const finish = (error) => {
+      clearTimeout(timer);
+      watcher.close();
+      error ? reject(error) : resolve();
+    };
+    const watcher = watch(process.env.MIXDOG_DATA_DIR, () => logged() && finish());
+    const timer = setTimeout(() => finish(new Error(`never logged ${then} after ${first} past offset ${from}`)), timeoutMs);
+    if (logged()) finish();
+  });
+}
 // Resolves when `dir` holds the file `name`: a directory watch and one deadline timer.
 function untilFile(dir, name, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -69,6 +95,20 @@ try {
       writeFileSync(join(scenario.holdDir, 'hold-endpoint'), '');
       writeFileSync(join(scenario.holdDir, 'release'), '');
       await untilFile(scenario.holdDir, 'endpoint-held', 60_000);
+      out.calls.push({ action: call.action, ok: true });
+      continue;
+    }
+    // Not a call to Node: after `statuslineUsageWarmup`, the held catalog-refresh request is answered. On the refresh's
+    // completion Node invalidates the model caches and starts the authoritative re-warm (provider-readiness.mjs:160-171),
+    // marking `provider-catalogs:refresh-ready` right after starting it; the re-warm's load marks `provider-models:warm-ready`
+    // when it lands (provider-models.mjs:202). Only marks logged after the release count (the boot's own refresh-ready and
+    // warm-ready precede it); every earlier load had settled (the full read awaited it), so the first warm-ready after that
+    // refresh-ready is the re-warm's. The reads go on once it is logged.
+    if (call.action === 'catalogRefreshCompleted') {
+      if (!existsSync(join(scenario.holdDir, 'endpoint-held'))) throw new Error('catalogRefreshCompleted: no catalog refresh request is held');
+      const from = logMark();
+      writeFileSync(join(scenario.holdDir, 'release-endpoint'), '');
+      await untilLoggedInOrder(from, 'provider-catalogs:refresh-ready', 'provider-models:warm-ready', 60_000);
       out.calls.push({ action: call.action, ok: true });
       continue;
     }

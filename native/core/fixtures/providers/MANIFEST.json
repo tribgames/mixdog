@@ -1,8 +1,46 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-providers.mjs --tree <tree with node_modules> --commit 7f633e7305166c5fc8ee66464859ab7de7b60b4d",
   "externalFixtures": [
-    "gemini-explicit-cache/cases.json (WP-AI-GOOGLE)",
-    "oracles/openai-reasoning-replay-golden.json (WP-AI-OPENAI)"
+    {
+      "path": "gemini-explicit-cache/cases.json",
+      "sha256": "270e08303f3d0cb1d176bf44bd1946be02bd373a7c6e571cac680fb71455eb32",
+      "source": "WP-AI-GOOGLE, by hand (added in 90113883e5)"
+    },
+    {
+      "path": "google-models/cases.json",
+      "sha256": "1cf9788e28215c5d11690052e46a8bccb060015ac0b7afc83025a265e99cb224",
+      "source": "WP-AI-GOOGLE, by hand (added in 3af96f66f2)"
+    },
+    {
+      "path": "oracles/openai-codex-metadata-golden.json",
+      "sha256": "80f06106695d6d8ccecb44f0be42df496e0b4169d84224d1ea8c016ba9a672fb",
+      "source": "WP-AI-OPENAI, by hand (added in 3af96f66f2)"
+    },
+    {
+      "path": "oracles/openai-models-golden.json",
+      "sha256": "69a53fcf0a2b38b0b8d43c8a476b79e3f0141aae921eb01571a048959372b233",
+      "source": "WP-AI-OPENAI, by hand (added in e7ecb60838)"
+    },
+    {
+      "path": "oracles/openai-reasoning-replay-golden.json",
+      "sha256": "58196169050769dbb2e7b40b8aa6c4f8a05c5365e7e9ea563f4770d66f66c748",
+      "source": "WP-AI-OPENAI, by hand (added in 90113883e5)"
+    },
+    {
+      "path": "oracles/openai-retry-policy-golden.json",
+      "sha256": "d8e75610c9b4cc6fc9fb9e722f674b1655196baaecff74f7e6ea28577fc45dc2",
+      "source": "WP-AI-OPENAI, by hand (added in 3af96f66f2)"
+    },
+    {
+      "path": "oracles/openai-transport-switch-golden.json",
+      "sha256": "b51c75b31e7575b9d5daf8517fd2a16ed0cf3d23307cbf7911e343155409b793",
+      "source": "WP-AI-OPENAI, by hand (added in 3af96f66f2)"
+    },
+    {
+      "path": "oracles/openai-ws-delta-golden.json",
+      "sha256": "57d0ecad4d4632578ceac2ed63f8a919ca92eea0394fbf70b71a225b191df01b",
+      "source": "WP-AI-OPENAI, by hand (added in 3af96f66f2)"
+    }
   ],
   "fileCount": 85,
   "files": [
@@ -332,9 +370,9 @@
       "sha256": "4506725f8c057113f0c6f14e763ef10b48861cd5f0cdc5823f78e3014497fb03"
     },
     {
-      "bytes": 32338,
+      "bytes": 32369,
       "path": "oracles/model-meta.json",
-      "sha256": "9f4f64358c91309ccdf69ab85147359a12a012aad1b5872d23b98f6356b4df5d"
+      "sha256": "166ba270d482d2f3c5b5c3d193d895f070d26acaaf7f3af7d650c9dd951d008d"
     },
     {
       "bytes": 264455,
@@ -347,19 +385,19 @@
       "sha256": "80f06106695d6d8ccecb44f0be42df496e0b4169d84224d1ea8c016ba9a672fb"
     },
     {
-      "bytes": 59045,
+      "bytes": 60101,
       "path": "oracles/openai-compat-responses-head-parity.json",
-      "sha256": "d05d0561408cd2300bbadb5638ef5dc1dcb402747eac8dea6fa7eaa9d319f485"
+      "sha256": "d083f904f5d98cf5b86cd7d4e5e014d4f6020ab137cf77484ba3bce04a53e605"
     },
     {
       "bytes": 7080,
       "path": "oracles/openai-login-golden.json",
-      "sha256": "a3eac4717bc2ea4fa5a24f4e14f7c9f76cf6e99dd427f8a322f4911a4cd70fd6"
+      "sha256": "b7cf45a0225acb8e04d11494fcba94a9cd8192714ee1108c8c25d370bd2a07ab"
     },
     {
       "bytes": 5163,
       "path": "oracles/openai-max-context-golden.json",
-      "sha256": "cd9739189ac51e42375560914185cf416ed5421c75de0d8296c3d4b17825c9f7"
+      "sha256": "0b3faebbba8ddc6b94a87fb7bf82ec061bfbaec8872cfade6e670eb5212d476a"
     },
     {
       "bytes": 8295,
@@ -474,6 +512,42 @@
       "sha256": "3a2ad558ce030a77b32b14a43b02f87596ca1ed348252f5035b898b2d4abb34f"
     },
     {
+      "path": "benchmarks/rust-core/recorders/record-openai-login.mjs",
+      "sha256": "f4f9e8506a7dfe83422b9c36dca574119ef28206d535008a0b9d42862c7a9b71"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-openai-max-context.mjs",
+      "sha256": "60ee0f5efcef5af32e389ef5ff2d28e1eb9a190bc20d403ab72f8976f19c446a"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-action-input-union.mjs",
+      "sha256": "3dc9773aca9764189bbc55c811f6ea20dc1fc5cc184a84a4cceef9dd2256e0cb"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-compat-tool-exclusion.mjs",
+      "sha256": "7487e0208462d97be08a80a6d67b950dbb6ec2d22b0ad18e723b8a6a7ab79cc4"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-cursor-tool-choice.mjs",
+      "sha256": "81bb182729ad06a879d6305031c87f71db6256b40dfa5351af408a2668a81f61"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-cursor-tools.mjs",
+      "sha256": "bd3887ed0ddb92d4721320dc6c2588397f0ba2b0bc578365e7d8f43b75774820"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-gemini-tool-schema.mjs",
+      "sha256": "2aae0557f26d293121676c8479957a32bce41f3f9fb6578cd0511ca1d1030bd9"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-schema-wording.mjs",
+      "sha256": "9581af2ed28f6e268b61e4a40a611198af842505ee75892ade9eebf7fefcb5ce"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/record-model-meta.mjs",
+      "sha256": "c1f372819894240c54bcd539281ba793ef36e443e07754e53633ee6dee0801bd"
+    },
+    {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
       "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
     },
@@ -491,29 +565,6 @@
     }
   ],
   "nodeVersion": "v22.20.0",
-  "notFromThisRun": [
-    "action-input-union/cases.json",
-    "compat-tool-exclusion/cases.json",
-    "cursor-tool-choice/cases.json",
-    "cursor-tools/cases.json",
-    "gemini-explicit-cache/cases.json",
-    "gemini-tool-schema/cases.json",
-    "google-models/cases.json",
-    "oracles/model-meta.json",
-    "oracles/native-request-bytes.head.json",
-    "oracles/openai-codex-metadata-golden.json",
-    "oracles/openai-compat-responses-head-parity.json",
-    "oracles/openai-login-golden.json",
-    "oracles/openai-max-context-golden.json",
-    "oracles/openai-models-golden.json",
-    "oracles/openai-reasoning-replay-golden.json",
-    "oracles/openai-responses-payload-parity.fixture.json",
-    "oracles/openai-retry-policy-golden.json",
-    "oracles/openai-transport-switch-golden.json",
-    "oracles/openai-ws-delta-golden.json",
-    "oracles/xai-tool-search-head-parity.json",
-    "schema-wording/cases.json"
-  ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "7f633e7305166c5fc8ee66464859ab7de7b60b4d",
@@ -531,8 +582,14 @@
     "treeKind": "archive",
     "version": "1.4.5"
   },
+  "productOracles": {
+    "oracles/native-request-bytes.head.json": "scripts/tool-contracts/native-request-bytes.head.json",
+    "oracles/openai-compat-responses-head-parity.json": "src/runtime/agent/orchestrator/providers/openai-compat-responses-head-parity.json",
+    "oracles/openai-responses-payload-parity.fixture.json": "src/runtime/agent/orchestrator/providers/openai-responses-payload-parity.fixture.json",
+    "oracles/xai-tool-search-head-parity.json": "src/runtime/agent/orchestrator/providers/xai-tool-search-head-parity.json"
+  },
   "recorder": "benchmarks/rust-core/recorders/record-providers.mjs",
-  "recorderSha256": "aeb34dbcc18b10e38be143b94e05cacf5b93ce297849ba1a19a725b583e07722",
+  "recorderSha256": "a412f167e3c4783d5eac0547c023a816a18adf51d6f1dce0f528ad939e1a23ca",
   "scenarios": [
     "anthropic/cache-write-1h",
     "anthropic/error-400",
@@ -552,5 +609,5 @@
     "openai-responses-http-sse/truncated-no-completed"
   ],
   "set": "providers",
-  "totalBytes": 2565973
+  "totalBytes": 2567060
 }

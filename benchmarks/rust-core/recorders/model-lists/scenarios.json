@@ -355,6 +355,67 @@
     }
   },
   {
+    "name": "anthropic-search-after-catalog-refresh-completed-and-rewarmed",
+    "hold": "statusline-usage-warmup",
+    "calls": [
+      {
+        "action": "listProviderModels",
+        "args": [
+          {
+            "quick": true
+          }
+        ]
+      },
+      {
+        "action": "listProviderModels",
+        "args": [
+          {}
+        ]
+      },
+      {
+        "action": "statuslineUsageWarmup"
+      },
+      {
+        "action": "catalogRefreshCompleted"
+      },
+      {
+        "action": "listWebSearchModels",
+        "args": [
+          {}
+        ]
+      }
+    ],
+    "stub": {
+      "/a/v1/models": {
+        "data": [
+          {
+            "id": "claude-sonnet-4-6",
+            "type": "model",
+            "display_name": "Claude Sonnet 4.6",
+            "created_at": "2090-06-01T00:00:00Z"
+          },
+          {
+            "id": "claude-haiku-4-5-20251001",
+            "type": "model",
+            "display_name": "Claude Haiku 4.5",
+            "created_at": "2091-06-01T00:00:00Z"
+          }
+        ],
+        "has_more": false
+      }
+    },
+    "agent": {
+      "providers": {
+        "anthropic": {
+          "baseURL": "__BASE_URL__/a"
+        }
+      }
+    },
+    "env": {
+      "ANTHROPIC_API_KEY": "fixture-key-not-a-credential"
+    }
+  },
+  {
     "name": "custom-discovery",
     "hold": "statusline-usage-warmup",
     "calls": [
@@ -537,6 +598,54 @@
       },
       {
         "action": "statuslineUsageWarmup"
+      },
+      {
+        "action": "listWebSearchModels",
+        "args": [
+          {}
+        ]
+      }
+    ],
+    "env": {
+      "ANTHROPIC_API_KEY": "fixture-key-not-a-credential"
+    },
+    "stub": {
+      "/a/v1/models": {
+        "data": [],
+        "has_more": false
+      }
+    },
+    "agent": {
+      "providers": {
+        "anthropic": {
+          "baseURL": "__BASE_URL__/a"
+        }
+      }
+    }
+  },
+  {
+    "name": "anthropic-floor-empty-after-catalog-refresh-completed-and-rewarmed",
+    "hold": "statusline-usage-warmup",
+    "calls": [
+      {
+        "action": "listProviderModels",
+        "args": [
+          {
+            "quick": true
+          }
+        ]
+      },
+      {
+        "action": "listProviderModels",
+        "args": [
+          {}
+        ]
+      },
+      {
+        "action": "statuslineUsageWarmup"
+      },
+      {
+        "action": "catalogRefreshCompleted"
       },
       {
         "action": "listWebSearchModels",
