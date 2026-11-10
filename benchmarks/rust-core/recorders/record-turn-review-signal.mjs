@@ -410,6 +410,20 @@ const scenarios = [
       { op: 'coreReconnect' },
       { op: 'begin', ws: 'w1', session: 'k2', checkpoint: 'cp4' },
       { op: 'edit', ws: 'w1', session: 'k2', path: 'a.txt', old: 'Z', new: 'Q' },
+      // One outage over several changes: a patch of two files is made while the link is down (Node tells the windows at each change; the desktop
+      // is told once, by the snapshot it dials in with at the end of the operation), and the link comes back again with nothing new.
+      { op: 'patch', ws: 'w1', session: 'k2', patch: patchOf('*** Update File: a.txt\n@@\n-W\n+V\n', '*** Add File: m.txt\n+new\n'), coreLinkDown: true },
+      { op: 'coreReconnect' },
+      // What the restarted core answers about the sealed turn of k1 is read back from what the first core persisted: its snapshot record
+      // (the session's review) and its change records (reading them, then undoing the turn).
+      { op: 'sessionReview', ws: 'w1', session: 'k1' },
+      { op: 'changes', session: 'k1', checkpoint: 'cp1' },
+      // A new turn of a session on the restarted core adds its record to the file the first core wrote; the earlier turn's stays, and can be undone.
+      { op: 'begin', ws: 'w1', session: 'k2', checkpoint: 'cp5' },
+      { op: 'patch', ws: 'w1', session: 'k2', patch: patchOf('*** Add File: p.txt\n+p\n') },
+      { op: 'complete', session: 'k2' },
+      { op: 'changes', session: 'k2', checkpoint: 'cp4' },
+      { op: 'undo', session: 'k2', checkpoint: 'cp4' },
     ],
   },
   {

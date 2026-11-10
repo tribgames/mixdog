@@ -321,7 +321,8 @@ for (const [index, op] of input.ops.entries()) {
   if (op.coreLinkDown) {
     // The tells the core made while the link was down reach the desktop as the one tell its snapshot carries (a newer revision of
     // `reviewDiff` than the store holds), not as frames: Node's deliveries of the operation are that one.
-    windows.deliveries += Math.min(1, rust.deliveries.length);
+    // An operation with several deliveries is a burst: the pane meets the snapshot's one tell, so it may read fewer times (checked as a burst).
+    windows.deliveries += rust.deliveries.length;
     counts.set('desktop', rust.deliveries.flat().filter(isTell).length);
     delivered = rust.deliveries.length;
   }
