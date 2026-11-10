@@ -339,6 +339,26 @@ pub enum RunEvent {
     /// instant it does and in completion order, before its result commits in call order: the UI's live row and the
     /// interruption (which keeps what the stop left uncommitted) both read it. `Error` kind only for a thrown call.
     EarlyResult(AgentMessage),
+    /// The audit of one assistant turn's tool batch (`recordToolBatch`, `tools/tool-batch-trace.mjs:16`, called from
+    /// `loop/tool-phase.mjs:46` before `onToolCall`): what runs, so a bridged `call_tool` is recorded as its target. The host writes
+    /// the `batch` trace row from it (`mixdog_trace::batch_record`) with a fresh batch id, and tags the batch's tool rows with it.
+    ToolBatch(ToolBatch),
+}
+
+/// One tool batch of the audit: the turn's iteration and the execution view of its calls, in call order.
+#[derive(Clone, PartialEq, Debug)]
+pub struct ToolBatch {
+    pub iteration: u32,
+    pub calls: Vec<ToolBatchCall>,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct ToolBatchCall {
+    pub tool_call_id: String,
+    pub tool_name: String,
+    /// For the tools that take several targets in one call (read, grep, glob, git, code_graph): the length of each array
+    /// input the call gave, in the tool's field order; `None` for every other tool.
+    pub array_lengths: Option<Vec<(String, usize)>>,
 }
 
 #[derive(Clone, PartialEq, Debug)]

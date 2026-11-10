@@ -49,9 +49,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::env::GateAsk;
 use crate::env::GateCall;
+use crate::env::Clock;
 use crate::env::GateDecision;
 use crate::env::RunEvent;
 use crate::env::Stage;
+use crate::env::ToolBatch;
+use crate::env::ToolBatchCall;
 use crate::env::ToolGate;
 use crate::env::TurnGuards;
 use crate::limits;
@@ -618,6 +621,24 @@ pub(crate) fn is_invalid_args_marker(arguments: &JsonValue) -> bool {
 /// Policy, approval wait, then the tool task. Awaiting the approval is a
 /// cancel-safe wait: the run's token ends it from outside.
 pub(crate) async fn execute_call(call: ToolCall, env: Arc<CallEnv>) -> Executed {
+    let dispatch_started_at = env.clock.now_ms();
+    // A `call_tool` whose arguments did not parse is a projection failure (`tool-call-resolution.mjs:43`): refused before dispatch, so
+    // it is no completed call and has no timing.
+    let refused_before_dispatch = call.name == "call_tool" && is_invalid_args_marker(&call.arguments);
+    let executed = execute_call_inner(call, Arc::clone(&env)).await;
+    if refused_before_dispatch { executed } else { stamp_timing(executed, dispatch_started_at, env.clock.as_ref()) }
+}
+
+/// Every call that went through `executeBatchCall` is a completed call and its result carries a `toolTiming`\n/// (`completedToolResult`, `tool-batch/finalize.mjs:295`), a refusal, an invalid-argument notice or a skip included; only a call the\n/// batch answers beforehand (a duplicate, a guard, a limit) has none. A call that ran has its own marks already.
+pub(crate) fn stamp_timing(mut executed: Executed, dispatch_started_at: i64, clock: &dyn Clock) -> Executed {
+    if executed.message.tool_timing.is_none() {
+        let now = clock.now_ms();
+        executed.message.tool_timing = Some(ToolTiming { dispatch_started_at, execution_started_at: now, execution_completed_at: now, postprocess_started_at: now, result_completed_at: now });
+    }
+    executed
+}
+
+async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>) -> Executed {
     // `executeBatchCall`'s invalid-args guard (`session/tool-batch/execute-call.mjs`): a call whose arguments the provider
     // could not parse is answered with the retry notice and never dispatched, whatever its name (a `call_tool` included).
     if is_invalid_args_marker(&call.arguments) {
@@ -1037,6 +1058,38 @@ pub(crate) fn intra_turn_duplicates(calls: &[ToolCall], tools: &ToolSet) -> Hash
     duplicates
 }
 
+/// The array inputs of the tools that take several targets in one call (`ARRAY_INPUTS`, `tool-batch-trace.mjs:6`), each dimension
+/// counted on its own.
+fn array_inputs(tool: &str) -> Option<&'static [&'static str]> {
+    match tool {
+        "read" => Some(&["file_path", "path"]),
+        "grep" => Some(&["pattern", "path"]),
+        "glob" => Some(&["pattern"]),
+        "git" => Some(&["command"]),
+        "code_graph" => Some(&["files", "symbols"]),
+        _ => None,
+    }
+}
+
+/// `recordToolBatch`'s record of a batch of execution calls.
+fn tool_batch(iteration: u32, calls: &[ToolCall]) -> ToolBatch {
+    ToolBatch {
+        iteration,
+        calls: calls
+            .iter()
+            .map(|call| ToolBatchCall {
+                tool_call_id: call.id.clone(),
+                tool_name: call.name.clone(),
+                array_lengths: array_inputs(&call.name).map(|fields| {
+                    fields
+                        .iter()
+                        .filter_map(|field| call.arguments.get(*field).and_then(|value| value.as_array()).map(|items| ((*field).to_owned(), items.len())))
+                        .collect()
+                }),
+            })
+            .collect(),
+    }
+}
 pub(crate) type CallFuture = Pin<Box<dyn Future<Output = (usize, Executed)> + Send>>;
 
 impl Run {
@@ -1061,6 +1114,9 @@ impl Run {
                 committed: false,
             });
         }
+        // The audit records what runs: a bridged `call_tool` as its target (the wire calls stay the transcript's).
+        let (execution, _, _) = self.execution_view(&calls);
+        self.emit(RunEvent::ToolBatch(tool_batch(self.iterations, &execution)));
         self.emit(RunEvent::ToolCalls {
             iteration: self.iterations,
             calls: calls.clone(),
