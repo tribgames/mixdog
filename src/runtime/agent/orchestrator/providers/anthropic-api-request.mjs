@@ -19,6 +19,7 @@ import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropi
 import { applyAnthropicServerFallback } from './anthropic-server-fallback.mjs';
 import { fastModeAvailable } from './anthropic-fast-mode.mjs';
 import { applyAnthropicEffortToBody, shouldIncludeEffortBeta } from './anthropic-effort.mjs';
+import { anthropicCapabilityEnabled } from './anthropic-capability-fallback.mjs';
 import { isCustomProviderName, resolveCustomReasoning } from './custom-reasoning.mjs';
 import { applyCustomRequestBody, customRequestHeaders } from './custom-provider-config.mjs';
 import {
@@ -238,7 +239,8 @@ function applyRequestReasoning(
       maxTokens,
       clampThinkingBudgetTokens,
       logTag: name,
-      progressUpdates: config?.disableBetaHeaders !== true,
+      progressUpdates:
+        config?.disableBetaHeaders !== true && anthropicCapabilityEnabled('progressUpdates', name, params.model),
     });
   }
 }

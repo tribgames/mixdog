@@ -16,6 +16,7 @@ import { buildAnthropicApiRequest } from './anthropic-api-request.mjs';
 import { isCustomProviderName } from './custom-reasoning.mjs';
 import { createAnthropicApiKeyFetch } from './anthropic-api-key-fetch.mjs';
 import { ANTHROPIC_EFFORT_LEVELS, withEffortRejectionFallback } from './effort-rejection.mjs';
+import { withAnthropicCapabilityFallback } from './anthropic-capability-fallback.mjs';
 import { armFirstByteWatchdog, createAnthropicApiTransport } from './anthropic-api-transport.mjs';
 import { createAnthropicApiRecovery } from './anthropic-api-recovery.mjs';
 import { buildAnthropicTurnResult } from './anthropic-turn-result.mjs';
@@ -212,13 +213,15 @@ export class AnthropicProvider {
   // The `anthropic` API-key provider and every custom `anthropic`-protocol
   // provider (a subclass of this one) share this send path.
   async _doSend(messages, model, tools, sendOpts) {
-    return withEffortRejectionFallback(
-      this.name,
-      model,
-      sendOpts || {},
-      this.config?.reasoningEffort,
-      (opts) => this._sendOnce(messages, model, tools, opts),
-      { levels: ANTHROPIC_EFFORT_LEVELS }
+    return withAnthropicCapabilityFallback(this.name, model, sendOpts || {}, (capabilityOpts) =>
+      withEffortRejectionFallback(
+        this.name,
+        model,
+        capabilityOpts,
+        this.config?.reasoningEffort,
+        (opts) => this._sendOnce(messages, model, tools, opts),
+        { levels: ANTHROPIC_EFFORT_LEVELS }
+      )
     );
   }
   async _sendOnce(messages, model, tools, opts) {

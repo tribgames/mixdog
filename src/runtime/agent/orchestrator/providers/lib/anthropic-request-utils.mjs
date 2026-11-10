@@ -12,6 +12,7 @@ import { reportInvalidTool, wireInputSchema } from './claude-bridge-schema.mjs';
 import { normalizeServerToolUse } from './anthropic-server-tool-usage.mjs';
 import { ANTHROPIC_TOOL_CALL_IDS, withWireToolCallIds } from './tool-call-wire-ids.mjs';
 import { supportsAnthropicTurnScopedSystemMessages } from '../../../../shared/llm/anthropic-thinking-contract.mjs';
+import { anthropicCapabilityEnabled } from '../anthropic-capability-fallback.mjs';
 export const ANTHROPIC_CACHE_TTL_STABLE = { type: 'ephemeral', ttl: '1h' };
 const ANTHROPIC_CACHE_TTL_VOLATILE = { type: 'ephemeral' };
 
@@ -106,9 +107,14 @@ export function appendAnthropicTailReminder(anthropicMessages, reminder) {
 // Server-side fallback needs no exclusion: live-checked on the OAuth route,
 // a trailing clear_at message is accepted with `fallbacks: "default"` (Opus
 // 5.5, Sonnet 5.5) and with explicit lists naming Sonnet 5 or Opus 4.8, and
-// fallback runs only on a safety-classifier refusal.
+// fallback runs only on a safety-classifier refusal. A model that rejected
+// the message is off for the process (anthropic-capability-fallback.mjs).
 export function anthropicTurnScopedReminders(provider, model, config = {}) {
-  return anthropicFirstPartyRoute(provider, config) && supportsAnthropicTurnScopedSystemMessages(model);
+  return (
+    anthropicFirstPartyRoute(provider, config) &&
+    supportsAnthropicTurnScopedSystemMessages(model) &&
+    anthropicCapabilityEnabled('turnScopedSystem', provider, model)
+  );
 }
 
 // The first-party Messages routes: native provider, beta headers allowed, no
