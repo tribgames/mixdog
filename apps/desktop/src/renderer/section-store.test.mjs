@@ -154,7 +154,11 @@ test('a tell (reviewDiff) is heard when it happens, never from a snapshot or a r
   source.push({ kind: 'sections', changes: [{ section: 'reviewDiff', key: null, entry: entry('reviewDiff', null, 6, {}) }] });
   assert.deepEqual(heard, ['usage', 'reviewDiff'], 'a tell pushed live is heard');
   replaceWith(source, [entry('reviewDiff', null, 7, {}), entry('usage', 'day', 2, 'u2')]);
-  assert.deepEqual(heard, ['usage', 'reviewDiff', 'usage'], 'a replace (the core came back) tells nobody about a tell it carries or drops');
+  assert.deepEqual(heard, ['usage', 'reviewDiff', 'usage', 'reviewDiff'], 'a replace (the core came back) that carries a newer tell than the store holds announces it once: it was made while the link was down');
+  replaceWith(source, [entry('reviewDiff', null, 7, {}), entry('usage', 'day', 3, 'u3')]);
+  assert.deepEqual(heard, ['usage', 'reviewDiff', 'usage', 'reviewDiff', 'usage'], 'a replace that carries the tell the store already holds tells nobody');
+  replaceWith(source, [entry('usage', 'day', 4, 'u4')]);
+  assert.deepEqual(heard, ['usage', 'reviewDiff', 'usage', 'reviewDiff', 'usage', 'usage'], 'a replace that drops the tell tells nobody about it');
   source.push({ kind: 'sections', changes: [{ section: 'reviewDiff', key: null, entry: entry('reviewDiff', null, 1, {}) }] });
-  assert.deepEqual(heard, ['usage', 'reviewDiff', 'usage', 'reviewDiff'], 'the first tell after a replace is heard whatever its revision was before');
+  assert.deepEqual(heard.at(-1), 'reviewDiff', 'the first tell after a replace is heard whatever its revision was before');
 });

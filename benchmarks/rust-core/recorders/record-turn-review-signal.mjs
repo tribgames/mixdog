@@ -28,6 +28,8 @@ import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs
 import { drainDeliveries } from './lib/delivery-wait.mjs';
 import { ReviewWindows, loadWindowKit } from './lib/review-windows.mjs';
 
+/** A child process the recorder starts that has not ended by then is killed and the recording fails. */
+const CHILD_DEADLINE_MS = 60_000;
 const args = parseArgs();
 const tree = resolveTree(args);
 const patchBin = resolve(args.get('patch-bin') ?? '');
@@ -130,11 +132,40 @@ async function runScenario(scenario) {
   current = { windows };
   // A window shows one pane per session; its panes share its preload and bridge, so one IPC event calls every pane of it.
   const appWindows = new Map();
-  const openWindow = async ({ session, ws, checkpoint, window }) => {
+  // A phone's page: the service's desktop events reach it as the relay's own lanes forward them (`remote-relay-push-lanes.ts`, with
+  // the encrypted channel reduced to a call), and its dispatcher (`remote-shim-dispatch.ts`) hands them to the listeners of its
+  // `DesktopApi`; only the answers to capability requests come from the harness. A page whose leg is down is not told: the relay
+  // does not replay what was pushed meanwhile.
+  const phones = new Map();
+  const openPhone = async ({ session, ws, checkpoint, window }) => {
+    windows.enter(window);
+    const { createRemoteShimContext } = await importFrom(tree, 'apps/desktop/src/renderer/remote-shim-state.ts');
+    const { installRemoteDispatch } = await importFrom(tree, 'apps/desktop/src/renderer/remote-shim-dispatch.ts');
+    const { createRemoteApi } = await importFrom(tree, 'apps/desktop/src/renderer/remote-shim-api.ts');
+    const { createRelayPushLanes } = await importFrom(tree, 'apps/desktop/src/main/remote-relay-push-lanes.ts');
+    const ctx = createRemoteShimContext();
+    installRemoteDispatch(ctx);
+    const api = createRemoteApi(ctx);
+    const legs = new Map([['phone', {}]]);
+    const lanes = createRelayPushLanes({
+      clients: legs,
+      broadcastEncrypted: (payload) => ctx.handleMessage(payload, true),
+      subscribeDesktopEvents: (listener) => serviceClient.subscribeDesktopEvents(listener),
+    });
+    phones.set(window, { legs, lanes });
+    clients.set(session, { session, ws, window });
+    await windows.open({ session, checkpoint, window, api: { ...api, invokeCapability: (request) => windows.invoke(request) } });
+  };
+  const openWindow = async ({ session, ws, checkpoint, window, kind }) => {
+    if (kind === 'phone') {
+      if (phones.has(window)) throw new Error(`the phone ${window} is already open`);
+      await openPhone({ session, ws, checkpoint, window });
+      return;
+    }
     const shown = appWindows.get(window);
     if (shown) {
       clients.set(session, { session, ws, window });
-      await windows.open({ session, checkpoint, api: shown.api });
+      await windows.open({ session, checkpoint, window, api: shown.api });
       return;
     }
     const ipc = new EventEmitter();
@@ -160,12 +191,12 @@ async function runScenario(scenario) {
     });
     appWindows.set(window, { api, bridge });
     clients.set(session, { session, ws, window });
-    await windows.open({ session, checkpoint, api });
+    await windows.open({ session, checkpoint, window, api });
   };
   const run = async (op) => {
     switch (op.op) {
       case 'git':
-        execFileSync('git', ['init', '-q'], { cwd: roots[op.ws] });
+        execFileSync('git', ['init', '-q'], { cwd: roots[op.ws], timeout: CHILD_DEADLINE_MS, killSignal: 'SIGKILL' });
         return {};
       case 'file':
       case 'external':
@@ -178,6 +209,16 @@ async function runScenario(scenario) {
         return {};
       case 'coreReconnect':
         return {};
+      case 'phoneLink': {
+        // The leg of a phone page goes down, or comes back (and the page is told it is ready again).
+        const phone = phones.get(op.window);
+        if (op.state === 'down') phone.legs.delete('phone');
+        else {
+          phone.legs.set('phone', {});
+          await windows.reconnected(op.window);
+        }
+        return {};
+      }
       case 'begin': {
         tokens.set(op.session, await snapshot.beginTurnSnapshot(roots[op.ws], op.session, { checkpointId: op.checkpoint }));
         return {};
@@ -234,6 +275,7 @@ async function runScenario(scenario) {
     results.push({ op: index, ...result, notifications: sent, ...windows.trace() });
   }
   for (const { bridge } of appWindows.values()) bridge.dispose();
+  for (const { lanes } of phones.values()) lanes.dispose();
   await windows.close();
   current = null;
   worktrees._resetTurnWorktreeSnapshotsForTest();
@@ -319,6 +361,33 @@ const scenarios = [
       { op: 'coreReconnect' },
       { op: 'client', session: 'u4', ws: 'w1', checkpoint: 'none', window: 'F' },
       { op: 'edit', ws: 'w1', session: 'u1', path: 'a.txt', old: 'Q', new: 'R' },
+      // `coreLinkDown`: Node has no link to lose (its runtime is in the desktop's own process), so the flag changes nothing here. The
+      // Rust replay has the desktop's connection to the core down for the whole operation and dialing again at its end: a tell the
+      // core made meanwhile must still make every pane read, and an operation that tells nothing must not.
+      { op: 'edit', ws: 'w1', session: 'u1', path: 'a.txt', old: 'R', new: 'S', coreLinkDown: true },
+      { op: 'external', ws: 'w1', path: 'a.txt', content: T(lines('x', 'S2')), coreLinkDown: true },
+      { op: 'coreReconnect' },
+    ],
+  },
+  {
+    name: 'a phone page beside a desktop window: its leg down and back, and a phone that attaches late',
+    // Its own session names, as for the scenarios above.
+    ops: [
+      { op: 'git', ws: 'w1' },
+      { op: 'file', ws: 'w1', path: 'a.txt', content: T(lines('one', 'two')) },
+      { op: 'client', session: 'd1', ws: 'w1', checkpoint: 'cp1', window: 'G' },
+      { op: 'client', session: 'f1', ws: 'w1', checkpoint: 'cp2', window: 'P', kind: 'phone' },
+      { op: 'begin', ws: 'w1', session: 'd1', checkpoint: 'cp1' },
+      { op: 'begin', ws: 'w1', session: 'f1', checkpoint: 'cp2' },
+      { op: 'edit', ws: 'w1', session: 'd1', path: 'a.txt', old: 'one', new: '1' },
+      { op: 'phoneLink', window: 'P', state: 'down' },
+      { op: 'edit', ws: 'w1', session: 'd1', path: 'a.txt', old: '1', new: 'ONE' },
+      { op: 'phoneLink', window: 'P', state: 'up' },
+      { op: 'phoneLink', window: 'P', state: 'down' },
+      { op: 'phoneLink', window: 'P', state: 'up' },
+      // A phone that attaches after tells were made is not told about them.
+      { op: 'client', session: 'f2', ws: 'w1', checkpoint: 'none', window: 'Q', kind: 'phone' },
+      { op: 'edit', ws: 'w1', session: 'd1', path: 'a.txt', old: 'ONE', new: 'uno' },
     ],
   },
 ];

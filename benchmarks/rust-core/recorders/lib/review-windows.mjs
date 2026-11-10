@@ -25,7 +25,7 @@ const edit = { kind: 'tool', id: 'edit', name: 'apply_patch', args: {}, result: 
 export class ReviewWindows {
   #kit;
   #respond;
-  #dom;
+  #doms = new Map();
   #pending = [];
   #windows = new Map();
   #requests = [];
@@ -36,11 +36,17 @@ export class ReviewWindows {
   constructor(kit, respond) {
     this.#kit = kit;
     this.#respond = respond;
-    this.#dom = new kit.JSDOM('<!doctype html><body></body>', { url: 'https://mixdog.test/', pretendToBeVisual: true });
-    const define = (key, value) => Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
-    define('window', this.#dom.window);
-    define('document', this.#dom.window.document);
-    define('IS_REACT_ACT_ENVIRONMENT', true);
+    Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { configurable: true, writable: true, value: true });
+  }
+
+  /** The document of one window (an Electron window, or a phone's page): its panes share it, and what is dispatched on it reaches only them. */
+  #domOf(window) {
+    let dom = this.#doms.get(window);
+    if (!dom) {
+      dom = new this.#kit.JSDOM('<!doctype html><body></body>', { url: 'https://mixdog.test/', pretendToBeVisual: true });
+      this.#doms.set(window, dom);
+    }
+    return dom;
   }
 
   /** The window's end of `invokeCapability`: the request waits here until `settle` answers it. The bar reads `window.mixdogDesktop`
@@ -49,16 +55,34 @@ export class ReviewWindows {
     return new Promise((resolve) => this.#pending.push({ session: request.sessionId, request, resolve, after: this.deliveries }));
   }
 
-  /** Mounts the bar of `session` in a window of its own whose bridge is `api`. */
-  async open({ session, checkpoint, api }) {
+  /** Makes `window` the document the page's code sees as `window` / `document` (the bar reads them when its effects subscribe). */
+  enter(window) {
+    const dom = this.#domOf(window);
+    const define = (key, value) => Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+    define('window', dom.window);
+    define('document', dom.window.document);
+    // What a page's own code (the phone shim) reads from the browser besides the document.
+    for (const key of ['location', 'localStorage', 'sessionStorage', 'navigator']) define(key, dom.window[key]);
+    return dom;
+  }
+
+  /** Mounts the bar of `session` in `window` (a document of its own per window name) whose bridge is `api`. */
+  async open({ session, checkpoint, api, window }) {
     const { React, act, createRoot, TurnReviewBar } = this.#kit;
-    const container = this.#dom.window.document.createElement('div');
-    this.#dom.window.document.body.append(container);
+    const dom = this.enter(window);
+    const container = dom.window.document.createElement('div');
+    dom.window.document.body.append(container);
     const root = createRoot(container);
-    // The bar reads the bridge of its window when its effects subscribe, inside this render.
-    this.#dom.window.mixdogDesktop = api;
+    dom.window.mixdogDesktop = api;
     await act(async () => root.render(React.createElement(TurnReviewBar, { items: [prompt(checkpoint), edit], sessionId: session, active: true, busy: false })));
     this.#windows.set(session, { container, root });
+  }
+
+  /** The page of a phone is ready again after its leg was down: the event it dispatches (`mixdog:remote-reconnected`, phone-boot
+   *  `onSynced` / the relay shim's sync), on that page only. */
+  async reconnected(window) {
+    const page = this.#domOf(window).window;
+    await this.#kit.act(async () => void page.dispatchEvent(new page.Event('mixdog:remote-reconnected')));
   }
 
   startOperation() {
@@ -76,20 +100,22 @@ export class ReviewWindows {
       await null;
       const next = this.#pending.shift();
       if (!next) return;
-      const entry = { client: next.session, after: next.after, request: next.request, answer: null, shown: null };
+      // `waiting` is what the pane renders while the read is out (the state a user sees until the answer comes), `shown` what it
+      // renders once the answer is in; both whole, as markup with attributes.
+      const entry = { client: next.session, after: next.after, request: next.request, answer: null, waiting: this.shown(next.session), shown: null };
       this.#requests.push(entry);
       entry.answer = await this.#respond(next);
       await act(async () => next.resolve({ value: entry.answer }));
-      // What the bar shows once this answer is in: a burst of tells may skip a read, never a state a user could see only here.
       entry.shown = this.shown(next.session);
       answered += 1;
       await afterAnswer(answered);
     }
   }
 
-  /** The text of the bar the window of `session` shows now, null when it draws none. */
+  /** Everything the pane of `session` renders now that a user can see or act on: the markup of its container with every attribute
+   *  (placeholders, revert availability, disclosure and enabled state included). */
   shown(session) {
-    return this.#windows.get(session).container.querySelector('.turn-review-bar')?.textContent ?? null;
+    return this.#windows.get(session).container.innerHTML;
   }
 
   /** What the clients asked and showed in the running operation. */
@@ -102,6 +128,6 @@ export class ReviewWindows {
   async close() {
     const { act } = this.#kit;
     for (const { root } of this.#windows.values()) await act(async () => root.unmount());
-    this.#dom.window.close();
+    for (const dom of this.#doms.values()) dom.window.close();
   }
 }
