@@ -9,6 +9,7 @@ export const HOST_METHOD = {
   claim: 'host/claim',
   browserCommand: 'host/browser/command',
   browserViewFrames: 'host/browser/viewFrames',
+  browserFrame: 'host/browser/frame',
   systemProxyResolve: 'host/systemProxy/resolve',
   notificationShow: 'host/notification/show',
   notificationClicked: 'host/notification/clicked',

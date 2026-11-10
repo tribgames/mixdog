@@ -235,7 +235,7 @@ export const METHOD_ARGS = Object.freeze({
   'thread/switchContext': { thread: true, args: ["input"] },
   'tidy/getTidyEngineStatus': { thread: true, args: [] },
   'tidy/getTidyInstallStatus': { thread: true, args: [] },
-  'tools/toolsStatus': { thread: true, args: ["query"] },
+  'tools/toolsStatus': { thread: true, args: ["query","snapshot","snapshotUserMessage"] },
   'update/checkForUpdate': { thread: true, args: ["options"] },
   'update/getUpdateStatus': { thread: true, args: [] },
   'update/runUpdateNow': { thread: true, args: [] },
