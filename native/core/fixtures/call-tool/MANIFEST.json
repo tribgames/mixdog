@@ -33,7 +33,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-call-tool.mjs",
-  "recorderSha256": "8b965d937db6e24c26f94a0a1f241b8de55792f3537f8801e1f3942ac9505121",
+  "recorderSha256": "658e34eba639131aded823125d2cf2048b351f9e91006bc91c2fd2613309d74b",
   "scenarios": 58,
   "set": "call-tool",
   "syntheticInputs": [
