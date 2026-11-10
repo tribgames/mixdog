@@ -306,6 +306,37 @@ async fn glob_answers_absolute_patterns_as_node_does() {
     replay_fs_search("glob-absolute").await;
 }
 
+/// A UNC or device-namespace pattern or path is refused before any walk; a backslashed drive pattern
+/// expands from its drive root.
+#[tokio::test]
+async fn glob_refuses_unc_and_expands_from_nodes_root_as_node_does() {
+    replay_fs_search("glob-unc").await;
+}
+
+/// The expansion's root is Node's `path.parse(raw).root` (Node v22 `path.win32.parse`, the runtime of b6f10295a).
+#[cfg(windows)]
+#[test]
+fn the_expansion_root_is_nodes_parse_root() {
+    for (raw, root) in [
+        ("//server/share/j*/x.ts", "//server/share/"),
+        ("//server/share", "//server/share"),
+        ("//server/share/", "//server/share/"),
+        ("//server", "/"),
+        ("//./C:/a/*.ts", "//./C:/"),
+        ("//?/C:/a/*.ts", "//?/C:/"),
+        ("//?/UNC/srv/sh/*.ts", "//?/UNC/"),
+        ("C:/a/*.ts", "C:/"),
+        ("c:/a/*.ts", "c:/"),
+        ("C:", "C:"),
+        ("C:a/*", "C:"),
+        ("/a/*.ts", "/"),
+        ("///x/y/*", "/"),
+        ("//server//share/x*", "//server//share/"),
+    ] {
+        assert_eq!(&raw[..super::search::parse_root_len(raw)], root, "{raw}");
+    }
+}
+
 /// gaps-tools item 8: a notebook read is Node's extractor's answer, not the raw JSON.
 #[tokio::test]
 async fn read_answers_a_notebook_as_node_does() {
@@ -1735,12 +1766,16 @@ sequence_tests! {
     no_session => "no-session",
 }
 
-/// The local file service, except that stating a file with one of `names` fails.
-struct StatFails(Arc<dyn FileService>, &'static [&'static str]);
+/// The local file service, except that stating a file with one of `names` fails, and one with a name of the
+/// third list never answers (a dead mount).
+struct StatFails(Arc<dyn FileService>, &'static [&'static str], &'static [&'static str]);
 
 #[async_trait::async_trait]
 impl FileService for StatFails {
     async fn stat(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
+        if self.2.iter().any(|name| path.as_path().ends_with(name)) {
+            std::future::pending::<()>().await;
+        }
         if self.1.iter().any(|name| path.as_path().ends_with(name)) {
             return Err(mixdog_core_api::domain::fs::FsError::new(mixdog_core_api::domain::fs::FsErrorKind::PermissionDenied, Some(path)));
         }
@@ -1788,7 +1823,7 @@ async fn glob_puts_files_whose_stat_failed_last_in_walk_order() {
         std::fs::write(root.as_path().join(name), "x\n").unwrap();
     }
     std::fs::OpenOptions::new().write(true).open(root.as_path().join("b.txt")).unwrap().set_modified(std::time::UNIX_EPOCH).unwrap();
-    let ctx = context_seeded(&root, Arc::new(StatFails(local_ctx_files(), &["a.txt", "C.txt"])), Vec::new()).await;
+    let ctx = context_seeded(&root, Arc::new(StatFails(local_ctx_files(), &["a.txt", "C.txt"], &[])), Vec::new()).await;
     let (is_error, text) = text_of(GlobTool::new().call(&ctx, serde_json::json!({ "pattern": "*.txt" })).await);
     assert!(!is_error, "{text}");
     // The walk visits names in byte order: `C.txt` before `a.txt`.
