@@ -179,13 +179,18 @@ impl Rewriter for GrokRewriter {
         }
         wire.headers.extend(body_headers);
         if let Ok(mut body) = serde_json::from_slice::<serde_json::Value>(&wire.body) {
-            let mut changed = tool_schema::flatten_tools(&mut body);
+            // `send` flattens the tools on each send (`normalizeGrokToolSchemas`); a TypeError it throws fails the send.
+            let mut changed = tool_schema::flatten_tools(&mut body).map_err(|tool_schema::TypeError(message)| {
+                let mut error = ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Unknown, mixdog_core_api::domain::provider::DeliveryState::NotSent);
+                error.message = message;
+                error
+            })?;
             // `send`: a model that takes no effort is sent none, whatever the session pinned (the service 400s on one).
             if !listing::id_takes_effort(&*self.effort_rule, &request.model, false) {
                 changed |= body.as_object_mut().and_then(|map| map.shift_remove("reasoning")).is_some();
             }
-            if changed && let Ok(bytes) = serde_json::to_vec(&body) {
-                wire.body = bytes;
+            if changed {
+                wire.body = tool_schema::js_json(&body);
             }
         }
         Ok(wire)
