@@ -141,7 +141,7 @@ async fn two_first_uses_share_one_install_and_a_stop_ends_it() {
         // The install is held until the stack's own cancel (what `stop` raises) releases it, as a download in progress is.
         pg_runtime: PgRuntimeSource::Install(Arc::new(move |cancel| {
             counted.fetch_add(1, Ordering::SeqCst);
-            signal.notify_waiters();
+            signal.notify_one();
             Box::pin(async move {
                 cancel.cancelled().await;
                 Err(crate::memory::error::MemoryError::Runtime("cancelled".to_owned()))
@@ -162,14 +162,14 @@ async fn two_first_uses_share_one_install_and_a_stop_ends_it() {
     })
     .await
     .expect("stack");
-    let waiting = entered.notified();
-    tokio::pin!(waiting);
-    waiting.as_mut().enable();
     let (first, second) = (stack.db(), stack.db());
     let one = tokio::spawn(async move { first.client().await.is_err() });
     let two = tokio::spawn(async move { second.client().await.is_err() });
-    waiting.await;
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    entered.notified().await;
+    // Yielding lets the second use reach the held install if it were going to start its own.
+    for _ in 0..200 {
+        tokio::task::yield_now().await;
+    }
     assert!(!one.is_finished() && !two.is_finished(), "both uses wait for the install");
     assert_eq!(installs.load(Ordering::SeqCst), 1, "one install for two uses");
     stack.stop().await.expect("stop ends the install in progress");
