@@ -543,9 +543,13 @@ impl Transfers {
         }
     }
 
+    /// Node's `stopSweeperWhenIdle`: the look at what is held and the stop are one step for an authorize or a begin, which publishes and
+    /// then arms under the same lock (`arm_sweeper`), so a grant published meanwhile is either seen here or arms after the stop.
     fn stop_sweeper_when_idle(&self) {
-        let held = self.downloads_held();
+        self.point("idle.enter");
         let mut anchor = self.sweeper.anchor.lock().expect("sweeper");
+        let held = self.downloads_held();
+        self.point("idle.checked");
         if !held && anchor.take().is_some() {
             #[cfg(feature = "replay-controls")]
             crate::replay_controls::publish("anchor", "none");
@@ -612,6 +616,17 @@ impl Transfers {
         self.grants.lock().expect("transfer grants").retain(|(_, g)| g.session != session);
         self.reads.lock().expect("transfer reads").retain(|_, r| r.session != session);
         self.stop_sweeper_when_idle();
+    }
+
+    /// A catalog publication lists these conversations: one that was removed is a member again (Node's `retainCatalog` replaces the
+    /// catalog, so `sessionRemoved` is false for a listed id, `file-downloads.ts:449-450,468-472`). Its generation stays bumped, so what
+    /// was authorized before the removal stays ended and a call that marked it before then is still `expired`; a fresh authorize works.
+    /// The removed marks are only the conversations removed and not listed since.
+    pub fn relisted(&self, sessions: &[&str]) {
+        let mut gate = self.generations.lock().expect("generations");
+        for session in sessions {
+            gate.removed.remove(*session);
+        }
     }
 
     /// Whether `owners` still hold the transfer `id`: the last look a call takes before it answers.
@@ -1136,8 +1151,74 @@ fn is_network_path(text: &str) -> bool {
     matches!((leading.next(), leading.next()), (Some('/' | '\\'), Some('/' | '\\')))
 }
 
+/// Node's `requiredText` (`file-downloads.ts`, over `requiredString`, `ipc-validation.ts:656-661`): a string, trimmed as JavaScript trims,
+/// not empty, at most `maximum` UTF-16 units, with no NUL; the trimmed text is what the call goes on with.
+pub(crate) fn required_text(value: Option<&serde_json::Value>, name: &str, maximum: usize) -> WsResult<String> {
+    let Some(text) = value.and_then(serde_json::Value::as_str) else {
+        return Err(WsError::invalid(format!("{name} must be a string.")));
+    };
+    let text = text.trim_matches(js_space);
+    if text.is_empty() || text.encode_utf16().count() > maximum || text.contains('\0') {
+        return Err(WsError::invalid(format!("{name} is invalid.")));
+    }
+    Ok(text.to_owned())
+}
+
+/// Node's `requiredSessionId` (`desktop-state.ts:50-65`): a string, trimmed, 1..=256 units of `[A-Za-z0-9_-]`.
+pub(crate) fn required_session_id(value: Option<&serde_json::Value>) -> WsResult<String> {
+    let Some(text) = value.and_then(serde_json::Value::as_str) else {
+        return Err(WsError::invalid("session id must be a string."));
+    };
+    let id = text.trim_matches(js_space);
+    if id.is_empty() || id.len() > 256 || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
+        return Err(WsError::invalid("session id is invalid."));
+    }
+    Ok(id.to_owned())
+}
+
+/// Node's `requiredFileDownloadId`: a lower-case hexadecimal UUID, as written (not trimmed).
+pub(crate) fn required_download_id(value: Option<&serde_json::Value>, name: &str) -> WsResult<String> {
+    let valid = |id: &str| {
+        let groups: Vec<&str> = id.split('-').collect();
+        groups.iter().map(|group| group.len()).eq([8, 4, 4, 4, 12]) && groups.iter().all(|group| group.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+    };
+    value.and_then(serde_json::Value::as_str).filter(|id| valid(id)).map(str::to_owned).ok_or_else(|| WsError::invalid(format!("{name} is invalid.")))
+}
+
+/// What a phone's authorize names, checked as Node's `requiredFileDownloadRequest` checks each kind (the core's kinds: `file` is Node's
+/// `project`, `sessionFile` its `session`, `mediaAsset` its `media`); any other kind is `download source is invalid.`.
+pub(crate) enum DownloadRequest {
+    Project(String),
+    Session(String),
+    Media(String),
+}
+
+impl DownloadRequest {
+    pub(crate) fn of(source: &serde_json::Value) -> WsResult<Self> {
+        match source.get("kind").and_then(serde_json::Value::as_str) {
+            Some("file") => {
+                let rel = required_text(source.get("rel"), "relPath", 4_096)?;
+                if is_absolute_path(&rel) {
+                    return Err(WsError::invalid("relPath must be project-relative."));
+                }
+                Ok(Self::Project(rel))
+            }
+            Some("sessionFile") => Ok(Self::Session(required_text(source.get("path"), "path", 4_096)?)),
+            Some("mediaAsset") => {
+                let asset = required_text(source.get("assetId"), "asset id", 128)?;
+                // `MEDIA_ASSET_ID`: `[A-Za-z0-9_-]{1,128}`.
+                if !asset.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
+                    return Err(WsError::invalid("asset id is invalid."));
+                }
+                Ok(Self::Media(asset))
+            }
+            _ => Err(WsError::invalid("download source is invalid.")),
+        }
+    }
+}
+
 /// Node's `path.isAbsolute` on the host: a Windows host takes a drive path and a rooted one, any other only a rooted one.
-fn is_absolute_path(text: &str) -> bool {
+pub(crate) fn is_absolute_path(text: &str) -> bool {
     let rooted = text.starts_with('/') || (cfg!(windows) && text.starts_with('\\'));
     let drive = cfg!(windows) && matches!(text.as_bytes(), [letter, b':', b'/' | b'\\', ..] if letter.is_ascii_alphabetic());
     rooted || drive
@@ -1787,6 +1868,69 @@ mod tests {
         let second = grant_of(&t, dir.path(), "dev", "s1");
         tokio::time::advance(std::time::Duration::from_millis(60_000)).await;
         assert_refused_as(t.begin_grant("dev", &second.grant_id).unwrap_err(), &frame_of_call("grant expiry", 3));
+    }
+
+    /// A conversation a later publication lists again under the same id is a member again (Node's catalog is replaced at each publication,
+    /// `sessionRemoved` = seen and not in the latest one, `file-downloads.ts:449-450,468-472`): what was authorized before its removal stays
+    /// ended (`expired`, as Node's `session deleted before begin` begin), a call that marked before the removal is `expired`, no longer
+    /// `unavailable` (the generation moved, as for Node's revoked authorize, `unpair during authorize`), and a fresh authorize works.
+    #[test]
+    fn a_conversation_listed_again_takes_new_downloads_and_keeps_the_old_ones_ended() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::default());
+        let before = grant_of(&t, dir.path(), "dev", "s1");
+        let stale = t.mark("dev", "s1");
+        t.remove_session("s1");
+        t.relisted(&["s1"]);
+        assert_refused_as(t.begin_grant("dev", &before.grant_id).unwrap_err(), &frame_of_call("session deleted before begin", 2));
+        let opened = open_session_download(&dir.path().join("a.bin").to_string_lossy(), "", None, None, &|_| {}).unwrap();
+        assert_refused_as(t.authorize("dev", "s1", stale, opened).unwrap_err(), &frame_of_held("unpair during authorize"));
+        let fresh = grant_of(&t, dir.path(), "dev", "s1");
+        assert!(t.begin_grant("dev", &fresh.grant_id).is_ok(), "a fresh authorize of the listed conversation is a transfer");
+    }
+
+    /// The sweeper's stop and an authorize's arm never lose the schedule (Node's `stopSweeperWhenIdle` and `addGrant` + `ensureSweeper` are
+    /// each one synchronous step, `file-downloads.ts:527-545`): the abort of the last grant has looked at what is held and found nothing,
+    /// and an authorize on another thread publishes its grant at that very moment. Either the authorize waits for the stop's step to end
+    /// (and then arms), or, without one step, it publishes and finds the old schedule still set, and the stop then clears it: a grant held
+    /// with no sweeper, which would outlive its 60 s until something armed it again.
+    #[test]
+    fn a_grant_published_while_the_sweeper_stops_keeps_the_sweeper_armed() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::default());
+        let first = grant_of(&t, dir.path(), "dev", "s1");
+        assert!(t.sweeper.anchor.lock().unwrap().is_some(), "the first grant arms the sweeper");
+        let main = std::thread::current().id();
+        let (told, heard) = std::sync::mpsc::channel::<&'static str>();
+        let thread: Arc<Mutex<Option<std::thread::JoinHandle<()>>>> = Arc::default();
+        let heard = Mutex::new(heard);
+        // The abort's own sweep looks first, with the grant still held; its second look, after the grant is gone, is the one that stops.
+        let looks = std::sync::atomic::AtomicUsize::new(0);
+        let (table, base, slot) = (t.clone(), dir.path().to_path_buf(), thread.clone());
+        t.on_point(Some(Arc::new(move |reached: &str| {
+            let here = std::thread::current().id();
+            if here == main && reached == "idle.checked" && looks.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 1 {
+                // The stop has looked: an authorize starts now, on its own thread.
+                let (t, base, told) = (table.clone(), base.clone(), told.clone());
+                *slot.lock().unwrap() = Some(std::thread::spawn(move || {
+                    grant_of(&t, &base, "dev", "s1");
+                    let _ = told.send("published and armed");
+                }));
+                match heard.lock().unwrap().recv_timeout(std::time::Duration::from_secs(30)) {
+                    Ok(_) => {}
+                    Err(_) => panic!("the authorize neither finished nor met the stop's step within 30 s"),
+                }
+            } else if here != main && reached == "idle.enter" && table.sweeper.anchor.try_lock().is_err() {
+                // The authorize's own sweep reaches the stop's step while the stop holds it: it waits for the stop to end.
+                let _ = told.send("waits for the stop");
+            }
+        })));
+        assert!(t.end_read(&["dev"], &first.grant_id), "the last grant is aborted");
+        let authorizing = thread.lock().unwrap().take().expect("the authorize ran");
+        authorizing.join().unwrap();
+        t.on_point(None);
+        assert_eq!(t.held_downloads(), 1, "the new grant is held");
+        assert!(t.sweeper.anchor.lock().unwrap().is_some(), "a held grant has the sweeper armed");
     }
 
     /// A file renamed or removed after it was authorized is not the file that was authorized, though its identity, size and modification

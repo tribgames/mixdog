@@ -536,7 +536,10 @@ async fn a_relay_caller_gets_nothing_the_catalog_does_not_give_it() {
     let recorded = |scenario: &str, n: usize| -> Value {
         let recording: Value = serde_json::from_str(RECORDING).unwrap();
         let steps = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == scenario).unwrap()["steps"].as_array().unwrap().clone();
-        steps.into_iter().filter(|step| step["op"] == "call").nth(n).unwrap()["frame"].clone()
+        let step = steps.into_iter().filter(|step| step["op"] == "call").nth(n).unwrap_or_else(|| panic!("{scenario} has no call {n}"));
+        // The index names an authorize of the recording, never another call's frame that happens to sit there.
+        assert_eq!(step["method"], "fileDownloadAuthorize", "{scenario} call {n}: {step}");
+        step["frame"].clone()
     };
     let ask = |session: &str, source: Value| {
         let params = json!({ "sessionId": session, "source": source, "purpose": "save", "root": world.dir.join("outside").to_string_lossy(), "projectPath": world.dir.join("project").to_string_lossy() });
@@ -558,6 +561,60 @@ async fn a_relay_caller_gets_nothing_the_catalog_does_not_give_it() {
     same(ask("s1", json!({ "kind": "sessionFile", "path": path("project/link/n.bin") })).await, recorded("ancestor swapped between resolving and opening", 1));
     // And the same through the project-relative form.
     same(ask("s1", json!({ "kind": "file", "rel": "link/n.bin" })).await, recorded("ancestor swapped between resolving and opening", 0));
+    sweeping.abort();
+}
+
+/// The core is the boundary, not the adapter: every authorize, begin and finish whose arguments Node's method table refused before its
+/// service (no service call recorded), sent straight to the core by a relay caller in the core's own terms (the source kinds renamed, the
+/// conversation beside the source), is refused with Node's sentence and no download code, before any conversation or file is looked up.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relay_caller_that_skips_the_adapter_is_refused_as_nodes_table_refuses() {
+    let dir = tempfile::tempdir().unwrap();
+    let (world, sweeping) = build(canonical(dir.path()).unwrap(), 1_000).await;
+    let recording: Value = serde_json::from_str(RECORDING).unwrap();
+    let mut sent = 0;
+    for scenario in recording["scenarios"].as_array().unwrap() {
+        for step in scenario["steps"].as_array().unwrap().iter().filter(|step| step["op"] == "call" && step["service"].as_array().is_some_and(Vec::is_empty)) {
+            let args = &step["params"];
+            let (method, params) = match step["method"].as_str().unwrap() {
+                "fileDownloadAuthorize" if args[0]["source"].is_object() || args[0].get("purpose").is_some() => {
+                    let source = &args[0]["source"];
+                    let mut core = source.as_object().cloned().unwrap_or_default();
+                    core.remove("sessionId");
+                    let renamed = |from: &str, to: &str, kind: &str, core: &mut serde_json::Map<String, Value>| {
+                        core.insert("kind".into(), json!(kind));
+                        if let Some(value) = core.remove(from) {
+                            core.insert(to.into(), value);
+                        }
+                    };
+                    match source["kind"].as_str() {
+                        Some("project") => renamed("relPath", "rel", "file", &mut core),
+                        Some("session") => renamed("path", "path", "sessionFile", &mut core),
+                        Some("media") => renamed("assetId", "assetId", "mediaAsset", &mut core),
+                        _ => {}
+                    }
+                    let mut params = json!({ "sessionId": source.get("sessionId").cloned().unwrap_or(Value::Null) });
+                    if source.is_object() {
+                        params["source"] = Value::Object(core);
+                    }
+                    if let Some(purpose) = args[0].get("purpose") {
+                        params["purpose"] = purpose.clone();
+                    }
+                    ("transfer/authorizeRead", params)
+                }
+                "fileDownloadBegin" => ("transfer/redeemGrant", json!({ "grantId": args.get(0).cloned().unwrap_or(Value::Null) })),
+                "fileDownloadFinish" => ("transfer/finishRead", json!({ "transferId": args.get(0).cloned().unwrap_or(Value::Null) })),
+                _ => continue,
+            };
+            let request = World::request("phone", method, world.swap_dir(&params));
+            let mut recorded = step["frame"].clone();
+            recorded.as_object_mut().unwrap().remove("id");
+            assert_eq!(frame_of(step["method"].as_str().unwrap(), world.service.call(request).await), recorded, "{} {}: {args}", scenario["name"], step["method"]);
+            sent += 1;
+        }
+    }
+    // The asset ids Node refuses (`a b`, empty, 129 characters), the source and purpose shapes, the session ids and the grant ids are all here.
+    assert!(sent >= 18, "{sent} refused calls sent");
     sweeping.abort();
 }
 

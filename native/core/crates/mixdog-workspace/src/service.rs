@@ -438,6 +438,9 @@ impl WorkspaceService {
         // A device that unpairs loses its downloads in the same step as its grants, whether or not any connection of it is attached.
         let transfers = self.transfers.clone();
         store.on_unpaired(Arc::new(move |credential| transfers.revoke_owner(&Owner::device(credential))));
+        // A conversation a publication lists again is a member again (Node's replaceable catalog).
+        let transfers = self.transfers.clone();
+        store.on_listed(Arc::new(move |sessions| transfers.relisted(sessions)));
         let _ = self.phone_grants.set(PhoneGrants { store, credential_of });
     }
 
@@ -1025,9 +1028,15 @@ impl WorkspaceService {
                 value(json!(range))
             }
             "transfer/authorizeRead" => {
-                let source = params.get("source").ok_or_else(|| WsError::invalid("source is invalid."))?;
+                // Node's `requiredFileDownloadRequest`, check for check and before anything is looked up: the core is the boundary, whoever
+                // calls it, and each identifier is the trimmed text Node goes on with.
+                let source = params.get("source").filter(|source| source.is_object()).ok_or_else(|| WsError::invalid("download source is invalid."))?;
+                if !matches!(params.get("purpose").and_then(Value::as_str), Some("save" | "share" | "open")) {
+                    return Err(WsError::invalid("download purpose is invalid."));
+                }
+                let session = crate::transfer::required_session_id(params.get("sessionId"))?;
+                let requested = crate::transfer::DownloadRequest::of(source)?;
                 let owner = self.download_owner(req);
-                let session = s(params, "sessionId")?.to_owned();
                 let mark = self.transfers.mark(&owner, &session);
                 let t = self.transfers.clone();
                 // Node's `sessionRow`: the conversation must be in the host's catalog now, whoever asks, and its project is the catalog's, never
@@ -1040,36 +1049,33 @@ impl WorkspaceService {
                     _ => None,
                 };
                 let given = row.project_path.as_deref().map(PathBuf::from);
-                let opened = match source.get("kind").and_then(Value::as_str) {
-                    Some("file") => {
+                let opened = match requested {
+                    crate::transfer::DownloadRequest::Project(rel) => {
                         let root = project.ok_or_else(|| WsError::new(Reason::Download("file-download:outside-project"), "The file is outside the conversation's project."))?;
-                        let rel = s(source, "rel")?.to_owned();
                         run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_project_download(&root, &rel, &|point| t.point(point))).await?
                     }
-                    Some("sessionFile") => {
-                        let path = s(source, "path")?.to_owned();
+                    crate::transfer::DownloadRequest::Session(path) => {
                         let cwd = row.cwd.clone();
                         run_fallible(self.lanes.interactive, &cancel, move || {
                             crate::transfer::open_session_download(&path, &cwd, project.as_deref(), given.as_deref(), &|point| t.point(point))
                         })
                         .await?
                     }
-                    Some("mediaAsset") => {
+                    crate::transfer::DownloadRequest::Media(asset) => {
                         // Node's `authorizeMediaAsset`: the conversation is in the catalog (above), the asset is the media store's.
-                        let entry = grants.store.media(s(source, "assetId")?).await?;
+                        let entry = grants.store.media(&asset).await?;
                         run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_media_download(entry.as_ref(), &|point| t.point(point))).await?
                     }
-                    _ => return Err(WsError::invalid("source.kind is invalid.")),
                 };
                 let t = self.transfers.clone();
                 value(json!(t.authorize(&owner, &session, mark, opened)?))
             }
             "transfer/redeemGrant" => {
-                let (owner, t, id) = (self.download_owner(req), self.transfers.clone(), s(params, "grantId")?.to_owned());
+                let (owner, t, id) = (self.download_owner(req), self.transfers.clone(), crate::transfer::required_download_id(params.get("grantId"), "grant id")?);
                 value(json!(run_fallible(self.lanes.interactive, &cancel, move || t.begin_grant(&owner, &id)).await?))
             }
             "transfer/finishRead" => {
-                let (owner, t, id) = (self.download_owner(req), self.transfers.clone(), s(params, "transferId")?.to_owned());
+                let (owner, t, id) = (self.download_owner(req), self.transfers.clone(), crate::transfer::required_download_id(params.get("transferId"), "transfer id")?);
                 value(json!(run_fallible(self.lanes.interactive, &cancel, move || t.finish_read(&owner, &id)).await?))
             }
             "transfer/endRead" => {

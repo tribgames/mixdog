@@ -761,9 +761,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         },
     );
     let agent_listed: Arc<std::sync::OnceLock<mixdog_core_agents::agents::section::ListedHook>> = Arc::new(std::sync::OnceLock::new());
-    // Told the conversation a deletion removed from the catalog, in the step the deletion lands: the paired phones' downloads on it end there
-    // (bound once the workspace exists).
-    let removed_sessions: Arc<std::sync::OnceLock<Arc<dyn Fn(&str) + Send + Sync>>> = Arc::new(std::sync::OnceLock::new());
+    // Every `thread/deleted` (the explicit delete and a row that stopped being listed) leaves through this one publisher, which tells the paired
+    // phones' downloads the conversation is gone in the same step, before the notification (bound once the workspace exists).
+    let thread_deletions = mixdog_core_session::session::thread_edges::ThreadDeletions::new(b.sections.clone());
     mixdog_core_agents::agents::section::spawn_agents_section(
         agents.clone(),
         config.changes(),
@@ -1968,7 +1968,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 auto_resume: auto_resume.clone(),
             };
             let session_surface = surface_generation.clone();
-            let removed_sessions = removed_sessions.clone();
+            let thread_deletions = thread_deletions.clone();
             let task_workspace: Arc<dyn mixdog_core_session::session::TaskWorkspace> = agents.clone();
             let new_place = late_new_place.clone();
             let gateway_usage = gateway_usage.clone();
@@ -2006,18 +2006,15 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 compaction: manual_compaction,
                 inherit: inheritance_fit,
                 route_change,
-                deletion: Arc::new(DeletionTold {
-                    inner: Arc::new(mixdog_core_session::session::purge::SessionDeletion {
-                        app: sections.clone(),
-                        search: Some(memory_search.clone()),
-                        worktrees: worktree_maintenance.clone(),
-                        board: job_board.clone(),
-                        gateway_routes: gateway_routes.clone(),
-                        shells: owned_shells.clone(),
-                        tool_events: Arc::new(mixdog_core_session::session::tool_events::ToolEventsLog::new(&data_dir, tokens.maintenance_io, clock.clone())),
-                        mcp_scopes: mcp_glue.clone(), // a closed session's MCP scope goes with it
-                    }),
-                    removed: removed_sessions.clone(),
+                deletion: Arc::new(mixdog_core_session::session::purge::SessionDeletion {
+                    deleted: thread_deletions.clone(),
+                    search: Some(memory_search.clone()),
+                    worktrees: worktree_maintenance.clone(),
+                    board: job_board.clone(),
+                    gateway_routes: gateway_routes.clone(),
+                    shells: owned_shells.clone(),
+                    tool_events: Arc::new(mixdog_core_session::session::tool_events::ToolEventsLog::new(&data_dir, tokens.maintenance_io, clock.clone())),
+                    mcp_scopes: mcp_glue.clone(), // a closed session's MCP scope goes with it
                 }),
                 purge,
                 goals: early_goals.clone(),
@@ -2374,10 +2371,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(mixdog_workspace::transfer::SystemClock),
         Arc::new(CatalogSessions { sessions: Arc::new(catalog_index.clone()), media: Arc::new(mixdog_services::media::MediaStore::new(&b.data_dir, b.tokens.durability_io)) }),
     ));
-    let _ = removed_sessions.set({
-        let workspace = workspace.clone();
-        Arc::new(move |session: &str| workspace.session_removed(session))
-    });
+    thread_deletions
+        .on_gone({
+            let workspace = workspace.clone();
+            Arc::new(move |session: &str| workspace.session_removed(session))
+        })
+        .map_err(|()| ComposeError::AlreadyBound("thread deletions"))?;
     workspace.set_host(b.host.clone());
     workspace.set_phone_grants(phone_grants.clone(), crate::domain_seams::remote::phone_credential(built_remote.registry.clone()));
     // An unpair ends the device's grants and transfers at once and, once the relay confirmed it, its notification preferences.
@@ -2481,8 +2480,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let list_overlay = Arc::new(mixdog_core_session::session::thread_list::LiveListOverlay::new(directory.clone(), bot_work)); // wp-session-37: the overlay reads the directory's handles and `bot_work.by_session()`
     let catalog_handle = Arc::new(catalog_index.clone()); // the handle the idle sweep and the heartbeat's catalog read (Node listSessionCatalog)
     let thread_list = Arc::new(mixdog_core_session::session::thread_list::ThreadListService::new(catalog_handle.clone(), list_overlay.clone(), room_rows));
-    // A session counts as seen when a published catalog lists it (Node's seenSessions); the downloads of one a deletion removes end in that step
-    // (`DeletionTold`).
+    // A session counts as seen when a published catalog lists it (Node's seenSessions); the downloads of one that leaves the catalog end in the
+    // step its `thread/deleted` is published (`ThreadDeletions`).
     thread_list.observe(phone_grants.clone());
     let heartbeat = mixdog_core::run_host::heartbeat_parts::production_heartbeat(mixdog_core::run_host::heartbeat_parts::HeartbeatHolds {
         clock: channel_clock.clone(),
@@ -2503,7 +2502,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     bot_summaries.bind(thread_list.clone(), b.sections.clone()).map_err(|_| ComposeError::AlreadyBound("bot work summaries"))?;
     // The index writer's row writes reach the app feed: `thread/started`, `thread/summary/updated`, `thread/deleted` (Node's roster push).
     catalog_index
-        .observe_rows(mixdog_core_session::session::thread_edges::ThreadEdges::start(mixdog_core_session::session::thread_edges::ThreadEdgePublisher::new(thread_list.clone(), b.sections.clone(), agents.clone())))
+        .observe_rows(mixdog_core_session::session::thread_edges::ThreadEdges::start(mixdog_core_session::session::thread_edges::ThreadEdgePublisher::new(thread_list.clone(), b.sections.clone(), thread_deletions.clone(), agents.clone())))
         .map_err(|_| ComposeError::AlreadyBound("thread edges"))?;
     let room_summaries = mixdog_core_session::session::thread_list::RoomSummaries::new(thread_list.clone(), b.sections.clone(), directory.clone());
     late_room_summaries.bind(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room summaries"))?;
@@ -2940,52 +2939,6 @@ pub struct CatalogBuiltinSkills(pub Arc<mixdog_mcp::skill_catalog::SkillCatalog>
 impl mixdog_core_session::session::BuiltinSkills for CatalogBuiltinSkills {
     fn names(&self) -> Option<std::collections::HashSet<String>> {
         self.0.cached().map(|skills| skills.iter().filter(|skill| skill.source == mixdog_mcp::skills::SkillSource::Builtin).map(|skill| skill.name.trim().to_lowercase()).collect())
-    }
-}
-
-/// The session deletion, with the phone downloads told when it lands: the store acknowledging the close is the step at which the catalog
-/// stops having the conversation, and the grants and transfers of a paired phone on it end there (Node's `retainSessions`), not at a later
-/// task, so a range read in flight finds the conversation removed when it looks again.
-struct DeletionTold {
-    inner: Arc<mixdog_core_session::session::purge::SessionDeletion>,
-    removed: Arc<std::sync::OnceLock<Arc<dyn Fn(&str) + Send + Sync>>>,
-}
-
-#[async_trait::async_trait]
-impl mixdog_core_session::session::delete::DeleteSeams for DeletionTold {
-    async fn release_session_work(&self, session_id: &str, reason: &str) {
-        self.inner.release_session_work(session_id, reason).await;
-    }
-
-    fn session_closed(&self, session_id: &str, reason: &str, header: &mixdog_store::schema::record::Header, closed_at_ms: i64) {
-        if let Some(removed) = self.removed.get() {
-            removed(session_id);
-        }
-        self.inner.session_closed(session_id, reason, header, closed_at_ms);
-    }
-
-    fn release_mcp_scope(&self, session_id: &str) {
-        self.inner.release_mcp_scope(session_id);
-    }
-
-    fn forget_session_search(&self, session_id: &str) {
-        self.inner.forget_session_search(session_id);
-    }
-
-    async fn release_deleted_worktree(&self, session_id: &str) {
-        self.inner.release_deleted_worktree(session_id).await;
-    }
-
-    fn thread_deleted(&self, thread: &mixdog_core_api::ids::ThreadId) {
-        self.inner.thread_deleted(thread);
-    }
-
-    fn current_session(&self) -> Option<String> {
-        self.inner.current_session()
-    }
-
-    fn hosted_busy(&self, session_id: &str) -> Option<bool> {
-        self.inner.hosted_busy(session_id)
     }
 }
 
