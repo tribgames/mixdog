@@ -629,8 +629,8 @@ impl RunParts for HostRunParts {
             failures: Some(Arc::new(RunFailureLog::new(
                 FailureWriter::for_data_dir(&seams.data_dir(), s.io, s.clock.clone()),
                 session_id,
-                // Node's `sessionRef.agent` is set for a delegated agent's session only; the Lead's header names "lead".
-                agent.filter(|_| super::compaction_world::is_agent_owner(header)),
+                // `agent: batch.sessionRef?.agent || null` (finalize.mjs:236): the session's own agent, the Lead's "lead" included.
+                agent,
                 &cwd.to_string_lossy(),
             ))),
             blobs: s.blobs.clone(),

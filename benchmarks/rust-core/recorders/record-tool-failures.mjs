@@ -99,9 +99,12 @@ if (process.argv[2] === '--child') {
     await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
       // The headless allowlist has no skill, delegated-agent or MCP tools: a `full` scenario gets the whole surface, with the agent tool the
       // way headless-role.mjs builds it (real modules, no boot) and the stdio server `fx` connected under the session's MCP scope.
+      // The session is a user's Lead, with the identity sessionOptions gives one (session-options.mjs:88-103; the same fields as
+      // LEAD_FIELDS, imported-session.mjs:39): a row's `agent` is the session's (finalize.mjs:236), "lead" for it.
+      const lead = { owner: 'cli', agent: 'lead', lane: 'cli', sourceType: 'lead', sourceName: 'main' };
       const session = scenario.full
-        ? createSession({ provider: providerName, model: MODEL, cwd: WORKSPACE, mcpScopeId: scopeId })
-        : createSession({ provider: providerName, model: MODEL, cwd: WORKSPACE, skipSkills: true, schemaAllowedTools: modelToolSchemaAllowlist('headless'), workflow: { id: 'headless', delegatesAgents: false } });
+        ? createSession({ ...lead, provider: providerName, model: MODEL, cwd: WORKSPACE, mcpScopeId: scopeId })
+        : createSession({ ...lead, provider: providerName, model: MODEL, cwd: WORKSPACE, skipSkills: true, schemaAllowedTools: modelToolSchemaAllowlist('headless'), workflow: { id: 'headless', delegatesAgents: false } });
       sessionId = session.id;
       if (scenario.full) {
         const agentTool = createStandaloneAgent({ cfgMod: { loadConfig: cfgMod.loadConfig, resolveRuntimeSpec: cfgMod.resolveRuntimeSpec }, reg, mgr, dataDir: cfgMod.getPluginData(), cwd: WORKSPACE, mcpScopeId: scopeId });
@@ -230,6 +233,7 @@ try {
     // Everything the recording was given that Node did not produce itself.
     const syntheticInputs = {
       provider: `a scripted provider (only its send is scripted; model ${MODEL}): the replies of each scenario in lib/tool-failure-scenarios.mjs`,
+      sessionIdentity: { owner: 'cli', agent: 'lead', lane: 'cli', sourceType: 'lead', sourceName: 'main', source: 'session-options.mjs:88-103 for a Lead with no session profile' },
       scenarios: all.map((s) => ({ name: s.name, replies: s.replies.length, hook: s.hook ?? null, approval: s.approval ?? null, full: s.full === true, abortWhenFile: s.abortWhenFile ?? null })),
       hookDecisions: all.filter((s) => s.hook).map((s) => ({ scenario: s.name, ...s.hook })),
       approvalAnswers: all.filter((s) => s.approval).map((s) => ({ scenario: s.name, ...s.approval })),
