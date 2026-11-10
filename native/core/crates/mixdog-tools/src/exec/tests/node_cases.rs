@@ -320,19 +320,40 @@ async fn bash_bodies_reach_the_shell_byte_identical_as_in_node() {
     }
 }
 
-/// `integration.live.test.mjs`: the live exit 1 of a findstr miss and of `git diff --quiet` on a dirty repo is benign
-/// exactly when Node took it so.
-#[test]
-fn live_search_misses_are_benign_as_in_node() {
-    for case in scenario("benign-live")["cases"].as_array().unwrap() {
-        let command = case["command"].as_str().unwrap();
-        let benign = super::super::benign::is_benign_search_exit_one(
-            command,
-            case["exitCode"].as_i64().unwrap() as i32,
-            false,
-            case["stderr"].as_str().unwrap(),
-        );
-        assert_eq!(JsonValue::from(benign), case["benign"], "{command}");
+/// `integration.live.test.mjs`, all three tests: the findstr miss, the failed producer under a filter and `git diff --quiet`
+/// in a dirty repo, run live through the tool on pwsh, answer Node's whole text.
+#[cfg(windows)]
+#[tokio::test]
+async fn live_integration_runs_answer_nodes_text() {
+    let mut rig = real_rig();
+    let mut config = rig.runtime.config.clone_for_test();
+    config.windows = true;
+    config.powershell = true;
+    config.shell = Arc::new(FixedShell("pwsh.exe".into()));
+    rig.runtime = ExecRuntime::new(config);
+    let shell = ShellTool::new(rig.runtime.clone());
+    // The repo the recorder built: one commit of `one\n`, then the file changed to `two\n`.
+    let repo = rig.dir.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    let git = |args: &[&str]| {
+        let status = std::process::Command::new("git").arg("-C").arg(&repo).args(args).output().unwrap().status;
+        assert!(status.success(), "git {args:?}");
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+    git(&["config", "core.autocrlf", "false"]);
+    std::fs::write(repo.join("f.txt"), "one\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "init"]);
+    std::fs::write(repo.join("f.txt"), "two\n").unwrap();
+    for (n, case) in scenario("integration-live")["cases"].as_array().unwrap().iter().enumerate() {
+        let mut call = ctx(&rig, &format!("i{n}"));
+        if case["inRepo"] == true {
+            call.cwd = AbsPath::new(&repo).unwrap();
+        }
+        let text = body(shell.call(&call, case["input"].clone()).await);
+        assert_eq!(text, case["result"].as_str().unwrap(), "{}", case["input"]);
     }
 }
 

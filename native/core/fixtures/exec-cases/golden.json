@@ -228,12 +228,12 @@
         "entry": "D:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs",
         "electron": false
       },
-      "dataDir": "D:\\mixdog-build\\tmp\\w27\\rec\\launcher-path-Q6VRAs\\data",
-      "dir": "D:\\mixdog-build\\tmp\\w27\\rec\\launcher-path-Q6VRAs\\data\\skill-launchers\\b87fe136f710817d",
+      "dataDir": "D:\\mixdog-build\\tmp\\w27\\rec\\launcher-path-5kmmeV\\data",
+      "dir": "D:\\mixdog-build\\tmp\\w27\\rec\\launcher-path-5kmmeV\\data\\skill-launchers\\b87fe136f710817d",
       "daemonEnv": {
         "PATH": "A;B"
       },
-      "PATH": "D:\\mixdog-build\\tmp\\w27\\rec\\launcher-path-Q6VRAs\\data\\skill-launchers\\b87fe136f710817d;A;B",
+      "PATH": "D:\\mixdog-build\\tmp\\w27\\rec\\launcher-path-5kmmeV\\data\\skill-launchers\\b87fe136f710817d;A;B",
       "sessionCwd": "C:\\x",
       "daemonPathKept": true,
       "files": [
@@ -329,20 +329,30 @@
         }
       ]
     },
-    "benign-live": {
+    "integration-live": {
       "test": "scripts/shellhardening/integration.live.test.mjs",
       "cases": [
         {
-          "command": "'aaa' | findstr zzz",
-          "exitCode": 1,
-          "stderr": "",
-          "benign": true
+          "input": {
+            "command": "'aaa' | findstr zzz; exit $LASTEXITCODE"
+          },
+          "inRepo": false,
+          "result": "[exit code: 1]\n\n(no output)"
         },
         {
-          "command": "git diff --quiet",
-          "exitCode": 1,
-          "stderr": "",
-          "benign": true
+          "input": {
+            "command": "node -e 'process.stdout.write(\"producer-failed\"); process.exit(7)' 2>&1 | Select-String impossible",
+            "timeout_ms": 10000
+          },
+          "inRepo": false,
+          "result": "[exit code: 7]\n\n(no output)\n\n[filter-swallowed output rescue] the command failed but its trailing filter(s) matched nothing, so the visible output was empty. Unfiltered pipeline output (tail):\nproducer-failed\r\n"
+        },
+        {
+          "input": {
+            "command": "git diff --quiet"
+          },
+          "inRepo": true,
+          "result": "[exit code: 1]\n[outcome: no-match]\n\n(no output)"
         }
       ]
     },
