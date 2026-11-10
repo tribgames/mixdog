@@ -10,10 +10,14 @@ pub mod feeds;
 pub mod gh;
 pub mod git;
 pub mod git_launch;
+pub mod input;
 pub mod inspect;
 pub mod locks;
 pub mod mutate;
+pub mod phone_review;
+pub mod promise_all;
 pub mod repo;
+pub(crate) mod seam;
 pub mod service;
 pub mod stage_select;
 pub mod tracked;
@@ -21,6 +25,10 @@ pub mod worktree;
 
 #[cfg(test)]
 mod golden_tests;
+#[cfg(test)]
+mod input_tests;
+#[cfg(test)]
+mod phone_parity_tests;
 #[cfg(test)]
 mod review_dispatch_tests;
 #[cfg(test)]

@@ -14,6 +14,7 @@ use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::sync::PoisonError;
 
+use mixdog_fsio::ReadProof;
 use mixdog_rt::InLane;
 use serde_json::Value;
 
@@ -29,7 +30,7 @@ use crate::publish::Published;
 use crate::publish::Step;
 use crate::publish::backup_path;
 use crate::publish::publish;
-use crate::publish::read_content;
+use crate::publish::read_or_null;
 
 /// Why `validate` rejects a parsed value.
 #[derive(Clone, Debug)]
@@ -134,12 +135,12 @@ fn parse(content: Option<Vec<u8>>, validate: Option<Validate>) -> Parsed {
 /// `<file>.corrupt-<ms>`: the first stamp from `stamp` on whose name does not exist yet, so two
 /// recoveries in one millisecond (or after a clock rollback) never overwrite a kept copy.
 /// Recovery runs under the file's lock, so nothing else takes a name between check and rename.
-pub(crate) fn quarantine_path_from(path: &Path, mut stamp: u128) -> PathBuf {
+pub(crate) fn quarantine_path_from(proof: &impl ReadProof, path: &Path, mut stamp: u128) -> PathBuf {
     loop {
         let mut name = path.as_os_str().to_owned();
         name.push(format!(".corrupt-{stamp}"));
         let candidate = PathBuf::from(name);
-        if !candidate.exists() {
+        if !mixdog_fsio::exists(proof, &candidate).unwrap_or(false) {
             return candidate;
         }
         stamp += 1;
@@ -177,8 +178,8 @@ fn recovery_now_ms() -> u128 {
 }
 
 /// `quarantinePath(filePath)`: the first `<file>.corrupt-<ms>` that does not exist yet, from the recovery clock.
-pub fn quarantine_path(path: &Path) -> PathBuf {
-    quarantine_path_from(path, recovery_now_ms())
+pub fn quarantine_path(proof: &impl ReadProof, path: &Path) -> PathBuf {
+    quarantine_path_from(proof, path, recovery_now_ms())
 }
 
 fn report_damaged(path: &Path, reason: &str, outcome: &str) {
@@ -195,18 +196,18 @@ fn recover<L: WriteLane>(
     validate: Option<Validate>,
     opts: &Opts,
 ) -> io::Result<Option<Value>> {
-    let reason = match parse(read_content(path)?, validate) {
+    let reason = match parse(read_or_null(lane, path)?, validate) {
         Parsed::Ok { value, .. } => return Ok(Some(value)),
         Parsed::Absent | Parsed::Unsupported => return Ok(None),
         Parsed::Damaged(reason) => reason,
     };
-    let backup = if opts.restore_backup { parse(read_content(&backup_path(path))?, validate) } else { Parsed::Absent };
+    let backup = if opts.restore_backup { parse(read_or_null(lane, &backup_path(path))?, validate) } else { Parsed::Absent };
     if !matches!(backup, Parsed::Ok { .. }) && opts.keep_without_backup {
         report_damaged(path, &reason, "left in place: no good copy to restore");
         return Ok(None);
     }
-    let aside = quarantine_path(path);
-    crate::publish::rename_with_retry(path, &aside)?;
+    let aside = quarantine_path(lane, path);
+    crate::publish::rename_with_retry(lane, path, &aside)?;
     match backup {
         Parsed::Ok { value, content } => {
             publish(lane, path, &content, &opts.restore_opts())?;
@@ -221,8 +222,8 @@ fn recover<L: WriteLane>(
 }
 
 /// What the file holds, touching nothing: the first read of a state file, on a read lane.
-pub fn peek<L: IoLane>(_lane: &InLane<L>, path: &Path, validate: Option<Validate>) -> io::Result<Peek> {
-    Ok(match parse(read_content(path)?, validate) {
+pub fn peek<L: IoLane>(lane: &InLane<L>, path: &Path, validate: Option<Validate>) -> io::Result<Peek> {
+    Ok(match parse(read_or_null(lane, path)?, validate) {
         Parsed::Absent => Peek::Absent,
         Parsed::Ok { value, .. } => Peek::Value(value),
         Parsed::Unsupported => Peek::Unsupported,
@@ -240,12 +241,12 @@ pub fn read_json<L: WriteLane>(
     validate: Option<Validate>,
     opts: &Opts,
 ) -> io::Result<Option<Value>> {
-    let reason = match parse(read_content(path)?, validate) {
+    let reason = match parse(read_or_null(lane, path)?, validate) {
         Parsed::Ok { value, .. } => return Ok(Some(value)),
         Parsed::Absent | Parsed::Unsupported => return Ok(None),
         Parsed::Damaged(reason) => reason,
     };
-    match locked(&lock_path(path), &opts.lock_opts(), || recover(lane, path, validate, opts)) {
+    match locked(lane, &lock_path(path), &opts.lock_opts(), || recover(lane, path, validate, opts)) {
         Ok(recovered) => recovered,
         Err(LockError::Io(error)) => Err(error),
         Err(_busy) => {
@@ -277,7 +278,7 @@ pub fn write_file_stepped<L: WriteLane>(
     if !opts.lock {
         return publish(lane, path, data, opts);
     }
-    locked(&lock_path(path), &opts.lock_opts(), || publish(lane, path, data, opts))
+    locked(lane, &lock_path(path), &opts.lock_opts(), || publish(lane, path, data, opts))
         .map_err(|error| PublishFailure {
             step: Step::Other,
             error: match error {
@@ -312,7 +313,7 @@ pub fn write_json<L: WriteLane>(
     opts: &Opts,
 ) -> Result<Published, StateError> {
     if opts.lock {
-        return Ok(locked(&lock_path(path), &opts.lock_opts(), || publish_json(lane, path, value, opts))??);
+        return Ok(locked(lane, &lock_path(path), &opts.lock_opts(), || publish_json(lane, path, value, opts))??);
     }
     Ok(publish_json(lane, path, value, opts)?)
 }
@@ -327,8 +328,8 @@ pub fn update_json<L: WriteLane, E>(
     mutator: impl FnOnce(Option<Value>) -> Result<Option<Value>, E>,
     opts: &Opts,
 ) -> Result<Option<Value>, StateError<E>> {
-    locked(&lock_path(path), &opts.lock_opts(), || {
-        let current = match parse(read_content(path)?, None) {
+    locked(lane, &lock_path(path), &opts.lock_opts(), || {
+        let current = match parse(read_or_null(lane, path)?, None) {
             Parsed::Ok { value, .. } => Some(value),
             Parsed::Absent | Parsed::Unsupported => None,
             Parsed::Damaged(_) => recover(lane, path, None, opts)?,
@@ -347,16 +348,16 @@ pub fn update_json<L: WriteLane, E>(
 /// (Windows: access denied, sharing and lock violations, exists) on Node's schedule, 25, 50,
 /// 100 ms, then 200 ms, with jitter, at most 24 attempts; a refusal over a read-only target
 /// ends it at once. Sleeps on the lane thread.
-pub fn rename_with_retry<L: WriteLane>(_lane: &InLane<L>, src: &Path, dst: &Path) -> io::Result<()> {
-    crate::publish::rename_with_retry(src, dst)
+pub fn rename_with_retry<L: WriteLane>(lane: &InLane<L>, src: &Path, dst: &Path) -> io::Result<()> {
+    crate::publish::rename_with_retry(lane, src, dst)
 }
 
 /// `withFileLockSync` over `<file>.lock`.
 pub fn with_lock<L: WriteLane, R>(
-    _lane: &InLane<L>,
+    lane: &InLane<L>,
     path: &Path,
     opts: &LockOpts,
     body: impl FnOnce() -> R,
 ) -> Result<R, LockError> {
-    locked(&lock_path(path), opts, body)
+    locked(lane, &lock_path(path), opts, body)
 }

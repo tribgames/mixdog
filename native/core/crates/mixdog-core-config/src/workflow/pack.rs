@@ -4,7 +4,7 @@
 //! `shared/markdown-frontmatter.mjs`, `shared/shipped-definitions.mjs`).
 //!
 //! Everything here is synchronous file work; the service runs it as lane jobs.
-#![allow(clippy::disallowed_methods, reason = "lane job bodies: the service runs these functions on io lanes")]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "lane job bodies: the service runs these functions on io lanes")]
 
 use std::path::Path;
 use std::path::PathBuf;
