@@ -785,8 +785,9 @@ test('an approval is answered only on the client that asked it: a reopened conne
   // The new core asks again under the same id for another thread; the old card must not answer it.
   second.emit({ type: 'serverRequest', request: { ...ask, params: { ...ask.params, threadId: 'pane-2' } } });
   assert.equal(await lane.resolveToolApproval('pane-1', '7', { approved: true }), false);
-  assert.deepEqual([first.answers, second.answers], [[], []]);
-  assert.equal(await lane.resolveToolApproval('pane-2', '7', { approved: true }), true);
-  assert.deepEqual(second.answers, [{ id: 7, answer: { result: { approved: true } } }]);
-  assert.deepEqual(first.answers, []);
+  const answered = (client) => client.calls.filter((call) => call.method === 'thread/approval/answer');
+  assert.deepEqual([answered(first), answered(second)], [[], []]);
+  await lane.resolveToolApproval('pane-2', '7', { approved: true });
+  assert.deepEqual(answered(second), [{ method: 'thread/approval/answer', params: { threadId: 'pane-2', approvalId: '7', result: { approved: true } } }]);
+  assert.deepEqual(answered(first), []);
 });
