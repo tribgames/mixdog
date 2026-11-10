@@ -287,8 +287,26 @@ async fn a_failed_exchange_leaves_the_retry_a_fresh_socket_and_a_full_frame() {
     assert_eq!(sent[2].get("previous_response_id"), None);
     assert_eq!(sent[2]["input"].as_array().unwrap().len(), 3);
 }
+// A socket goes back to the pool only through `Checkout::finish`, which `ResponsesStream::park` calls once the decoder
+// has seen the terminal event. A response the consumer drops half way drops its `Checkout` with the socket still in it
+// (`pool.rs` `Drop for Checkout`): the socket closes and the key is marked fresh, so the next request dials and sends
+// a full frame, and no deflate context or half-read message is ever carried to it.
 #[tokio::test]
-async fn a_refused_upgrade_moves_an_oauth_session_to_http_for_good() {
+async fn a_response_abandoned_mid_stream_never_returns_its_socket_to_the_pool() {
+    let dial = Dial::with(vec![Dialed::Socket(answer("resp_1", "first")), Dialed::Socket(answer("resp_2", "second"))]);
+    let adapter = adapter(true, Arc::default(), dial.clone());
+    let mut stream = adapter.attempt(request(vec![say(Role::User, "hi")])).await.unwrap();
+    stream.next().await.expect("an event").expect("not an error");
+    drop(stream);
+    let history = vec![say(Role::User, "hi"), say(Role::Assistant, "first"), say(Role::User, "more")];
+    drain(&adapter, request(history)).await.unwrap();
+    assert_eq!(*dial.dials.lock().unwrap(), 2, "the next request dialled its own socket");
+    assert_eq!(frames(&dial)[1].get("previous_response_id"), None, "and carried no anchor of the abandoned one");
+}
+
+#[tokio::test]
+async fn a_refused_upgrade_moves_an_oauth_session_to_http_for_good()
+ {
     let http = Arc::new(Http::default());
     let dial = Dial::with(vec![Dialed::Rejected(404)]);
     let adapter = adapter(true, http.clone(), dial.clone());
