@@ -96,9 +96,10 @@ fn answered_of(device: String, decision: &Value) -> Answered {
 #[async_trait]
 impl RoomApprovals for SessionRoomApprovals {
     async fn approve(&self, session_id: &str, answer: ApprovalAnswer) -> Result<bool, String> {
-        let ApprovalAnswer { request, connection, device, connection_kind, result } = answer;
+        let ApprovalAnswer { request, connection, device, connection_kind, origin, result } = answer;
         self.directory
-            .answer_member_approval(&ThreadId::from(session_id.to_owned()), request.as_str(), connection, device, connection_kind, result)
+            .answer_member_approval(&ThreadId::from(session_id.to_owned()), request.as_str(), connection, device, connection_kind, origin, result)
+            .await
             .map_err(|error| error.to_string())
     }
 
