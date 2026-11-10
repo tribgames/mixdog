@@ -587,6 +587,22 @@ fn node_answer(name: &str) -> Value {
     frame
 }
 
+/// How many files Node's service held open at the `n`th count of the scenario.
+fn node_open(name: &str, n: usize) -> usize {
+    let recording: Value = serde_json::from_str(RECORDING).unwrap();
+    let steps = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("{name}"))["steps"].as_array().unwrap().clone();
+    steps.iter().filter(|step| step["op"] == "handles").nth(n).unwrap()["open"].as_u64().unwrap() as usize
+}
+
+/// The frame Node's phone got for the first call of the scenario `name` by `device` of the phone method `method`.
+fn node_call(name: &str, device: &str, method: &str) -> Value {
+    let recording: Value = serde_json::from_str(RECORDING).unwrap();
+    let steps = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("{name}"))["steps"].as_array().unwrap().clone();
+    let mut frame = steps.into_iter().find(|step| step["op"] == "call" && step["device"] == device && step["method"] == method).unwrap()["frame"].clone();
+    frame.as_object_mut().unwrap().remove("id");
+    frame
+}
+
 /// A range of the transfer as `connection` asks it, as the frame the phone would get.
 async fn range_frame(world: &World, connection: u64, transfer: &(String, String), offset: u64, length: u64) -> Value {
     let params = json!({ "transferId": transfer.0, "offset": offset, "length": length, "version": transfer.1 });
@@ -611,7 +627,7 @@ async fn a_deletion_while_a_range_is_read_ends_the_read() {
     })));
     assert_eq!(range_frame(&world, 1, &transfer, 0, 4).await, node_answer("session deleted during a range read"));
     world.transfers.on_point(None);
-    assert_eq!(world.transfers.held_downloads(), 0);
+    assert_eq!(world.transfers.held_downloads(), node_open("session deleted during a range read", 0));
     sweeping.abort();
 }
 
@@ -650,7 +666,7 @@ async fn a_file_cut_short_during_a_range_read_ends_the_transfer() {
     })));
     assert_eq!(range_frame(&world, 1, &transfer, 8, 8).await, node_answer("file truncated during a range read"));
     world.transfers.on_point(None);
-    assert_eq!(world.transfers.held_downloads(), 0, "the dropped transfer's handle is closed");
+    assert_eq!(world.transfers.held_downloads(), node_open("file truncated during a range read", 0), "the dropped transfer's handle is closed");
     sweeping.abort();
 }
 
@@ -664,9 +680,10 @@ async fn a_local_connection_never_owns_what_a_phone_whose_credential_is_its_numb
     let transfer = begun(&world, 5).await;
     let local = |method: &'static str, params: Value| CoreRequest { method: Method(method), params, op: None, ctx: CallContext::connection(ConnectionId(6), Origin::Local, CancellationToken::new()) };
     let read = local("transfer/readRange", json!({ "transferId": transfer.0, "offset": 0, "length": 4, "version": transfer.1 }));
-    assert_eq!(frame_of("fileDownloadRange", world.service.call(read).await)["errorCode"], "file-download:expired");
+    // The foreign connection is refused as Node refuses another device's read and abort (`the device`, `finish and abort`).
+    assert_eq!(frame_of("fileDownloadRange", world.service.call(read).await), node_call("the device", "tablet", "fileDownloadRange"));
     let end = local("transfer/endRead", json!({ "transferId": transfer.0 }));
-    assert_eq!(frame_of("fileDownloadAbort", world.service.call(end).await), json!({ "ok": true, "value": false }));
+    assert_eq!(frame_of("fileDownloadAbort", world.service.call(end).await), node_call("finish and abort", "tablet", "fileDownloadAbort"));
     assert_eq!(range_frame(&world, 5, &transfer, 0, 4).await["ok"], true, "the phone still reads its own");
     assert_ne!(crate::transfer::Owner::device("6"), crate::transfer::Owner::connection(6));
     sweeping.abort();
