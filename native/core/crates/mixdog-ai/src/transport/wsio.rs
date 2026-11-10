@@ -37,7 +37,7 @@ const TAIL: [u8; 4] = [0x00, 0x00, 0xff, 0xff];
 const STEP: usize = 16 << 10;
 /// How long the close frame of a violation may wait for the socket to be writable before the connection is given up:
 /// ws's closeTimeout (websocket.js CLOSE_TIMEOUT, 30 s), the time it allows a closing handshake.
-const CLOSE_FLUSH: std::time::Duration = std::time::Duration::from_secs(30);
+pub const CLOSE_FLUSH: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// What the server accepted of the offer `permessage-deflate; client_max_window_bits`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -906,5 +906,73 @@ mod tests {
         assert!(futures::poll!(read.as_mut()).is_pending());
         tokio::time::advance(CLOSE_FLUSH + std::time::Duration::from_secs(1)).await;
         assert!(read.await.is_err(), "the wait ended at the deadline");
+    }
+
+    // W6: a send and a receive in flight on one connection. The 64 byte pipe stops the send of a 200 KB message until
+    // the far side reads; the far side first writes its own two messages, which the client must read while its send
+    // is stuck (the gate: the far side reads nothing until both have been written), and only then reads the client's.
+    // Both directions' deflate contexts carry over from the first message to the second, so a shifted context would
+    // fail the second message in either direction.
+    #[tokio::test]
+    async fn a_send_stuck_on_a_full_socket_does_not_hold_up_a_receive_and_neither_shifts_a_deflate_context() {
+        use futures::SinkExt;
+        use futures::StreamExt;
+        use tokio::io::AsyncReadExt;
+        use tokio::io::AsyncWriteExt;
+        use tokio_tungstenite::tungstenite::Message;
+        const WITHIN: std::time::Duration = std::time::Duration::from_secs(20);
+        let text = |seed: usize| -> String { (0..4000).map(|i| format!("{{\"n\":{},\"s\":{}}}", i * seed % 977, seed)).collect() };
+        let (client_messages, server_messages) = ([text(3), text(5)], [text(7), text(11)]);
+        let (near, mut far) = tokio::io::duplex(64);
+        let socket = tokio_tungstenite::WebSocketStream::from_raw_socket(
+            WsIo::new(near, Vec::new(), Some(Extension::default())),
+            tokio_tungstenite::tungstenite::protocol::Role::Client,
+            None,
+        )
+        .await;
+        let (mut sink, mut stream) = socket.split();
+        let sending = client_messages.clone();
+        let sender = tokio::spawn(async move {
+            for message in sending {
+                sink.send(Message::text(message)).await.unwrap();
+            }
+        });
+        let receiver = tokio::spawn(async move {
+            let mut got = Vec::new();
+            for _ in 0..2 {
+                match stream.next().await.unwrap().unwrap() {
+                    Message::Text(text) => got.push(text.to_string()),
+                    other => panic!("{other:?}"),
+                }
+            }
+            got
+        });
+        // The server's side, in the order the gate fixes.
+        let mut encoder = Compress::new(Compression::default(), false);
+        for message in &server_messages {
+            let packed = deflate(&mut encoder, message.as_bytes()).unwrap();
+            let mut wire = Vec::new();
+            frame(0xc1, None, &packed, &mut wire);
+            tokio::time::timeout(WITHIN, far.write_all(&wire)).await.expect("the client reads while its send is stuck").unwrap();
+        }
+        assert_eq!(tokio::time::timeout(WITHIN, receiver).await.unwrap().unwrap(), server_messages);
+        let mut decoder = Decompress::new(false);
+        let (mut raw, mut chunk, mut read_back) = (Vec::new(), [0u8; 8192], Vec::new());
+        while read_back.len() < 2 {
+            let n = tokio::time::timeout(WITHIN, far.read(&mut chunk)).await.expect("the stuck send goes on once the far side reads").unwrap();
+            assert!(n > 0, "the client closed");
+            raw.extend_from_slice(&chunk[..n]);
+            while let Some(head) = parse(&raw, usize::MAX).unwrap() {
+                let key: [u8; 4] = raw[head.header - 4..head.header].try_into().unwrap();
+                let body: Vec<u8> = raw[head.header..head.total()].iter().enumerate().map(|(i, b)| b ^ key[i % 4]).collect();
+                assert_eq!(head.first, 0xc1, "compressed and final");
+                let mut plain = Vec::new();
+                inflate(&mut decoder, &[&body[..], &TAIL].concat(), &mut plain, usize::MAX).unwrap();
+                read_back.push(String::from_utf8(plain).unwrap());
+                raw.drain(..head.total());
+            }
+        }
+        sender.await.unwrap();
+        assert_eq!(read_back, client_messages);
     }
 }

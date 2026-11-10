@@ -47,6 +47,7 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWrite;
 use tokio::io::AsyncWriteExt;
 
+use super::wsio::CLOSE_FLUSH;
 use super::wsio::Extension;
 use super::wsio::WsIo;
 use super::fault::fault_from_io;
@@ -491,9 +492,18 @@ async fn read_loop(
                         continue;
                     }
                     Some(Ok(Message::Pong(_) | Message::Frame(_))) => continue,
-                    Some(Ok(Message::Close(frame))) => TransportFault::WsClose {
-                        code: frame.map(|frame| u16::from(frame.code)),
-                    },
+                    Some(Ok(Message::Close(frame))) => {
+                        let fault = TransportFault::WsClose { code: frame.map(|frame| u16::from(frame.code)) };
+                        // The consumer hears of the close at once. The writer lives on until tungstenite has written its
+                        // echo of the close frame, which it does on the next read (ws echoes the code,
+                        // eceiverOnConclude); that read ends when the server closes the connection, or at
+                        // ws's closeTimeout.
+                        link.mark_dead(fault.clone());
+                        let _ = inbound.send(Err(fault)).await;
+                        let _ = tokio::time::timeout(CLOSE_FLUSH, stream.next()).await;
+                        writer.abort();
+                        return;
+                    }
                     Some(Ok(data)) => {
                         if inbound.send(Ok(data)).await.is_err() {
                             writer.abort();
@@ -604,5 +614,66 @@ mod tests {
         // Conflicting repeated parameters are refused.
         let outcome = upgrade_against(|k| answer(k, "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits=10; client_max_window_bits=11\r\n")).await;
         assert!(outcome.is_err());
+    }
+
+    // W6, the close handshake: a server's close frame is answered with a close frame carrying the same code, as `ws`
+    // does (`websocket.js` `receiverOnConclude`: `websocket.close(code, reason)`), before the connection ends.
+    #[tokio::test]
+    async fn a_close_frame_from_the_server_is_echoed_with_its_code() {
+        mixdog_rt::testing::tokens();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut seen = Vec::new();
+            let mut chunk = [0u8; 2048];
+            while !seen.windows(4).any(|w| w == b"\r\n\r\n") {
+                let n = stream.read(&mut chunk).await.unwrap();
+                seen.extend_from_slice(&chunk[..n]);
+            }
+            let text = String::from_utf8(seen).unwrap();
+            let key = text.lines().find_map(|l| l.strip_prefix("Sec-WebSocket-Key: ")).unwrap().to_owned();
+            stream.write_all(answer(&key, "").as_bytes()).await.unwrap();
+            stream.write_all(&[0x88, 0x05, 0x03, 0xe8, b'b', b'y', b'e']).await.unwrap();
+            // What the client writes next, until it ends the connection.
+            let mut received = Vec::new();
+            while let Ok(n) = stream.read(&mut chunk).await {
+                if n == 0 {
+                    break;
+                }
+                received.extend_from_slice(&chunk[..n]);
+            }
+            received
+        });
+        let request = format!("ws://{addr}/").into_client_request().unwrap();
+        let (mut connection, _) = connect(request, &KeepaliveSchedule::SPEC).await.unwrap();
+        let ended = tokio::time::timeout(std::time::Duration::from_secs(20), connection.recv()).await.expect("the close is surfaced");
+        assert!(matches!(ended, Some(Err(TransportFault::WsClose { code: Some(1000) }))), "{ended:?}");
+        drop(connection);
+        let received = tokio::time::timeout(std::time::Duration::from_secs(20), server).await.unwrap().unwrap();
+        assert!(received.len() >= 8 && received[0] == 0x88 && received[1] & 0x80 != 0, "a masked close frame was written: {received:?}");
+        let key = [received[2], received[3], received[4], received[5]];
+        assert_eq!([received[6] ^ key[0], received[7] ^ key[1]], [0x03, 0xe8], "with the code the server sent");
+    }
+
+    // W6, the nonce: `Sec-WebSocket-Key` is 16 bytes from a cryptographically secure generator (tungstenite's
+    // `generate_key` draws from `rand`'s OS-seeded ChaCha generator; `ws` uses `crypto.randomBytes(16)`), a fresh one
+    // for every upgrade.
+    #[tokio::test]
+    async fn every_upgrade_carries_a_fresh_sixteen_byte_key() {
+        let keys = Arc::new(Mutex::new(Vec::<String>::new()));
+        for _ in 0..3 {
+            let seen = keys.clone();
+            let _ = upgrade_against(move |key| {
+                seen.lock().unwrap().push(key.to_owned());
+                answer(key, "")
+            })
+            .await;
+        }
+        let keys = keys.lock().unwrap();
+        for key in keys.iter() {
+            assert_eq!(base64::engine::general_purpose::STANDARD.decode(key).unwrap().len(), 16);
+        }
+        assert!(keys[0] != keys[1] && keys[1] != keys[2] && keys[0] != keys[2], "{keys:?}");
     }
 }
