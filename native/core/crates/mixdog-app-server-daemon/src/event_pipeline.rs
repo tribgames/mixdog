@@ -804,6 +804,12 @@ mod tests {
         pipeline.ensure_dirs().await;
         std::fs::copy(set.join("event-queue/before").join(rel), dir.path().join(rel)).unwrap();
         let name = rel.rsplit('/').next().unwrap();
-        assert_eq!(pipeline.read_item(name).await.map(Value::Object), Some(case["before"][rel].clone()));
+        let item = pipeline.read_item(name).await.unwrap();
+        assert_eq!(Value::Object(item.clone()), case["before"][rel]);
+        // Node's own rewrite of the record: one failed inject requeues it with its attempt count, under its own name.
+        let claimed = pipeline.claim(name).await.unwrap();
+        pipeline.requeue(&claimed, &item).await;
+        let written: Value = serde_json::from_slice(&std::fs::read(dir.path().join(rel)).unwrap()).unwrap();
+        assert_eq!(written, case["after"][rel]);
     }
 }

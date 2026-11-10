@@ -36,6 +36,37 @@ const P = PROJECT;
 const HIGH = '\ud83d';
 const LOW = '\ude00';
 
+// Steps added after the first recording, with frame ids of their own (from 1001), so every other step keeps the bytes it was
+// recorded with.
+const ADDED = [
+  // ── client text that held a lone unit compared with what is on disk: it equals, matches and selects nothing there, even text
+  //    or a name holding a real U+FFFD (replaced.txt holds `a\ufffdb\n`, l\ufffd.txt holds `hi\n`) ──
+  { name: 'expected-content-lone', call: 'writeProjectFile', params: [P, 'replaced.txt', 'new\n', `a${HIGH}b\n`] },
+  { name: 'batch-expected-content-lone', call: 'lspApplyWorkspaceEdit', params: [P, [{ relPath: 'replaced.txt', content: 'new\n', expectedContent: `a${LOW}b\n` }]] },
+  { name: 'search-include-lone', call: 'searchWorkspaceText', params: [P, { query: 'hi', include: `l${HIGH}.txt` }] },
+  { name: 'search-exclude-lone', call: 'searchWorkspaceText', params: [P, { query: 'hi', exclude: `l${HIGH}.txt` }] },
+  { name: 'replace-include-lone', call: 'replaceWorkspaceText', params: [P, { query: 'hi', include: `l${HIGH}.txt` }, 'yo'] },
+  { name: 'replace-rel-paths-lone', call: 'replaceWorkspaceText', params: [P, { query: 'hi' }, 'yo', [`l${HIGH}.txt`]] },
+  { name: 'file-search-lone', call: 'searchProjectFiles', params: [P, HIGH, 50, false, false] },
+  { name: 'file-search-real-replacement', call: 'searchProjectFiles', params: [P, '\ufffd', 50, false, false] },
+  { name: 'rename-case-only-lone', call: 'renameProjectEntry', params: [P, 'l\ufffd.txt', `L${HIGH}.txt`] },
+  { name: 'rename-case-only-lone-listed', call: 'listProjectDir', params: [P, ''] },
+  // ── escape forms, sent as these exact bytes to Node (`json`: the params' JSON text); the phone holds the string Node parsed and
+  //    its adapter writes the core's frame from it ──
+  { name: 'alias-high-then-escape', call: 'renameProject', json: `["${P.replaceAll('\\', '\\\\')}","a\\ud83d\\u0041"]` },
+  { name: 'alias-high-then-escape-listed', call: 'listProjects', params: [] },
+  { name: 'alias-two-highs-then-low', call: 'renameProject', json: `["${P.replaceAll('\\', '\\\\')}","\\ud83d\\ud83d\\ude00"]` },
+  { name: 'alias-two-highs-then-low-listed', call: 'listProjects', params: [] },
+  { name: 'alias-upper-hex', call: 'renameProject', json: `["${P.replaceAll('\\', '\\\\')}","\\uD83D x"]` },
+  { name: 'alias-upper-hex-listed', call: 'listProjects', params: [] },
+  { name: 'alias-literal-backslash-u', call: 'renameProject', json: `["${P.replaceAll('\\', '\\\\')}","\\\\ud83d"]` },
+  { name: 'alias-literal-backslash-u-listed', call: 'listProjects', params: [] },
+  { name: 'alias-escaped-pair', call: 'renameProject', json: `["${P.replaceAll('\\', '\\\\')}","\\ud83d\\ude00"]` },
+  { name: 'alias-escaped-pair-listed', call: 'listProjects', params: [] },
+  // A key twice in one object: JSON.parse keeps the last value, and the search finds what that one asks for.
+  { name: 'search-duplicated-key', call: 'searchWorkspaceText', json: `["${P.replaceAll('\\', '\\\\')}",{"query":"zzz","query":"hi"}]` },
+].map((step, index) => ({ ...step, id: 1001 + index }));
+
 /** Every step, in order. `bytes` says what the case is about. */
 export const STEPS = [
   { name: 'register-project', call: 'addProject', params: [P] },
@@ -96,6 +127,7 @@ export const STEPS = [
   { name: 'search-regex-real-replacement-query', call: 'searchWorkspaceText', params: [P, { query: 'a\ufffd', regex: true }], id: 1000 },
   // ── in a key ──
   { name: 'key-lone', call: 'searchWorkspaceText', params: [P, { query: 'x', [HIGH]: true }] },
+  ...ADDED,
   // ── invalid UTF-8 and a BOM inside the sealed frame (Node decodes with a non-fatal TextDecoder, remote-e2ee.ts:9, :692) ──
   { name: 'alias-invalid-byte', call: 'renameProject', params: [P, `ab${byte('ff')}cd`] },
   { name: 'alias-invalid-byte-listed', call: 'listProjects', params: [] },
@@ -103,8 +135,18 @@ export const STEPS = [
   { name: 'alias-truncated-sequence-listed', call: 'listProjects', params: [] },
   { name: 'alias-bom-frame', call: 'renameProject', params: [P, `${bom}Trip`] },
   { name: 'alias-bom-frame-listed', call: 'listProjects', params: [] },
-  // ── a method name (Node's answer echoes it; the core's method names are its own, so the core is asked for one of its own) ──
-  { name: 'method-name-lone', call: `listProjects${HIGH}`, params: [], coreRaw: `{"id":900,"method":"project/list\\ud83d","params":{}}`, coreId: 900 },
+  // ── a method name (Node's answer echoes it). No Node counterpart: the core's method names are its own. The core's answer is
+  //    compared whole with its own refusal of a method name that does not exist (the same name with a real U+FFFD), and the
+  //    connection must answer the next frame ──
+  {
+    name: 'method-name-lone',
+    call: `listProjects${HIGH}`,
+    params: [],
+    coreRaw: '{"id":900,"method":"project/list\\ud83d","params":{}}',
+    coreId: 900,
+    coreStandIn: { raw: '{"id":900,"method":"project/list\ufffd","params":{}}' },
+    coreNext: { raw: '{"id":901,"method":"project/list","params":{}}', id: 901 },
+  },
   // ── frames Node refuses: what the phone is told ──
   { name: 'refused-truncated-json', raw: '{"id":7,"method":"listProjects","params":[' },
   { name: 'refused-truncated-json-lone', raw: '{"id":8,"method":"\\ud800' },

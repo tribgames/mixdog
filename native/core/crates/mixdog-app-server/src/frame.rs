@@ -38,6 +38,7 @@ pub fn error_frame(id: &RequestId, data: &ErrorData) -> Bytes {
     encode(&JsonRpcError {
         error: data.clone().into_body(message(data)),
         id: id.clone(),
+        lone_surrogates: Vec::new(),
     })
 }
 
@@ -62,6 +63,7 @@ pub(crate) fn notification_frame(method: &str, params: Value) -> Bytes {
         params: Some(params),
         emitted_at_ms: Some(now_ms()),
         feed: None,
+        lone_surrogates: Vec::new(),
     })
 }
 

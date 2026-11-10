@@ -159,17 +159,25 @@ async function openPhone() {
   return { clientId, channel };
 }
 
-/** The answer frame for `id` (frames for other ids are pushes, passed over), or the client's close. */
-async function outcome(phone, id) {
-  for (;;) {
-    const envelope = await next(phone.clientId, id === null ? 'the close of a refused frame' : `the answer to frame ${id}`);
-    if (envelope.type === 'close-client') return { closed: envelope.reason };
-    const opened = await phone.channel.decryptJson(envelope.data);
-    if (id !== null && opened?.id === id) {
-      const { id: _id, ...answer } = opened;
-      return { answer };
+/** The answer frame for `id` (frames for other ids are pushes, passed over), or the client's close; one deadline for the whole
+ *  wait, so pushes arriving faster than the deadline never extend it. */
+function outcome(phone, id) {
+  const what = id === null ? 'the close of a refused frame' : `the answer to frame ${id}`;
+  let abandoned = false;
+  const scan = async () => {
+    while (!abandoned) {
+      const envelope = await next(phone.clientId, what);
+      if (envelope.type === 'close-client') return { closed: envelope.reason };
+      const opened = await phone.channel.decryptJson(envelope.data);
+      if (id !== null && opened?.id === id) {
+        const { id: _id, ...answer } = opened;
+        return { answer };
+      }
     }
-  }
+  };
+  return within(scan(), `${phone.clientId}: ${what}`).finally(() => {
+    abandoned = true;
+  });
 }
 
 let phone = await openPhone();
@@ -178,7 +186,7 @@ const steps = [];
 for (const step of STEPS) {
   if (ONLY && step.name !== ONLY && step.name !== 'register-project') continue;
   const id = step.raw === undefined ? (step.id ?? ++frameId) : null;
-  const text = step.raw ?? JSON.stringify({ id, method: step.call, params: step.params });
+  const text = step.raw ?? (step.json !== undefined ? `{"id":${id},"method":${JSON.stringify(step.call)},"params":${step.json}}` : JSON.stringify({ id, method: step.call, params: step.params }));
   const token = frame(text);
   const sealed = await phone.channel.encryptJson(token);
   send({ type: 'frame', clientId: phone.clientId, data: sealed });
@@ -225,6 +233,34 @@ writeSetManifest(stage, {
     inputs: Object.fromEntries(steps.map((step) => [step.name, step.plaintext])),
     // A step whose answer differs from Node's under a decision: the core's answer is compared whole with Node's own answer to the
     // stand-in step instead; any other answer fails the replay.
+    // What the replay changes in Node's values, or compares otherwise, before comparing.
+    normalisations: [
+      {
+        what: "every string and object key of Node's answers (wellFormed): a lone surrogate becomes U+FFFD; two keys of one object that become one fail the replay",
+        where: 'benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-replay.mjs:38 wellFormed(), applied at :152 (answers) and :180 (preferences)',
+        why: 'the core reads an unpaired surrogate escape as U+FFFD, so what it echoes holds U+FFFD where Node echoed the lone unit',
+        allowedBy: 'decisions.md "frame-lone-surrogate" (a)',
+      },
+      {
+        what: 'golden.preferences (desktop-projects.json) is compared as {aliases, hidden} with the core\'s `projects` rows (state/core.sqlite), after wellFormed',
+        where: 'benchmarks/rust-core/recorders/lib/inbound-lone-surrogate-replay.mjs, after the project folder',
+        why: 'the core keeps project preferences in that table (DS §4.1), not in a JSON file; `version` is the file format\'s, not state',
+        allowedBy: 'decisions.md "frame-lone-surrogate" (a); FORMAT.md `projects` table',
+      },
+      {
+        what: 'json steps: Node gets the params as these exact JSON bytes; the phone adapter writes the core\'s frame from the string Node parsed',
+        where: 'lib/inbound-lone-surrogate-cases.mjs `json`; the escape forms themselves reach the core\'s decoder only from the adapter\'s JSON.stringify',
+        why: 'the phone sends what its adapter serializes; the decoder\'s reading of each escape form is covered by mixdog-js json_well_formed tests',
+        allowedBy: 'not a value change: both sides get the same string',
+      },
+    ],
+    // Steps with no Node counterpart: compared with the core's own answer to a stand-in, whole.
+    coreOnly: STEPS.filter((step) => step.coreStandIn).map((step) => ({
+      step: step.name,
+      nodeAnswered: steps.find((recorded) => recorded.name === step.name)?.answer,
+      comparedWith: `the core's own refusal of ${step.coreStandIn.raw} (a method name that does not exist), whole; and ${step.coreNext.raw} answered on the same connection`,
+      why: "the core's method names are its own; a method name holding a lone unit is no name a shipped client sends",
+    })),
     accepted: STEPS.filter((step) => step.accepted).map((step) => ({
       step: step.name,
       nodeAnswered: steps.find((recorded) => recorded.name === step.name).answer,

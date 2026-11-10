@@ -77,8 +77,22 @@ const cutAt = (letter, n) => `${letter.repeat(n - 1)}${EMOJI}tail`;
 const stage = stageSet(SET, only ? [only] : null);
 const cases = only ? JSON.parse(readFileSync(join(SET, 'cases.json'), 'utf8')).filter((c) => c.name !== only) : [];
 
-/** The document Node's `JSON.parse` reads from `file`, well-formed by Node's own sanitizer. */
-const documentOf = (file) => sanitizeSurrogates(JSON.parse(readFileSync(file, 'utf8')));
+/** `value` well-formed by Node's own sanitizer. Two keys of one object that become one fail the recording: a merged object is
+ *  never recorded as Node's. */
+function wellFormedCase(value) {
+  const check = (item) => {
+    if (Array.isArray(item)) item.forEach(check);
+    else if (item && typeof item === 'object') {
+      const keys = Object.keys(item);
+      if (new Set(keys.map((key) => key.toWellFormed())).size !== keys.length) throw new Error(`two keys of one object read as one: ${JSON.stringify(keys)}`);
+      Object.values(item).forEach(check);
+    }
+  };
+  check(value);
+  return sanitizeSurrogates(value);
+}
+/** The document Node's `JSON.parse` reads from `file`, well-formed. */
+const documentOf = (file) => wellFormedCase(JSON.parse(readFileSync(file, 'utf8')));
 const lone = (file) => /\\ud[89ab][0-9a-f]{2}(?!\\ud[c-f])/i.test(readFileSync(file, 'utf8'));
 
 /** Copies Node's files of `phase` and returns their documents keyed by data-relative path. */
@@ -103,7 +117,7 @@ async function record(name, writer, run) {
   delete result.lone;
   // The case file is read by serde_json too: everything in it is well-formed; the input keeps its lone surrogate as the
   // JSON text Node's `JSON.stringify` makes of it.
-  cases.push(sanitizeSurrogates({ name, writer, ...result, input: JSON.stringify(result.input) }));
+  cases.push(wellFormedCase({ name, writer, ...result, input: JSON.stringify(result.input) }));
 }
 
 // ── remote-access settings: a PC name cut at 64 units, a device alias cut at 80 (remote-access-settings.ts:95-96, :109) ──
@@ -217,7 +231,56 @@ await record('project-recovery', 'apps/desktop/src/main/project-recovery-store.t
     if (rel.endsWith('.json')) before[`record/${rel}`] = documentOf(join(published, rel));
   }
   const recordId = published.split(/[\\/]/).at(-1);
-  return { input, recordId, before, nodeRead, lone: { 'state.json': lone(join(published, 'state.json')) } };
+  const lonely = lone(join(published, 'state.json'));
+  // Node's own rewrite of the state it read (writeRecoveryState, project-recovery-store.ts:336-352): the phase moves on, the
+  // message and the restored list are what it read.
+  const read = (await recovery.readRecoveryRecord(published)).state;
+  const op = { writeRecoveryState: { phase: 'restoring' } };
+  await recovery.writeRecoveryState(published, { ...read, ...op.writeRecoveryState });
+  const after = { 'record/state.json': documentOf(join(published, 'state.json')) };
+  const to = join(stage, 'project-recovery', 'after', 'record', 'state.json');
+  mkdirSync(dirname(to), { recursive: true });
+  cpSync(join(published, 'state.json'), to);
+  return { input, recordId, before, nodeRead, op, after, lone: { 'state.json': lonely } };
+});
+
+// ── project recovery: a journal of a desktop batch edit whose path held a lone surrogate (project-files.ts:783 → :787,
+//    project-recovery-store.ts:490 writes relPath and destination with the escape). Node's fs writes such a path as UTF-8, so
+//    the file on disk is named with U+FFFD; Node then inspects the record and restores the file it wrote ──
+await record('project-recovery-lone-path', 'apps/desktop/src/main/project-recovery-store.ts:444-497; project-recovery.ts:166-295', async () => {
+  const store = await importFrom(tree, 'apps/desktop/src/main/project-recovery-store.ts');
+  const { projectRecoveryIn } = await importFrom(tree, 'apps/desktop/src/main/project-recovery.ts');
+  const userData = join(DATA, 'desktop-lone-path');
+  mkdirSync(userData, { recursive: true });
+  const rel = `src/b${EMOJI.slice(0, 1)}.txt`;
+  const destination = join(RECOVERY_ROOT, 'src', `b${EMOJI.slice(0, 1)}.txt`);
+  // Node's own fs write of the lone-unit path: the name it gets on disk.
+  writeFileSync(destination, 'after\n');
+  const file = { relPath: rel, destination, parent: store.recoveryIdentity(join(RECOVERY_ROOT, 'src')), mode: 0o644, before: Buffer.from('before\n'), after: Buffer.from('after\n') };
+  const { id, directory } = await store.beginProjectRecovery(userData, RECOVERY_ROOT, [file]);
+  await store.writeRecoveryState(directory, { phase: 'failed', message: 'interrupted', restored: [] });
+  await store.releaseRecoveryDirectory(directory);
+  const published = join(dirname(directory), id);
+  const before = {};
+  for (const name of ['manifest.json', 'state.json', '0.before', '0.after']) {
+    const to = join(stage, 'project-recovery-lone-path', 'before', 'record', name);
+    mkdirSync(dirname(to), { recursive: true });
+    cpSync(join(published, name), to);
+    if (name.endsWith('.json')) before[`record/${name}`] = documentOf(join(published, name));
+  }
+  const onDisk = (await import('node:fs')).readdirSync(join(RECOVERY_ROOT, 'src')).filter((name) => name.startsWith('b'));
+  const inspected = await projectRecoveryIn(userData, RECOVERY_ROOT, { action: 'inspect', id });
+  const restored = await projectRecoveryIn(userData, RECOVERY_ROOT, { action: 'restore', id, revision: inspected.detail.revision });
+  const view = (detail) => sanitizeSurrogates({ phase: detail.phase, files: detail.files.map(({ relPath, status }) => ({ relPath, status })) });
+  const after = {
+    namesOnDisk: onDisk.map((name) => Buffer.from(name).toString('hex')),
+    inspected: view(inspected.detail),
+    restored: view(restored.detail),
+    target: readFileSync(join(RECOVERY_ROOT, 'src', onDisk[0]), 'utf8'),
+    state: sanitizeSurrogates(JSON.parse(readFileSync(join(published, 'state.json'), 'utf8'))),
+  };
+  rmSync(join(RECOVERY_ROOT, 'src', onDisk[0]));
+  return { input: { relPath: rel }, recordId: id, before, after, lone: { 'manifest.json': lone(join(published, 'manifest.json')) } };
 });
 
 // ── event queue: a webhook field holding a lone surrogate (the sender's JSON had `\ud83d`), fenced into the prompt ──
@@ -233,7 +296,17 @@ await record('event-queue', 'src/runtime/channels/lib/event-pipeline.mjs:32-41,:
   if (names.length !== 1) throw new Error(`expected one queued item, found ${names.length}`);
   const rel = join('events', 'queue', names[0]);
   const before = keep('event-queue', 'before', DATA, [rel]);
-  return { input: { body }, file: rel.split('\\').join('/'), before, lone: { [rel]: lone(join(DATA, rel)) } };
+  const lonely = lone(join(DATA, rel));
+  // Node's own rewrite of the record: a failed inject requeues it with its attempt count (event-queue.mjs:277-301).
+  const { EventQueue } = await importFrom(tree, 'src/runtime/channels/lib/event-queue.mjs');
+  const queue = new EventQueue({});
+  const item = queue.readItem(names[0]);
+  const claimed = queue.claimFile(names[0]);
+  if (!claimed) throw new Error('Node could not claim the queued item');
+  const op = { requeueClaimed: 'one failed inject' };
+  queue.requeueClaimed(claimed, item);
+  const after = keep('event-queue', 'after', DATA, [rel]);
+  return { input: { body }, file: rel.split('\\').join('/'), before, op, after, lone: { [rel]: lonely } };
 });
 
 // ── mixdog-config.json: a profile title a phone sent cut inside an emoji (setProfile, written by updateConfig) ──
@@ -243,7 +316,12 @@ await record('config-profile', 'src/runtime/shared/config.mjs:919-929', async ()
   config.updateConfig((current) => ({ ...current, agent: { ...(current.agent ?? {}), profile: { title: input.title, language: input.language } } }));
   const rel = 'mixdog-config.json';
   const before = keep('config-profile', 'before', DATA, [rel]);
-  return { input, file: rel, before, lone: { [rel]: lone(join(DATA, rel)) } };
+  const lonely = lone(join(DATA, rel));
+  // Node's own rewrite of the document it holds: one more key set (the key the profile migration sets, desktop.retentionState).
+  const op = { setPath: { key: 'desktop.retentionState', value: { restored: {} } } };
+  config.updateConfig((current) => ({ ...current, desktop: { ...(current.desktop ?? {}), retentionState: op.setPath.value } }));
+  const after = keep('config-profile', 'after', DATA, [rel]);
+  return { input, file: rel, before, op, after, lone: { [rel]: lonely } };
 });
 
 // ── Mixy's agent.json: a name a phone sent cut inside an emoji (saveLeadIdentity, agent-editor.mjs:540-553) ──
@@ -308,13 +386,19 @@ await record('editor-backup', 'apps/desktop/src/main/editor-backups.ts:97-117', 
   const rel = names[0];
   const before = keep('editor-backup', 'before', dir, [rel]);
   const lonely = lone(join(dir, rel));
-  const nodeRead = sanitizeSurrogates(await backups.readEditorBackup(userData, source));
-  return { input, file: rel, before, nodeRead, lone: { [rel]: lonely } };
+  const read = await backups.readEditorBackup(userData, source);
+  const nodeRead = sanitizeSurrogates(read);
+  // Node's own rewrite: the editor backs the draft it read up again, one character longer (writeEditorBackup).
+  const op = { writeEditorBackup: { content: `${read.content}!`, expectedContent: read.expectedContent } };
+  world.advance(1000);
+  await backups.writeEditorBackup(userData, source, op.writeEditorBackup.content, op.writeEditorBackup.expectedContent);
+  const after = keep('editor-backup', 'after', dir, [rel]);
+  return { input, file: rel, before, nodeRead, op: sanitizeSurrogates(op), after, lone: { [rel]: lonely } };
 });
 
 world.advance(0);
 rmSync(DATA, { recursive: true, force: true });
-const order = ['remote-access-settings', 'media-store', 'worktree-registry', 'project-recovery', 'event-queue', 'config-profile', 'mixy-identity', 'agent-definition', 'editor-backup'];
+const order = ['remote-access-settings', 'media-store', 'worktree-registry', 'project-recovery', 'project-recovery-lone-path', 'event-queue', 'config-profile', 'mixy-identity', 'agent-definition', 'editor-backup'];
 cases.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
 writeJson(join(stage, 'cases.json'), cases);
 const recorderFiles = RECORDER_FILES.map((path) => ({ path: `benchmarks/rust-core/recorders/${path}`, sha256: sha256(readFileSync(join(HERE, path))) }));
@@ -323,7 +407,23 @@ writeSetManifest(stage, {
   recorder: 'benchmarks/rust-core/recorders/record-lone-surrogate-files.mjs',
   command: 'node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-lone-surrogate-files.mjs --tree D:\\mixdog-build\\tmp\\b6f-tree',
   identity,
-  extra: { exact: true, nodeVersion: process.version, recorderFiles, inputs: Object.fromEntries(cases.map((c) => [c.name, c.input])) },
+  extra: {
+    exact: true,
+    nodeVersion: process.version,
+    recorderFiles,
+    inputs: Object.fromEntries(cases.map((c) => [c.name, c.input])),
+    // What is changed in recorded values before a test compares with them. The files under `<case>/before|after/` are Node's bytes,
+    // unchanged.
+    normalisations: [
+      {
+        what: 'every string and object key of each case in cases.json (documents, nodeRead, op, after): a lone surrogate becomes U+FFFD; two keys of one object that become one fail the recording',
+        where: 'benchmarks/rust-core/recorders/record-lone-surrogate-files.mjs:82 wellFormedCase(), applied at :120 (record) and in documentOf()',
+        why: "cases.json is read by serde_json, which cannot hold a lone unit; U+FFFD is what the core reads Node's escape as",
+        allowedBy: 'decisions.md "frame-lone-surrogate" (a): the core reads an unpaired surrogate escape as U+FFFD; files the core writes hold EF BF BD where Node wrote the escape',
+        input: 'each case keeps its input as the JSON text Node wrote of it (`input`), escape included',
+      },
+    ],
+  },
 });
 commitStage(stage, SET);
 console.log(`recorded ${cases.length} case(s) into ${SET}`);

@@ -86,19 +86,61 @@ pub fn well_formed_str(text: &str) -> Cow<'_, str> {
     }
 }
 
-/// The JSON pointers (RFC 6901) of the strings in JSON text `text` that hold a lone surrogate
-/// escape, each key as [`well_formed_str`] reads it (a lone surrogate U+FFFD): where a value read
-/// as U+FFFD held a lone code unit in Node, for a caller that must refuse what Node refuses for it
-/// (`toUSVString(value) !== value`). Empty for text that is not JSON or holds none.
-pub fn lone_surrogate_pointers(text: &str) -> Vec<String> {
+/// Where JSON text held an unpaired surrogate escape that [`well_formed_str`] reads as U+FFFD. Each
+/// pointer (RFC 6901) names keys as the core reads them (U+FFFD in place of the lone unit). Node kept
+/// the code unit, so a value or key named here equals, matches or selects nothing the core reads from
+/// disk (a name, a text), and a caller refuses what Node refuses for it (`toUSVString(value) !== value`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum LoneAt {
+    /// The string value at the pointer held one.
+    Value(String),
+    /// The key the pointer ends with held one (the value under it is the key's own).
+    Key(String),
+    /// Two or more keys of one object, distinct in the text (Node kept each with its value), read as the
+    /// one key the pointer ends with: the core's object keeps one value where Node kept several.
+    MergedKey(String),
+}
+
+impl LoneAt {
+    pub fn pointer(&self) -> &str {
+        match self {
+            Self::Value(pointer) | Self::Key(pointer) | Self::MergedKey(pointer) => pointer,
+        }
+    }
+
+    /// The same place relative to `prefix` (a pointer), if it is at or under it.
+    pub fn under(&self, prefix: &str) -> Option<Self> {
+        let rest = self.pointer().strip_prefix(prefix).filter(|rest| rest.is_empty() || rest.starts_with('/'))?.to_owned();
+        Some(match self {
+            Self::Value(_) => Self::Value(rest),
+            Self::Key(_) => Self::Key(rest),
+            Self::MergedKey(_) => Self::MergedKey(rest),
+        })
+    }
+}
+
+/// Every place in JSON text `text` that held a lone surrogate escape ([`LoneAt`]), in document
+/// order. Empty for text that is not JSON or holds none.
+pub fn lone_surrogates(text: &str) -> Vec<LoneAt> {
     let mut out = Vec::new();
     if without_lone_surrogates(text.as_bytes()).1 == 0 {
         return out;
     }
     if let Ok(value) = crate::json_parse::parse(text) {
-        collect_pointers(&value, &mut String::new(), &mut out);
+        collect(&value, &mut String::new(), &mut out);
     }
     out
+}
+
+/// The pointers of the string values in `text` that held a lone surrogate escape ([`lone_surrogates`]).
+pub fn lone_surrogate_pointers(text: &str) -> Vec<String> {
+    lone_surrogates(text)
+        .into_iter()
+        .filter_map(|at| match at {
+            LoneAt::Value(pointer) => Some(pointer),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Parsed text (json_parse.rs) as the core reads it, and whether it held a lone surrogate.
@@ -129,28 +171,39 @@ fn read_parsed(text: &str) -> (String, bool) {
     (out, lone)
 }
 
-fn collect_pointers(value: &serde_json::Value, pointer: &mut String, out: &mut Vec<String>) {
+fn collect(value: &serde_json::Value, pointer: &mut String, out: &mut Vec<LoneAt>) {
     let len = pointer.len();
     match value {
         serde_json::Value::String(text) => {
             if read_parsed(text).1 {
-                out.push(pointer.clone());
+                out.push(LoneAt::Value(pointer.clone()));
             }
         }
         serde_json::Value::Array(items) => {
             for (index, item) in items.iter().enumerate() {
                 pointer.push('/');
                 pointer.push_str(&index.to_string());
-                collect_pointers(item, pointer, out);
+                collect(item, pointer, out);
                 pointer.truncate(len);
             }
         }
         serde_json::Value::Object(map) => {
+            // The map's keys are the parsed text's (a lone unit kept apart from U+FFFD): keys equal in the
+            // text are already one, as in Node; keys that differ there but read the same are merged here.
+            let mut read: Vec<(String, bool)> = Vec::with_capacity(map.len());
             for (key, item) in map {
+                let (as_read, lone) = read_parsed(key);
+                let merged = read.iter().any(|(seen, _)| *seen == as_read);
                 pointer.push('/');
-                pointer.push_str(&read_parsed(key).0.replace('~', "~0").replace('/', "~1"));
-                collect_pointers(item, pointer, out);
+                pointer.push_str(&as_read.replace('~', "~0").replace('/', "~1"));
+                for (holds, at) in [(lone, LoneAt::Key(pointer.clone())), (merged, LoneAt::MergedKey(pointer.clone()))] {
+                    if holds && !out.contains(&at) {
+                        out.push(at);
+                    }
+                }
+                collect(item, pointer, out);
                 pointer.truncate(len);
+                read.push((as_read, lone));
             }
         }
         _ => {}
@@ -168,6 +221,28 @@ mod tests {
         assert_eq!(lone_surrogate_pointers(&text), ["/a", "/c/1", "/\u{fffd}~1~0/f"]);
         assert!(lone_surrogate_pointers(r#"{"a":"\ud83d\ude00","b":"\ufffd"}"#).is_empty());
         assert!(lone_surrogate_pointers(r#"{"a":"\ud800"#).is_empty());
+    }
+
+    /// A key that held a lone unit is named as a key, apart from a value at the same place; keys distinct in the text that
+    /// read as one are named as merged (Node kept each); keys equal in the text are one key to Node too.
+    #[test]
+    fn lone_surrogate_keys_are_named_and_merged_keys_told() {
+        let text = r#"{"\ud800":"\ud800","k":{"\ud83d":1,"\udc00":2,"\ufffd":3},"d":{"a":1,"a":2},"s":{"\ud83d":1,"\ud83d":2}}"#;
+        let r = "\u{fffd}";
+        let mut found = lone_surrogates(text);
+        found.sort();
+        let mut expected = vec![
+                LoneAt::Key(format!("/{r}")),
+                LoneAt::Value(format!("/{r}")),
+                LoneAt::Key(format!("/k/{r}")),
+                LoneAt::MergedKey(format!("/k/{r}")),
+                LoneAt::Key(format!("/s/{r}")),
+        ];
+        expected.sort();
+        // A set of places: the order is the map's, which no consumer reads.
+        assert_eq!(found, expected);
+        assert_eq!(LoneAt::Key("/params/a".into()).under("/params"), Some(LoneAt::Key("/a".into())));
+        assert_eq!(LoneAt::Value("/paramsx".into()).under("/params"), None);
     }
 
     #[test]

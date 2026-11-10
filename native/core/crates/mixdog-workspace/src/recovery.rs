@@ -461,7 +461,11 @@ impl RecoveryStore {
             .map(|l| l.id)
             .ok_or_else(|| WsError::new(Reason::InvalidParams, "Recovery location is invalid."))?;
         let raw = read_limited(&directory.join("manifest.json"), MANIFEST_MAX)?;
-        let manifest: Manifest = serde_json::from_slice(&raw)
+        // Node writes a path holding a lone surrogate as its escape (a desktop batch edit of such a name, project-files.ts:783,
+        // project-recovery-store.ts:490), which JSON.parse reads back: U+FFFD here, as the state below. It names the file Node
+        // wrote: Node's fs converts the lone unit of a path to UTF-8 (U+FFFD), so the file on disk is named with U+FFFD, and
+        // Node's restore compares the stored destination with one built from the same string (equal on both sides).
+        let manifest: Manifest = serde_json::from_slice(&mixdog_js::json_well_formed(&raw))
             .map_err(|_| WsError::new(Reason::InvalidParams, "Recovery manifest is invalid. No file will be restored."))?;
         if !valid_manifest(&manifest, &id) {
             return Err(WsError::new(Reason::InvalidParams, "Recovery manifest is invalid. No file will be restored."));
@@ -1083,8 +1087,67 @@ mod tests {
             let entry = entry.unwrap();
             fs::copy(entry.path(), directory.join(entry.file_name())).unwrap();
         }
-        let record = RecoveryStore::new(base.path().to_path_buf()).read_record(&directory).unwrap();
-        assert_eq!(serde_json::to_value(record.state).unwrap(), case["nodeRead"]);
+        let store = RecoveryStore::new(base.path().to_path_buf());
+        let record = store.read_record(&directory).unwrap();
+        assert_eq!(serde_json::to_value(&record.state).unwrap(), case["nodeRead"]);
         assert_eq!(serde_json::to_value(record.manifest).unwrap(), case["before"]["record/manifest.json"]);
+        // Node's own rewrite of the state it read (the phase moved on): the core writes the same document (U+FFFD where
+        // Node wrote the escape, decisions.md "frame-lone-surrogate").
+        let mut state = record.state.unwrap();
+        state.phase = serde_json::from_value(case["op"]["writeRecoveryState"]["phase"].clone()).unwrap();
+        store.write_state(&directory, &state).unwrap();
+        let written: Value = serde_json::from_slice(&fs::read(directory.join("state.json")).unwrap()).unwrap();
+        assert_eq!(written, case["after"]["record/state.json"]);
+    }
+
+    /// A journal Node wrote for a desktop batch edit of a path holding a lone surrogate (relPath and destination with the
+    /// escape; `native/core/fixtures/lone-surrogate-files` `project-recovery-lone-path`). Node's fs named the file with U+FFFD,
+    /// and Node inspects the record and restores that file: the core reads the manifest (plain serde refused it) and does the same.
+    #[test]
+    fn a_journal_whose_path_held_a_lone_surrogate_restores_the_file_node_wrote() {
+        let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
+        let cases: Value = serde_json::from_slice(&fs::read(set.join("cases.json")).unwrap()).unwrap();
+        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "project-recovery-lone-path").unwrap();
+        let node_record = set.join("project-recovery-lone-path/before/record");
+        let raw = String::from_utf8(fs::read(node_record.join("manifest.json")).unwrap()).unwrap();
+        assert!(raw.contains("\\ud83d"), "Node's manifest holds the escape");
+        // The record names Node's scratch root and its identities: moved onto this test's root, every other byte as Node wrote it.
+        let node_manifest = &case["before"]["record/manifest.json"];
+        let project = tempfile::tempdir().unwrap();
+        let root = canonical(project.path()).unwrap();
+        fs::create_dir(root.join("src")).unwrap();
+        fs::write(root.join("src").join("b\u{fffd}.txt"), "after\n").unwrap();
+        let escaped = |path: &Path| serde_json::to_string(&path.to_string_lossy()).unwrap().trim_matches('"').to_owned();
+        let node_root = serde_json::to_string(node_manifest["root"].as_str().unwrap()).unwrap().trim_matches('"').to_owned();
+        let identity = |path: &Path| serde_json::to_value(identity_of(path).unwrap()).unwrap();
+        let mut moved = raw.replace(&node_root, &escaped(&root));
+        for (node, ours) in [(&node_manifest["rootIdentity"], identity(&root)), (&node_manifest["files"][0]["parent"], identity(&root.join("src")))] {
+            for key in ["dev", "ino"] {
+                moved = moved.replacen(&format!("\"{key}\":\"{}\"", node[key].as_str().unwrap()), &format!("\"{key}\":\"{}\"", ours[key].as_str().unwrap()), 1);
+            }
+        }
+        let base = tempfile::tempdir().unwrap();
+        let store = RecoveryStore::new(base.path().to_path_buf());
+        let id = node_manifest["id"].as_str().unwrap();
+        let directory = store.store_path(&root).join(id);
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("manifest.json"), moved).unwrap();
+        for name in ["state.json", "0.before", "0.after"] {
+            fs::copy(node_record.join(name), directory.join(name)).unwrap();
+        }
+        let view = |detail: &Detail| {
+            let detail = serde_json::to_value(detail).unwrap();
+            let files: Vec<Value> = detail["files"].as_array().unwrap().iter().map(|f| serde_json::json!({"relPath": f["relPath"], "status": f["status"]})).collect();
+            serde_json::json!({"phase": detail["phase"], "files": files})
+        };
+        let inspected = store.execute(&root, Action::Inspect { id: id.into() }).unwrap().detail.unwrap();
+        assert_eq!(view(&inspected), case["after"]["inspected"]);
+        let restored = store.execute(&root, Action::Restore { id: id.into(), revision: inspected.revision.clone() }).unwrap().detail.unwrap();
+        assert_eq!(view(&restored), case["after"]["restored"]);
+        assert_eq!(fs::read_to_string(root.join("src").join("b\u{fffd}.txt")).unwrap(), case["after"]["target"]);
+        let names: Vec<String> = fs::read_dir(root.join("src")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().bytes().map(|b| format!("{b:02x}")).collect()).collect();
+        assert_eq!(serde_json::json!(names), case["after"]["namesOnDisk"]);
+        let state = store.read_record(&store.location(&root, id).unwrap()).unwrap().state.unwrap();
+        assert_eq!(serde_json::to_value(state).unwrap(), case["after"]["state"]);
     }
 }

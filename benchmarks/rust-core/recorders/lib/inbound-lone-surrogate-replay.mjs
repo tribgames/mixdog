@@ -8,6 +8,7 @@
 import { once } from 'node:events';
 import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { basename, join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { REPO_ROOT } from './common.mjs';
@@ -32,12 +33,29 @@ function within(promise, what) {
   return Promise.race([promise, late]).finally(() => clearTimeout(timer));
 }
 
-/** Node's value as the core must give it under (a): every string well formed, keys included. */
+/** Node's value as the core must give it under (a): every string well formed, keys included. Two keys of one object that become
+ *  one fail the replay: a merged object is never compared. */
 function wellFormed(value) {
   if (typeof value === 'string') return value.toWellFormed();
   if (Array.isArray(value)) return value.map(wellFormed);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key.toWellFormed(), wellFormed(item)]));
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value).map(([key, item]) => [key.toWellFormed(), wellFormed(item)]);
+    const keys = new Set(entries.map(([key]) => key));
+    if (keys.size !== entries.length) throw new Error(`two keys of Node's answer read as one under (a): ${JSON.stringify(Object.keys(value))}`);
+    return Object.fromEntries(entries);
+  }
   return value;
+}
+
+/** The first frame `take` yields that `matches` (other frames are passed over), or the close; one deadline for the whole wait. */
+function firstFrame(take, matches, what) {
+  const scan = async () => {
+    for (;;) {
+      const next = await take();
+      if (next.closed !== undefined || matches(next.frame)) return next;
+    }
+  };
+  return within(scan(), what);
 }
 
 export async function replay({ exe, golden, only }) {
@@ -101,18 +119,27 @@ export async function replay({ exe, golden, only }) {
           const next = await within(raw.phone.next(), `the close of ${raw.clientId} after ${step.name}`);
           got = next.closed !== undefined ? { closed: next.closed } : { frame: next.frame };
         } else {
-          // The core's method names are its own: what is compared is the phone's fate (answered on the same connection, not closed).
-          let next;
-          do next = await within(raw.phone.next(), `the answer of ${raw.clientId} to ${step.name}`);
-          while (next.frame && next.frame.id !== step.coreId);
-          got = next.closed !== undefined ? { closed: next.closed } : { answered: true };
+          // No Node counterpart (the core's method names are its own): the answer is compared whole with the core's own refusal of a
+          // name that does not exist, sent next on the same connection, and the connection must answer the frame after that.
+          const answerTo = (id, what) => firstFrame(() => raw.phone.next(), (f) => f?.id === id, `the answer of ${raw.clientId} to ${what}`);
+          const lone = await answerTo(step.coreId, step.name);
+          await raw.phone.send(frame(step.coreStandIn.raw));
+          const standIn = await answerTo(step.coreId, `${step.name}: the stand-in`);
+          await raw.phone.send(frame(step.coreNext.raw));
+          const after = await answerTo(step.coreNext.id, `${step.name}: the next frame`);
+          if (standIn.closed !== undefined || !standIn.frame.error) throw new Error(`${step.name}: the core did not refuse its stand-in: ${JSON.stringify(standIn)}`);
+          got = { answer: lone.closed !== undefined ? { closed: lone.closed } : lone.frame, nextAnswered: after.closed === undefined && after.frame.result !== undefined };
+          compared += 1;
+          const expected = { answer: standIn.frame, nextAnswered: true };
+          if (!isDeepStrictEqual(got, expected)) unexpected.push({ step: `${step.name} (compared with the core's refusal of ${step.coreStandIn.raw})`, node: expected, core: got });
+          continue;
         }
       } else {
         // The answer, or the close of the phone's client when the core refuses the frame (a closed call never answers).
         const closing = relay.whenClosed(phone.clientId).then((closed) => ({ closed }));
         got = await within(
           Promise.race([
-            phone.router.call(step.call, clone(step.params)).then(
+            phone.router.call(step.call, step.json !== undefined ? JSON.parse(step.json) : clone(step.params)).then(
               (value) => ({ answer: { ok: true, value: value === undefined ? null : clone(value) } }),
               (error) => ({ answer: { ok: false, error: error.message, ...(typeof error.code === 'string' && error.code ? { errorCode: error.code } : {}) } }),
             ),
@@ -122,8 +149,7 @@ export async function replay({ exe, golden, only }) {
         );
         if (got.closed !== undefined) phone = await openRouter();
       }
-      const expectedOf = (recorded) =>
-        recorded.closed !== undefined ? { closed: recorded.closed } : step.coreRaw !== undefined ? { answered: true } : { answer: wellFormed(recorded.answer) };
+      const expectedOf = (recorded) => (recorded.closed !== undefined ? { closed: recorded.closed } : { answer: wellFormed(recorded.answer) });
       const expected = expectedOf(node);
       compared += 1;
       if (step.accepted) {
@@ -145,6 +171,15 @@ export async function replay({ exe, golden, only }) {
         .map((entry) => ({ name: hex(Buffer.from(entry.name)), ...(entry.isDirectory() ? { dir: true } : { bytes: hex(readFileSync(join(PROJECT, entry.name))) }) }));
       compared += 1;
       if (!isDeepStrictEqual(files, golden.files)) unexpected.push({ step: 'project folder', node: golden.files, core: files });
+      // Node's preferences file (desktop-projects.json `{version:2, aliases{path:name}, hidden[path]}`) is the core's `projects` rows
+      // (DS §4.1): `aliases` every row's alias, `hidden` the hidden rows in `hidden_rank` order.
+      const db = new DatabaseSync(join(core.dataDir, 'state', 'core.sqlite'), { readOnly: true });
+      const rows = db.prepare('SELECT path, alias, hidden FROM projects ORDER BY hidden_rank, path').all();
+      db.close();
+      const stored = { aliases: Object.fromEntries(rows.filter((row) => row.alias).map((row) => [row.path, row.alias])), hidden: rows.filter((row) => row.hidden).map((row) => row.path) };
+      const { aliases, hidden } = wellFormed(JSON.parse(golden.preferences));
+      compared += 1;
+      if (!isDeepStrictEqual(stored, { aliases, hidden })) unexpected.push({ step: 'preferences', node: { aliases, hidden }, core: stored });
     }
     console.log(`inbound-lone-surrogate replay over ${exe}: ${compared} compared, ${accepted.length} accepted differences, ${unexpected.length} unexpected`);
     for (const entry of accepted) {
