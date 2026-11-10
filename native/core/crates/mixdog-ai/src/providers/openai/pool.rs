@@ -228,6 +228,15 @@ impl Checkout {
         &self.key
     }
 
+    /// The response was given up mid-stream: its socket is closed with `code` and `reason` (`socket-handlers.mjs`
+    /// `onAbort`: `socket.close(4002, 'aborted')`) and never parked; the session's next attempt opens a fresh one.
+    pub fn abandon(&mut self, code: u16, reason: &str) {
+        let Some(socket) = self.socket.take() else { return };
+        self.pool.state().fresh.insert(self.key.clone());
+        socket.close(code, reason);
+        self.pool.closed(&self.key, self.owner);
+    }
+
     /// The response completed: the socket keeps `chain` for the next request
     /// and goes back to the pool when it is poolable.
     pub fn finish(mut self, chain: Chain) {

@@ -146,6 +146,14 @@ for (const scenario of selected(doc.scenarios)) {
   traffic.sink = [];
   traffic.script = { dials: structuredClone(scenario.dials || []), replies: structuredClone(scenario.ws || []), http: structuredClone(scenario.http || []) };
   const controller = new AbortController();
+  // `abortWhenHeld`: the turn is cancelled (the session's abort signal) once the server has written a held reply.
+  traffic.held = scenario.abortWhenHeld
+    ? () => {
+        const reason = new Error('the turn was cancelled');
+        ownAborts.add(reason);
+        controller.abort(reason);
+      }
+    : null;
   traffic.unanswered = (kind) => {
     entry.unanswered = kind;
     const reason = new Error(`the scenario scripts no ${kind} answer`);

@@ -2044,6 +2044,53 @@
       "awaitClose": true
     },
     {
+      "id": "openai-cancel-mid-stream",
+      "provider": "openai-oauth",
+      "fresh": true,
+      "turnId": "01a1c1e0-1280-7000-8000-000000000025",
+      "messages": [
+        {
+          "role": "user",
+          "content": "parity probe"
+        }
+      ],
+      "ws": [
+        {
+          "events": [
+            {
+              "type": "response.created",
+              "response": {
+                "id": "resp_parity_25",
+                "model": "gpt-6.1-sol"
+              }
+            },
+            {
+              "type": "response.output_item.added",
+              "output_index": 0,
+              "item": {
+                "type": "message",
+                "id": "msg_resp_parity_25",
+                "role": "assistant",
+                "status": "in_progress",
+                "content": []
+              }
+            },
+            {
+              "type": "response.output_text.delta",
+              "output_index": 0,
+              "item_id": "msg_resp_parity_25",
+              "content_index": 0,
+              "delta": "partial"
+            }
+          ],
+          "then": "hold"
+        }
+      ],
+      "abortWhenHeld": true,
+      "expectError": true,
+      "awaitClose": true
+    },
+    {
       "id": "anthropic-oauth-first-turn",
       "provider": "anthropic-oauth",
       "expectError": true,
