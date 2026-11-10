@@ -1,0 +1,141 @@
+{
+  "note": "the agent-trace rows of a run's tool batches (real askSession turns over a scripted provider, MIXDOG_DIAGNOSTICS on), recorded twice at b6f10295a: per scenario the session's batch/tool/tool_slow rows of history/agent-trace.jsonl (lib/agent-trace-run-rows.mjs), the count of its other kinds, and its history/tool-failures.jsonl rows (lib/tool-failure-rows.mjs)",
+  "workspaceLength": 44,
+  "scenarios": [
+    {
+      "name": "one batch of reads",
+      "env": {
+        "MIXDOG_DIAGNOSTICS": "1"
+      },
+      "replies": [
+        {
+          "text": "go",
+          "calls": [
+            {
+              "id": "r1",
+              "name": "read",
+              "args": {
+                "path": "a.txt"
+              }
+            },
+            {
+              "id": "r2",
+              "name": "read",
+              "args": {
+                "path": "missing.txt"
+              }
+            },
+            {
+              "id": "r3",
+              "name": "read",
+              "args": {
+                "path": [
+                  "a.txt",
+                  "b.txt"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "text": "done",
+          "calls": []
+        }
+      ]
+    },
+    {
+      "name": "a failing call, then a second batch",
+      "env": {
+        "MIXDOG_DIAGNOSTICS": "1"
+      },
+      "replies": [
+        {
+          "text": "go",
+          "calls": [
+            {
+              "id": "e1",
+              "name": "read",
+              "args": {}
+            },
+            {
+              "id": "r5",
+              "name": "read",
+              "args": {
+                "path": "a.txt",
+                "offset": 2
+              }
+            }
+          ]
+        },
+        {
+          "text": "again",
+          "calls": [
+            {
+              "id": "r4",
+              "name": "read",
+              "args": {
+                "path": "b.txt"
+              }
+            }
+          ]
+        },
+        {
+          "text": "done",
+          "calls": []
+        }
+      ]
+    }
+  ],
+  "files": {
+    "a.txt": "hello\nsecond line\n",
+    "b.txt": "bee\n"
+  },
+  "model": "fake-model",
+  "trace": [
+    [
+      "{\"kind\":\"batch\",\"payload\":{\"tool_call_count\":3,\"batch_schema_version\":1,\"batch_id\":\"<batch:0>\",\"iteration\":1,\"calls\":[{\"tool_call_id\":\"r1\",\"tool_name\":\"read\",\"array_lengths\":{}},{\"tool_call_id\":\"r2\",\"tool_name\":\"read\",\"array_lengths\":{}},{\"tool_call_id\":\"r3\",\"tool_name\":\"read\",\"array_lengths\":{\"path\":2}}]},\"ts\":\"<ts>\",\"session_id\":\"<session:0>\"}",
+      "{\"iteration\":1,\"kind\":\"tool\",\"agent\":\"lead\",\"model\":\"fake-model\",\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"path\":\"a.txt\"},\"tool_args_hash\":\"5aff422311aaf6f4\",\"tool_args_summary\":{\"path\":\"a.txt\"},\"result_kind\":\"normal\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":46,\"result_lines_est\":4,\"grep_coverage\":null,\"local_search\":null,\"payload\":{\"timing\":{\"dispatch_wait_ms\":\"<ms>\",\"execution_ms\":\"<ms>\",\"result_collection_wait_ms\":\"<ms>\",\"postprocess_ms\":\"<ms>\",\"total_ms\":\"<ms>\"},\"batch\":{\"batch_id\":\"<batch:0>\",\"tool_call_id\":\"r1\"},\"execution_intervals\":[{\"started_at_ms\":\"<ts>\",\"completed_at_ms\":\"<ts>\"}]},\"cwd\":\"<WS>\",\"ts\":\"<ts>\",\"session_id\":\"<session:0>\"}",
+      "{\"iteration\":1,\"kind\":\"tool\",\"agent\":\"lead\",\"model\":\"fake-model\",\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"path\":\"missing.txt\"},\"tool_args_hash\":\"2a7b713785edb4f5\",\"tool_args_summary\":{\"path\":\"missing.txt\"},\"result_kind\":\"normal\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":254,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{\"timing\":{\"dispatch_wait_ms\":\"<ms>\",\"execution_ms\":\"<ms>\",\"result_collection_wait_ms\":\"<ms>\",\"postprocess_ms\":\"<ms>\",\"total_ms\":\"<ms>\"},\"batch\":{\"batch_id\":\"<batch:0>\",\"tool_call_id\":\"r2\"},\"execution_intervals\":[{\"started_at_ms\":\"<ts>\",\"completed_at_ms\":\"<ts>\"}]},\"cwd\":\"<WS>\",\"ts\":\"<ts>\",\"session_id\":\"<session:0>\"}",
+      "{\"iteration\":1,\"kind\":\"tool\",\"agent\":\"lead\",\"model\":\"fake-model\",\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"path\":[\"a.txt\",\"b.txt\"],\"path_count\":2},\"tool_args_hash\":\"79a8e1f9291313cf\",\"tool_args_summary\":{\"path\":[\"a.txt\",\"b.txt\"],\"path_count\":2},\"result_kind\":\"normal\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":76,\"result_lines_est\":10,\"grep_coverage\":null,\"local_search\":null,\"payload\":{\"timing\":{\"dispatch_wait_ms\":\"<ms>\",\"execution_ms\":\"<ms>\",\"result_collection_wait_ms\":\"<ms>\",\"postprocess_ms\":\"<ms>\",\"total_ms\":\"<ms>\"},\"batch\":{\"batch_id\":\"<batch:0>\",\"tool_call_id\":\"r3\"},\"execution_intervals\":[{\"started_at_ms\":\"<ts>\",\"completed_at_ms\":\"<ts>\"}]},\"cwd\":\"<WS>\",\"ts\":\"<ts>\",\"session_id\":\"<session:0>\"}"
+    ],
+    [
+      "{\"kind\":\"batch\",\"payload\":{\"tool_call_count\":2,\"batch_schema_version\":1,\"batch_id\":\"<batch:0>\",\"iteration\":1,\"calls\":[{\"tool_call_id\":\"e1\",\"tool_name\":\"read\",\"array_lengths\":{}},{\"tool_call_id\":\"r5\",\"tool_name\":\"read\",\"array_lengths\":{}}]},\"ts\":\"<ts>\",\"session_id\":\"<session:1>\"}",
+      "{\"iteration\":1,\"kind\":\"tool\",\"agent\":\"lead\",\"model\":\"fake-model\",\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"tool_ms\":\"<ms>\",\"tool_args\":null,\"tool_args_hash\":\"44136fa355b3678a\",\"tool_args_summary\":null,\"result_kind\":\"error\",\"result_error_first_line\":\"Error: read requires \\\"path\\\" (or alias file_path).\",\"result_error_category\":\"runtime/failure\",\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":49,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{\"timing\":{\"dispatch_wait_ms\":\"<ms>\",\"execution_ms\":\"<ms>\",\"result_collection_wait_ms\":\"<ms>\",\"postprocess_ms\":\"<ms>\",\"total_ms\":\"<ms>\"},\"batch\":{\"batch_id\":\"<batch:0>\",\"tool_call_id\":\"e1\"},\"execution_intervals\":[{\"started_at_ms\":\"<ts>\",\"completed_at_ms\":\"<ts>\"}]},\"cwd\":\"<WS>\",\"ts\":\"<ts>\",\"session_id\":\"<session:1>\"}",
+      "{\"iteration\":1,\"kind\":\"tool\",\"agent\":\"lead\",\"model\":\"fake-model\",\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"path\":\"a.txt\",\"offset\":2},\"tool_args_hash\":\"db99b204554c290b\",\"tool_args_summary\":{\"path\":\"a.txt\",\"offset\":2},\"result_kind\":\"normal\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":37,\"result_lines_est\":1,\"grep_coverage\":null,\"local_search\":null,\"payload\":{\"timing\":{\"dispatch_wait_ms\":\"<ms>\",\"execution_ms\":\"<ms>\",\"result_collection_wait_ms\":\"<ms>\",\"postprocess_ms\":\"<ms>\",\"total_ms\":\"<ms>\"},\"batch\":{\"batch_id\":\"<batch:0>\",\"tool_call_id\":\"r5\"},\"execution_intervals\":[{\"started_at_ms\":\"<ts>\",\"completed_at_ms\":\"<ts>\"}]},\"cwd\":\"<WS>\",\"ts\":\"<ts>\",\"session_id\":\"<session:1>\"}",
+      "{\"kind\":\"batch\",\"payload\":{\"tool_call_count\":1,\"batch_schema_version\":1,\"batch_id\":\"<batch:1>\",\"iteration\":2,\"calls\":[{\"tool_call_id\":\"r4\",\"tool_name\":\"read\",\"array_lengths\":{}}]},\"ts\":\"<ts>\",\"session_id\":\"<session:1>\"}",
+      "{\"iteration\":2,\"kind\":\"tool\",\"agent\":\"lead\",\"model\":\"fake-model\",\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"tool_ms\":\"<ms>\",\"tool_args\":{\"path\":\"b.txt\"},\"tool_args_hash\":\"8b67cf4c0c2d2315\",\"tool_args_summary\":{\"path\":\"b.txt\"},\"result_kind\":\"normal\",\"result_error_first_line\":null,\"result_error_category\":null,\"result_has_next_call\":false,\"result_next_call_count\":0,\"result_bytes_est\":32,\"result_lines_est\":3,\"grep_coverage\":null,\"local_search\":null,\"payload\":{\"timing\":{\"dispatch_wait_ms\":\"<ms>\",\"execution_ms\":\"<ms>\",\"result_collection_wait_ms\":\"<ms>\",\"postprocess_ms\":\"<ms>\",\"total_ms\":\"<ms>\"},\"batch\":{\"batch_id\":\"<batch:1>\",\"tool_call_id\":\"r4\"},\"execution_intervals\":[{\"started_at_ms\":\"<ts>\",\"completed_at_ms\":\"<ts>\"}]},\"cwd\":\"<WS>\",\"ts\":\"<ts>\",\"session_id\":\"<session:1>\"}"
+    ]
+  ],
+  "others": [
+    {
+      "context": 1,
+      "usage": 1
+    },
+    {
+      "context": 1,
+      "usage": 1
+    }
+  ],
+  "failures": [
+    [],
+    [
+      "{\"ts\":\"<ts>\",\"session_id\":\"<session:1>\",\"iteration\":1,\"tool_name\":\"read\",\"tool_kind\":\"builtin\",\"result_kind\":\"error\",\"category\":\"runtime/failure\",\"agent\":\"lead\",\"model\":\"fake-model\",\"cwd\":\"<WS>\",\"tool_ms\":\"<ms>\",\"tool_args\":null,\"error_first_line\":\"Error: read requires \\\"path\\\" (or alias file_path).\",\"error_preview\":\"Error: read requires \\\"path\\\" (or alias file_path).\",\"result_bytes_est\":49,\"result_lines_est\":1}"
+    ]
+  ],
+  "results": [
+    {
+      "name": "one batch of reads",
+      "outcome": {
+        "answer": "done"
+      },
+      "sends": 2
+    },
+    {
+      "name": "a failing call, then a second batch",
+      "outcome": {
+        "answer": "done"
+      },
+      "sends": 3
+    }
+  ]
+}

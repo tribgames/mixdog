@@ -1,0 +1,73 @@
+{
+  "command": "MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-agent-trace-run.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "excluded": [
+    "agent-trace rows of kinds other than batch, tool and tool_slow (context: the request's context accounting; usage: the usage log): written by other call sites than the tool batch; their count per kind is recorded (others) and not compared"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 9703,
+      "path": "golden.json",
+      "sha256": "16022382d43e18ae06539d8648ff5aa77fd6eeb7cc269a26bc0104ed3af95660"
+    }
+  ],
+  "node": "v22.20.0",
+  "normalised": [
+    "session_id",
+    "ts and each execution_intervals mark",
+    "batch ids (v4 UUIDs, by the order of their batch rows)",
+    "tool_ms and each payload.timing value",
+    "workspace",
+    "data folder (tool-failures rows)"
+  ],
+  "notCompared": [
+    "others: the counts of the excluded kinds",
+    "results: the scripted turn's answer and send count, recorded to show the turn ended as scripted"
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-agent-trace-run.mjs",
+  "recorderSha256": "7f32878724131227c90f5dbc825cfc68d8c479e12fca3074537d1ae5f31c140f",
+  "rowsLibSha256": "e5748aefeacdd419e2192ec5164c375afc0db5938acea9e6b49d7de0267068ce",
+  "scenariosSha256": "104af93f584f8a393260144b0882998280b046ed99e0d05397c68c3d089103bf",
+  "set": "agent-trace-run",
+  "syntheticInputs": {
+    "environment": [
+      {
+        "env": {
+          "MIXDOG_DIAGNOSTICS": "1"
+        },
+        "scenario": "one batch of reads"
+      },
+      {
+        "env": {
+          "MIXDOG_DIAGNOSTICS": "1"
+        },
+        "scenario": "a failing call, then a second batch"
+      }
+    ],
+    "provider": "a scripted provider (only its send is scripted; model fake-model): the replies of each scenario in lib/agent-trace-run-scenarios.mjs",
+    "session": "sessionOptions (src/session-runtime/session-create/session-options.mjs) with the headless tool profile, no session profile, skipSkills true and workflow { id: headless, delegatesAgents: false }",
+    "workspaceFiles": {
+      "a.txt": "e2150a7049a28067b28de40c77c5e632d37fe6bfa5f858830b3abcdf187d20cc",
+      "b.txt": "c150e5a8a604acebd8d15bd7bf8ea96b2874bdcc91dee6319977d353251283b0"
+    }
+  },
+  "totalBytes": 9703,
+  "traceRowsLibSha256": "14b0241b423269fb5a473fbc520e8aa2a1fcac22c757845e126a86c5f5076c74"
+}

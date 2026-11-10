@@ -838,24 +838,30 @@ impl Run {
             }
         }
         // `postProcessCompleted` (`finalize.mjs:170-177`), per call in call order: `traceCompleted` (an error call's row of the
-        // failure log, on the result the transcript holds) and then `writeCaches` (a normal call's reusable body).
+        // trace rows and, for an error call, its failure row, on the result the transcript holds) and then `writeCaches` (a normal
+        // call's reusable body).
         for i in indices {
             let Some(m) = &staged[i] else {
                 continue;
             };
-            if m.tool_kind == Some(ToolKind::Error) {
-                if let Some(log) = &self.env.failures {
-                    log.failed(crate::env::FailedCall {
-                        iteration: self.iterations,
-                        tool_name: calls[i].name.clone(),
-                        tool_kind: trace_tool_kind(&self.tools, &calls[i].name),
-                        tool_ms: tool_ms[i],
-                        tool_args: calls[i].arguments.clone(),
-                        model: self.model.clone(),
-                        result_text: trace_text(&m.message.content),
-                    });
-                }
-            } else if cacheable[i]
+            let error = m.tool_kind == Some(ToolKind::Error);
+            if let Some(log) = &self.env.failures {
+                log.tool(crate::env::TracedCall {
+                    iteration: self.iterations,
+                    tool_call_id: calls[i].id.clone(),
+                    tool_name: calls[i].name.clone(),
+                    tool_kind: trace_tool_kind(&self.tools, &calls[i].name),
+                    tool_ms: tool_ms[i],
+                    tool_args: calls[i].arguments.clone(),
+                    model: self.model.clone(),
+                    result_kind: if error { "error" } else { "normal" },
+                    result: trace_result(&m.message.content),
+                    result_text: trace_text(&m.message.content),
+                    timing: m.tool_timing,
+                });
+            }
+            if !error
+                && cacheable[i]
                 && let (Some(reuse), Some(output)) = (&self.env.reuse, &outputs[i])
             {
                 reuse.store(&calls[i], &m.text(), &calls[i].id, output).await;
@@ -876,6 +882,21 @@ fn trace_text(content: &Content) -> String {
             })
             .collect::<Vec<_>>()
             .join("\n"),
+    }
+}
+
+/// The result `traceAgentTool` is given: a text as a string, a structured result as its text parts (`{type, text}`; the trace
+/// reads nothing else of it).
+fn trace_result(content: &Content) -> serde_json::Value {
+    match content {
+        Content::Text(text) => serde_json::Value::String(text.clone()),
+        Content::Parts(parts) => parts
+            .iter()
+            .filter_map(|part| match part {
+                mixdog_core_api::domain::provider::ContentPart::Text(text, _) => Some(serde_json::json!({ "type": "text", "text": text })),
+                _ => None,
+            })
+            .collect(),
     }
 }
 
