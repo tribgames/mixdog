@@ -1,0 +1,1591 @@
+{
+  "note": "Node host answers to a paired phone for attachmentOpen, readAttachmentThumbnail, resolveLocalPaths, readLocalFile and projectRecovery: per call its relay frame (value, or error with errorCode); the world after the script (the project, the files outside it, the attachments staged in the PC's temp folder, the recovery store). The world's conversations are the files Node's session store wrote (sessionFiles).",
+  "root": "D:\\mixdog-build\\tmp\\ph-attachments",
+  "refs": {
+    "png": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581",
+    "jpeg": "a9daccaecd68e446d76070cc759afcfb3b85f593361f2ab8daf19004e2c687b9",
+    "gif": "1f19970f056cd116a5fe3c02422c1ee1ac827136df470b5c89af492620512aa4",
+    "webp": "481f6f468a765b390b85635d98245fa0db8ae6cca1529e463fe1924ce8b470a6",
+    "pdf": "0eb1d84a90fef03a6949fb1052da1ec76b9429d41e15f55b09b739dcaf6c2d55",
+    "notes": "8b115e8d7e791462c44e3da8763b3f76f58ef922e31843dac5fc42e0a9538dfa",
+    "stray": "c2e33eb673dde29d6827508a4fe650cb21d2cb8e7419e019bde4490166cde26c",
+    "limit": "1178fd36bc4e418a4cffa2a642283ffa52b838a345081dad42ff41b356266d8e",
+    "over": "8aa68c14c4cdf5d03a98c3780ccfc34c6b6492033dc2fe275734d73ddd3e8460",
+    "gone": "b68565cf5699273f6a21847b3fe44726374cbd6c3bfdc829527f1db2a0504341"
+  },
+  "sessionFiles": [
+    {
+      "name": "sess_phone_attach.log.jsonl",
+      "text": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"2ba0df953e702be474f175f8\",\"id\":\"sess_phone_attach\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_phone_attach\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\ph-attachments\\\\proj\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"look at these\"}],\"meta\":{\"transcript\":{\"attachments\":[{\"id\":\"0eb1d84a90fef03a6949fb1052da1ec76b9429d41e15f55b09b739dcaf6c2d55\",\"attachmentRef\":\"0eb1d84a90fef03a6949fb1052da1ec76b9429d41e15f55b09b739dcaf6c2d55\",\"kind\":\"file\",\"name\":\"report\",\"mimeType\":\"application/pdf\",\"size\":56},{\"id\":\"8b115e8d7e791462c44e3da8763b3f76f58ef922e31843dac5fc42e0a9538dfa\",\"attachmentRef\":\"8b115e8d7e791462c44e3da8763b3f76f58ef922e31843dac5fc42e0a9538dfa\",\"kind\":\"file\",\"name\":\"notes.md\",\"mimeType\":\"text/markdown\",\"size\":32},{\"id\":\"497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581\",\"attachmentRef\":\"497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581\",\"kind\":\"image\",\"name\":\"shot.png\",\"mimeType\":\"image/png\",\"size\":70},{\"id\":\"a9daccaecd68e446d76070cc759afcfb3b85f593361f2ab8daf19004e2c687b9\",\"attachmentRef\":\"a9daccaecd68e446d76070cc759afcfb3b85f593361f2ab8daf19004e2c687b9\",\"kind\":\"image\",\"name\":\"photo.jpg\",\"mimeType\":\"image/jpeg\",\"size\":16},{\"id\":\"1f19970f056cd116a5fe3c02422c1ee1ac827136df470b5c89af492620512aa4\",\"attachmentRef\":\"1f19970f056cd116a5fe3c02422c1ee1ac827136df470b5c89af492620512aa4\",\"kind\":\"image\",\"name\":\"anim.gif\",\"mimeType\":\"image/gif\",\"size\":14},{\"id\":\"481f6f468a765b390b85635d98245fa0db8ae6cca1529e463fe1924ce8b470a6\",\"attachmentRef\":\"481f6f468a765b390b85635d98245fa0db8ae6cca1529e463fe1924ce8b470a6\",\"kind\":\"image\",\"name\":\"pic.webp\",\"mimeType\":\"image/webp\",\"size\":20},{\"id\":\"1178fd36bc4e418a4cffa2a642283ffa52b838a345081dad42ff41b356266d8e\",\"attachmentRef\":\"1178fd36bc4e418a4cffa2a642283ffa52b838a345081dad42ff41b356266d8e\",\"kind\":\"image\",\"name\":\"limit.png\",\"mimeType\":\"image/png\",\"size\":2097152},{\"id\":\"8aa68c14c4cdf5d03a98c3780ccfc34c6b6492033dc2fe275734d73ddd3e8460\",\"attachmentRef\":\"8aa68c14c4cdf5d03a98c3780ccfc34c6b6492033dc2fe275734d73ddd3e8460\",\"kind\":\"image\",\"name\":\"over.png\",\"mimeType\":\"image/png\",\"size\":2097153},{\"id\":\"b68565cf5699273f6a21847b3fe44726374cbd6c3bfdc829527f1db2a0504341\",\"attachmentRef\":\"b68565cf5699273f6a21847b3fe44726374cbd6c3bfdc829527f1db2a0504341\",\"kind\":\"file\",\"name\":\"gone.txt\",\"mimeType\":\"text/plain\",\"size\":12}]}}},{\"role\":\"assistant\",\"content\":\"got them\"}]}\n"
+    },
+    {
+      "name": "sess_phone_other.log.jsonl",
+      "text": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"59028ed378adf37ee1ffad77\",\"id\":\"sess_phone_other\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_phone_other\",\"provider\":\"openai\",\"model\":\"gpt-test\",\"cwd\":\"D:\\\\mixdog-build\\\\tmp\\\\ph-attachments\\\\proj\",\"generation\":0,\"closed\":false,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"another\"}],\"meta\":{\"transcript\":{\"attachments\":[{\"id\":\"c2e33eb673dde29d6827508a4fe650cb21d2cb8e7419e019bde4490166cde26c\",\"attachmentRef\":\"c2e33eb673dde29d6827508a4fe650cb21d2cb8e7419e019bde4490166cde26c\",\"kind\":\"file\",\"name\":\"stray.txt\",\"mimeType\":\"text/plain\",\"size\":32}]}}},{\"role\":\"assistant\",\"content\":\"ok\"}]}\n"
+    }
+  ],
+  "steps": [
+    {
+      "call": "addProject",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\proj"
+      ],
+      "frame": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "call": "resolveLocalPaths",
+      "params": [
+        [
+          "D:\\mixdog-build\\tmp\\ph-attachments\\proj\\a.txt"
+        ]
+      ],
+      "frame": {
+        "ok": true,
+        "value": [
+          {
+            "absolutePath": "D:\\mixdog-build\\tmp\\ph-attachments\\proj\\a.txt",
+            "name": "a.txt",
+            "dir": false,
+            "size": 15,
+            "projectPath": "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+            "relPath": "a.txt"
+          }
+        ]
+      }
+    },
+    {
+      "call": "resolveLocalPaths",
+      "params": [
+        [
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\note.txt"
+        ]
+      ],
+      "frame": {
+        "ok": true,
+        "value": [
+          {
+            "absolutePath": "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\note.txt",
+            "name": "note.txt",
+            "dir": false,
+            "size": 29,
+            "projectPath": "D:\\mixdog-build\\tmp\\ph-attachments\\outside",
+            "relPath": "note.txt",
+            "accessToken": "$grant0"
+          }
+        ]
+      }
+    },
+    {
+      "call": "resolveLocalPaths",
+      "params": [
+        [
+          "D:\\mixdog-build\\tmp\\ph-attachments\\proj\\sub"
+        ]
+      ],
+      "frame": {
+        "ok": true,
+        "value": [
+          {
+            "absolutePath": "D:\\mixdog-build\\tmp\\ph-attachments\\proj\\sub",
+            "name": "sub",
+            "dir": true,
+            "size": 0
+          }
+        ]
+      }
+    },
+    {
+      "call": "resolveLocalPaths",
+      "params": [
+        [
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\note.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\proj\\a.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\photo.png",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\proj\\sub\\deep.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\folder",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\proj\\sub\\..\\a.txt"
+        ]
+      ],
+      "frame": {
+        "ok": true,
+        "value": [
+          {
+            "absolutePath": "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\note.txt",
+            "name": "note.txt",
+            "dir": false,
+            "size": 29,
+            "projectPath": "D:\\mixdog-build\\tmp\\ph-attachments\\outside",
+            "relPath": "note.txt",
+            "accessToken": "$grant0"
+          },
+          {
+            "absolutePath": "D:\\mixdog-build\\tmp\\ph-attachments\\proj\\a.txt",
+            "name": "a.txt",
+            "dir": false,
+            "size": 15,
+            "projectPath": "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+            "relPath": "a.txt"
+          },
+          {
+            "absolutePath": "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\photo.png",
+            "name": "photo.png",
+            "dir": false,
+            "size": 70,
+            "projectPath": "D:\\mixdog-build\\tmp\\ph-attachments\\outside",
+            "relPath": "photo.png",
+            "accessToken": "$grant1"
+          },
+          {
+            "absolutePath": "D:\\mixdog-build\\tmp\\ph-attachments\\proj\\sub\\deep.txt",
+            "name": "deep.txt",
+            "dir": false,
+            "size": 5,
+            "projectPath": "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+            "relPath": "sub/deep.txt"
+          },
+          {
+            "absolutePath": "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\folder",
+            "name": "folder",
+            "dir": true,
+            "size": 0
+          },
+          {
+            "absolutePath": "D:\\mixdog-build\\tmp\\ph-attachments\\proj\\a.txt",
+            "name": "a.txt",
+            "dir": false,
+            "size": 15,
+            "projectPath": "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+            "relPath": "a.txt"
+          }
+        ]
+      }
+    },
+    {
+      "call": "resolveLocalPaths",
+      "params": [
+        [
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\note.txt"
+        ]
+      ],
+      "frame": {
+        "ok": true,
+        "value": [
+          {
+            "absolutePath": "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\note.txt",
+            "name": "note.txt",
+            "dir": false,
+            "size": 29,
+            "projectPath": "D:\\mixdog-build\\tmp\\ph-attachments\\outside",
+            "relPath": "note.txt",
+            "accessToken": "$grant0"
+          }
+        ]
+      }
+    },
+    {
+      "call": "resolveLocalPaths",
+      "params": [
+        [
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\note.txt"
+        ],
+        "sess_phone_attach"
+      ],
+      "frame": {
+        "ok": true,
+        "value": [
+          {
+            "absolutePath": "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\note.txt",
+            "name": "note.txt",
+            "dir": false,
+            "size": 29,
+            "projectPath": "D:\\mixdog-build\\tmp\\ph-attachments\\outside",
+            "relPath": "note.txt",
+            "accessToken": "$grant0"
+          }
+        ]
+      }
+    },
+    {
+      "call": "readProjectFile",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\outside",
+        "note.txt",
+        "$grant0"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "content": "a note outside every project\n",
+          "mtimeMs": {
+            "$fileMtime": true
+          },
+          "binary": false,
+          "tooLarge": false,
+          "encoding": "utf8"
+        }
+      }
+    },
+    {
+      "call": "readProjectFile",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\outside",
+        "photo.png",
+        "$grant0"
+      ],
+      "frame": {
+        "ok": false,
+        "error": "The selected-file permission does not match this path."
+      }
+    },
+    {
+      "call": "statProjectFile",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\outside",
+        "note.txt",
+        "$grant0"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "mtimeMs": {
+            "$fileMtime": true
+          },
+          "size": 29,
+          "directory": false
+        }
+      }
+    },
+    {
+      "call": "resolveLocalPaths",
+      "params": [
+        [
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\missing.txt"
+        ]
+      ],
+      "frame": {
+        "ok": false,
+        "error": "ENOENT: no such file or directory, stat 'D:\\mixdog-build\\tmp\\ph-attachments\\outside\\missing.txt'",
+        "errorCode": "ENOENT"
+      }
+    },
+    {
+      "call": "resolveLocalPaths",
+      "params": [
+        [
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\note.txt",
+          "relative.txt"
+        ]
+      ],
+      "frame": {
+        "ok": false,
+        "error": "path must be absolute."
+      }
+    },
+    {
+      "call": "resolveLocalPaths",
+      "params": [
+        []
+      ],
+      "frame": {
+        "ok": false,
+        "error": "paths are invalid."
+      }
+    },
+    {
+      "call": "resolveLocalPaths",
+      "params": [
+        [
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n0.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n1.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n2.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n3.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n4.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n5.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n6.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n7.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n8.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n9.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n10.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n11.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n12.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n13.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n14.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n15.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n16.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n17.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n18.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n19.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n20.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n21.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n22.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n23.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n24.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n25.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n26.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n27.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n28.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n29.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n30.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n31.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n32.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n33.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n34.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n35.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n36.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n37.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n38.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n39.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n40.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n41.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n42.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n43.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n44.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n45.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n46.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n47.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n48.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n49.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n50.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n51.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n52.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n53.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n54.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n55.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n56.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n57.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n58.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n59.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n60.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n61.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n62.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n63.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n64.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n65.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n66.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n67.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n68.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n69.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n70.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n71.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n72.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n73.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n74.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n75.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n76.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n77.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n78.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n79.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n80.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n81.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n82.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n83.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n84.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n85.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n86.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n87.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n88.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n89.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n90.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n91.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n92.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n93.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n94.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n95.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n96.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n97.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n98.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n99.txt",
+          "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\n100.txt"
+        ]
+      ],
+      "frame": {
+        "ok": false,
+        "error": "paths are invalid."
+      }
+    },
+    {
+      "call": "resolveLocalPaths",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\note.txt"
+      ],
+      "frame": {
+        "ok": false,
+        "error": "paths are invalid."
+      }
+    },
+    {
+      "call": "resolveLocalPaths",
+      "params": [
+        [
+          "relative.txt"
+        ]
+      ],
+      "frame": {
+        "ok": false,
+        "error": "path must be absolute."
+      }
+    },
+    {
+      "call": "resolveLocalPaths",
+      "params": [
+        [
+          5
+        ]
+      ],
+      "frame": {
+        "ok": false,
+        "error": "path must be a string."
+      }
+    },
+    {
+      "call": "resolveLocalPaths",
+      "params": [
+        [
+          "   "
+        ]
+      ],
+      "frame": {
+        "ok": false,
+        "error": "path is invalid."
+      }
+    },
+    {
+      "call": "resolveLocalPaths",
+      "params": [
+        [
+          "D:\\mixdog-build\\tmp\\ph-attachments\\a\u0000b"
+        ]
+      ],
+      "frame": {
+        "ok": false,
+        "error": "path is invalid."
+      }
+    },
+    {
+      "call": "readLocalFile",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\note.txt"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "name": "note.txt",
+          "size": 29,
+          "mimeType": "text/plain",
+          "data": "YSBub3RlIG91dHNpZGUgZXZlcnkgcHJvamVjdAo="
+        }
+      }
+    },
+    {
+      "call": "readLocalFile",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\photo.png"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "name": "photo.png",
+          "size": 70,
+          "mimeType": "image/png",
+          "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+        }
+      }
+    },
+    {
+      "call": "readLocalFile",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\data.json"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "name": "data.json",
+          "size": 8,
+          "mimeType": "application/json",
+          "data": "eyJhIjoxfQo="
+        }
+      }
+    },
+    {
+      "call": "readLocalFile",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\noext"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "name": "noext",
+          "size": 13,
+          "mimeType": "application/octet-stream",
+          "data": "bm8gZXh0ZW5zaW9uCg=="
+        }
+      }
+    },
+    {
+      "call": "readLocalFile",
+      "params": [
+        " D:\\mixdog-build\\tmp\\ph-attachments\\proj\\a.txt "
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "name": "a.txt",
+          "size": 15,
+          "mimeType": "text/plain",
+          "data": "aW4gdGhlIHByb2plY3QK"
+        }
+      }
+    },
+    {
+      "call": "readLocalFile",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\large.bin"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "name": "large.bin",
+          "size": 1048579,
+          "mimeType": "application/octet-stream",
+          "data": {
+            "$length": 1398108,
+            "$sha256": "1d6012dc7119c5b673678c74c5e33a0c4876fd73d9333e3fa127f06342296753"
+          }
+        }
+      }
+    },
+    {
+      "call": "readLocalFile",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\limit.bin"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "name": "limit.bin",
+          "size": 20971520,
+          "mimeType": "application/octet-stream",
+          "data": {
+            "$length": 27962028,
+            "$sha256": "1d1e39611016b803275bef17158c9b114ac91e2b5547564f87e217e6f48f9ba1"
+          }
+        }
+      }
+    },
+    {
+      "call": "readLocalFile",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\huge.bin"
+      ],
+      "frame": {
+        "ok": false,
+        "error": "huge.bin: files must be 20 MB or smaller."
+      }
+    },
+    {
+      "call": "readLocalFile",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\folder"
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Only files can be attached."
+      }
+    },
+    {
+      "call": "readLocalFile",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\outside\\missing.txt"
+      ],
+      "frame": {
+        "ok": false,
+        "error": "ENOENT: no such file or directory, stat 'D:\\mixdog-build\\tmp\\ph-attachments\\outside\\missing.txt'",
+        "errorCode": "ENOENT"
+      }
+    },
+    {
+      "call": "readLocalFile",
+      "params": [
+        "relative.txt"
+      ],
+      "frame": {
+        "ok": false,
+        "error": "path must be absolute."
+      }
+    },
+    {
+      "call": "readLocalFile",
+      "params": [
+        7
+      ],
+      "frame": {
+        "ok": false,
+        "error": "path must be a string."
+      }
+    },
+    {
+      "call": "readLocalFile",
+      "params": [
+        ""
+      ],
+      "frame": {
+        "ok": false,
+        "error": "path is invalid."
+      }
+    },
+    {
+      "call": "readAttachmentThumbnail",
+      "params": [
+        "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581"
+      ],
+      "frame": {
+        "ok": true,
+        "value": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+      }
+    },
+    {
+      "call": "readAttachmentThumbnail",
+      "params": [
+        "a9daccaecd68e446d76070cc759afcfb3b85f593361f2ab8daf19004e2c687b9"
+      ],
+      "frame": {
+        "ok": true,
+        "value": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQ=="
+      }
+    },
+    {
+      "call": "readAttachmentThumbnail",
+      "params": [
+        "1f19970f056cd116a5fe3c02422c1ee1ac827136df470b5c89af492620512aa4"
+      ],
+      "frame": {
+        "ok": true,
+        "value": "data:image/gif;base64,R0lGODlhAQABAAAAADs="
+      }
+    },
+    {
+      "call": "readAttachmentThumbnail",
+      "params": [
+        "481f6f468a765b390b85635d98245fa0db8ae6cca1529e463fe1924ce8b470a6"
+      ],
+      "frame": {
+        "ok": true,
+        "value": "data:image/webp;base64,UklGRgwAAABXRUJQVlA4IAAAAAA="
+      }
+    },
+    {
+      "call": "readAttachmentThumbnail",
+      "params": [
+        "1178fd36bc4e418a4cffa2a642283ffa52b838a345081dad42ff41b356266d8e"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "$length": 2796226,
+          "$sha256": "e9db977bad9638dad765a16dbe73be03542519efc40cfa6dc3182d0fae0c876a"
+        }
+      }
+    },
+    {
+      "call": "readAttachmentThumbnail",
+      "params": [
+        "8aa68c14c4cdf5d03a98c3780ccfc34c6b6492033dc2fe275734d73ddd3e8460"
+      ],
+      "frame": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "call": "readAttachmentThumbnail",
+      "params": [
+        "0eb1d84a90fef03a6949fb1052da1ec76b9429d41e15f55b09b739dcaf6c2d55"
+      ],
+      "frame": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "call": "readAttachmentThumbnail",
+      "params": [
+        "b68565cf5699273f6a21847b3fe44726374cbd6c3bfdc829527f1db2a0504341"
+      ],
+      "frame": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "call": "readAttachmentThumbnail",
+      "params": [
+        "497790947D4666760CE38F3C00E852C71FDB66CAE849BAE8E9EDE352719E1581"
+      ],
+      "frame": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "call": "readAttachmentThumbnail",
+      "params": [
+        "not-a-ref"
+      ],
+      "frame": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "call": "readAttachmentThumbnail",
+      "params": [
+        null
+      ],
+      "frame": {
+        "ok": true,
+        "value": null
+      }
+    },
+    {
+      "call": "attachmentOpen",
+      "params": [
+        "sess_phone_attach",
+        "0eb1d84a90fef03a6949fb1052da1ec76b9429d41e15f55b09b739dcaf6c2d55"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "absolutePath": "D:\\mixdog-build\\tmp\\ph-attachments\\temp\\mixdog-attachments\\0eb1d84a90fef03a-report.pdf",
+          "name": "0eb1d84a90fef03a-report.pdf",
+          "dir": false,
+          "size": 56,
+          "mimeType": "application/pdf",
+          "projectPath": "D:\\mixdog-build\\tmp\\ph-attachments\\temp\\mixdog-attachments",
+          "relPath": "0eb1d84a90fef03a-report.pdf",
+          "accessToken": "$grant2"
+        }
+      }
+    },
+    {
+      "call": "attachmentOpen",
+      "params": [
+        "sess_phone_attach",
+        "8b115e8d7e791462c44e3da8763b3f76f58ef922e31843dac5fc42e0a9538dfa"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "absolutePath": "D:\\mixdog-build\\tmp\\ph-attachments\\temp\\mixdog-attachments\\8b115e8d7e791462-notes.md",
+          "name": "8b115e8d7e791462-notes.md",
+          "dir": false,
+          "size": 32,
+          "mimeType": "text/markdown",
+          "projectPath": "D:\\mixdog-build\\tmp\\ph-attachments\\temp\\mixdog-attachments",
+          "relPath": "8b115e8d7e791462-notes.md",
+          "accessToken": "$grant3"
+        }
+      }
+    },
+    {
+      "call": "readProjectFile",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\temp\\mixdog-attachments",
+        "8b115e8d7e791462-notes.md",
+        "$grant3"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "content": "# Notes\n\nOpened from the phone.\n",
+          "mtimeMs": {
+            "$fileMtime": true
+          },
+          "binary": false,
+          "tooLarge": false,
+          "encoding": "utf8"
+        }
+      }
+    },
+    {
+      "call": "attachmentOpen",
+      "params": [
+        "sess_phone_attach",
+        "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "absolutePath": "D:\\mixdog-build\\tmp\\ph-attachments\\temp\\mixdog-attachments\\497790947d466676-shot.png",
+          "name": "497790947d466676-shot.png",
+          "dir": false,
+          "size": 70,
+          "mimeType": "image/png",
+          "projectPath": "D:\\mixdog-build\\tmp\\ph-attachments\\temp\\mixdog-attachments",
+          "relPath": "497790947d466676-shot.png",
+          "accessToken": "$grant4"
+        }
+      }
+    },
+    {
+      "call": "previewProjectFileRange",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\temp\\mixdog-attachments",
+        "497790947d466676-shot.png",
+        "$grant4",
+        0,
+        64
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRQ==",
+          "mime": "image/png",
+          "offset": 0,
+          "mtimeMs": {
+            "$fileMtime": true
+          },
+          "size": 70
+        }
+      }
+    },
+    {
+      "call": "attachmentOpen",
+      "params": [
+        "sess_phone_attach",
+        "8b115e8d7e791462c44e3da8763b3f76f58ef922e31843dac5fc42e0a9538dfa"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "absolutePath": "D:\\mixdog-build\\tmp\\ph-attachments\\temp\\mixdog-attachments\\8b115e8d7e791462-notes.md",
+          "name": "8b115e8d7e791462-notes.md",
+          "dir": false,
+          "size": 32,
+          "mimeType": "text/markdown",
+          "projectPath": "D:\\mixdog-build\\tmp\\ph-attachments\\temp\\mixdog-attachments",
+          "relPath": "8b115e8d7e791462-notes.md",
+          "accessToken": "$grant3"
+        }
+      }
+    },
+    {
+      "call": "attachmentOpen",
+      "params": [
+        "sess_phone_attach",
+        "b68565cf5699273f6a21847b3fe44726374cbd6c3bfdc829527f1db2a0504341"
+      ],
+      "frame": {
+        "ok": false,
+        "error": "This attachment is no longer stored on the PC.",
+        "errorCode": "file-download:not-found"
+      }
+    },
+    {
+      "call": "attachmentOpen",
+      "params": [
+        "sess_phone_attach",
+        "c2e33eb673dde29d6827508a4fe650cb21d2cb8e7419e019bde4490166cde26c"
+      ],
+      "frame": {
+        "ok": false,
+        "error": "This conversation has no such attachment.",
+        "errorCode": "file-download:not-linked"
+      }
+    },
+    {
+      "call": "attachmentOpen",
+      "params": [
+        "sess_phone_other",
+        "c2e33eb673dde29d6827508a4fe650cb21d2cb8e7419e019bde4490166cde26c"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "absolutePath": "D:\\mixdog-build\\tmp\\ph-attachments\\temp\\mixdog-attachments\\c2e33eb673dde29d-stray.txt",
+          "name": "c2e33eb673dde29d-stray.txt",
+          "dir": false,
+          "size": 32,
+          "mimeType": "text/plain",
+          "projectPath": "D:\\mixdog-build\\tmp\\ph-attachments\\temp\\mixdog-attachments",
+          "relPath": "c2e33eb673dde29d-stray.txt",
+          "accessToken": "$grant5"
+        }
+      }
+    },
+    {
+      "call": "attachmentOpen",
+      "params": [
+        "sess_phone_unknown",
+        "0eb1d84a90fef03a6949fb1052da1ec76b9429d41e15f55b09b739dcaf6c2d55"
+      ],
+      "frame": {
+        "ok": false,
+        "error": "This conversation has no such attachment.",
+        "errorCode": "file-download:not-linked"
+      }
+    },
+    {
+      "call": "attachmentOpen",
+      "params": [
+        "sess_phone_attach",
+        "a1"
+      ],
+      "frame": {
+        "ok": false,
+        "error": "attachment id is invalid."
+      }
+    },
+    {
+      "call": "attachmentOpen",
+      "params": [
+        "sess_phone_attach",
+        "0EB1D84A90FEF03A6949FB1052DA1EC76B9429D41E15F55B09B739DCAF6C2D55"
+      ],
+      "frame": {
+        "ok": false,
+        "error": "attachment id is invalid."
+      }
+    },
+    {
+      "call": "attachmentOpen",
+      "params": [
+        "sess_phone_attach",
+        null
+      ],
+      "frame": {
+        "ok": false,
+        "error": "attachment id is invalid."
+      }
+    },
+    {
+      "call": "attachmentOpen",
+      "params": [
+        "bad id!",
+        "0eb1d84a90fef03a6949fb1052da1ec76b9429d41e15f55b09b739dcaf6c2d55"
+      ],
+      "frame": {
+        "ok": false,
+        "error": "session id is invalid."
+      }
+    },
+    {
+      "call": "attachmentOpen",
+      "params": [
+        5,
+        "0eb1d84a90fef03a6949fb1052da1ec76b9429d41e15f55b09b739dcaf6c2d55"
+      ],
+      "frame": {
+        "ok": false,
+        "error": "session id must be a string."
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+        {
+          "action": "list"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record1",
+              "createdAt": 1780819751000,
+              "fileCount": 1,
+              "payloadBytes": 39,
+              "phase": "interrupted"
+            },
+            {
+              "id": "$record0",
+              "createdAt": 1780819750000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "interrupted"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 2,
+            "maxRecords": 20,
+            "unresolvedRecords": 2,
+            "resolvedRecords": 0,
+            "payloadBytes": 94,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+        {
+          "action": "inspect",
+          "id": "$record0"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record1",
+              "createdAt": 1780819751000,
+              "fileCount": 1,
+              "payloadBytes": 39,
+              "phase": "interrupted"
+            },
+            {
+              "id": "$record0",
+              "createdAt": 1780819750000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "interrupted"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 2,
+            "maxRecords": 20,
+            "unresolvedRecords": 2,
+            "resolvedRecords": 0,
+            "payloadBytes": 94,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          },
+          "detail": {
+            "id": "$record0",
+            "createdAt": 1780819750000,
+            "fileCount": 1,
+            "phase": "interrupted",
+            "active": false,
+            "revision": "$revision0",
+            "files": [
+              {
+                "relPath": "edited.txt",
+                "status": "written"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+        {
+          "action": "inspect",
+          "id": "$record1"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record1",
+              "createdAt": 1780819751000,
+              "fileCount": 1,
+              "payloadBytes": 39,
+              "phase": "interrupted"
+            },
+            {
+              "id": "$record0",
+              "createdAt": 1780819750000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "interrupted"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 2,
+            "maxRecords": 20,
+            "unresolvedRecords": 2,
+            "resolvedRecords": 0,
+            "payloadBytes": 94,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          },
+          "detail": {
+            "id": "$record1",
+            "createdAt": 1780819751000,
+            "fileCount": 1,
+            "phase": "interrupted",
+            "active": false,
+            "revision": "$revision1",
+            "files": [
+              {
+                "relPath": "dropped.txt",
+                "status": "written"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+        {
+          "action": "restore",
+          "id": "$record0",
+          "revision": "$revision1"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "RECOVERY_CHANGED: Files or recovery data changed since inspection. Inspect and confirm again.",
+        "errorCode": "RECOVERY_CHANGED"
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+        {
+          "action": "restore",
+          "id": "$record0",
+          "revision": "$revision0"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record1",
+              "createdAt": 1780819751000,
+              "fileCount": 1,
+              "payloadBytes": 39,
+              "phase": "interrupted"
+            },
+            {
+              "id": "$record0",
+              "createdAt": 1780819750000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "recovered"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 2,
+            "maxRecords": 20,
+            "unresolvedRecords": 1,
+            "resolvedRecords": 1,
+            "payloadBytes": 94,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          },
+          "detail": {
+            "id": "$record0",
+            "createdAt": 1780819750000,
+            "fileCount": 1,
+            "phase": "recovered",
+            "active": false,
+            "revision": "$revision2",
+            "files": [
+              {
+                "relPath": "edited.txt",
+                "status": "restored"
+              }
+            ],
+            "message": "Original bytes restored. No changed, missing or unavailable file was overwritten."
+          }
+        }
+      }
+    },
+    {
+      "call": "readProjectFile",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+        "edited.txt",
+        null
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "content": "before the interrupted edit\n",
+          "mtimeMs": {
+            "$fileMtime": true
+          },
+          "binary": false,
+          "tooLarge": false,
+          "encoding": "utf8"
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+        {
+          "action": "list"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record1",
+              "createdAt": 1780819751000,
+              "fileCount": 1,
+              "payloadBytes": 39,
+              "phase": "interrupted"
+            },
+            {
+              "id": "$record0",
+              "createdAt": 1780819750000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "recovered"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 2,
+            "maxRecords": 20,
+            "unresolvedRecords": 1,
+            "resolvedRecords": 1,
+            "payloadBytes": 94,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+        {
+          "action": "discard",
+          "id": "$record1",
+          "revision": "$revision1"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record0",
+              "createdAt": 1780819750000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "recovered"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 1,
+            "maxRecords": 20,
+            "unresolvedRecords": 0,
+            "resolvedRecords": 1,
+            "payloadBytes": 55,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          }
+        }
+      }
+    },
+    {
+      "call": "readProjectFile",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+        "dropped.txt",
+        null
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "content": "dropped after edit\n",
+          "mtimeMs": {
+            "$fileMtime": true
+          },
+          "binary": false,
+          "tooLarge": false,
+          "encoding": "utf8"
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+        {
+          "action": "list"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "records": [
+            {
+              "id": "$record0",
+              "createdAt": 1780819750000,
+              "fileCount": 1,
+              "payloadBytes": 55,
+              "phase": "recovered"
+            }
+          ],
+          "rootAvailable": true,
+          "storage": {
+            "usedRecords": 1,
+            "maxRecords": 20,
+            "unresolvedRecords": 0,
+            "resolvedRecords": 1,
+            "payloadBytes": 55,
+            "unknownSizeRecords": 0,
+            "maxBatchBytes": 16777216,
+            "maxBatchFiles": 100
+          }
+        }
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+        {
+          "action": "inspect",
+          "id": "$record1"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "RECOVERY_UNAVAILABLE: Recovery record moved or is unavailable. Refresh the list.",
+        "errorCode": "RECOVERY_UNAVAILABLE"
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+        {
+          "action": "inspect",
+          "id": "00000000-0000-4000-8000-000000000000"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "RECOVERY_UNAVAILABLE: Recovery record moved or is unavailable. Refresh the list.",
+        "errorCode": "RECOVERY_UNAVAILABLE"
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\unregistered",
+        {
+          "action": "list"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Project is not available.",
+        "errorCode": "PROJECT_UNAVAILABLE"
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+        {
+          "action": "inspect",
+          "id": "not-an-id"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Invalid recovery ID."
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+        {
+          "action": "restore",
+          "id": "$record0",
+          "revision": "stale"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Invalid recovery action or revision."
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+        {
+          "action": "rewind"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Invalid recovery ID."
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        "D:\\mixdog-build\\tmp\\ph-attachments\\proj",
+        null
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Invalid recovery request."
+      }
+    },
+    {
+      "call": "projectRecovery",
+      "params": [
+        7,
+        {
+          "action": "list"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "projectPath must be a string."
+      }
+    }
+  ],
+  "state": {
+    "project": [
+      {
+        "path": ".mixdog",
+        "dir": true
+      },
+      {
+        "path": ".mixdog/project.id",
+        "size": 5,
+        "sha256": "9143832d42ab9a18824717ff7e59e14bfc1133db22883a212788822ff484f083"
+      },
+      {
+        "path": "a.txt",
+        "size": 15,
+        "sha256": "b715f07edc5af21d06cc6638a5fef6ee1a64d7b2431d0b3fde19c4dc199e679f"
+      },
+      {
+        "path": "dropped.txt",
+        "size": 19,
+        "sha256": "f394bfd42797481cba3e6f21be1870f60e47fb6ce39f0cd2b03fba0ed0d4cf25"
+      },
+      {
+        "path": "edited.txt",
+        "size": 28,
+        "sha256": "9b3d2f12bbe92d68bf87fca6925757deeea8448211e89eab44715ad2607b186b"
+      },
+      {
+        "path": "sub",
+        "dir": true
+      },
+      {
+        "path": "sub/deep.txt",
+        "size": 5,
+        "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599"
+      }
+    ],
+    "outside": [
+      {
+        "path": "data.json",
+        "size": 8,
+        "sha256": "e346432021b04179518d9614f3560ccd71354a4ee101ddcb893d6959a9d6301c"
+      },
+      {
+        "path": "folder",
+        "dir": true
+      },
+      {
+        "path": "huge.bin",
+        "size": 20971521,
+        "sha256": "e60dc73e0770b152e3b8d120c06cac04ede82504989a358e5f4bd652711171fb"
+      },
+      {
+        "path": "large.bin",
+        "size": 1048579,
+        "sha256": "f5e25b6b994188fdb721357d459785dc479934edfd40f95658a45ab2ce2d8027"
+      },
+      {
+        "path": "limit.bin",
+        "size": 20971520,
+        "sha256": "811f3d071212bab982aa7bda0730f4d8e372e9dbe65fdffd6a37fc62e9c30c58"
+      },
+      {
+        "path": "noext",
+        "size": 13,
+        "sha256": "578c05eae46cb1dfaf27d47f7a5ccb7876c2eb5aa6fa93671ea2724f00349f95"
+      },
+      {
+        "path": "note.txt",
+        "size": 29,
+        "sha256": "d14a15be4f7d2733ede432af7bab3d851b84815f34df5b8cfe28f1dc5dc2af60"
+      },
+      {
+        "path": "photo.png",
+        "size": 70,
+        "sha256": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581"
+      }
+    ],
+    "staged": [
+      {
+        "path": "0eb1d84a90fef03a-report.pdf",
+        "size": 56,
+        "sha256": "0eb1d84a90fef03a6949fb1052da1ec76b9429d41e15f55b09b739dcaf6c2d55"
+      },
+      {
+        "path": "497790947d466676-shot.png",
+        "size": 70,
+        "sha256": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581"
+      },
+      {
+        "path": "8b115e8d7e791462-notes.md",
+        "size": 32,
+        "sha256": "8b115e8d7e791462c44e3da8763b3f76f58ef922e31843dac5fc42e0a9538dfa"
+      },
+      {
+        "path": "c2e33eb673dde29d-stray.txt",
+        "size": 32,
+        "sha256": "c2e33eb673dde29d6827508a4fe650cb21d2cb8e7419e019bde4490166cde26c"
+      }
+    ],
+    "recovery": [
+      {
+        "entry": "$record0/0.after",
+        "size": 27,
+        "sha256": "f3fd45af77d78c9c789ae2fa743edfa90c69006f2c4e21ab1436d8196bdd5a11"
+      },
+      {
+        "entry": "$record0/0.before",
+        "size": 28,
+        "sha256": "9b3d2f12bbe92d68bf87fca6925757deeea8448211e89eab44715ad2607b186b"
+      },
+      {
+        "entry": "$record0/manifest.json"
+      },
+      {
+        "entry": "$record0/state.json"
+      }
+    ]
+  }
+}

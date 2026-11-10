@@ -820,6 +820,16 @@ impl WorkspaceService {
             }
             "projectFs/readLocal" => {
                 let path = s(params, "path")?.to_owned();
+                if params.get("paged").and_then(Value::as_bool) == Some(true) {
+                    // The checks of the whole read, then the file held open as a transfer of this connection to page through.
+                    let (owner, t) = (Self::owner(req), self.transfers.clone());
+                    return value(run_fallible(self.lanes.interactive, &cancel, move || {
+                        let (file, name, _) = fsops::local_file(&path)?;
+                        let opened = t.begin_local_read(&owner, &file.to_string_lossy())?;
+                        Ok(json!({ "name": name, "size": opened.size, "mimeType": opened.mime_type, "transferId": opened.transfer_id, "version": opened.version }))
+                    })
+                    .await?);
+                }
                 value(json!(run_fallible(self.lanes.interactive, &cancel, move || fsops::read_local(&path)).await?))
             }
             "projectFs/statLocal" => {
@@ -1268,6 +1278,23 @@ impl WorkspaceService {
                 // `resolveLocalPaths` / `attachmentOpen` of a paired device: the described path, with a one-file
                 // grant when it lies outside every project (a conversation's attachment always gets one).
                 let (grants, credential, connection) = self.phone_grants_for(req)?;
+                if params.get("attachmentId").is_some() {
+                    // `attachmentOpen` (remote-attachments.ts): the attachment this conversation names, staged as a named file in the
+                    // PC's temp folder (`stageSessionAttachment`) and opened through a one-file grant of that conversation.
+                    // Node's `requiredSessionId` first, then the attachment.
+                    let session = crate::transfer::required_session_id(params.get("sessionId"))?;
+                    let source = self.sources.iter().find(|x| x.kind() == "attachment").ok_or_else(|| WsError::new(Reason::Unsupported, "Attachments are not available."))?;
+                    let read = source.bytes(params, &cancel).await.map_err(crate::transfer::source_refusal)?;
+                    let id = s(params, "attachmentId")?.to_owned();
+                    let (bytes, name) = (read.bytes, read.name);
+                    let size = bytes.len();
+                    let path = run_fallible(self.lanes.durability, &cancel, move || crate::transfer::stage_attachment(&id, &name, &bytes)).await?;
+                    let token = grants.mint(&credential, connection, &path, &session).await?;
+                    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    let folder = path.parent().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default();
+                    return value(json!({ "absolutePath": path.to_string_lossy(), "name": name, "dir": false, "size": size,
+                        "mimeType": read.mime_type, "projectPath": folder, "relPath": name, "accessToken": token }));
+                }
                 let path = s(params, "path")?.to_owned();
                 let session = params.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
                 let entry = run_fallible(self.lanes.interactive, &cancel, move || fsops::stat_local(&path)).await?;
