@@ -1,0 +1,44 @@
+{
+  "command": "(cd <tree>/apps/desktop && node --import tsx benchmarks/rust-core/recorders/record-screen-control-composed.mjs --tree <tree>)",
+  "common": "benchmarks/rust-core/recorders/lib/common.mjs",
+  "commonSha256": "d4d0064b5b40d5fcb833a69fb3d68a69b1c1317606b5fe341c3445d5d0bbefd4",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 19184,
+      "path": "scenarios.json",
+      "sha256": "b25a2fd03ddb35847b5c444e18f92178febfde3235767efff7327625a177524f"
+    }
+  ],
+  "inputs": {
+    "scenarios": [
+      "a UAC prompt with the helper installed: activated, dialled, granted, and input and Ctrl+Alt+Delete reach the helper’s pipe",
+      "a UAC prompt without the helper installed: blocked, the install is offered, and input is refused"
+    ],
+    "tree": "exact export of b6f10295a2f698afc85332467192de28500bd146"
+  },
+  "lib": "benchmarks/rust-core/recorders/record-screen-control-lib.mjs",
+  "libSha256": "0a1ae13debb18c68ef5d7d32880a127f7f4e5bf60e7d7a475596b351872842f3",
+  "node": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-screen-control-composed.mjs",
+  "recorderSha256": "f49fc27b9f82cc3726bd9cb36ec8d14baedac7654500fe4dc50ebf956f9b0c89",
+  "set": "screen-control/composed",
+  "totalBytes": 19184
+}

@@ -23,12 +23,16 @@ mod lease;
 mod router;
 #[cfg(any(windows, test))]
 mod session;
+#[cfg(windows)]
+mod service;
 #[cfg(any(windows, test))]
 mod switch;
 #[cfg(any(windows, test))]
 mod video;
 #[cfg(all(windows, test))]
 mod adapter_tests;
+#[cfg(all(windows, test))]
+mod composed_tests;
 #[cfg(all(windows, test))]
 mod helper_client_tests;
 #[cfg(test)]
