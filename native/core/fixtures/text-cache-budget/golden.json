@@ -10,8 +10,11 @@
           "key": "a",
           "content": "가가",
           "stored": true,
-          "keys": [
-            "a"
+          "entries": [
+            {
+              "key": "a",
+              "content": "가가"
+            }
           ],
           "evicted": []
         },
@@ -19,9 +22,15 @@
           "key": "b",
           "content": "bb",
           "stored": true,
-          "keys": [
-            "a",
-            "b"
+          "entries": [
+            {
+              "key": "a",
+              "content": "가가"
+            },
+            {
+              "key": "b",
+              "content": "bb"
+            }
           ],
           "evicted": []
         },
@@ -29,9 +38,15 @@
           "key": "c",
           "content": "cc",
           "stored": true,
-          "keys": [
-            "b",
-            "c"
+          "entries": [
+            {
+              "key": "b",
+              "content": "bb"
+            },
+            {
+              "key": "c",
+              "content": "cc"
+            }
           ],
           "evicted": [
             "a"
@@ -41,9 +56,15 @@
           "key": "b",
           "content": "bbbb",
           "stored": true,
-          "keys": [
-            "c",
-            "b"
+          "entries": [
+            {
+              "key": "c",
+              "content": "cc"
+            },
+            {
+              "key": "b",
+              "content": "bbbb"
+            }
           ],
           "evicted": [
             "a",
@@ -54,8 +75,11 @@
           "key": "d",
           "content": "dddd",
           "stored": true,
-          "keys": [
-            "d"
+          "entries": [
+            {
+              "key": "d",
+              "content": "dddd"
+            }
           ],
           "evicted": [
             "a",
@@ -75,8 +99,11 @@
           "key": "a",
           "content": "aa",
           "stored": true,
-          "keys": [
-            "a"
+          "entries": [
+            {
+              "key": "a",
+              "content": "aa"
+            }
           ],
           "evicted": []
         },
@@ -84,9 +111,15 @@
           "key": "b",
           "content": "bb",
           "stored": true,
-          "keys": [
-            "a",
-            "b"
+          "entries": [
+            {
+              "key": "a",
+              "content": "aa"
+            },
+            {
+              "key": "b",
+              "content": "bb"
+            }
           ],
           "evicted": []
         },
@@ -94,8 +127,11 @@
           "key": "a",
           "content": "123456",
           "stored": false,
-          "keys": [
-            "b"
+          "entries": [
+            {
+              "key": "b",
+              "content": "bb"
+            }
           ],
           "evicted": [
             "a"
@@ -105,9 +141,15 @@
           "key": "c",
           "content": "cc",
           "stored": true,
-          "keys": [
-            "b",
-            "c"
+          "entries": [
+            {
+              "key": "b",
+              "content": "bb"
+            },
+            {
+              "key": "c",
+              "content": "cc"
+            }
           ],
           "evicted": [
             "a"

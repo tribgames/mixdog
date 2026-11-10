@@ -4,9 +4,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2239,
+      "bytes": 3230,
       "path": "golden.json",
-      "sha256": "6e321434d6e6342e92b40fdcfa5760628908dde6beb6f5ebcfeffeda8fcdd5e7"
+      "sha256": "81989e413c3532aea61b0d0f90e24734351a3d886c20aece93c2b5e368ad85fd"
     }
   ],
   "inputs": [
@@ -34,11 +34,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-text-cache-budget.mjs",
-  "recorderSha256": "30cb5d285cef730c4f66cd2e195d6f778ed37fe62ca9cabdb7d8620879c3ee2f",
+  "recorderSha256": "723ef8365a5a7dfbeaada7ed23bee0ec350ecb83a0f50f57e291368e166dc734",
   "set": "text-cache-budget",
   "tests": [
     "src/runtime/agent/orchestrator/session/cache/text-cache-budget.test.mjs:5",
     "src/runtime/agent/orchestrator/session/cache/text-cache-budget.test.mjs:22"
   ],
-  "totalBytes": 2239
+  "totalBytes": 3230
 }
