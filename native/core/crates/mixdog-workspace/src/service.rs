@@ -277,6 +277,11 @@ fn s<'a>(params: &'a Value, key: &str) -> WsResult<&'a str> {
 /// Largest staged upload and its chunk size (`shared/server-files.ts`).
 use crate::transfer::{UPLOAD_CHUNK_BYTES, UPLOAD_MAX_BYTES};
 
+/// Node's plain `Error` for an entry beyond its folder (`projectEntryPathIn`), as the phone read it.
+fn beyond_plain(error: WsError) -> WsError {
+    if crate::pathguard::is_beyond_project(&error) { WsError::plain(error.message) } else { error }
+}
+
 fn opt_bool(params: &Value, key: &str) -> bool {
     params.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
@@ -569,11 +574,15 @@ impl WorkspaceService {
         {
             let file = crate::pathguard::lexical(&base.join(rel));
             if grants.store.holds(&credential, id.0, &file).await? {
-                return Ok(file);
+                // `located(root, rel, true)`: the granted file is re-resolved in its own folder on every call, so a name
+                // swapped for a link out of that folder is refused.
+                let folder = file.parent().map(Path::to_path_buf).unwrap_or_default();
+                let name = file.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+                return project_entry_path(&folder, &name).map_err(beyond_plain);
             }
         }
         let project = self.catalog.resolve(root).await?;
-        project_entry_path(&project, rel).map_err(|error| if crate::pathguard::is_beyond_project(&error) { WsError::plain(error.message) } else { error })
+        project_entry_path(&project, rel).map_err(beyond_plain)
     }
 
     /// An editor backup of a relay connection: [`Self::relay_file`] for a file named by its absolute path alone. The

@@ -237,10 +237,12 @@ async fn a_relay_standing_allow_is_refused_with_nodes_text() {
         let answer = service.call(CoreRequest { method: Method("agent/setAgentPermission"), params, op: None, ctx }).await;
         let frame = &step["frame"];
         if frame["ok"] == true {
-            // Forwarded by Node: whatever the store answers, it is not the remote refusal.
-            if let Err(CoreError::DomainError { message, .. }) = &answer {
-                assert!(!message.as_deref().unwrap_or_default().contains("over remote access"), "{request}: {message:?}");
-            }
+            // Forwarded by Node with `noWiden`, and the recorded value is the recorder's stand-in's: the relay call is
+            // answered as the desktop's call with that option is (the same call again: the setter is idempotent).
+            let mut params = serde_json::json!({ "agentId": args[0], "action": args[1], "mode": args[2] });
+            params["options"] = serde_json::json!({ "noWiden": true });
+            let desktop = service.call(CoreRequest { method: Method("agent/setAgentPermission"), params, op: None, ctx: CallContext::internal("agents") }).await;
+            assert_eq!(format!("{answer:?}"), format!("{desktop:?}"), "{request}");
         } else {
             let Err(CoreError::DomainError { code, message, detail, .. }) = answer else { panic!("{request}: {answer:?}") };
             let mut node = serde_json::json!({ "ok": false, "error": message.as_deref() });
