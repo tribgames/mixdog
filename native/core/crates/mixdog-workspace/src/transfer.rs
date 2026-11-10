@@ -301,6 +301,16 @@ struct Cleanup(PathBuf);
 
 impl Drop for Cleanup {
     fn drop(&mut self) {
+        // A removal can wait on a handle still closing (up to 1.5 s). Every table drops its records where it stands, some
+        // on a runtime worker: there the wait is declared to the runtime, which hands the worker's other tasks on. The
+        // folder is gone (or given up on) when this returns, wherever it ran.
+        let on_runtime = tokio::runtime::Handle::try_current().is_ok_and(|runtime| runtime.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
+        if on_runtime { tokio::task::block_in_place(|| self.remove()) } else { self.remove() }
+    }
+}
+
+impl Cleanup {
+    fn remove(&self) {
         if self.0.is_dir() {
             // Node's `rm(dir, { recursive, force, maxRetries: 5 })`: a handle still closing on
             // Windows is retried, each wait `retryDelay` (100 ms) longer than the one before.
@@ -665,14 +675,7 @@ impl Transfers {
     }
 
     /// Ends every grant and phone transfer whose time is up (Node's `sweep`: run at the start of every call, and by the sweeper).
-    /// A call runs as a lane job, so the expired staged folders are removed here.
     fn sweep_downloads(&self) {
-        drop(self.swept());
-    }
-
-    /// The sweep, with the staged downloads it ended handed back: removing their folders can wait on a handle still closing
-    /// ([`Cleanup`]), which belongs on a blocking thread.
-    fn swept(&self) -> Vec<Staged> {
         let _reporting = Reporting(self);
         let now = self.now_ms();
         self.grants.lock().expect("transfer grants").retain(|(_, grant)| grant.expires_at > now);
@@ -685,8 +688,8 @@ impl Transfers {
             *staged = kept;
             expired
         };
+        drop(expired);
         self.stop_sweeper_when_idle();
-        expired
     }
 
     /// Whether any grant, phone transfer or staged download is held (Node's three tables being empty).
@@ -747,12 +750,7 @@ impl Transfers {
                         if *self.sweeper.anchor.lock().expect("sweeper") != Some(anchor) {
                             break;
                         }
-                        // The sweeper is an async task: the folders go on a blocking thread, and the tick is not over (nor reported)
-                        // until they are gone, so what a tick leaves on disk is the same as before.
-                        let expired = self.swept();
-                        if !expired.is_empty() {
-                            let _ = tokio::task::spawn_blocking(move || drop(expired)).await;
-                        }
+                        self.sweep_downloads();
                         #[cfg(feature = "replay-controls")]
                         crate::replay_controls::publish("swept", &self.now_ms().to_string());
                         #[cfg(test)]
