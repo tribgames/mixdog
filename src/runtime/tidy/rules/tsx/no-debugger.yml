@@ -1,8 +1,0 @@
-id: no-debugger
-language: Tsx
-severity: error
-message: Remove debugger statements.
-note: debugger must not ship. Delete the statement.
-rule:
-  kind: debugger_statement
-fix: ""
