@@ -1,0 +1,985 @@
+{
+  "manifest": {
+    "exact": true,
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "filesVerified": 20655,
+    "source": "Node daemon + SessionHost from the exact export, run unchanged; model endpoint remote-protocol-chat-abort-provider.mjs"
+  },
+  "cases": [
+    {
+      "name": "running-no-output",
+      "id": "sess_desktop_d2c04c0896aeec8749cd973042144b6761981ce09af2b6d338a2742656064640",
+      "stop": {},
+      "node": {
+        "reply": {
+          "aborted": true,
+          "restoreText": "HOLD-EMPTY write the file",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": [
+            "sub-running-no-output"
+          ]
+        },
+        "items": [],
+        "row": {
+          "id": "sess_desktop_d2c04c0896aeec8749cd973042144b6761981ce09af2b6d338a2742656064640",
+          "preview": "",
+          "title": "HOLD-EMPTY write the file",
+          "updatedAt": 1794290515684,
+          "activityAt": 1794290515684,
+          "messageCount": 0,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794290515391
+        },
+        "promptRestore": null
+      }
+    },
+    {
+      "name": "running-with-output",
+      "id": "sess_desktop_9f6264bc6fb4944b5c7478aa202608f876ca9c30f5f177d2523e2a88f928359a",
+      "stop": {},
+      "node": {
+        "reply": {
+          "aborted": true,
+          "restoreText": "",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": []
+        },
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub-running-with-output",
+            "text": "HOLD-TEXT write the file",
+            "at": 1794290515916,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "messageId": "msg_8a03457d6b804e1fb498dcbcb2a1217d",
+            "device": "Phone A"
+          },
+          {
+            "kind": "assistant",
+            "id": "it_ac1a03ec_1",
+            "text": "HOLD-PARTIAL-STREAM once upon a time ",
+            "streaming": false,
+            "at": 1794290516038,
+            "messageId": "msg_d48880d65970404bb811f2f228cf843c",
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "Phone A",
+            "completionVerb": "Mapped",
+            "attemptId": "a191de06-33fb-4d51-84b1-6ecb26d46ba5"
+          },
+          {
+            "kind": "turndone",
+            "id": "it_ac1a03ec_2",
+            "checkpointId": "sub-running-with-output",
+            "elapsedMs": 144,
+            "status": "cancelled",
+            "outputTokens": 9,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1794290516061,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "Phone A",
+            "completionVerb": "Mapped",
+            "attemptId": "a191de06-33fb-4d51-84b1-6ecb26d46ba5"
+          }
+        ],
+        "row": {
+          "id": "sess_desktop_9f6264bc6fb4944b5c7478aa202608f876ca9c30f5f177d2523e2a88f928359a",
+          "preview": "HOLD-TEXT write the file",
+          "title": "HOLD-TEXT write the file",
+          "updatedAt": 1794290516055,
+          "activityAt": 1794290516055,
+          "messageCount": 3,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794290515863,
+          "lastMessagePreview": "HOLD-PARTIAL-STREAM once upon a time"
+        },
+        "promptRestore": null
+      }
+    },
+    {
+      "name": "running-keep-prompt",
+      "id": "sess_desktop_2b967e2ed16d32573f9c8ba31a1a28e003480a47f549ec35af9ff6719d57f1c5",
+      "stop": {
+        "restorePrompt": false
+      },
+      "node": {
+        "reply": {
+          "aborted": true,
+          "restoreText": "",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": []
+        },
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub-running-keep-prompt",
+            "text": "HOLD-EMPTY keep this prompt",
+            "at": 1794290517888,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "messageId": "msg_034d3ea679154920b3d6d4db87bcb779",
+            "device": "Phone A"
+          },
+          {
+            "kind": "turndone",
+            "id": "it_ac1a03ec_3",
+            "checkpointId": "sub-running-keep-prompt",
+            "elapsedMs": 93,
+            "status": "cancelled",
+            "outputTokens": 0,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1794290517982,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "Phone A",
+            "completionVerb": "Mapped",
+            "attemptId": "a05bf746-6b91-45aa-b5f0-b564e369e67c"
+          }
+        ],
+        "row": {
+          "id": "sess_desktop_2b967e2ed16d32573f9c8ba31a1a28e003480a47f549ec35af9ff6719d57f1c5",
+          "preview": "HOLD-EMPTY keep this prompt",
+          "title": "HOLD-EMPTY keep this prompt",
+          "updatedAt": 1794290517974,
+          "activityAt": 1794290517974,
+          "messageCount": 2,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794290517856,
+          "lastMessagePreview": "HOLD-EMPTY keep this prompt"
+        },
+        "promptRestore": null
+      }
+    },
+    {
+      "name": "running-steering-queued",
+      "id": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
+      "stop": {},
+      "node": {
+        "reply": {
+          "aborted": true,
+          "restoreText": "",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": []
+        },
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub-running-steering-queued",
+            "text": "HOLD-EMPTY first prompt",
+            "at": 1794290519920,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "messageId": "msg_46899fe301164c688f2c9c2d8e75ef2c",
+            "device": "Phone A"
+          },
+          {
+            "kind": "turndone",
+            "id": "it_ac1a03ec_4",
+            "checkpointId": "sub-running-steering-queued",
+            "elapsedMs": 130,
+            "status": "cancelled",
+            "outputTokens": 0,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1794290520051,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "Phone A",
+            "completionVerb": "Mapped",
+            "attemptId": "45cf044d-aaab-4240-825a-8d64d307e857"
+          },
+          {
+            "kind": "user",
+            "id": "sub-running-steering-queued-2",
+            "text": "and also this",
+            "at": 1794290520064,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "messageId": "msg_607f45f5539e45bf8bbf9572e60c7957",
+            "device": "Phone A"
+          },
+          {
+            "kind": "assistant",
+            "id": "it_ac1a03ec_5",
+            "text": "ok",
+            "streaming": false,
+            "at": 1794290520139,
+            "messageId": "msg_dc92d532d7a742649eed8a33ecaf0095",
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "Phone A",
+            "completionVerb": "Wrapped",
+            "attemptId": "3cc59fab-c211-427b-81bd-ec89cc3643d7"
+          },
+          {
+            "kind": "turndone",
+            "id": "it_ac1a03ec_6",
+            "checkpointId": "sub-running-steering-queued-2",
+            "elapsedMs": 217,
+            "status": "done",
+            "finalAssistantId": "it_ac1a03ec_5",
+            "outputTokens": 2,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Wrapped",
+            "at": 1794290520282,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "Phone A",
+            "completionVerb": "Wrapped",
+            "attemptId": "3cc59fab-c211-427b-81bd-ec89cc3643d7"
+          }
+        ],
+        "row": {
+          "id": "sess_desktop_1aeff4b47e18696f4637f3dc0b26aeee159210d4b2cdbee696e65a1f518098d4",
+          "preview": "HOLD-EMPTY first prompt",
+          "title": "HOLD-EMPTY first prompt",
+          "updatedAt": 1794290520200,
+          "activityAt": 1794290520200,
+          "messageCount": 3,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794290519876,
+          "lastMessagePreview": "ok"
+        },
+        "promptRestore": null
+      }
+    },
+    {
+      "name": "running-pasted-text",
+      "id": "sess_desktop_7e35f1684fc2cf5e55253a636c1a09a1b31c5ef784ceb1791d7fb02fece8569e",
+      "stop": {},
+      "node": {
+        "reply": {
+          "aborted": true,
+          "restoreText": "HOLD-EMPTY with a paste",
+          "pastedImages": null,
+          "pastedTexts": {
+            "1": {
+              "id": 1,
+              "attachmentRef": "fd434aeafe30cd343fc401e47a64f1fa60741e1fc8ae9e2e83063caf2cba2ea3",
+              "sizeBytes": 14,
+              "chars": 14,
+              "text": "a pasted block"
+            }
+          },
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": [
+            "sub-running-pasted-text"
+          ]
+        },
+        "items": [],
+        "row": {
+          "id": "sess_desktop_7e35f1684fc2cf5e55253a636c1a09a1b31c5ef784ceb1791d7fb02fece8569e",
+          "preview": "",
+          "title": "HOLD-EMPTY with a paste",
+          "updatedAt": 1794290525020,
+          "activityAt": 1794290525020,
+          "messageCount": 0,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794290523144
+        },
+        "promptRestore": null
+      }
+    },
+    {
+      "name": "running-after-tool-call",
+      "id": "sess_desktop_ee7224607bed2d1a6fe3f50ed68f7895b72e4dc124131b235308c944d3bde265",
+      "stop": {},
+      "node": {
+        "reply": {
+          "aborted": true,
+          "restoreText": "",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": []
+        },
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub-running-after-tool-call",
+            "text": "HOLD-TOOL read the file",
+            "at": 1794290525359,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "messageId": "msg_8c80d030077b4ccaaa75b5c9004f541b",
+            "device": "Phone A"
+          },
+          {
+            "kind": "tool",
+            "id": "it_ac1a03ec_7",
+            "name": "__aggregate__",
+            "args": {
+              "categoryOrder": [
+                "Read|Reading|Read|file|files"
+              ]
+            },
+            "count": 1,
+            "completedCount": 1,
+            "categories": {
+              "Read|Reading|Read|file|files": {
+                "key": "Read|Reading|Read|file|files",
+                "category": "Read",
+                "active": "Reading",
+                "done": "Read",
+                "noun": "file",
+                "pluralNoun": "files",
+                "effect": false,
+                "count": 1
+              }
+            },
+            "toolMembers": [
+              {
+                "kind": "tool",
+                "id": "call_hold_1",
+                "name": "read",
+                "args": {
+                  "path": "package.json"
+                },
+                "result": "[lines 1-1]\n{\"name\":\"abort-project\"}\n[lines 1-1 of 1]",
+                "rawResult": "[lines 1-1]\n{\"name\":\"abort-project\"}\n[lines 1-1 of 1]",
+                "isError": false,
+                "errorCount": 0,
+                "callErrorCount": 0,
+                "exitErrorCount": 0,
+                "count": 1,
+                "completedCount": 1,
+                "headerFinalized": true,
+                "startedAt": 1794290525476,
+                "completedAt": 1794290525492
+              }
+            ],
+            "aggregate": true,
+            "result": "3 lines",
+            "rawResult": "1. read\n[lines 1-1]\n{\"name\":\"abort-project\"}\n[lines 1-1 of 1]",
+            "isError": false,
+            "expanded": false,
+            "headerFinalized": true,
+            "startedAt": 1794290525476,
+            "deferredDisplayReady": true,
+            "text": "3 lines",
+            "errorCount": 0,
+            "callErrorCount": 0,
+            "exitErrorCount": 0,
+            "completedAt": 1794290525492,
+            "doneCategories": {
+              "Read|Reading|Read|file|files": {
+                "key": "Read|Reading|Read|file|files",
+                "category": "Read",
+                "active": "Reading",
+                "done": "Read",
+                "noun": "file",
+                "pluralNoun": "files",
+                "effect": false,
+                "count": 1
+              }
+            }
+          },
+          {
+            "kind": "turndone",
+            "id": "it_ac1a03ec_8",
+            "checkpointId": "sub-running-after-tool-call",
+            "elapsedMs": 153,
+            "status": "cancelled",
+            "outputTokens": 2,
+            "thinkingElapsedMs": 0,
+            "toolCount": 1,
+            "verb": "Mapped",
+            "at": 1794290525512,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "Phone A",
+            "completionVerb": "Mapped",
+            "attemptId": "45054626-cd02-4aef-92de-7338b560d0ee"
+          }
+        ],
+        "row": {
+          "id": "sess_desktop_ee7224607bed2d1a6fe3f50ed68f7895b72e4dc124131b235308c944d3bde265",
+          "preview": "HOLD-TOOL read the file",
+          "title": "HOLD-TOOL read the file",
+          "updatedAt": 1794290525507,
+          "activityAt": 1794290525507,
+          "messageCount": 3,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794290525319,
+          "lastMessagePreview": "HOLD-TOOL read the file"
+        },
+        "promptRestore": null
+      }
+    },
+    {
+      "name": "running-then-stopped-again",
+      "id": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+      "stop": {},
+      "again": {},
+      "node": {
+        "reply": {
+          "aborted": true,
+          "restoreText": "HOLD-EMPTY stop me twice",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": [
+            "sub-running-then-stopped-again"
+          ]
+        },
+        "second": {
+          "aborted": false,
+          "restoreText": "",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": []
+        },
+        "items": [],
+        "row": {
+          "id": "sess_desktop_249166149197d6e59f20d770b5ad400f8e584166e633335c67ff7fe3628d5a59",
+          "preview": "",
+          "title": "HOLD-EMPTY stop me twice",
+          "updatedAt": 1794290528213,
+          "activityAt": 1794290528213,
+          "messageCount": 0,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794290527724
+        },
+        "promptRestore": null
+      }
+    },
+    {
+      "name": "other-device-plain-text",
+      "id": "sess_desktop_62ae2e8e79ac1348dfb4e3186516b5c029775470a3229e19188e468ba0f5c932",
+      "stop": {},
+      "node": {
+        "reply": {
+          "aborted": true,
+          "restoreText": "",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": []
+        },
+        "items": [],
+        "row": {
+          "id": "sess_desktop_62ae2e8e79ac1348dfb4e3186516b5c029775470a3229e19188e468ba0f5c932",
+          "preview": "",
+          "title": "HOLD-EMPTY sent from the first…",
+          "updatedAt": 1794290530209,
+          "activityAt": 1794290530209,
+          "messageCount": 0,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794290529901
+        },
+        "promptRestore": {
+          "id": "restore-1794290530208-sub-other-device-plain-text",
+          "ids": [
+            "sub-other-device-plain-text"
+          ],
+          "text": "HOLD-EMPTY sent from the first phone",
+          "device": "Phone A",
+          "at": 1794290530208
+        }
+      }
+    },
+    {
+      "name": "other-device-with-attachment",
+      "id": "sess_desktop_b1bd68fa568c7eab7f8e322ac75c72afa95adb038dd271adfcb31f0e9353e8fe",
+      "stop": {},
+      "node": {
+        "reply": {
+          "aborted": true,
+          "restoreText": "",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": []
+        },
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub-other-device-with-attachment",
+            "text": "HOLD-EMPTY with a paste from the first phone",
+            "at": 1794290531418,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "messageId": "msg_151784ea42eb44b7b3f9c9e40cc79ef2",
+            "device": "Phone A"
+          },
+          {
+            "kind": "turndone",
+            "id": "it_ac1a03ec_9",
+            "checkpointId": "sub-other-device-with-attachment",
+            "elapsedMs": 116,
+            "status": "cancelled",
+            "outputTokens": 0,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1794290531534,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "Phone A",
+            "attachments": [
+              {
+                "id": "fd434aeafe30cd343fc401e47a64f1fa60741e1fc8ae9e2e83063caf2cba2ea3",
+                "attachmentRef": "fd434aeafe30cd343fc401e47a64f1fa60741e1fc8ae9e2e83063caf2cba2ea3",
+                "kind": "text",
+                "name": "pasted-text.txt",
+                "mimeType": "text/plain",
+                "size": 14
+              }
+            ],
+            "completionVerb": "Mapped",
+            "attemptId": "88836747-084c-4a0b-ace3-4eb39f71e5be"
+          }
+        ],
+        "row": {
+          "id": "sess_desktop_b1bd68fa568c7eab7f8e322ac75c72afa95adb038dd271adfcb31f0e9353e8fe",
+          "preview": "HOLD-EMPTY with a paste from the first phone",
+          "title": "HOLD-EMPTY with a paste from…",
+          "updatedAt": 1794290531511,
+          "activityAt": 1794290531511,
+          "messageCount": 2,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794290531362,
+          "lastMessagePreview": "HOLD-EMPTY with a paste from the first phone"
+        },
+        "promptRestore": null
+      }
+    },
+    {
+      "name": "running-approval-pending",
+      "id": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+      "stop": {},
+      "node": {
+        "reply": {
+          "aborted": true,
+          "restoreText": "",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": []
+        },
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub-running-approval-pending",
+            "text": "HOLD-APPROVAL add a file",
+            "at": 1794290533382,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "messageId": "msg_81172fc9ed67450ebf475ad1a0ae90ed",
+            "device": "Phone A"
+          },
+          {
+            "kind": "tool",
+            "id": "it_ac1a03ec_10",
+            "name": "__aggregate__",
+            "args": {
+              "categoryOrder": [
+                "Setup|Asking|Asked|user|users"
+              ]
+            },
+            "count": 1,
+            "completedCount": 1,
+            "categories": {
+              "Setup|Asking|Asked|user|users": {
+                "key": "Setup|Asking|Asked|user|users",
+                "category": "Setup",
+                "active": "Asking",
+                "done": "Asked",
+                "noun": "user",
+                "pluralNoun": "users",
+                "effect": false,
+                "count": 1
+              }
+            },
+            "toolMembers": [
+              {
+                "kind": "tool",
+                "id": "call_hold_1",
+                "name": "ask_user",
+                "args": {
+                  "questions": [
+                    {
+                      "question": "Add the file?",
+                      "header": "Add file",
+                      "options": [
+                        {
+                          "label": "Yes",
+                          "description": "Add it"
+                        },
+                        {
+                          "label": "No",
+                          "description": "Leave it out"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "result": "Error: Session closed: runtime abort (reason=user-cancel)",
+                "rawResult": "Error: Session \"sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5\" closed: runtime abort (reason=user-cancel)",
+                "isError": true,
+                "errorCount": 1,
+                "callErrorCount": 1,
+                "exitErrorCount": 0,
+                "count": 1,
+                "completedCount": 1,
+                "headerFinalized": true,
+                "startedAt": 1794290533459,
+                "completedAt": 1794290533482
+              }
+            ],
+            "aggregate": true,
+            "result": "[status: cancelled]\n1 Failed",
+            "rawResult": "1. ask_user\nError: Session \"sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5\" closed: runtime abort (reason=user-cancel)",
+            "isError": true,
+            "expanded": false,
+            "headerFinalized": true,
+            "startedAt": 1794290533459,
+            "deferredDisplayReady": true,
+            "text": "[status: cancelled]\n1 Failed",
+            "errorCount": 1,
+            "callErrorCount": 1,
+            "exitErrorCount": 0,
+            "completedAt": 1794290533492,
+            "doneCategories": {
+              "Setup|Asking|Asked|user|users": {
+                "key": "Setup|Asking|Asked|user|users",
+                "category": "Setup",
+                "active": "Asking",
+                "done": "Asked",
+                "noun": "user",
+                "pluralNoun": "users",
+                "effect": false,
+                "count": 1
+              }
+            }
+          },
+          {
+            "kind": "turndone",
+            "id": "it_ac1a03ec_12",
+            "checkpointId": "sub-running-approval-pending",
+            "elapsedMs": 110,
+            "status": "cancelled",
+            "outputTokens": 2,
+            "thinkingElapsedMs": 0,
+            "toolCount": 1,
+            "verb": "Mapped",
+            "at": 1794290533492,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "Phone A",
+            "completionVerb": "Mapped",
+            "attemptId": "c63e9651-0ada-493b-9af0-ad370cb182e7"
+          }
+        ],
+        "row": {
+          "id": "sess_desktop_f316d9491202e831fbbc5f08ce3e539fe86cafec51c2abae7c698988773f22a5",
+          "preview": "HOLD-APPROVAL add a file",
+          "title": "HOLD-APPROVAL add a file",
+          "updatedAt": 1794290533474,
+          "activityAt": 1794290533474,
+          "messageCount": 3,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794290533347,
+          "lastMessagePreview": "HOLD-APPROVAL add a file"
+        },
+        "promptRestore": null
+      }
+    },
+    {
+      "name": "running-runtime-turn",
+      "id": "sess_desktop_6256f242e3fa3713666ed7622f289004cffb2a6855b011358adbb77dbec5f523",
+      "stop": {},
+      "node": {
+        "reply": {
+          "aborted": true,
+          "restoreText": "",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": []
+        },
+        "items": [],
+        "row": {
+          "id": "sess_desktop_6256f242e3fa3713666ed7622f289004cffb2a6855b011358adbb77dbec5f523",
+          "preview": "HOLD-EMPTY greet the user",
+          "title": "HOLD-EMPTY greet the user",
+          "updatedAt": 1794290535475,
+          "activityAt": 1794290535475,
+          "messageCount": 1,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "working": true,
+          "leadWorking": true,
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794290535342,
+          "lastMessagePreview": "HOLD-EMPTY greet the user"
+        },
+        "promptRestore": null
+      }
+    },
+    {
+      "name": "running-answer-streamed-turn-open",
+      "id": "sess_desktop_a5924b352ab9df23acb1572510896b0befcc59e3a83aa488b1305c4b7fd01030",
+      "stop": {},
+      "node": {
+        "reply": {
+          "aborted": true,
+          "restoreText": "",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": []
+        },
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub-running-answer-streamed-turn-open",
+            "text": "HOLD-FINAL answer",
+            "at": 1794290537515,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "messageId": "msg_f781e735c60044a9a04a09b59083dd63",
+            "device": "Phone A"
+          },
+          {
+            "kind": "assistant",
+            "id": "it_ac1a03ec_14",
+            "text": "HOLD-FINAL-ANSWER",
+            "streaming": false,
+            "at": 1794290537615,
+            "messageId": "msg_b3a7640ff6904acabcafa8ae88240d22",
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "Phone A",
+            "completionVerb": "Mapped",
+            "attemptId": "a0647a66-9083-451d-9292-5c9b9c813d1c"
+          },
+          {
+            "kind": "turndone",
+            "id": "it_ac1a03ec_15",
+            "checkpointId": "sub-running-answer-streamed-turn-open",
+            "elapsedMs": 134,
+            "status": "cancelled",
+            "outputTokens": 4,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1794290537649,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "Phone A",
+            "completionVerb": "Mapped",
+            "attemptId": "a0647a66-9083-451d-9292-5c9b9c813d1c"
+          }
+        ],
+        "row": {
+          "id": "sess_desktop_a5924b352ab9df23acb1572510896b0befcc59e3a83aa488b1305c4b7fd01030",
+          "preview": "HOLD-FINAL answer",
+          "title": "HOLD-FINAL answer",
+          "updatedAt": 1794290537645,
+          "activityAt": 1794290537645,
+          "messageCount": 3,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794290537473,
+          "lastMessagePreview": "HOLD-FINAL-ANSWER"
+        },
+        "promptRestore": null
+      }
+    },
+    {
+      "name": "idle-after-completed-turn",
+      "id": "sess_desktop_4e0b6c774dc102874f081e60208026911a6cac036c049f6ce7aa61cabc2d9a1e",
+      "stop": {},
+      "node": {
+        "reply": {
+          "aborted": false,
+          "restoreText": "",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": []
+        },
+        "items": [
+          {
+            "kind": "user",
+            "id": "sub-idle-after-completed-turn",
+            "text": "a plain question",
+            "at": 1794290540280,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "messageId": "msg_da94e30f0ce049bb8136ab246d1e4a3f",
+            "device": "Phone A"
+          },
+          {
+            "kind": "assistant",
+            "id": "it_ac1a03ec_16",
+            "text": "ok",
+            "streaming": false,
+            "at": 1794290540364,
+            "messageId": "msg_7a2dcdf7dd824c2a8a807a6e8d1474b1",
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "Phone A",
+            "completionVerb": "Mapped",
+            "attemptId": "795085a4-8eae-45c5-8a33-5823820f5c04"
+          },
+          {
+            "kind": "turndone",
+            "id": "it_ac1a03ec_17",
+            "checkpointId": "sub-idle-after-completed-turn",
+            "elapsedMs": 109,
+            "status": "done",
+            "finalAssistantId": "it_ac1a03ec_16",
+            "outputTokens": 2,
+            "thinkingElapsedMs": 0,
+            "toolCount": 0,
+            "verb": "Mapped",
+            "at": 1794290540389,
+            "modelId": "harness-model",
+            "model": "harness-model",
+            "provider": "custom-harness",
+            "agent": "Default",
+            "device": "Phone A",
+            "completionVerb": "Mapped",
+            "attemptId": "795085a4-8eae-45c5-8a33-5823820f5c04"
+          }
+        ],
+        "row": {
+          "id": "sess_desktop_4e0b6c774dc102874f081e60208026911a6cac036c049f6ce7aa61cabc2d9a1e",
+          "preview": "a plain question",
+          "title": "a plain question",
+          "updatedAt": 1794290540364,
+          "activityAt": 1794290540364,
+          "messageCount": 2,
+          "cwd": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "classification": "project",
+          "projectPath": "D:\\mixdog-build\\tmp\\real-turn-harness\\run\\env-ph2-chat-abort-node\\ws\\a",
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "createdAt": 1794290540240,
+          "lastMessagePreview": "ok"
+        },
+        "promptRestore": null
+      }
+    }
+  ]
+}

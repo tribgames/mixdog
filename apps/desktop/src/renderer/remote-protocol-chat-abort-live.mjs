@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 import { uuidv7 } from '../../../../packages/protocol-client/src/client.ts';
-import { ABORT_CASES, PROJECT_FILE } from './remote-protocol-chat-abort-cases.mjs';
+import { ABORT_CASES, DEVICES, PROJECT_FILE } from './remote-protocol-chat-abort-cases.mjs';
 import { startAbortProvider } from './remote-protocol-chat-abort-provider.mjs';
 
 export async function runAbortLive() {
@@ -36,7 +36,7 @@ export async function runAbortLive() {
 
   const notes = [];
   let core;
-  let socket;
+  const sockets = [];
   let watcher;
   let provider;
   let deadline = createDeadline(240_000, () => `${core?.tail() ?? '(core not started)'}\nnotifications: ${notes.slice(-12).map((n) => n.method).join(', ')}`);
@@ -60,28 +60,36 @@ export async function runAbortLive() {
     if (early) served.resolve(early);
     const doc = await deadline.race(served.promise, 'the core to serve');
 
-    socket = new WebSocket(`ws://127.0.0.1:${doc.core.rpc.port}/rpc`, { headers: { Authorization: `Bearer ${doc.endpoints.session.token}` }, perMessageDeflate: false });
-    await deadline.race(new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); }), 'the app-server socket to open');
-    const pending = new Map();
+    // One connection per paired device: the core stamps a prompt and a Stop with the connection's `clientInfo.title` (server.rs initialize).
     const waiters = new Set();
-    let nextId = 1;
-    socket.on('message', (data) => {
-      const frame = JSON.parse(data.toString('utf8'));
-      if (frame.id !== undefined && pending.has(frame.id)) {
-        const p = pending.get(frame.id);
-        pending.delete(frame.id);
-        if (frame.error) p.reject(Object.assign(new Error(`${p.method}: ${JSON.stringify(frame.error)}`), { rpc: frame.error })); else p.resolve(frame.result);
-      } else if (frame.method) {
-        notes.push({ method: frame.method, params: frame.params });
-        for (const check of [...waiters]) check();
-      }
-    });
-    const call = (method, params) => deadline.race(new Promise((resolve, reject) => {
-      const id = nextId++;
-      pending.set(id, { resolve, reject, method });
-      socket.send(JSON.stringify({ id, method, params }));
-    }), `the reply to ${method}`);
-    const op = (method, params) => call(method, { ...params, opId: uuidv7(Date.now()) });
+    const connect = async (title) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${doc.core.rpc.port}/rpc`, { headers: { Authorization: `Bearer ${doc.endpoints.session.token}` }, perMessageDeflate: false });
+      sockets.push(ws);
+      await deadline.race(new Promise((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject); }), `the app-server socket of ${title} to open`);
+      const pending = new Map();
+      let nextId = 1;
+      ws.on('message', (data) => {
+        const frame = JSON.parse(data.toString('utf8'));
+        if (frame.id !== undefined && pending.has(frame.id)) {
+          const p = pending.get(frame.id);
+          pending.delete(frame.id);
+          if (frame.error) p.reject(Object.assign(new Error(`${p.method}: ${JSON.stringify(frame.error)}`), { rpc: frame.error })); else p.resolve(frame.result);
+        } else if (frame.method) {
+          notes.push({ method: frame.method, params: frame.params, device: title });
+          for (const check of [...waiters]) check();
+        }
+      });
+      const call = (method, params) => deadline.race(new Promise((resolve, reject) => {
+        const id = nextId++;
+        pending.set(id, { resolve, reject, method });
+        ws.send(JSON.stringify({ id, method, params }));
+      }), `the reply of ${title} to ${method}`);
+      const op = (method, params) => call(method, { ...params, opId: uuidv7(Date.now()) });
+      await call('initialize', { clientInfo: { name: 'ph2-chat-abort', title, version: '1.4.5', kind: 'tui' }, capabilities: {} });
+      ws.send(JSON.stringify({ method: 'initialized' }));
+      await call('app/subscribe', {});
+      return { call, op };
+    };
     const until = (ready, what) => {
       const done = latch();
       const check = () => { if (ready()) { waiters.delete(check); done.resolve(); } };
@@ -89,41 +97,55 @@ export async function runAbortLive() {
       check();
       return deadline.race(done.promise, what);
     };
-    const seen = (id, method, text) => notes.filter((n) => n.method === method && n.params?.threadId === id && (text === undefined || JSON.stringify(n.params).includes(text))).length;
+    // What the submitting device's connection was told (it holds the thread open); the other device only sends its Stop.
+    let viewer = '';
+    const seen = (id, method, text) => notes.filter((n) => n.device === viewer && n.method === method && n.params?.threadId === id && (text === undefined || JSON.stringify(n.params).includes(text))).length;
+    const phones = new Map();
+    const phone = async (title) => {
+      if (!phones.has(title)) phones.set(title, await connect(title));
+      return phones.get(title);
+    };
 
-    await call('initialize', { clientInfo: { name: 'ph2-chat-abort', title: 'PH-2 abort', version: '1.4.5', kind: 'tui' }, capabilities: {} });
-    socket.send(JSON.stringify({ method: 'initialized' }));
-    await call('app/subscribe', {});
     const cases = [];
     for (const c of ABORT_CASES) {
+      const submitter = await phone(c.submitter ?? DEVICES.a);
+      const canceller = await phone(c.canceller ?? c.submitter ?? DEVICES.a);
+      const mark = notes.length;
+      viewer = c.submitter ?? DEVICES.a;
       // The phone's submitNewTask: a thread with the draft route, then the first prompt (service-route.ts submitNewTask / turnInput).
-      const id = (await op('thread/start', { kind: 'project', projectPath: project, draft: { route } })).thread.id;
-      await call('thread/resume', { threadId: id, window: { lastItems: 200 } });
-      const options = { clientSubmissionId: `sub-${c.name}`, ...(c.pasted ? { pastedTexts: c.pasted } : {}) };
+      const id = (await submitter.op('thread/start', { kind: 'project', projectPath: project, draft: { route } })).thread.id;
+      await submitter.call('thread/resume', { threadId: id, window: { lastItems: 200 } });
+      const options = { clientSubmissionId: `sub-${c.name}`, ...(c.pasted ? { pastedTexts: c.pasted } : {}), ...(c.submit ?? {}) };
       const start = { threadId: id, input: { prompt: c.prompt, options } };
-      await op('turn/start', start);
-      await deadline.race(provider.held(c.prompt), `the model endpoint to receive the held turn of ${c.name}`);
+      await submitter.op('turn/start', start);
+      const completed = (count) => seen(id, 'turn/completed') >= count;
+      if (c.ready === 'completed') await until(() => completed(1), `the turn of ${c.name} to end on its own`);
+      else if (c.ready === 'approval') {
+        await deadline.race(provider.asked(c.prompt), `the model endpoint to receive the tool-calling turn of ${c.name}`);
+        await until(() => notes.some((n) => n.device === viewer && /^item\/tool\/request(Approval|UserInput)$/.test(n.method) && n.params?.threadId === id), `the tool approval of ${c.name} to be pending`);
+      } else await deadline.race(provider.held(c.prompt), `the model endpoint to receive the held turn of ${c.name}`);
       if (c.output) await until(() => seen(id, 'item/agentMessage/delta', c.output) > 0, `the streamed text of ${c.name} to reach the client`);
       let second;
       if (c.then) {
         second = { threadId: id, input: { prompt: c.then, options: { clientSubmissionId: `sub-${c.name}-2` } } };
-        await op('turn/start', second);
+        await submitter.op('turn/start', second);
       }
       const stop = { threadId: id, ...c.stop };
-      const reply = await call('turn/interrupt', stop);
+      const reply = await canceller.call('turn/interrupt', stop).catch((error) => ({ error: error.rpc }));
       // A stopped turn closes with turn/completed; a steering prompt then runs as the next turn.
-      await until(() => seen(id, 'turn/completed') >= (c.then ? 2 : 1), `the turn(s) of ${c.name} to complete after its Stop`);
+      await until(() => completed(c.then ? 2 : 1), `the turn(s) of ${c.name} to complete after its Stop`);
       let again;
       if (c.again) {
         const request = { threadId: id, ...c.again };
-        again = { request, reply: await call('turn/interrupt', request).catch((error) => ({ error: error.rpc })) };
+        again = { request, reply: await canceller.call('turn/interrupt', request).catch((error) => ({ error: error.rpc })) };
       }
       // What the stopped turn left, whole, read at the same moment on both surfaces the phone reads: the thread's items and its list row.
-      const read = await call('thread/read', { threadId: id, window: { lastItems: 200 } });
-      const row = (await call('thread/list', { limit: 1000 })).data.find((r) => r.id === id) ?? null;
-      cases.push({ name: c.name, start, ...(second ? { second } : {}), stop, core: { reply, ...(again ? { again } : {}), items: read.items, row } });
-    }
-    return {
+      const read = await submitter.call('thread/read', { threadId: id, window: { lastItems: 200 } });
+      const row = (await submitter.call('thread/list', { limit: 1000 })).data.find((r) => r.id === id) ?? null;
+      // What the composer of the device that sent the prompt is told (`thread/promptRestore`, the session state's `promptRestore`).
+      const restores = notes.slice(mark).filter((n) => n.method === 'thread/promptRestore' && n.params?.threadId === id && n.device === (c.submitter ?? DEVICES.a)).map((n) => n.params);
+      cases.push({ name: c.name, start, ...(second ? { second } : {}), stop, core: { reply, ...(again ? { again } : {}), items: read.items, row, promptRestores: restores } });
+    }    return {
       manifest: {
         binary: bin, binarySha256: createHash('sha256').update(readFileSync(bin)).digest('hex'), binaryBuilt: statSync(bin).mtime.toISOString(),
         source: 'running mixdogd serve, isolated env (real-turn harness env.mjs / stage.mjs / proc.mjs), model endpoint remote-protocol-chat-abort-provider.mjs, driven over the WebSocket JSON-RPC protocol',
@@ -135,7 +157,7 @@ export async function runAbortLive() {
     const ended = createDeadline(60_000, () => `ending the abort run; core: ${core?.tail()}`);
     try {
       watcher?.close();
-      socket?.close();
+      for (const ws of sockets) ws.close();
       try {
         if (core) {
           core.kill();
