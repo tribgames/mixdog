@@ -1,0 +1,2525 @@
+{
+  "note": "Node b6f10295a: what a paired phone's page got for the rail pins, native push registration, desktop notices, the challenge flags and a notification's Allow / Deny (see record-phone-pushes.mjs); inputs in lib/phone-pushes-script.mjs.",
+  "scenarios": {
+    "flags-native": {
+      "offered": {
+        "listDelta": 1,
+        "deflate": 1,
+        "compactWire": 1,
+        "transcriptPaging": 1,
+        "transcriptPrepend": 1,
+        "remoteParity": 1,
+        "browserParity": 1,
+        "browserDrive": 1,
+        "browserSessionTabs": 1,
+        "termSizeOwner": 1,
+        "hostDirectories": 1,
+        "usageRequests": 1,
+        "projectRecovery": 1,
+        "mediaE2ee": 1,
+        "routeAutoEffort": 1,
+        "visualize": 1,
+        "fileDownloads": 1,
+        "secretInput": 1,
+        "browserWebrtc": 1,
+        "browserFit": 1,
+        "nativePush": 1
+      },
+      "peer": {
+        "peerBrowserDrive": true,
+        "peerBrowserFit": true,
+        "peerBrowserParity": true,
+        "peerBrowserSessionTabs": true,
+        "peerBrowserWebrtc": 1,
+        "peerFileDownloads": true,
+        "peerHostDirectories": true,
+        "peerMediaE2ee": true,
+        "peerNativePush": true,
+        "peerProjectRecovery": true,
+        "peerRemoteParity": true,
+        "peerRouteAutoEffort": true,
+        "peerSecretInput": true,
+        "peerTermSizeOwner": true,
+        "peerUsageRequests": true,
+        "peerViewSync": true,
+        "peerVisualize": true
+      }
+    },
+    "flags-plain": {
+      "offered": {
+        "listDelta": 1,
+        "deflate": 1,
+        "compactWire": 1,
+        "transcriptPaging": 1,
+        "transcriptPrepend": 1,
+        "remoteParity": 1,
+        "browserParity": 1,
+        "browserDrive": 1,
+        "browserSessionTabs": 1,
+        "termSizeOwner": 1,
+        "hostDirectories": 1,
+        "usageRequests": 1,
+        "projectRecovery": 1,
+        "mediaE2ee": 1,
+        "routeAutoEffort": 1,
+        "visualize": 1,
+        "fileDownloads": 1,
+        "secretInput": 1,
+        "browserWebrtc": 1,
+        "browserFit": 1
+      },
+      "peer": {
+        "peerBrowserDrive": true,
+        "peerBrowserFit": true,
+        "peerBrowserParity": true,
+        "peerBrowserSessionTabs": true,
+        "peerBrowserWebrtc": 1,
+        "peerFileDownloads": true,
+        "peerHostDirectories": true,
+        "peerMediaE2ee": true,
+        "peerNativePush": false,
+        "peerProjectRecovery": true,
+        "peerRemoteParity": true,
+        "peerRouteAutoEffort": true,
+        "peerSecretInput": true,
+        "peerTermSizeOwner": true,
+        "peerUsageRequests": true,
+        "peerViewSync": true,
+        "peerVisualize": true
+      }
+    },
+    "pins": {
+      "answers": [
+        {
+          "step": 0,
+          "outcome": {
+            "value": null
+          }
+        },
+        {
+          "step": 1,
+          "outcome": {
+            "value": {
+              "pins": [
+                "projects",
+                "sessions"
+              ],
+              "revision": 1
+            }
+          }
+        },
+        {
+          "step": 2,
+          "outcome": {
+            "value": {
+              "pins": [
+                "projects",
+                "sessions"
+              ],
+              "revision": 1
+            }
+          }
+        },
+        {
+          "step": 3,
+          "outcome": {
+            "value": {
+              "pins": [
+                "workflows",
+                "projects"
+              ],
+              "revision": 2
+            }
+          }
+        },
+        {
+          "step": 4,
+          "outcome": {
+            "value": {
+              "pins": [
+                "search",
+                "sessions"
+              ],
+              "revision": 3
+            }
+          }
+        },
+        {
+          "step": 6,
+          "outcome": {
+            "value": {
+              "pins": [
+                "sessions",
+                "agents",
+                "schedules",
+                "workflows",
+                "projects",
+                "extensions",
+                "skills"
+              ],
+              "revision": 4
+            }
+          }
+        },
+        {
+          "step": 7,
+          "outcome": {
+            "error": {
+              "name": "Error",
+              "message": "Activity rail pins must be an array of supported destinations.",
+              "fields": {}
+            }
+          }
+        },
+        {
+          "step": 8,
+          "outcome": {
+            "value": {
+              "pins": [
+                "sessions",
+                "agents",
+                "schedules",
+                "workflows",
+                "projects",
+                "extensions",
+                "skills"
+              ],
+              "revision": 4
+            }
+          }
+        }
+      ],
+      "heard": [
+        {
+          "step": 1,
+          "phone": "a",
+          "state": {
+            "pins": [
+              "projects",
+              "sessions"
+            ],
+            "revision": 1
+          }
+        },
+        {
+          "step": 1,
+          "phone": "b",
+          "state": {
+            "pins": [
+              "projects",
+              "sessions"
+            ],
+            "revision": 1
+          }
+        },
+        {
+          "step": 3,
+          "phone": "a",
+          "state": {
+            "pins": [
+              "workflows",
+              "projects"
+            ],
+            "revision": 2
+          }
+        },
+        {
+          "step": 3,
+          "phone": "b",
+          "state": {
+            "pins": [
+              "workflows",
+              "projects"
+            ],
+            "revision": 2
+          }
+        },
+        {
+          "step": 4,
+          "phone": "a",
+          "state": {
+            "pins": [
+              "search",
+              "sessions"
+            ],
+            "revision": 3
+          }
+        },
+        {
+          "step": 4,
+          "phone": "b",
+          "state": {
+            "pins": [
+              "search",
+              "sessions"
+            ],
+            "revision": 3
+          }
+        },
+        {
+          "step": 6,
+          "phone": "a",
+          "state": {
+            "pins": [
+              "sessions",
+              "agents",
+              "schedules",
+              "workflows",
+              "projects",
+              "extensions",
+              "skills"
+            ],
+            "revision": 4
+          }
+        },
+        {
+          "step": 6,
+          "phone": "b",
+          "state": {
+            "pins": [
+              "sessions",
+              "agents",
+              "schedules",
+              "workflows",
+              "projects",
+              "extensions",
+              "skills"
+            ],
+            "revision": 4
+          }
+        },
+        {
+          "step": 6,
+          "phone": "c",
+          "state": {
+            "pins": [
+              "sessions",
+              "agents",
+              "schedules",
+              "workflows",
+              "projects",
+              "extensions",
+              "skills"
+            ],
+            "revision": 4
+          }
+        }
+      ],
+      "frames": [
+        {
+          "phone": "a",
+          "frame": {
+            "event": "browserApprovalSessions",
+            "payload": []
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "event": "browserApprovalSessions",
+            "payload": []
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 1,
+            "ok": true,
+            "value": null
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "event": "activity-rail-pins-changed",
+            "payload": {
+              "pins": [
+                "projects",
+                "sessions"
+              ],
+              "revision": 1
+            }
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "event": "activity-rail-pins-changed",
+            "payload": {
+              "pins": [
+                "projects",
+                "sessions"
+              ],
+              "revision": 1
+            }
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 2,
+            "ok": true,
+            "value": {
+              "pins": [
+                "projects",
+                "sessions"
+              ],
+              "revision": 1
+            }
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "event": "activity-rail-pins-changed",
+            "payload": {
+              "pins": [
+                "workflows",
+                "projects"
+              ],
+              "revision": 2
+            }
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "event": "activity-rail-pins-changed",
+            "payload": {
+              "pins": [
+                "workflows",
+                "projects"
+              ],
+              "revision": 2
+            }
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 3,
+            "ok": true,
+            "value": {
+              "pins": [
+                "workflows",
+                "projects"
+              ],
+              "revision": 2
+            }
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "event": "activity-rail-pins-changed",
+            "payload": {
+              "pins": [
+                "search",
+                "sessions"
+              ],
+              "revision": 3
+            }
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "event": "activity-rail-pins-changed",
+            "payload": {
+              "pins": [
+                "search",
+                "sessions"
+              ],
+              "revision": 3
+            }
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "id": 1,
+            "ok": true,
+            "value": {
+              "pins": [
+                "search",
+                "sessions"
+              ],
+              "revision": 3
+            }
+          }
+        },
+        {
+          "phone": "c",
+          "frame": {
+            "event": "browserApprovalSessions",
+            "payload": []
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "event": "activity-rail-pins-changed",
+            "payload": {
+              "pins": [
+                "sessions",
+                "agents",
+                "schedules",
+                "workflows",
+                "projects",
+                "extensions",
+                "skills"
+              ],
+              "revision": 4
+            }
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "event": "activity-rail-pins-changed",
+            "payload": {
+              "pins": [
+                "sessions",
+                "agents",
+                "schedules",
+                "workflows",
+                "projects",
+                "extensions",
+                "skills"
+              ],
+              "revision": 4
+            }
+          }
+        },
+        {
+          "phone": "c",
+          "frame": {
+            "event": "activity-rail-pins-changed",
+            "payload": {
+              "pins": [
+                "sessions",
+                "agents",
+                "schedules",
+                "workflows",
+                "projects",
+                "extensions",
+                "skills"
+              ],
+              "revision": 4
+            }
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 4,
+            "ok": false,
+            "error": "Activity rail pins must be an array of supported destinations."
+          }
+        },
+        {
+          "phone": "c",
+          "frame": {
+            "id": 1,
+            "ok": true,
+            "value": {
+              "pins": [
+                "sessions",
+                "agents",
+                "schedules",
+                "workflows",
+                "projects",
+                "extensions",
+                "skills"
+              ],
+              "revision": 4
+            }
+          }
+        }
+      ],
+      "persisted": {
+        "revision": 4
+      },
+      "timers": [
+        10000,
+        10000,
+        10000
+      ]
+    },
+    "native-push": {
+      "answers": [
+        {
+          "step": 0,
+          "outcome": {
+            "value": true
+          },
+          "relay": [
+            {
+              "type": "native-push-bind",
+              "clientId": "0123456789abcdef0123456789abcdef",
+              "platform": "fcm",
+              "token": "fcm-token-of-phone-a:0123456789abcdefghij"
+            }
+          ],
+          "stored": [
+            {
+              "clientId": "0123456789abcdef0123456789abcdef",
+              "platform": "fcm",
+              "token": "fcm-token-of-phone-a:0123456789abcdefghij",
+              "publicKey": "BA3gsNuflWc_YtOOjL4UlR6XsAjDlhnotjRhlhX8bD2uYLd8QaH-VWyEfF8_Q92IyBYFsmuaJEWaMF0OYB5m71o",
+              "sandbox": false,
+              "createdAt": 1760000000000
+            }
+          ]
+        },
+        {
+          "step": 1,
+          "outcome": {
+            "error": {
+              "name": "Error",
+              "message": "Native push is unavailable for this platform.",
+              "fields": {}
+            }
+          },
+          "relay": [],
+          "stored": [
+            {
+              "clientId": "0123456789abcdef0123456789abcdef",
+              "platform": "fcm",
+              "token": "fcm-token-of-phone-a:0123456789abcdefghij",
+              "publicKey": "BA3gsNuflWc_YtOOjL4UlR6XsAjDlhnotjRhlhX8bD2uYLd8QaH-VWyEfF8_Q92IyBYFsmuaJEWaMF0OYB5m71o",
+              "sandbox": false,
+              "createdAt": 1760000000000
+            }
+          ]
+        },
+        {
+          "step": 2,
+          "outcome": {
+            "value": true
+          },
+          "relay": [
+            {
+              "type": "native-push-bind",
+              "clientId": "fedcba9876543210fedcba9876543210",
+              "platform": "fcm",
+              "token": "fcm-token-of-phone-b:0123456789abcdefghij"
+            }
+          ],
+          "stored": [
+            {
+              "clientId": "0123456789abcdef0123456789abcdef",
+              "platform": "fcm",
+              "token": "fcm-token-of-phone-a:0123456789abcdefghij",
+              "publicKey": "BA3gsNuflWc_YtOOjL4UlR6XsAjDlhnotjRhlhX8bD2uYLd8QaH-VWyEfF8_Q92IyBYFsmuaJEWaMF0OYB5m71o",
+              "sandbox": false,
+              "createdAt": 1760000000000
+            },
+            {
+              "clientId": "fedcba9876543210fedcba9876543210",
+              "platform": "fcm",
+              "token": "fcm-token-of-phone-b:0123456789abcdefghij",
+              "publicKey": "BA3gsNuflWc_YtOOjL4UlR6XsAjDlhnotjRhlhX8bD2uYLd8QaH-VWyEfF8_Q92IyBYFsmuaJEWaMF0OYB5m71o",
+              "sandbox": false,
+              "createdAt": 1760000000000
+            }
+          ]
+        },
+        {
+          "step": 3,
+          "outcome": {
+            "value": true
+          },
+          "relay": [
+            {
+              "type": "native-push-unbind",
+              "token": "fcm-token-of-phone-a:0123456789abcdefghij",
+              "clientId": "0123456789abcdef0123456789abcdef"
+            }
+          ],
+          "stored": [
+            {
+              "clientId": "fedcba9876543210fedcba9876543210",
+              "platform": "fcm",
+              "token": "fcm-token-of-phone-b:0123456789abcdefghij",
+              "publicKey": "BA3gsNuflWc_YtOOjL4UlR6XsAjDlhnotjRhlhX8bD2uYLd8QaH-VWyEfF8_Q92IyBYFsmuaJEWaMF0OYB5m71o",
+              "sandbox": false,
+              "createdAt": 1760000000000
+            }
+          ]
+        },
+        {
+          "step": 4,
+          "outcome": {
+            "value": false
+          },
+          "relay": [],
+          "stored": [
+            {
+              "clientId": "fedcba9876543210fedcba9876543210",
+              "platform": "fcm",
+              "token": "fcm-token-of-phone-b:0123456789abcdefghij",
+              "publicKey": "BA3gsNuflWc_YtOOjL4UlR6XsAjDlhnotjRhlhX8bD2uYLd8QaH-VWyEfF8_Q92IyBYFsmuaJEWaMF0OYB5m71o",
+              "sandbox": false,
+              "createdAt": 1760000000000
+            }
+          ]
+        },
+        {
+          "step": 5,
+          "outcome": {
+            "value": true
+          },
+          "relay": [
+            {
+              "type": "native-push-unbind",
+              "token": "fcm-token-of-phone-b:0123456789abcdefghij",
+              "clientId": "fedcba9876543210fedcba9876543210"
+            }
+          ],
+          "stored": []
+        }
+      ],
+      "frames": [
+        {
+          "phone": "a",
+          "frame": {
+            "id": 1,
+            "ok": true,
+            "value": true
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 2,
+            "ok": false,
+            "error": "Native push is unavailable for this platform."
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "id": 1,
+            "ok": true,
+            "value": true
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 3,
+            "ok": true,
+            "value": true
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 4,
+            "ok": true,
+            "value": false
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "id": 2,
+            "ok": true,
+            "value": true
+          }
+        }
+      ],
+      "persisted": {
+        "version": 1,
+        "subscriptions": []
+      },
+      "timers": []
+    },
+    "notices": {
+      "shown": [
+        {
+          "step": 0,
+          "phone": "a",
+          "notice": {
+            "key": "provider-sign-in:anthropic",
+            "code": "provider-sign-in-expired",
+            "params": {
+              "name": "Anthropic API"
+            }
+          }
+        },
+        {
+          "step": 1,
+          "phone": "a",
+          "notice": {
+            "key": "conversation-save",
+            "code": "conversation-save-failed",
+            "params": {}
+          }
+        },
+        {
+          "step": 4,
+          "phone": "a",
+          "notice": {
+            "key": "provider-sign-in:anthropic",
+            "code": "provider-sign-in-expired",
+            "params": {
+              "name": "Anthropic API"
+            }
+          }
+        },
+        {
+          "step": 4,
+          "phone": "b",
+          "notice": {
+            "key": "provider-sign-in:anthropic",
+            "code": "provider-sign-in-expired",
+            "params": {
+              "name": "Anthropic API"
+            }
+          }
+        }
+      ],
+      "raised": [
+        {
+          "step": 0,
+          "raised": true
+        },
+        {
+          "step": 1,
+          "raised": true
+        },
+        {
+          "step": 4,
+          "raised": true
+        },
+        {
+          "step": 5,
+          "raised": false
+        }
+      ],
+      "frames": [
+        {
+          "phone": "a",
+          "frame": {
+            "event": "browserApprovalSessions",
+            "payload": []
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "event": "desktop-notice",
+            "payload": {
+              "key": "provider-sign-in:anthropic",
+              "code": "provider-sign-in-expired",
+              "params": {
+                "name": "Anthropic API"
+              }
+            }
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "event": "desktop-notice",
+            "payload": {
+              "key": "conversation-save",
+              "code": "conversation-save-failed",
+              "params": {}
+            }
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "event": "browserApprovalSessions",
+            "payload": []
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "event": "desktop-notice",
+            "payload": {
+              "key": "provider-sign-in:anthropic",
+              "code": "provider-sign-in-expired",
+              "params": {
+                "name": "Anthropic API"
+              }
+            }
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "event": "desktop-notice",
+            "payload": {
+              "key": "provider-sign-in:anthropic",
+              "code": "provider-sign-in-expired",
+              "params": {
+                "name": "Anthropic API"
+              }
+            }
+          }
+        }
+      ],
+      "timers": [
+        10000,
+        10000
+      ]
+    },
+    "notice-reconnect": {
+      "shown": [
+        {
+          "step": 1,
+          "phone": "b",
+          "notice": {
+            "key": "secret-storage",
+            "code": "secret-storage-failed",
+            "params": {}
+          }
+        }
+      ],
+      "frames": [
+        {
+          "phone": "a",
+          "frame": {
+            "event": "browserApprovalSessions",
+            "payload": []
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "event": "browserApprovalSessions",
+            "payload": []
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "event": "desktop-notice",
+            "payload": {
+              "key": "secret-storage",
+              "code": "secret-storage-failed",
+              "params": {}
+            }
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "event": "browserApprovalSessions",
+            "payload": []
+          }
+        }
+      ],
+      "timers": [
+        10000,
+        10000
+      ]
+    },
+    "approval-answers": {
+      "cases": [
+        {
+          "name": "shell",
+          "call": "answerApprovalNotification",
+          "input": {
+            "name": "shell",
+            "kind": "approval",
+            "args": {
+              "command": "npm test"
+            },
+            "cwd": "/ws",
+            "reason": "run the tests"
+          },
+          "toolApproval": {
+            "id": "1",
+            "name": "shell",
+            "kind": "approval",
+            "args": {
+              "command": "npm test"
+            },
+            "cwd": "/ws",
+            "sessionId": "sess_approval_0",
+            "toolCallId": null,
+            "reason": "run the tests",
+            "requestedAt": 1760000000000,
+            "timeoutMs": null,
+            "expiresAt": null,
+            "remember": [
+              "once"
+            ]
+          },
+          "answers": [
+            {
+              "action": "allow",
+              "stale": true,
+              "outcome": {
+                "value": "open"
+              },
+              "decided": []
+            },
+            {
+              "action": "deny",
+              "stale": true,
+              "outcome": {
+                "value": "settled"
+              },
+              "decided": [
+                {
+                  "approved": false,
+                  "device": "desktop-7"
+                }
+              ]
+            },
+            {
+              "action": "allow",
+              "stale": false,
+              "outcome": {
+                "value": "answered"
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "device": "desktop-7"
+                }
+              ]
+            },
+            {
+              "action": "allow",
+              "stale": false,
+              "outcome": {
+                "value": "open"
+              },
+              "decided": []
+            },
+            {
+              "action": "deny",
+              "stale": false,
+              "outcome": {
+                "value": "settled"
+              },
+              "decided": [
+                {
+                  "approved": false,
+                  "device": "desktop-7"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "office-commit",
+          "call": "answerApprovalNotification",
+          "input": {
+            "name": "office",
+            "kind": "approval",
+            "args": {
+              "action": "Commit",
+              "path": "a.docx"
+            },
+            "reason": "save"
+          },
+          "toolApproval": {
+            "id": "2",
+            "name": "office",
+            "kind": "approval",
+            "args": {
+              "action": "Commit",
+              "path": "a.docx"
+            },
+            "cwd": null,
+            "sessionId": "sess_approval_1",
+            "toolCallId": null,
+            "reason": "save",
+            "requestedAt": 1760000000000,
+            "timeoutMs": null,
+            "expiresAt": null,
+            "remember": [
+              "once"
+            ]
+          },
+          "answers": [
+            {
+              "action": "allow",
+              "stale": false,
+              "outcome": {
+                "value": "answered"
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "response": "approve",
+                  "device": "desktop-7"
+                }
+              ]
+            },
+            {
+              "action": "deny",
+              "stale": false,
+              "outcome": {
+                "value": "settled"
+              },
+              "decided": [
+                {
+                  "approved": false,
+                  "device": "desktop-7"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "office-rollback",
+          "call": "answerApprovalNotification",
+          "input": {
+            "name": "Office",
+            "kind": "approval",
+            "args": {
+              "action": "rollback"
+            },
+            "reason": "undo"
+          },
+          "toolApproval": {
+            "id": "3",
+            "name": "Office",
+            "kind": "approval",
+            "args": {
+              "action": "rollback"
+            },
+            "cwd": null,
+            "sessionId": "sess_approval_2",
+            "toolCallId": null,
+            "reason": "undo",
+            "requestedAt": 1760000000000,
+            "timeoutMs": null,
+            "expiresAt": null,
+            "remember": [
+              "once"
+            ]
+          },
+          "answers": [
+            {
+              "action": "allow",
+              "stale": false,
+              "outcome": {
+                "value": "open"
+              },
+              "decided": []
+            },
+            {
+              "action": "deny",
+              "stale": false,
+              "outcome": {
+                "value": "answered"
+              },
+              "decided": [
+                {
+                  "approved": false,
+                  "device": "desktop-7"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "outbound-send",
+          "call": "answerApprovalNotification",
+          "input": {
+            "name": "mail",
+            "kind": "outbound",
+            "args": {},
+            "outbound": {
+              "category": "send",
+              "target": "a@example.com",
+              "details": {
+                "to": "a@example.com",
+                "subject": "hi"
+              }
+            },
+            "reason": "send"
+          },
+          "toolApproval": {
+            "id": "4",
+            "name": "mail",
+            "kind": "outbound",
+            "args": {},
+            "cwd": null,
+            "sessionId": "sess_approval_3",
+            "toolCallId": null,
+            "reason": "send",
+            "requestedAt": 1760000000000,
+            "timeoutMs": null,
+            "expiresAt": null,
+            "remember": [
+              "once"
+            ],
+            "outbound": {
+              "category": "send",
+              "target": "a@example.com",
+              "account": "",
+              "payload": "",
+              "editable": [],
+              "details": {
+                "to": "a@example.com",
+                "subject": "hi"
+              }
+            }
+          },
+          "answers": [
+            {
+              "action": "allow",
+              "stale": false,
+              "outcome": {
+                "value": "answered"
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "device": "desktop-7"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "outbound-payment",
+          "call": "answerApprovalNotification",
+          "input": {
+            "name": "pay",
+            "kind": "outbound",
+            "args": {},
+            "outbound": {
+              "category": "payment",
+              "target": "shop",
+              "details": {
+                "amount": "10",
+                "currency": "USD"
+              }
+            },
+            "reason": "buy"
+          },
+          "toolApproval": {
+            "id": "5",
+            "name": "pay",
+            "kind": "outbound",
+            "args": {},
+            "cwd": null,
+            "sessionId": "sess_approval_4",
+            "toolCallId": null,
+            "reason": "buy",
+            "requestedAt": 1760000000000,
+            "timeoutMs": null,
+            "expiresAt": null,
+            "remember": [
+              "once"
+            ],
+            "outbound": {
+              "category": "payment",
+              "target": "shop",
+              "account": "",
+              "payload": "",
+              "editable": [],
+              "details": {
+                "amount": "10",
+                "currency": "USD"
+              }
+            }
+          },
+          "answers": [
+            {
+              "action": "allow",
+              "stale": false,
+              "outcome": {
+                "value": "open"
+              },
+              "decided": []
+            },
+            {
+              "action": "deny",
+              "stale": false,
+              "outcome": {
+                "value": "answered"
+              },
+              "decided": [
+                {
+                  "approved": false,
+                  "device": "desktop-7"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "outbound-delete",
+          "call": "answerApprovalNotification",
+          "input": {
+            "name": "drive",
+            "kind": "outbound",
+            "args": {},
+            "outbound": {
+              "category": "delete",
+              "target": "report.pdf"
+            },
+            "reason": "delete"
+          },
+          "toolApproval": {
+            "id": "6",
+            "name": "drive",
+            "kind": "outbound",
+            "args": {},
+            "cwd": null,
+            "sessionId": "sess_approval_5",
+            "toolCallId": null,
+            "reason": "delete",
+            "requestedAt": 1760000000000,
+            "timeoutMs": null,
+            "expiresAt": null,
+            "remember": [
+              "once"
+            ],
+            "outbound": {
+              "category": "delete",
+              "target": "report.pdf",
+              "account": "",
+              "payload": "",
+              "editable": [],
+              "details": {}
+            }
+          },
+          "answers": [
+            {
+              "action": "allow",
+              "stale": false,
+              "outcome": {
+                "value": "open"
+              },
+              "decided": []
+            },
+            {
+              "action": "deny",
+              "stale": false,
+              "outcome": {
+                "value": "answered"
+              },
+              "decided": [
+                {
+                  "approved": false,
+                  "device": "desktop-7"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "connector",
+          "call": "answerApprovalNotification",
+          "input": {
+            "name": "gmail_send",
+            "kind": "connector",
+            "args": {},
+            "connector": {
+              "server": "gmail",
+              "tool": "send",
+              "from": "needs_approval",
+              "requested": "auto",
+              "choices": [
+                "auto"
+              ]
+            },
+            "reason": "widen"
+          },
+          "toolApproval": {
+            "id": "7",
+            "name": "gmail_send",
+            "kind": "connector",
+            "args": {},
+            "cwd": null,
+            "sessionId": "sess_approval_6",
+            "toolCallId": null,
+            "reason": "widen",
+            "requestedAt": 1760000000000,
+            "timeoutMs": null,
+            "expiresAt": null,
+            "remember": [
+              "once"
+            ],
+            "connector": {
+              "server": "gmail",
+              "tool": "send",
+              "from": "needs_approval",
+              "requested": "auto",
+              "choices": [
+                "auto"
+              ]
+            }
+          },
+          "answers": [
+            {
+              "action": "allow",
+              "stale": false,
+              "outcome": {
+                "value": "open"
+              },
+              "decided": []
+            },
+            {
+              "action": "deny",
+              "stale": false,
+              "outcome": {
+                "value": "answered"
+              },
+              "decided": [
+                {
+                  "approved": false,
+                  "device": "desktop-7"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "permission-once",
+          "call": "answerApprovalNotification",
+          "input": {
+            "name": "fs",
+            "kind": "permission",
+            "args": {},
+            "permission": {
+              "scopes": [
+                {
+                  "id": "keep",
+                  "kind": "allow_always",
+                  "label": "Always"
+                },
+                {
+                  "id": "here",
+                  "kind": "allow_session",
+                  "label": "This session"
+                },
+                {
+                  "id": "one",
+                  "kind": "ALLOW_ONCE",
+                  "label": "Once"
+                }
+              ]
+            },
+            "reason": "read a file"
+          },
+          "toolApproval": {
+            "id": "8",
+            "name": "fs",
+            "kind": "permission",
+            "args": {},
+            "cwd": null,
+            "sessionId": "sess_approval_7",
+            "toolCallId": null,
+            "reason": "read a file",
+            "requestedAt": 1760000000000,
+            "timeoutMs": null,
+            "expiresAt": null,
+            "remember": [
+              "once"
+            ],
+            "permission": {
+              "scopes": [
+                {
+                  "id": "keep",
+                  "label": "Always",
+                  "kind": "allow_always"
+                },
+                {
+                  "id": "here",
+                  "label": "This session",
+                  "kind": "allow_session"
+                },
+                {
+                  "id": "one",
+                  "label": "Once",
+                  "kind": "ALLOW_ONCE"
+                }
+              ]
+            }
+          },
+          "answers": [
+            {
+              "action": "allow",
+              "stale": false,
+              "outcome": {
+                "value": "answered"
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "scope": "one",
+                  "device": "desktop-7"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "permission-by-id",
+          "call": "answerApprovalNotification",
+          "input": {
+            "name": "fs",
+            "kind": "permission",
+            "args": {},
+            "permission": {
+              "scopes": [
+                {
+                  "id": "session",
+                  "label": "Session"
+                }
+              ]
+            },
+            "reason": "read"
+          },
+          "toolApproval": {
+            "id": "9",
+            "name": "fs",
+            "kind": "permission",
+            "args": {},
+            "cwd": null,
+            "sessionId": "sess_approval_8",
+            "toolCallId": null,
+            "reason": "read",
+            "requestedAt": 1760000000000,
+            "timeoutMs": null,
+            "expiresAt": null,
+            "remember": [
+              "once"
+            ],
+            "permission": {
+              "scopes": [
+                {
+                  "id": "session",
+                  "label": "Session"
+                }
+              ]
+            }
+          },
+          "answers": [
+            {
+              "action": "allow",
+              "stale": false,
+              "outcome": {
+                "value": "answered"
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "scope": "session",
+                  "device": "desktop-7"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "permission-always-only",
+          "call": "answerApprovalNotification",
+          "input": {
+            "name": "fs",
+            "kind": "permission",
+            "args": {},
+            "permission": {
+              "scopes": [
+                {
+                  "id": "keep",
+                  "kind": "allow_always",
+                  "label": "Always"
+                }
+              ]
+            },
+            "reason": "read"
+          },
+          "toolApproval": {
+            "id": "10",
+            "name": "fs",
+            "kind": "permission",
+            "args": {},
+            "cwd": null,
+            "sessionId": "sess_approval_9",
+            "toolCallId": null,
+            "reason": "read",
+            "requestedAt": 1760000000000,
+            "timeoutMs": null,
+            "expiresAt": null,
+            "remember": [
+              "once"
+            ],
+            "permission": {
+              "scopes": [
+                {
+                  "id": "keep",
+                  "label": "Always",
+                  "kind": "allow_always"
+                }
+              ]
+            }
+          },
+          "answers": [
+            {
+              "action": "allow",
+              "stale": false,
+              "outcome": {
+                "value": "open"
+              },
+              "decided": []
+            },
+            {
+              "action": "deny",
+              "stale": false,
+              "outcome": {
+                "value": "answered"
+              },
+              "decided": [
+                {
+                  "approved": false,
+                  "device": "desktop-7"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "no-kind",
+          "call": "answerApprovalNotification",
+          "input": {
+            "name": "shell",
+            "args": {
+              "command": "ls"
+            },
+            "reason": "list"
+          },
+          "toolApproval": {
+            "id": "11",
+            "name": "shell",
+            "kind": "",
+            "args": {
+              "command": "ls"
+            },
+            "cwd": null,
+            "sessionId": "sess_approval_10",
+            "toolCallId": null,
+            "reason": "list",
+            "requestedAt": 1760000000000,
+            "timeoutMs": null,
+            "expiresAt": null
+          },
+          "answers": [
+            {
+              "action": "allow",
+              "stale": false,
+              "outcome": {
+                "value": "answered"
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "device": "desktop-7"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "question",
+          "call": "answerApprovalNotification",
+          "input": {
+            "name": "ask_user",
+            "kind": "question",
+            "args": {
+              "questions": [
+                {
+                  "question": "Which one?"
+                }
+              ]
+            },
+            "reason": "",
+            "timeoutMs": null
+          },
+          "toolApproval": {
+            "id": "12",
+            "name": "ask_user",
+            "kind": "question",
+            "args": {
+              "questions": [
+                {
+                  "question": "Which one?"
+                }
+              ]
+            },
+            "cwd": null,
+            "sessionId": "sess_approval_11",
+            "toolCallId": null,
+            "reason": "approval requested by hook",
+            "requestedAt": 1760000000000,
+            "timeoutMs": null,
+            "expiresAt": null
+          },
+          "answers": [
+            {
+              "action": "allow",
+              "stale": false,
+              "outcome": {
+                "value": "open"
+              },
+              "decided": []
+            },
+            {
+              "action": "deny",
+              "stale": false,
+              "outcome": {
+                "value": "answered"
+              },
+              "decided": [
+                {
+                  "approved": false,
+                  "device": "desktop-7"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "frames": [
+        {
+          "phone": "a",
+          "frame": {
+            "id": 1,
+            "ok": true,
+            "value": "open"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 2,
+            "ok": true,
+            "value": "settled"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 3,
+            "ok": true,
+            "value": "answered"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 4,
+            "ok": true,
+            "value": "open"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 5,
+            "ok": true,
+            "value": "settled"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 6,
+            "ok": true,
+            "value": "answered"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 7,
+            "ok": true,
+            "value": "settled"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 8,
+            "ok": true,
+            "value": "open"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 9,
+            "ok": true,
+            "value": "answered"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 10,
+            "ok": true,
+            "value": "answered"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 11,
+            "ok": true,
+            "value": "open"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 12,
+            "ok": true,
+            "value": "answered"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 13,
+            "ok": true,
+            "value": "open"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 14,
+            "ok": true,
+            "value": "answered"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 15,
+            "ok": true,
+            "value": "open"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 16,
+            "ok": true,
+            "value": "answered"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 17,
+            "ok": true,
+            "value": "answered"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 18,
+            "ok": true,
+            "value": "answered"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 19,
+            "ok": true,
+            "value": "open"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 20,
+            "ok": true,
+            "value": "answered"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 21,
+            "ok": true,
+            "value": "answered"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 22,
+            "ok": true,
+            "value": "open"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 23,
+            "ok": true,
+            "value": "answered"
+          }
+        }
+      ],
+      "timers": []
+    },
+    "approval-races": {
+      "cases": [
+        {
+          "name": "phone a, then phone b",
+          "raced": 2,
+          "shown": [
+            {
+              "by": "a",
+              "action": "allow",
+              "outcome": {
+                "value": "answered"
+              }
+            },
+            {
+              "by": "b",
+              "action": "allow",
+              "outcome": {
+                "value": "settled"
+              }
+            }
+          ],
+          "took": [
+            {
+              "approved": true,
+              "device": "desktop-7"
+            }
+          ]
+        },
+        {
+          "name": "phone b, then phone a",
+          "raced": 2,
+          "shown": [
+            {
+              "by": "b",
+              "action": "deny",
+              "outcome": {
+                "value": "answered"
+              }
+            },
+            {
+              "by": "a",
+              "action": "allow",
+              "outcome": {
+                "value": "settled"
+              }
+            }
+          ],
+          "took": [
+            {
+              "approved": false,
+              "device": "desktop-8"
+            }
+          ]
+        },
+        {
+          "name": "phone, then the desktop",
+          "raced": 2,
+          "shown": [
+            {
+              "by": "a",
+              "action": "allow",
+              "outcome": {
+                "value": "answered"
+              }
+            },
+            {
+              "by": "desktop"
+            }
+          ],
+          "took": [
+            {
+              "approved": true,
+              "device": "desktop-7"
+            }
+          ]
+        },
+        {
+          "name": "the desktop, then a phone",
+          "raced": 2,
+          "shown": [
+            {
+              "by": "desktop"
+            },
+            {
+              "by": "a",
+              "action": "deny",
+              "outcome": {
+                "value": "settled"
+              }
+            }
+          ],
+          "took": [
+            {
+              "approved": true,
+              "device": "desktop-1"
+            }
+          ]
+        },
+        {
+          "name": "phone a's card, then phone b",
+          "raced": 2,
+          "shown": [
+            {
+              "by": "a",
+              "card": {
+                "approved": false,
+                "reason": "no"
+              },
+              "outcome": {
+                "value": true
+              }
+            },
+            {
+              "by": "b",
+              "action": "allow",
+              "outcome": {
+                "value": "settled"
+              }
+            }
+          ],
+          "took": [
+            {
+              "approved": false,
+              "reason": "no",
+              "device": "desktop-7"
+            }
+          ]
+        },
+        {
+          "name": "the desktop, then phone a's card",
+          "raced": 2,
+          "shown": [
+            {
+              "by": "desktop"
+            },
+            {
+              "by": "a",
+              "card": {
+                "approved": true
+              },
+              "outcome": {
+                "value": false
+              }
+            }
+          ],
+          "took": [
+            {
+              "approved": true,
+              "device": "desktop-1"
+            }
+          ]
+        },
+        {
+          "name": "after the desktop answered",
+          "raced": 1,
+          "shown": [
+            {
+              "by": "desktop"
+            },
+            {
+              "by": "a",
+              "action": "deny",
+              "outcome": {
+                "value": "settled"
+              }
+            },
+            {
+              "by": "b",
+              "action": "allow",
+              "outcome": {
+                "value": "open"
+              }
+            },
+            {
+              "by": "b",
+              "card": {
+                "approved": true
+              },
+              "outcome": {
+                "value": false
+              }
+            }
+          ],
+          "took": [
+            {
+              "approved": true,
+              "device": "desktop-1"
+            }
+          ]
+        }
+      ],
+      "frames": [
+        {
+          "phone": "a",
+          "frame": {
+            "id": 1,
+            "ok": true,
+            "value": "answered"
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "id": 1,
+            "ok": true,
+            "value": "settled"
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "id": 2,
+            "ok": true,
+            "value": "answered"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 2,
+            "ok": true,
+            "value": "settled"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 3,
+            "ok": true,
+            "value": "answered"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 4,
+            "ok": true,
+            "value": "settled"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 5,
+            "ok": true,
+            "value": true
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "id": 3,
+            "ok": true,
+            "value": "settled"
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 6,
+            "ok": true,
+            "value": false
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 7,
+            "ok": true,
+            "value": "settled"
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "id": 4,
+            "ok": true,
+            "value": "open"
+          }
+        },
+        {
+          "phone": "b",
+          "frame": {
+            "id": 5,
+            "ok": true,
+            "value": false
+          }
+        }
+      ],
+      "timers": []
+    },
+    "approval-cards": {
+      "cases": [
+        {
+          "name": "outbound-payment",
+          "request": "outbound-payment",
+          "answers": [
+            {
+              "by": "phone",
+              "card": {
+                "approved": true
+              },
+              "stale": false,
+              "outcome": {
+                "value": false
+              },
+              "decided": [],
+              "pending": true
+            },
+            {
+              "by": "phone",
+              "card": {
+                "approved": true,
+                "response": "approve"
+              },
+              "stale": false,
+              "outcome": {
+                "value": true
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "response": "approve",
+                  "device": "desktop-7"
+                }
+              ],
+              "pending": false
+            }
+          ]
+        },
+        {
+          "name": "outbound-delete",
+          "request": "outbound-delete",
+          "answers": [
+            {
+              "by": "phone",
+              "card": {
+                "approved": true
+              },
+              "stale": false,
+              "outcome": {
+                "value": false
+              },
+              "decided": [],
+              "pending": true
+            },
+            {
+              "by": "phone",
+              "card": {
+                "approved": true,
+                "response": "approve"
+              },
+              "stale": false,
+              "outcome": {
+                "value": true
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "response": "approve",
+                  "device": "desktop-7"
+                }
+              ],
+              "pending": false
+            }
+          ]
+        },
+        {
+          "name": "office-rollback",
+          "request": "office-rollback",
+          "answers": [
+            {
+              "by": "phone",
+              "card": {
+                "approved": true
+              },
+              "stale": false,
+              "outcome": {
+                "value": false
+              },
+              "decided": [],
+              "pending": true
+            },
+            {
+              "by": "phone",
+              "card": {
+                "approved": true,
+                "response": "approve"
+              },
+              "stale": false,
+              "outcome": {
+                "value": true
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "response": "approve",
+                  "device": "desktop-7"
+                }
+              ],
+              "pending": false
+            }
+          ]
+        },
+        {
+          "name": "connector",
+          "request": "connector",
+          "answers": [
+            {
+              "by": "phone",
+              "card": {
+                "approved": true
+              },
+              "stale": false,
+              "outcome": {
+                "value": false
+              },
+              "decided": [],
+              "pending": true
+            },
+            {
+              "by": "phone",
+              "card": {
+                "approved": true,
+                "response": "approve"
+              },
+              "stale": false,
+              "outcome": {
+                "value": true
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "response": "approve",
+                  "device": "desktop-7"
+                }
+              ],
+              "pending": false
+            }
+          ]
+        },
+        {
+          "name": "payment, a bare deny",
+          "request": "outbound-payment",
+          "answers": [
+            {
+              "by": "phone",
+              "card": {
+                "approved": false
+              },
+              "stale": false,
+              "outcome": {
+                "value": true
+              },
+              "decided": [
+                {
+                  "approved": false,
+                  "device": "desktop-7"
+                }
+              ],
+              "pending": false
+            }
+          ]
+        },
+        {
+          "name": "payment, an id the session does not show",
+          "request": "outbound-payment",
+          "answers": [
+            {
+              "by": "phone",
+              "card": {
+                "approved": true
+              },
+              "stale": true,
+              "outcome": {
+                "value": false
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "device": "desktop-7"
+                }
+              ],
+              "pending": true
+            },
+            {
+              "by": "phone",
+              "card": {
+                "approved": true
+              },
+              "stale": false,
+              "outcome": {
+                "value": false
+              },
+              "decided": [],
+              "pending": true
+            }
+          ]
+        },
+        {
+          "name": "payment, the desktop",
+          "request": "outbound-payment",
+          "answers": [
+            {
+              "by": "desktop",
+              "card": {
+                "approved": true
+              },
+              "stale": false,
+              "outcome": {
+                "value": true
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "device": "desktop-1"
+                }
+              ],
+              "pending": false
+            }
+          ]
+        },
+        {
+          "name": "shell, a bare allow",
+          "request": "shell",
+          "answers": [
+            {
+              "by": "phone",
+              "card": {
+                "approved": true
+              },
+              "stale": false,
+              "outcome": {
+                "value": true
+              },
+              "decided": [
+                {
+                  "approved": true,
+                  "device": "desktop-7"
+                }
+              ],
+              "pending": false
+            }
+          ]
+        }
+      ],
+      "frames": [
+        {
+          "phone": "a",
+          "frame": {
+            "id": 1,
+            "ok": true,
+            "value": false
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 2,
+            "ok": true,
+            "value": true
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 3,
+            "ok": true,
+            "value": false
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 4,
+            "ok": true,
+            "value": true
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 5,
+            "ok": true,
+            "value": false
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 6,
+            "ok": true,
+            "value": true
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 7,
+            "ok": true,
+            "value": false
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 8,
+            "ok": true,
+            "value": true
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 9,
+            "ok": true,
+            "value": true
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 10,
+            "ok": true,
+            "value": false
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 11,
+            "ok": true,
+            "value": false
+          }
+        },
+        {
+          "phone": "a",
+          "frame": {
+            "id": 12,
+            "ok": true,
+            "value": true
+          }
+        }
+      ],
+      "timers": []
+    }
+  }
+}
