@@ -15,9 +15,7 @@ mod fixture_manifest;
 #[cfg(test)]
 mod listing_tests;
 #[cfg(test)]
-mod wire_server;
-#[cfg(test)]
-mod wire_tests;
+mod version_gate_tests;
 
 use std::sync::Arc;
 
@@ -66,8 +64,9 @@ pub const CLIENT_VERSION_FLOOR: &str = "1.0.70";
 
 /// `openai` npm package version the Node provider's client reports (`x-stainless-package-version`).
 const SDK_PACKAGE_VERSION: &str = "6.49.0";
-/// The Node runtime the reference recordings were made on (`process.version`, `x-stainless-runtime-version`).
-const SDK_RUNTIME_VERSION: &str = "v22.20.0";
+/// The Node runtime the product runs its core under (`process.version` of the desktop's Electron 43.8.4 in node mode,
+/// `x-stainless-runtime-version`), as the wire recording names it in its manifest.
+const SDK_RUNTIME_VERSION: &str = "v24.22.1";
 
 /// The platform headers Node's OpenAI client adds to every request (`detect-platform.js`) for a Node host:
 /// `process.platform`, `process.arch` and `process.version`, normalized the way the client does.
@@ -122,6 +121,25 @@ fn sdk_headers() -> Vec<(String, String)> {
     };
     sdk_headers_for(platform, arch, SDK_RUNTIME_VERSION)
 }
+/// `randomUUID()` of `proxyHeaders`: a new id per request.
+fn request_id() -> String {
+    #[cfg(any(test, feature = "test-support"))]
+    if let Some(fixed) = FIXED_REQUEST_ID.get() {
+        return fixed.clone();
+    }
+    random_uuid()
+}
+
+#[cfg(any(test, feature = "test-support"))]
+static FIXED_REQUEST_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Every Grok request id of this process is `id`, as the Node wire recorder fixes `crypto.randomUUID` for its whole
+/// process. Compiled for tests and the `test-support` feature only.
+#[cfg(any(test, feature = "test-support"))]
+pub fn fix_request_id(id: &str) {
+    FIXED_REQUEST_ID.get_or_init(|| id.to_owned());
+}
+
 /// Points the xAI request at the proxy and adds the CLI identity headers.
 pub struct GrokRewriter {
     pub client_version: crate::client_versions::Live,
@@ -136,8 +154,11 @@ pub struct GrokRewriter {
 impl Rewriter for GrokRewriter {
     fn rewrite(&self, mut wire: WireRequest, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
         let opts = &request.options;
-        // The Node client sends the SDK's `accept: application/json` even for a streamed request.
-        wire.headers.retain(|(name, _)| !name.eq_ignore_ascii_case("accept"));
+        // The order Node's OpenAI client writes (`openai/client.js` `buildHeaders`): its `accept: application/json` (even
+        // for a streamed request), its platform headers, the auth header (`GrokCredential::place`), the provider's own
+        // headers, then the body's `content-type`.
+        let body_headers: Vec<(String, String)> = wire.headers.iter().filter(|(name, _)| name.eq_ignore_ascii_case("content-type")).cloned().collect();
+        wire.headers.retain(|(name, _)| !name.eq_ignore_ascii_case("accept") && !name.eq_ignore_ascii_case("content-type"));
         wire.headers.push(("accept".to_owned(), "application/json".to_owned()));
         wire.headers.extend(self.sdk_headers.iter().cloned());
         wire.headers.extend(identity_headers(&self.client_version.get()));
@@ -146,7 +167,7 @@ impl Rewriter for GrokRewriter {
         if let Some(session) = opts.session_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             add("x-grok-session-id", session.to_owned());
         }
-        add("x-grok-req-id", random_uuid());
+        add("x-grok-req-id", request_id());
         if !request.model.is_empty() {
             add("x-grok-model-override", request.model.clone());
         }
@@ -154,6 +175,7 @@ impl Rewriter for GrokRewriter {
         if let Some(user) = (self.user_id)() {
             add("x-grok-user-id", user);
         }
+        wire.headers.extend(body_headers);
         if let Ok(mut body) = serde_json::from_slice::<serde_json::Value>(&wire.body) {
             let mut changed = tool_schema::flatten_tools(&mut body);
             // `send`: a model that takes no effort is sent none, whatever the session pinned (the service 400s on one).
@@ -187,6 +209,7 @@ pub fn adapter(
     client_version: Option<crate::client_versions::Live>,
     retry_policy: RetryPolicy,
     lookup: ListingLookup,
+    versions: Option<Arc<crate::client_versions::ClientVersions>>,
 ) -> HttpAdapter {
     let client_version = client_version.unwrap_or_else(|| CLIENT_VERSION_FLOOR.into());
     let rewriter = GrokRewriter {
@@ -207,6 +230,15 @@ pub fn adapter(
         Arc::new(SeedEffortRule),
         lookup,
     );
-    HttpAdapter::new(ProviderId::from(PROVIDER_ID), codec, http, credential, retry_policy)
-        .with_listing(Arc::new(listing))
+    let adapter = HttpAdapter::new(ProviderId::from(PROVIDER_ID), codec, http, credential, retry_policy).with_listing(Arc::new(listing));
+    match versions {
+        Some(versions) => adapter.with_resend(version_gate(versions)),
+        None => adapter,
+    }
+}
+
+/// `send`'s version gate (`grok-oauth.mjs:451-465`): a 426 whose body states a minimum above the version in use teaches
+/// it, and the same request goes out once more at once at that version.
+fn version_gate(versions: Arc<crate::client_versions::ClientVersions>) -> crate::providers::connect::rewrite::Resend {
+    Arc::new(move |error| error.status == Some(426) && versions.learn_grok_required(&error.message))
 }

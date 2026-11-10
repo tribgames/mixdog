@@ -66,7 +66,16 @@ impl HttpResponse {
 
     /// The whole body. A fault mid-body is a transport error with `Accepted`
     /// delivery: the caller holds a status and no content.
-    pub async fn read_all(mut self) -> Result<ErrorResponse, ProviderError> {
+    pub async fn read_all(self) -> Result<ErrorResponse, ProviderError> {
+        Ok(self.read_all_held(false).await?.0)
+    }
+
+    /// [`Self::read_all`], and with `hold` the connection kept out of the pool until the returned body is dropped
+    /// ([`BodyStream::hold_connection`]): a caller that sends again right after reading drops it once that send went out.
+    pub async fn read_all_held(mut self, hold: bool) -> Result<(ErrorResponse, Box<dyn BodyStream>), ProviderError> {
+        if hold {
+            self.body.hold_connection();
+        }
         let mut body = Vec::new();
         // A whole-body read is never a stream of content: a `Unary` body already
         // ends at its own total, and the error body of a `Stream` response ends at
@@ -87,11 +96,7 @@ impl HttpResponse {
             .await
             .map_err(|expired| deadline_error(expired, DeliveryState::Accepted, NODE_DISPATCHER.surface))?;
         drained?;
-        Ok(ErrorResponse {
-            status: Some(self.status),
-            headers: self.headers,
-            body,
-        })
+        Ok((ErrorResponse { status: Some(self.status), headers: self.headers, body }, self.body))
     }
 }
 

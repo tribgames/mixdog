@@ -110,7 +110,7 @@ const FAKE = 'fake-credential-not-a-secret';
 writeFakeCredentials(dataDir, (file, value) => writeFileSync(file, JSON.stringify(value)));
 // The catalog Node would hold after it listed the Codex models: one row per model of the scenarios, nothing else known.
 // A scenario that names its own model has that row offer the `priority` service tier (`modelSupportsServiceTier`).
-const tierModels = [...new Set(doc.scenarios.filter((s) => s.model).map((s) => s.model))];
+const tierModels = [...new Set(doc.scenarios.filter((s) => s.provider === 'openai-oauth' && s.model).map((s) => s.model))];
 const rows = [{ id: ROUTES[0].model }, ...tierModels.map((id) => ({ id, serviceTiers: [{ id: 'priority', name: 'Fast', description: '' }] }))];
 writeFileSync(join(dataDir, 'openai-oauth-models.json'), JSON.stringify({ version: 7, fetchedAt: doc.nowMs, models: rows }));
 
@@ -119,7 +119,9 @@ const load = (path) => within(`loading ${path}`, import(pathToFileURL(join(root,
 const P = 'src/runtime/agent/orchestrator/providers/';
 const providerOf = {
   gemini: async () => new (await load(P + 'gemini.mjs')).GeminiProvider({ apiKey: FAKE }),
-  'grok-oauth': async () => new (await load(P + 'grok-oauth.mjs')).GrokOAuthProvider({ preconnect: false }),
+  // As the product registers it (`registry.mjs` `_registerLazyOAuthProvider`: `new Ctor({})`), so its socket warm-up
+  // (`preconnect`, a HEAD to the proxy) is part of the recording.
+  'grok-oauth': async () => new (await load(P + 'grok-oauth.mjs')).GrokOAuthProvider({}),
   'anthropic-oauth': async () => new (await load(P + 'anthropic-oauth.mjs')).AnthropicOAuthProvider({}),
   'openai-oauth': async () => new (await load(P + 'openai-oauth.mjs')).OpenAIOAuthProvider({}),
 };
@@ -130,6 +132,7 @@ const { _clearWebSocketPoolForTest } = await load(P + 'openai-ws-pool.mjs');
 const { captureSideQuestionRequest } = await load('src/runtime/agent/orchestrator/session/side-question-store.mjs');
 const { summarizeOnSharedPrefix } = await load('src/runtime/agent/orchestrator/session/compact/forked-summary.mjs');
 const { disposeTransportScope } = await load(P + 'transport-scope.mjs');
+const { providerCacheKey } = await load('src/runtime/agent/orchestrator/session/manager/provider-cache-key.mjs');
 
 const tools = session.tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
 if (session.system.length !== 4) throw new Error(`the session document holds ${session.system.length} system texts; Node's session seeds four (base rules, stable context, session marker, environment)`);
@@ -167,6 +170,13 @@ for (const scenario of selected(doc.scenarios)) {
     ownAborts.add(reason);
     controller.abort(reason);
   };
+  // A Grok turn starts once the previous turn's connections are back in the pool, as the turns of a session are (between
+  // two there is always I/O: tools, the user): undici returns a socket one event-loop turn after its response ended
+  // (`client-h1.js` onMessageComplete, `setImmediate(client[kResume])`).
+  if (scenario.provider === 'grok-oauth') await within(`the event-loop turn before ${scenario.id}`, new Promise((resolve) => setImmediate(resolve)));
+  // `credentials`: the credential files of the scenario's account (an expiring token, a stored token endpoint or none, a
+  // user id), written before its provider loads them.
+  for (const [file, value] of Object.entries(scenario.credentials || {})) writeFileSync(join(dataDir, file), JSON.stringify(value));
   let provider;
   if (scenario.provider === 'openai-oauth') {
     if (scenario.fresh || !openaiProvider) {
@@ -212,6 +222,18 @@ for (const scenario of selected(doc.scenarios)) {
     // The record as a resumed session has it: through the store's JSON (`saveSession`, `loadSession`).
     record = JSON.parse(JSON.stringify(record));
     opts = buildRequestSendOptions({ sessionId, session: record, turnEffort: sendOpts.effort, effortConfiguration: undefined, stepAutoEffort: null, codexTurnId: turnId, startedAtMs: stampOf(turnId), signal: controller.signal });
+  } else if (scenario.provider === 'grok-oauth') {
+    // The send options of a Grok turn as Node's loop hands them to the provider: the session's request options
+    // (`buildRequestSendOptions`, its cache key the one a session of the provider is created with, `providerCacheKey`),
+    // the loop's iteration (`send-phase.mjs:100`) and the admission owner (`send-with-recovery.mjs:263`). `sendOpts`
+    // are the turn's effort and iteration.
+    const { sendOpts = {} } = scenario;
+    const record = { id: session.threadId, provider: 'grok-oauth', model: route.model, promptCacheKey: providerCacheKey('grok-oauth') };
+    opts = {
+      ...buildRequestSendOptions({ sessionId: session.threadId, session: record, turnEffort: sendOpts.effort, effortConfiguration: undefined, stepAutoEffort: null, codexTurnId: undefined, startedAtMs: undefined, signal: controller.signal }),
+      iteration: sendOpts.iteration,
+      admissionOwner: session.threadId,
+    };
   }
   if (scenario.disposeWhenHeld) {
     // `disposeWhenHeld`: the send's transport scope is disposed (`disposeTransportScope`, transport-scope.mjs) once the

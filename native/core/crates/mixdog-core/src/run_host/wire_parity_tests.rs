@@ -106,6 +106,12 @@ fn request(session: &Value, scenario: &Value, model: &str, stored: &StoredSessio
         .collect();
     let thread = stored.thread.clone();
     let mut options = RequestOptions { session_id: Some(thread.clone()), ..RequestOptions::default() };
+    if scenario["provider"] == "grok-oauth" {
+        // A Grok turn: the cache key a session of the provider is created with, the turn's effort, the loop's iteration.
+        options.prompt_cache_key = Some(super::route_change::provider_cache_key("grok-oauth"));
+        options.effort = scenario["sendOpts"]["effort"].as_str().map(str::to_owned);
+        options.iteration = scenario["sendOpts"]["iteration"].as_u64().expect("a Grok scenario names its iteration") as u32;
+    }
     if scenario["provider"] == "openai-oauth" {
         options.prompt_cache_key = Some("mixdog-codex".into());
         // The turn's effort and the session's fast flag (`buildRequestSendOptions` `effort: turnEffort`,
@@ -203,7 +209,7 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
     let model = "gpt-6.1-sol";
     let mut records = vec![ModelRecord::new(ProviderId::from("openai-oauth"), model)];
     // A scenario that names its own model has that row offer the `priority` service tier, as Node's catalog does.
-    let mut tier_models: Vec<&str> = doc["scenarios"].as_array().unwrap().iter().filter_map(|s| s["model"].as_str()).collect();
+    let mut tier_models: Vec<&str> = doc["scenarios"].as_array().unwrap().iter().filter(|s| s["provider"] == "openai-oauth").filter_map(|s| s["model"].as_str()).collect();
     tier_models.dedup();
     for id in tier_models {
         let mut record = ModelRecord::new(ProviderId::from("openai-oauth"), id);
@@ -226,7 +232,11 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
     // Every connect of the pinned link and dialer goes to the loopback server (`ReqwestLink::pinned`,
     // `KeepaliveDialer::pinned`), a token refresh too (the OpenAI credential refreshes over `env.http`): nothing leaves
     // the machine. `auth.openai.com` is the refresh's host.
-    let hosts = ["chatgpt.com", "api.anthropic.com", "generativelanguage.googleapis.com", "cli-chat-proxy.grok.com", "auth.openai.com"];
+    // `auth.x.ai` is the Grok token endpoint's and discovery's host.
+    let hosts = ["chatgpt.com", "api.anthropic.com", "generativelanguage.googleapis.com", "cli-chat-proxy.grok.com", "auth.openai.com", "auth.x.ai"];
+    // Node's recorder fixes `crypto.randomUUID` for its whole process; the Grok request id is the one value of these
+    // requests the core draws from it.
+    mixdog_ai::providers::grok::fix_request_id("00000000-0000-4000-8000-000000000000");
     let server = Arc::new(Loopback::start(&hosts).await);
     let schedule = KeepaliveSchedule::SPEC;
     let link = Arc::new(ReqwestLink::pinned(&schedule, server.addr, server.tls.clone()));
@@ -255,8 +265,12 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
             "openai-oauth" => scenario["model"].as_str().unwrap_or("gpt-6.1-sol"),
             "anthropic-oauth" => "claude-opus-5-5",
             "gemini" => "gemini-3.8-flash",
-            _ => "grok-4.7",
+            _ => scenario["model"].as_str().unwrap_or("grok-4.7"),
         };
+        // The scenario's credential files, written before its provider loads them.
+        for (file, body) in scenario["credentials"].as_object().into_iter().flatten() {
+            fixture_fs::write(data.join(file), body.to_string());
+        }
         if provider == "openai-oauth" && (scenario["fresh"] == true || openai.is_none()) {
             // Closing the previous conversation's sockets is the harness's doing: the recorder is paused until every one
             // of them has closed, so nothing of it is in the recording.
@@ -460,6 +474,12 @@ async fn differences(provider: &str) -> Vec<String> {
 #[tokio::test]
 async fn every_openai_request_equals_nodes_recording() {
     let differences = differences("openai-oauth").await;
+    assert!(differences.is_empty(), "{} differences from Node's recording:\n{}", differences.len(), differences.join("\n"));
+}
+
+#[tokio::test]
+async fn every_grok_request_equals_nodes_recording() {
+    let differences = differences("grok-oauth").await;
     assert!(differences.is_empty(), "{} differences from Node's recording:\n{}", differences.len(), differences.join("\n"));
 }
 
