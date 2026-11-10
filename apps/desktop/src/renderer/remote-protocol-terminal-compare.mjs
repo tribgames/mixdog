@@ -62,6 +62,15 @@ export function compareTraces(got, golden, variance) {
     assert.equal(mineHead.length, theirsHead.length, `${part}: the number of entries`);
     theirsHead.forEach((expected, i) => assert.deepEqual(mineHead[i], expected, `${part} entry ${i}`));
     if (part === 'claims.order') for (const tail of [mineTail, theirsTail]) assertLateActivity(tail, `${part}: after the last dispose`);
+    // Where the exit line stands against the end of the tab's activity is not timing: in Node the activity ends first (dispose calls
+    // `activity.exit()` before the kill), and the exit line reaches the phone after it. Both lists are held to that.
+    for (const list of [mine, theirs]) {
+      list.forEach((entry, i) => {
+        if (!isData(entry) || !/\[process exited with code/.test(entry.event.data)) return;
+        const ended = list.findIndex((other) => other.push === 'activity' && other.event.id === entry.event.id && other.event.state === null);
+        assert.ok(ended >= 0 && ended < i, `${part}: the exit line of ${entry.event.id} comes after the end of its activity`);
+      });
+    }
     const [mineOutput, theirOutput] = [mine, theirs].map(outputOf);
     for (const tab of tabsWithData(theirs)) {
       if (KILLED_AT_TWO_COLUMNS.has(tab)) {
