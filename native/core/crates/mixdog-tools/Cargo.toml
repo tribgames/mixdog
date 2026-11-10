@@ -44,7 +44,9 @@ tokio-tungstenite = { workspace = true, features = ["connect", "handshake", "rus
 mixdog-rt = { workspace = true }
 mixdog-graph = { path = "../../../mixdog-graph" }
 # exec (WP-TOOLS-EXEC): the shell and task tools register their tasks in WP-PROC's TaskRegistry.
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test"] }
+# `core-test` (the test seams: scripted terminals, mixdog-rt's test-support, mixdog-core-api's mock) is asked for
+# under [dev-dependencies] only: named here it reached the shipped binary.
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
 rayon = { workspace = true }
 shlex = { workspace = true }
 # fs tools (WP-TOOLS-FS)
