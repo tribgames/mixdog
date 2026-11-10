@@ -36,7 +36,11 @@ impl ScopedSections {
     /// returned value.
     pub fn open(&self, feed_id: FeedId, section: SectionName, key: &str) -> ScopedSection {
         let view = scoped_empty_view(&feed_id);
-        let feed = self.feeds.create(feed_id, view);
+        let feed = if section.feed().ordered() {
+            self.feeds.create_ordered(feed_id, view)
+        } else {
+            self.feeds.create(feed_id, view)
+        };
         let state = Arc::new(SectionFeedState::scoped(feed.clone()));
         let route = self.routes.register(section, Some(key), state);
         ScopedSection { feed, _route: route }
