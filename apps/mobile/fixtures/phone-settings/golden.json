@@ -1,0 +1,3718 @@
+{
+  "note": "Node host (b6f10295a) answers to a paired phone for the settings, updater, notification and feedback calls: per call the relay frame, what the PC window was asked to do, the frames every paired phone received, the posts the relay feedback endpoint received, and mixdog-config.json and notification-preferences.json after it.",
+  "world": {
+    "phone": "0123456789abcdef0123456789abcdef",
+    "paired": [
+      {
+        "id": "0123456789abcdef0123456789abcdef",
+        "name": "Pixel 9 · Mixdog App",
+        "platform": "Android",
+        "browser": "Mixdog App",
+        "createdAt": 1769990400000,
+        "lastSeenAt": 1770076800000,
+        "online": true
+      },
+      {
+        "id": "fedcba9876543210fedcba9876543210",
+        "name": "Windows · Chrome",
+        "platform": "Windows",
+        "browser": "Chrome",
+        "createdAt": 1764547200000,
+        "lastSeenAt": 1764633600000,
+        "online": false
+      }
+    ],
+    "pcName": "Fixture PC",
+    "seedConfig": {
+      "defaultsVersion": 2,
+      "desktop": {
+        "computerControl": true,
+        "keepAwake": false,
+        "defaultsSeparationVersion": 1
+      },
+      "agent": {
+        "autoClear": {
+          "minContextPercent": 10
+        }
+      },
+      "agents": {
+        "greeted": [
+          "advisor",
+          "front-worker",
+          "heavy-worker",
+          "reviewer",
+          "security",
+          "worker",
+          "writer"
+        ]
+      }
+    },
+    "seedNotifications": {
+      "version": 1,
+      "migratedAt": 1767225600000,
+      "devices": {},
+      "overrides": []
+    },
+    "window": {
+      "displayPreferences": {
+        "theme": "  dark  ",
+        "language": "ko",
+        "extra": true
+      },
+      "updaterState": {
+        "status": "ready",
+        "version": "9.9.9"
+      },
+      "check": {
+        "status": "up-to-date"
+      },
+      "install": [
+        {
+          "status": "ready",
+          "version": "9.9.9",
+          "busy": true
+        },
+        {
+          "status": "installing",
+          "version": "9.9.9"
+        }
+      ],
+      "notificationStatus": {
+        "supported": true,
+        "idleSeconds": null
+      },
+      "notificationTest": {
+        "ok": true
+      }
+    }
+  },
+  "cases": [
+    {
+      "group": "settings",
+      "name": "readSettings",
+      "params": [],
+      "frame": {
+        "ok": true,
+        "value": {
+          "autoClear": true,
+          "autoCompact": true,
+          "keepAwake": false,
+          "runInBackground": true,
+          "notificationVolume": 100,
+          "sessionAutoArchiveDays": 7,
+          "sessionAutoDeleteDays": 90,
+          "usagePinned": true,
+          "usageRailShortLong": false,
+          "usageAccountsExpanded": false,
+          "usageRailSlotsThree": false,
+          "usageRailSlotsAll": false,
+          "computerControl": true,
+          "computerObserveOnly": false,
+          "browserControl": false,
+          "browserAutoSignIn": true,
+          "browserHidDevices": false,
+          "browserPermissions": {
+            "defaults": {
+              "notifications": "block",
+              "geolocation": "block",
+              "clipboard-write": "allow",
+              "clipboard-read": "ask",
+              "media:video": "ask",
+              "media:audio": "ask",
+              "midi": "ask",
+              "midiSysex": "ask",
+              "idle-detection": "ask",
+              "top-level-storage-access": "ask",
+              "window-management": "ask",
+              "speaker-selection": "ask",
+              "fileSystem": "ask"
+            },
+            "sites": []
+          },
+          "saveChatLogins": true,
+          "computerInstalled": true,
+          "browserInstalled": false
+        }
+      },
+      "hostCalls": [],
+      "events": [],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "computerControl": true,
+            "keepAwake": false,
+            "defaultsSeparationVersion": 1
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "settings",
+      "name": "updateSetting",
+      "params": [
+        "keepAwake",
+        true
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "autoClear": true,
+          "autoCompact": true,
+          "keepAwake": true,
+          "runInBackground": true,
+          "notificationVolume": 100,
+          "sessionAutoArchiveDays": 7,
+          "sessionAutoDeleteDays": 90,
+          "usagePinned": true,
+          "usageRailShortLong": false,
+          "usageAccountsExpanded": false,
+          "usageRailSlotsThree": false,
+          "usageRailSlotsAll": false,
+          "computerControl": true,
+          "computerObserveOnly": false,
+          "browserControl": false,
+          "browserAutoSignIn": true,
+          "browserHidDevices": false,
+          "browserPermissions": {
+            "defaults": {
+              "notifications": "block",
+              "geolocation": "block",
+              "clipboard-write": "allow",
+              "clipboard-read": "ask",
+              "media:video": "ask",
+              "media:audio": "ask",
+              "midi": "ask",
+              "midiSysex": "ask",
+              "idle-detection": "ask",
+              "top-level-storage-access": "ask",
+              "window-management": "ask",
+              "speaker-selection": "ask",
+              "fileSystem": "ask"
+            },
+            "sites": []
+          },
+          "saveChatLogins": true,
+          "computerInstalled": true,
+          "browserInstalled": false
+        }
+      },
+      "hostCalls": [],
+      "events": [
+        {
+          "event": "settings-changed",
+          "payload": {
+            "scope": "desktop"
+          }
+        }
+      ],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "computerControl": true,
+            "defaultsSeparationVersion": 1
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "settings",
+      "name": "updateSetting",
+      "params": [
+        "usagePinned",
+        false
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "autoClear": true,
+          "autoCompact": true,
+          "keepAwake": true,
+          "runInBackground": true,
+          "notificationVolume": 100,
+          "sessionAutoArchiveDays": 7,
+          "sessionAutoDeleteDays": 90,
+          "usagePinned": false,
+          "usageRailShortLong": false,
+          "usageAccountsExpanded": false,
+          "usageRailSlotsThree": false,
+          "usageRailSlotsAll": false,
+          "computerControl": true,
+          "computerObserveOnly": false,
+          "browserControl": false,
+          "browserAutoSignIn": true,
+          "browserHidDevices": false,
+          "browserPermissions": {
+            "defaults": {
+              "notifications": "block",
+              "geolocation": "block",
+              "clipboard-write": "allow",
+              "clipboard-read": "ask",
+              "media:video": "ask",
+              "media:audio": "ask",
+              "midi": "ask",
+              "midiSysex": "ask",
+              "idle-detection": "ask",
+              "top-level-storage-access": "ask",
+              "window-management": "ask",
+              "speaker-selection": "ask",
+              "fileSystem": "ask"
+            },
+            "sites": []
+          },
+          "saveChatLogins": true,
+          "computerInstalled": true,
+          "browserInstalled": false
+        }
+      },
+      "hostCalls": [],
+      "events": [
+        {
+          "event": "settings-changed",
+          "payload": {
+            "scope": "desktop"
+          }
+        }
+      ],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "computerControl": true,
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "settings",
+      "name": "updateSetting",
+      "params": [
+        "autoClear",
+        false
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "autoClear": false,
+          "autoCompact": true,
+          "keepAwake": true,
+          "runInBackground": true,
+          "notificationVolume": 100,
+          "sessionAutoArchiveDays": 7,
+          "sessionAutoDeleteDays": 90,
+          "usagePinned": false,
+          "usageRailShortLong": false,
+          "usageAccountsExpanded": false,
+          "usageRailSlotsThree": false,
+          "usageRailSlotsAll": false,
+          "computerControl": true,
+          "computerObserveOnly": false,
+          "browserControl": false,
+          "browserAutoSignIn": true,
+          "browserHidDevices": false,
+          "browserPermissions": {
+            "defaults": {
+              "notifications": "block",
+              "geolocation": "block",
+              "clipboard-write": "allow",
+              "clipboard-read": "ask",
+              "media:video": "ask",
+              "media:audio": "ask",
+              "midi": "ask",
+              "midiSysex": "ask",
+              "idle-detection": "ask",
+              "top-level-storage-access": "ask",
+              "window-management": "ask",
+              "speaker-selection": "ask",
+              "fileSystem": "ask"
+            },
+            "sites": []
+          },
+          "saveChatLogins": true,
+          "computerInstalled": true,
+          "browserInstalled": false
+        }
+      },
+      "hostCalls": [],
+      "events": [
+        {
+          "event": "settings-changed",
+          "payload": {
+            "scope": "desktop"
+          }
+        },
+        {
+          "event": "settings-changed",
+          "payload": {
+            "scope": "agent"
+          }
+        }
+      ],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "computerControl": true,
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "settings",
+      "name": "updateSetting",
+      "params": [
+        "autoCompact",
+        false
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "autoClear": false,
+          "autoCompact": false,
+          "keepAwake": true,
+          "runInBackground": true,
+          "notificationVolume": 100,
+          "sessionAutoArchiveDays": 7,
+          "sessionAutoDeleteDays": 90,
+          "usagePinned": false,
+          "usageRailShortLong": false,
+          "usageAccountsExpanded": false,
+          "usageRailSlotsThree": false,
+          "usageRailSlotsAll": false,
+          "computerControl": true,
+          "computerObserveOnly": false,
+          "browserControl": false,
+          "browserAutoSignIn": true,
+          "browserHidDevices": false,
+          "browserPermissions": {
+            "defaults": {
+              "notifications": "block",
+              "geolocation": "block",
+              "clipboard-write": "allow",
+              "clipboard-read": "ask",
+              "media:video": "ask",
+              "media:audio": "ask",
+              "midi": "ask",
+              "midiSysex": "ask",
+              "idle-detection": "ask",
+              "top-level-storage-access": "ask",
+              "window-management": "ask",
+              "speaker-selection": "ask",
+              "fileSystem": "ask"
+            },
+            "sites": []
+          },
+          "saveChatLogins": true,
+          "computerInstalled": true,
+          "browserInstalled": false
+        }
+      },
+      "hostCalls": [],
+      "events": [
+        {
+          "event": "settings-changed",
+          "payload": {
+            "scope": "desktop"
+          }
+        },
+        {
+          "event": "settings-changed",
+          "payload": {
+            "scope": "agent"
+          }
+        }
+      ],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "computerControl": true,
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "settings",
+      "name": "updateSetting",
+      "params": [
+        "computerControl",
+        false
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "autoClear": false,
+          "autoCompact": false,
+          "keepAwake": true,
+          "runInBackground": true,
+          "notificationVolume": 100,
+          "sessionAutoArchiveDays": 7,
+          "sessionAutoDeleteDays": 90,
+          "usagePinned": false,
+          "usageRailShortLong": false,
+          "usageAccountsExpanded": false,
+          "usageRailSlotsThree": false,
+          "usageRailSlotsAll": false,
+          "computerControl": false,
+          "computerObserveOnly": false,
+          "browserControl": false,
+          "browserAutoSignIn": true,
+          "browserHidDevices": false,
+          "browserPermissions": {
+            "defaults": {
+              "notifications": "block",
+              "geolocation": "block",
+              "clipboard-write": "allow",
+              "clipboard-read": "ask",
+              "media:video": "ask",
+              "media:audio": "ask",
+              "midi": "ask",
+              "midiSysex": "ask",
+              "idle-detection": "ask",
+              "top-level-storage-access": "ask",
+              "window-management": "ask",
+              "speaker-selection": "ask",
+              "fileSystem": "ask"
+            },
+            "sites": []
+          },
+          "saveChatLogins": true,
+          "computerInstalled": true,
+          "browserInstalled": false
+        }
+      },
+      "hostCalls": [],
+      "events": [
+        {
+          "event": "settings-changed",
+          "payload": {
+            "scope": "desktop"
+          }
+        }
+      ],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "settings",
+      "name": "updateSetting",
+      "params": [
+        "notificationVolume",
+        true
+      ],
+      "frame": {
+        "ok": false,
+        "error": "setting key is invalid."
+      },
+      "hostCalls": [],
+      "events": [],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "settings",
+      "name": "updateSetting",
+      "params": [
+        "browserPermissions",
+        true
+      ],
+      "frame": {
+        "ok": false,
+        "error": "setting key is invalid."
+      },
+      "hostCalls": [],
+      "events": [],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "settings",
+      "name": "updateSetting",
+      "params": [
+        "sessionAutoDeleteDays",
+        true
+      ],
+      "frame": {
+        "ok": false,
+        "error": "setting key is invalid."
+      },
+      "hostCalls": [],
+      "events": [],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "settings",
+      "name": "updateSetting",
+      "params": [
+        "zoom",
+        true
+      ],
+      "frame": {
+        "ok": false,
+        "error": "setting key is invalid."
+      },
+      "hostCalls": [],
+      "events": [],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "settings",
+      "name": "readSettings",
+      "params": [],
+      "frame": {
+        "ok": true,
+        "value": {
+          "autoClear": false,
+          "autoCompact": false,
+          "keepAwake": true,
+          "runInBackground": true,
+          "notificationVolume": 100,
+          "sessionAutoArchiveDays": 7,
+          "sessionAutoDeleteDays": 90,
+          "usagePinned": false,
+          "usageRailShortLong": false,
+          "usageAccountsExpanded": false,
+          "usageRailSlotsThree": false,
+          "usageRailSlotsAll": false,
+          "computerControl": false,
+          "computerObserveOnly": false,
+          "browserControl": false,
+          "browserAutoSignIn": true,
+          "browserHidDevices": false,
+          "browserPermissions": {
+            "defaults": {
+              "notifications": "block",
+              "geolocation": "block",
+              "clipboard-write": "allow",
+              "clipboard-read": "ask",
+              "media:video": "ask",
+              "media:audio": "ask",
+              "midi": "ask",
+              "midiSysex": "ask",
+              "idle-detection": "ask",
+              "top-level-storage-access": "ask",
+              "window-management": "ask",
+              "speaker-selection": "ask",
+              "fileSystem": "ask"
+            },
+            "sites": []
+          },
+          "saveChatLogins": true,
+          "computerInstalled": true,
+          "browserInstalled": false
+        }
+      },
+      "hostCalls": [],
+      "events": [],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "readHostDisplayPreferences",
+      "params": [],
+      "frame": {
+        "ok": true,
+        "value": {
+          "theme": "dark",
+          "language": "ko"
+        }
+      },
+      "hostCalls": [],
+      "events": [],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "getUpdaterState",
+      "params": [],
+      "frame": {
+        "ok": true,
+        "value": {
+          "status": "ready",
+          "version": "9.9.9"
+        }
+      },
+      "hostCalls": [],
+      "events": [],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "checkForDesktopUpdate",
+      "params": [],
+      "frame": {
+        "ok": true,
+        "value": {
+          "status": "up-to-date"
+        }
+      },
+      "hostCalls": [
+        {
+          "method": "updaterCheck",
+          "args": []
+        }
+      ],
+      "events": [],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "showDesktopUpdate",
+      "params": [
+        false
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "status": "ready",
+          "version": "9.9.9",
+          "busy": true
+        }
+      },
+      "hostCalls": [
+        {
+          "method": "updaterInstall",
+          "args": [
+            false
+          ]
+        }
+      ],
+      "events": [],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "showDesktopUpdate",
+      "params": [
+        true
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "status": "installing",
+          "version": "9.9.9"
+        }
+      },
+      "hostCalls": [
+        {
+          "method": "updaterInstall",
+          "args": [
+            true
+          ]
+        }
+      ],
+      "events": [],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "submitFeedback",
+      "params": [
+        {
+          "id": "0F1E2D3C-4B5A-4978-8695-a4b3c2d1e0f9",
+          "kind": "bug",
+          "message": "  The toggle did not stick.  ",
+          "replyTo": " user@example.com "
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "id": "0f1e2d3c-4b5a-4978-8695-a4b3c2d1e0f9",
+          "status": "accepted"
+        }
+      },
+      "hostCalls": [],
+      "events": [],
+      "feedback": [
+        {
+          "method": "POST",
+          "path": "/feedback",
+          "contentType": "application/json",
+          "body": {
+            "id": "0f1e2d3c-4b5a-4978-8695-a4b3c2d1e0f9",
+            "kind": "bug",
+            "message": "The toggle did not stick.",
+            "replyTo": "user@example.com"
+          }
+        }
+      ],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "submitFeedback",
+      "params": [
+        {
+          "id": "11111111-2222-4333-8444-555555555555",
+          "kind": "bug",
+          "message": "  The toggle did not stick.  ",
+          "replyTo": " user@example.com "
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "Too many feedback requests. Please try again later."
+      },
+      "hostCalls": [],
+      "events": [],
+      "feedback": [
+        {
+          "method": "POST",
+          "path": "/feedback",
+          "contentType": "application/json",
+          "body": {
+            "id": "11111111-2222-4333-8444-555555555555",
+            "kind": "bug",
+            "message": "The toggle did not stick.",
+            "replyTo": "user@example.com"
+          }
+        }
+      ],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "window",
+      "name": "notifyProviderModelsChanged",
+      "params": [
+        " 7c9e6679-7425-40de-944b-e07fc1f90ae7 "
+      ],
+      "frame": {
+        "ok": true,
+        "value": null
+      },
+      "hostCalls": [],
+      "events": [
+        {
+          "event": "provider-models-changed",
+          "payload": {
+            "origin": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+          }
+        }
+      ],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {},
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "notifications",
+      "name": "getNotificationPreferences",
+      "params": [],
+      "frame": {
+        "ok": true,
+        "value": {
+          "devices": [
+            {
+              "id": "pc",
+              "name": "Fixture PC",
+              "kind": "pc",
+              "online": true,
+              "canNotify": true
+            },
+            {
+              "id": "0123456789abcdef0123456789abcdef",
+              "name": "Pixel 9",
+              "kind": "phone-app",
+              "online": true,
+              "canNotify": false
+            },
+            {
+              "id": "fedcba9876543210fedcba9876543210",
+              "name": "Windows",
+              "kind": "browser",
+              "online": false,
+              "canNotify": false
+            }
+          ],
+          "preferences": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "bots",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "currentDeviceId": "0123456789abcdef0123456789abcdef"
+        }
+      },
+      "hostCalls": [],
+      "events": [
+        {
+          "event": "settings-changed",
+          "payload": {
+            "scope": "notifications"
+          }
+        }
+      ],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "bots",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "notifications",
+      "name": "setNotificationPreferences",
+      "params": [
+        "0123456789abcdef0123456789abcdef",
+        {
+          "scope": "all"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "devices": [
+            {
+              "id": "pc",
+              "name": "Fixture PC",
+              "kind": "pc",
+              "online": true,
+              "canNotify": true
+            },
+            {
+              "id": "0123456789abcdef0123456789abcdef",
+              "name": "Pixel 9",
+              "kind": "phone-app",
+              "online": true,
+              "canNotify": false
+            },
+            {
+              "id": "fedcba9876543210fedcba9876543210",
+              "name": "Windows",
+              "kind": "browser",
+              "online": false,
+              "canNotify": false
+            }
+          ],
+          "preferences": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "currentDeviceId": "0123456789abcdef0123456789abcdef"
+        }
+      },
+      "hostCalls": [],
+      "events": [
+        {
+          "event": "settings-changed",
+          "payload": {
+            "scope": "notifications"
+          }
+        }
+      ],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "notifications",
+      "name": "setNotificationPreferences",
+      "params": [
+        "pc",
+        {
+          "quietHours": {
+            "enabled": true,
+            "start": "22:30"
+          }
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "devices": [
+            {
+              "id": "pc",
+              "name": "Fixture PC",
+              "kind": "pc",
+              "online": true,
+              "canNotify": true
+            },
+            {
+              "id": "0123456789abcdef0123456789abcdef",
+              "name": "Pixel 9",
+              "kind": "phone-app",
+              "online": true,
+              "canNotify": false
+            },
+            {
+              "id": "fedcba9876543210fedcba9876543210",
+              "name": "Windows",
+              "kind": "browser",
+              "online": false,
+              "canNotify": false
+            }
+          ],
+          "preferences": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": true,
+                "start": "22:30",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "currentDeviceId": "0123456789abcdef0123456789abcdef"
+        }
+      },
+      "hostCalls": [],
+      "events": [
+        {
+          "event": "settings-changed",
+          "payload": {
+            "scope": "notifications"
+          }
+        }
+      ],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": true,
+                "start": "22:30",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "notifications",
+      "name": "setNotificationPreferences",
+      "params": [
+        "fedcba9876543210fedcba9876543210",
+        {
+          "events": {
+            "finished": false
+          },
+          "taskbarFlash": true
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "devices": [
+            {
+              "id": "pc",
+              "name": "Fixture PC",
+              "kind": "pc",
+              "online": true,
+              "canNotify": true
+            },
+            {
+              "id": "0123456789abcdef0123456789abcdef",
+              "name": "Pixel 9",
+              "kind": "phone-app",
+              "online": true,
+              "canNotify": false
+            },
+            {
+              "id": "fedcba9876543210fedcba9876543210",
+              "name": "Windows",
+              "kind": "browser",
+              "online": false,
+              "canNotify": false
+            }
+          ],
+          "preferences": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": true,
+                "start": "22:30",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": false,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "currentDeviceId": "0123456789abcdef0123456789abcdef"
+        }
+      },
+      "hostCalls": [],
+      "events": [
+        {
+          "event": "settings-changed",
+          "payload": {
+            "scope": "notifications"
+          }
+        }
+      ],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": true,
+                "start": "22:30",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": false,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "notifications",
+      "name": "setNotificationPreferences",
+      "params": [
+        "someone-else",
+        {
+          "scope": "off"
+        }
+      ],
+      "frame": {
+        "ok": false,
+        "error": "That device is not paired with this PC."
+      },
+      "hostCalls": [],
+      "events": [],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": true,
+                "start": "22:30",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": false,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "notifications",
+      "name": "listConversationNotifications",
+      "params": [],
+      "frame": {
+        "ok": true,
+        "value": []
+      },
+      "hostCalls": [],
+      "events": [],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": true,
+                "start": "22:30",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": false,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "overrides": []
+        }
+      }
+    },
+    {
+      "group": "notifications",
+      "name": "setConversationNotification",
+      "params": [
+        {
+          "kind": "session",
+          "id": "s1"
+        },
+        {
+          "mode": "muted",
+          "until": 4102444800000
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": [
+          {
+            "target": {
+              "kind": "session",
+              "id": "s1"
+            },
+            "setting": {
+              "mode": "muted",
+              "until": 4102444800000
+            }
+          }
+        ]
+      },
+      "hostCalls": [],
+      "events": [
+        {
+          "event": "settings-changed",
+          "payload": {
+            "scope": "notifications"
+          }
+        }
+      ],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": true,
+                "start": "22:30",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": false,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "overrides": [
+            {
+              "target": {
+                "kind": "session",
+                "id": "s1"
+              },
+              "setting": {
+                "mode": "muted",
+                "until": 4102444800000
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "group": "notifications",
+      "name": "setConversationNotification",
+      "params": [
+        {
+          "kind": "agent",
+          "id": "a1"
+        },
+        {
+          "mode": "always"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": [
+          {
+            "target": {
+              "kind": "session",
+              "id": "s1"
+            },
+            "setting": {
+              "mode": "muted",
+              "until": 4102444800000
+            }
+          },
+          {
+            "target": {
+              "kind": "agent",
+              "id": "a1"
+            },
+            "setting": {
+              "mode": "always"
+            }
+          }
+        ]
+      },
+      "hostCalls": [],
+      "events": [
+        {
+          "event": "settings-changed",
+          "payload": {
+            "scope": "notifications"
+          }
+        }
+      ],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": true,
+                "start": "22:30",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": false,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "overrides": [
+            {
+              "target": {
+                "kind": "session",
+                "id": "s1"
+              },
+              "setting": {
+                "mode": "muted",
+                "until": 4102444800000
+              }
+            },
+            {
+              "target": {
+                "kind": "agent",
+                "id": "a1"
+              },
+              "setting": {
+                "mode": "always"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "group": "notifications",
+      "name": "setConversationNotification",
+      "params": [
+        {
+          "kind": "room",
+          "id": "r1"
+        },
+        {
+          "mode": "muted",
+          "until": null
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": [
+          {
+            "target": {
+              "kind": "session",
+              "id": "s1"
+            },
+            "setting": {
+              "mode": "muted",
+              "until": 4102444800000
+            }
+          },
+          {
+            "target": {
+              "kind": "agent",
+              "id": "a1"
+            },
+            "setting": {
+              "mode": "always"
+            }
+          },
+          {
+            "target": {
+              "kind": "room",
+              "id": "r1"
+            },
+            "setting": {
+              "mode": "muted",
+              "until": null
+            }
+          }
+        ]
+      },
+      "hostCalls": [],
+      "events": [
+        {
+          "event": "settings-changed",
+          "payload": {
+            "scope": "notifications"
+          }
+        }
+      ],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": true,
+                "start": "22:30",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": false,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "overrides": [
+            {
+              "target": {
+                "kind": "session",
+                "id": "s1"
+              },
+              "setting": {
+                "mode": "muted",
+                "until": 4102444800000
+              }
+            },
+            {
+              "target": {
+                "kind": "agent",
+                "id": "a1"
+              },
+              "setting": {
+                "mode": "always"
+              }
+            },
+            {
+              "target": {
+                "kind": "room",
+                "id": "r1"
+              },
+              "setting": {
+                "mode": "muted",
+                "until": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "group": "notifications",
+      "name": "setConversationNotification",
+      "params": [
+        {
+          "kind": "session",
+          "id": "s1"
+        },
+        {
+          "mode": "inherit"
+        }
+      ],
+      "frame": {
+        "ok": true,
+        "value": [
+          {
+            "target": {
+              "kind": "agent",
+              "id": "a1"
+            },
+            "setting": {
+              "mode": "always"
+            }
+          },
+          {
+            "target": {
+              "kind": "room",
+              "id": "r1"
+            },
+            "setting": {
+              "mode": "muted",
+              "until": null
+            }
+          }
+        ]
+      },
+      "hostCalls": [],
+      "events": [
+        {
+          "event": "settings-changed",
+          "payload": {
+            "scope": "notifications"
+          }
+        }
+      ],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": true,
+                "start": "22:30",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": false,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "overrides": [
+            {
+              "target": {
+                "kind": "agent",
+                "id": "a1"
+              },
+              "setting": {
+                "mode": "always"
+              }
+            },
+            {
+              "target": {
+                "kind": "room",
+                "id": "r1"
+              },
+              "setting": {
+                "mode": "muted",
+                "until": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "group": "notifications",
+      "name": "listConversationNotifications",
+      "params": [],
+      "frame": {
+        "ok": true,
+        "value": [
+          {
+            "target": {
+              "kind": "agent",
+              "id": "a1"
+            },
+            "setting": {
+              "mode": "always"
+            }
+          },
+          {
+            "target": {
+              "kind": "room",
+              "id": "r1"
+            },
+            "setting": {
+              "mode": "muted",
+              "until": null
+            }
+          }
+        ]
+      },
+      "hostCalls": [],
+      "events": [],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": true,
+                "start": "22:30",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": false,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "overrides": [
+            {
+              "target": {
+                "kind": "agent",
+                "id": "a1"
+              },
+              "setting": {
+                "mode": "always"
+              }
+            },
+            {
+              "target": {
+                "kind": "room",
+                "id": "r1"
+              },
+              "setting": {
+                "mode": "muted",
+                "until": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "group": "notifications",
+      "name": "sendTestNotification",
+      "params": [
+        "pc"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "ok": true
+        }
+      },
+      "hostCalls": [
+        {
+          "method": "notificationTest",
+          "args": []
+        }
+      ],
+      "events": [],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": true,
+                "start": "22:30",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": false,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "overrides": [
+            {
+              "target": {
+                "kind": "agent",
+                "id": "a1"
+              },
+              "setting": {
+                "mode": "always"
+              }
+            },
+            {
+              "target": {
+                "kind": "room",
+                "id": "r1"
+              },
+              "setting": {
+                "mode": "muted",
+                "until": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "group": "notifications",
+      "name": "sendTestNotification",
+      "params": [
+        "someone-else"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "ok": false,
+          "message": "That device is not paired with this PC."
+        }
+      },
+      "hostCalls": [],
+      "events": [],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": true,
+                "start": "22:30",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": false,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "overrides": [
+            {
+              "target": {
+                "kind": "agent",
+                "id": "a1"
+              },
+              "setting": {
+                "mode": "always"
+              }
+            },
+            {
+              "target": {
+                "kind": "room",
+                "id": "r1"
+              },
+              "setting": {
+                "mode": "muted",
+                "until": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "group": "notifications",
+      "name": "getNotificationPreferences",
+      "params": [],
+      "frame": {
+        "ok": true,
+        "value": {
+          "devices": [
+            {
+              "id": "pc",
+              "name": "Fixture PC",
+              "kind": "pc",
+              "online": true,
+              "canNotify": true
+            },
+            {
+              "id": "0123456789abcdef0123456789abcdef",
+              "name": "Pixel 9",
+              "kind": "phone-app",
+              "online": true,
+              "canNotify": false
+            },
+            {
+              "id": "fedcba9876543210fedcba9876543210",
+              "name": "Windows",
+              "kind": "browser",
+              "online": false,
+              "canNotify": false
+            }
+          ],
+          "preferences": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": true,
+                "start": "22:30",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": false,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "currentDeviceId": "0123456789abcdef0123456789abcdef"
+        }
+      },
+      "hostCalls": [],
+      "events": [],
+      "feedback": [],
+      "state": {
+        "config": {
+          "defaultsVersion": 2,
+          "desktop": {
+            "defaultsSeparationVersion": 1,
+            "usagePinned": false,
+            "computerInstalled": true
+          },
+          "agent": {
+            "autoClear": {
+              "minContextPercent": 10,
+              "enabled": false
+            },
+            "compaction": {
+              "auto": false
+            }
+          },
+          "agents": {
+            "greeted": [
+              "advisor",
+              "front-worker",
+              "heavy-worker",
+              "reviewer",
+              "security",
+              "worker",
+              "writer"
+            ]
+          }
+        },
+        "notifications": {
+          "version": 1,
+          "migratedAt": 1767225600000,
+          "devices": {
+            "pc": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": true,
+                "start": "22:30",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "0123456789abcdef0123456789abcdef": {
+              "scope": "all",
+              "events": {
+                "finished": true,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            },
+            "fedcba9876543210fedcba9876543210": {
+              "scope": "all",
+              "events": {
+                "finished": false,
+                "question": true,
+                "approval": true,
+                "error": false
+              },
+              "automaticRuns": true,
+              "quietHours": {
+                "enabled": false,
+                "start": "23:00",
+                "end": "08:00",
+                "days": "every",
+                "allowWaiting": false
+              },
+              "holdWhileDesktopActive": true,
+              "taskbarFlash": true
+            }
+          },
+          "overrides": [
+            {
+              "target": {
+                "kind": "agent",
+                "id": "a1"
+              },
+              "setting": {
+                "mode": "always"
+              }
+            },
+            {
+              "target": {
+                "kind": "room",
+                "id": "r1"
+              },
+              "setting": {
+                "mode": "muted",
+                "until": null
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

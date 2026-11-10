@@ -5914,6 +5914,10 @@
       },
       "type": "object"
     },
+    "NotifyStateParams": {
+      "description": "Params of `notify/state`: none.",
+      "type": "object"
+    },
     "NotifyTestParams": {
       "description": "Params of `notify/test`.",
       "properties": {
@@ -11381,6 +11385,13 @@
       "properties": {
         "action": {
           "$ref": "#/definitions/UpdaterAction"
+        },
+        "confirmed": {
+          "description": "`install` only: the user confirmed installing past running agent tasks (Node's relay `showDesktopUpdate` argument, remote-methods.ts:1062-1063), passed on to the host as `host/update/command`'s `confirmed`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "opId": {
           "type": "string"
@@ -22872,6 +22883,29 @@
         },
         "params": {
           "$ref": "#/definitions/NotifyTestParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "What Settings › Notifications reads besides the sections: whether this PC shows OS notifications (the desktop host's `host/notification/status`, false with no host: Node asked its window at each read, desktop-service.ts:866) and the stored notification document after the default of this PC and of every paired device without stored preferences was written (Node's `notificationPreferencesState` wrote them, notification-preferences.ts `withDefaults`).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "notify/state"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/NotifyStateParams"
         }
       },
       "required": [

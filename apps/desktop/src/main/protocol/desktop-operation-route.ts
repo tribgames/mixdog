@@ -6,7 +6,7 @@
 import { normalizeBrowserPermissionPolicy } from '../../shared/browser-permission-policy';
 import { isSessionRetentionSettingKey } from '../../shared/contract-settings';
 import { readSettingsChange, SETTINGS_CHANGED_EVENT } from '../../shared/settings-changed';
-import { pairedDeviceInfo } from '../notification-center';
+import { notificationWriteMode } from '../../shared/notification-state';
 import { desktopSettingsFromConfig, storedPinsState } from '../settings-store';
 import { createProjectWatchRegistry } from '../../shared/project-watch-registry';
 import { defined, positional, SCM_OPERATION_ROUTES, SCM_REPLIES, type OperationMapper, type OperationRoute } from '../../shared/scm-operation-route';
@@ -18,7 +18,6 @@ import {
   visualizeRemoteViewing,
   DEFAULT_OPERATION_HOST,
   listConversationNotifications,
-  migratedAtOf,
   notificationPreferencesState,
   type OperationHost,
   readActivityRailPins,
@@ -250,25 +249,9 @@ const PREPARERS: Readonly<Record<string, Prepare>> = {
   // `config.notifications`: an unwritten subtree is a store Node would stamp `now` on first load, a written one without
   // the stamp reads 0 (`migratedAtOf`, notification-preferences.ts:228 and :120), as the notification state reads it.
   setNotificationPreferences: async (args, { entries }) => {
-    const deviceId = String(args[2] ?? '');
-    if (deviceId === 'pc') return [...args, 'mergePatch'];
-    const clients = record(entries().find((entry) => entry.section === 'remote' && entry.key === null)?.value).clients;
-    const client = (Array.isArray(clients) ? clients : [])
-      .map(record)
-      .find((candidate) => candidate.id === deviceId && candidate.pendingRemoval !== true);
-    if (!client) throw new TypeError('That device is not paired with this PC.');
-    const migratedAt = migratedAtOf(entries().find((entry) => entry.section === 'config' && entry.key === 'notifications')?.value);
-    const info = pairedDeviceInfo({
-      id: deviceId,
-      name: '',
-      platform: '',
-      browser: String(client.browser ?? ''),
-      createdAt: Number(client.createdAt),
-      lastSeenAt: 0,
-      online: false,
-    });
-    const botsFirst = info.kind === 'phone-app' && info.pairedAt !== undefined && info.pairedAt >= migratedAt;
-    return [...args, botsFirst ? 'mergePatchBots' : 'mergePatch'];
+    const remote = entries().find((entry) => entry.section === 'remote' && entry.key === null)?.value;
+    const notifications = entries().find((entry) => entry.section === 'config' && entry.key === 'notifications')?.value;
+    return [...args, notificationWriteMode(String(args[2] ?? ''), remote, notifications)];
   },
 };
 

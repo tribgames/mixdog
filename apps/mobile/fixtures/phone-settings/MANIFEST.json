@@ -1,0 +1,55 @@
+{
+  "cases": 33,
+  "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-settings.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the relay transport (encryption, admission), the window process (its answers are the WINDOW script), config.mjs's own debounce timer and file watch (the forced pass an in-process write starts is run when the call settled), and a paired device's push channel",
+    "runs": "executeRemoteFrame over createRemoteMethods (remote-methods.ts:828, :1256) with the settings store of createDesktopOperations over config.mjs, the notification store and center, and createRelayPushLanes for what each paired phone received"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 97181,
+      "path": "golden.json",
+      "sha256": "4931920f9577847a0104028920d8d176c5e77673469c2d0cadbc1dbb31c2ab86"
+    }
+  ],
+  "node": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-phone-settings.mjs",
+  "recorderFiles": [
+    {
+      "path": "benchmarks/rust-core/recorders/record-phone-settings.mjs",
+      "sha256": "6022905c5d1a3eda96ebd0be50c3b2a532276e2d391573a818fbb0b0d0c9d105"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "9d85c23ce17a8eb56ca50b848fd8f7e39dadc23c258277510b0bfd67885739f5"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
+      "sha256": "a91cf637b766b21b6cb027503ef1d2757344f44bc1315e3a5ee8470cae4b0828"
+    }
+  ],
+  "set": "phone-settings",
+  "syntheticInput": {
+    "feedback": "the relay /feedback endpoint answers 202 with a receipt naming the posted id, then 429",
+    "window": "Electron answers (updater, theme, OS notifications), the same script answers the core replay through host requests"
+  },
+  "totalBytes": 97181
+}

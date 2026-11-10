@@ -93,10 +93,7 @@ impl ConfigService {
     async fn dispatch(&self, method: &str, params: &Value, relay: bool) -> Result<Value, CoreError> {
         match method {
             "config/read" => self.read(params),
-            "config/value/write" => {
-                let edit = edit_of(params)?;
-                self.write(vec![edit]).await
-            }
+            "config/value/write" => value_write(&self.config, params, relay).await,
             "config/batchWrite" => {
                 let edits = params
                     .get("edits")
@@ -105,7 +102,7 @@ impl ConfigService {
                     .iter()
                     .map(edit_of)
                     .collect::<Result<Vec<_>, _>>()?;
-                self.write(edits).await
+                write(&self.config, edits).await
             }
             "config/getToolModuleSettings" => Ok(self.tool_modules.settings().await),
             "config/setWebSearchEnabled" => {
@@ -176,14 +173,73 @@ impl ConfigService {
         Ok(json!({ "config": config }))
     }
 
-    async fn write(&self, edits: Vec<ConfigEdit>) -> Result<Value, CoreError> {
-        let (_, saved) = self.config.batch_write_saved(&edits, SAVED_SUBTREES).await.map_err(core_error)?;
-        let values: Vec<Value> = edits
-            .iter()
-            .map(|edit| self.config.get(&edit.path).unwrap_or(Value::Null))
-            .collect();
-        Ok(json!({ "revision": self.config.revision(), "values": values, "config": saved }))
+}
+
+/// `config/value/write`. A paired phone (`relay`) writes only what Node's relay methods wrote for it ([`relay_may_write`]);
+/// anything else is refused before the edit is applied, so nothing changes.
+async fn value_write(config: &Config, params: &Value, relay: bool) -> Result<Value, CoreError> {
+    let edit = edit_of(params)?;
+    if relay && !relay_may_write(&edit) {
+        return Err(CoreError::DomainError {
+            domain: "config".into(),
+            code: Some("REMOTE_DESKTOP_ONLY".into()),
+            message: Some(format!("config/value/write cannot write {} over remote access; use the desktop.", edit.path).into()),
+            detail: None,
+        });
     }
+    write(config, vec![edit]).await
+}
+
+/// The `desktop` flags Node's relay `updateSetting` wrote (b6f10295a remote-methods.ts:1093-1101): the
+/// `DesktopSettingKey`s `requiredDesktopSettingKey` accepted (ipc-validation.ts:2195-2217), each a boolean, stored by
+/// `DesktopSettingsStore.update` (settings-store.ts:317-381) under `desktop`, `autoClear` and `autoCompact` under `agent`.
+const RELAY_SETTING_PATHS: &[&str] = &[
+    "agent.autoClear.enabled",
+    "agent.compaction.auto",
+    "desktop.keepAwake",
+    "desktop.runInBackground",
+    "desktop.usagePinned",
+    "desktop.usageRailShortLong",
+    "desktop.usageAccountsExpanded",
+    "desktop.usageRailSlotsThree",
+    "desktop.usageRailSlotsAll",
+    "desktop.computerControl",
+    "desktop.computerObserveOnly",
+    "desktop.browserControl",
+    "desktop.browserAutoSignIn",
+    "desktop.browserHidDevices",
+    "desktop.saveChatLogins",
+    "desktop.computerInstalled",
+    "desktop.browserInstalled",
+];
+
+/// Whether a paired phone may make `edit`: exactly the config writes of Node's relay method table (b6f10295a
+/// remote-methods.ts `createRemoteMethods`): `updateSetting` ([`RELAY_SETTING_PATHS`]), `updateActivityRailPins` (:915,
+/// whole pins only, never `initializeIfMissing`), `setNotificationPreferences` (:1116, one device's merge),
+/// `setConversationNotification` (:1126) and `setQuotaAutoResume` (remote-session-methods.ts:89-92, a boolean). Remote
+/// access, browser site permissions, cookie auto-import, retention, volume and every other key were the desktop's alone.
+fn relay_may_write(edit: &ConfigEdit) -> bool {
+    let path = edit.path.as_str();
+    match edit.mode {
+        ConfigWriteMode::Replace => {
+            RELAY_SETTING_PATHS.contains(&path)
+                || path == "desktop.activityRailPins"
+                || (path == "quotaAutoResume" && edit.value.is_boolean())
+        }
+        ConfigWriteMode::MergePatch | ConfigWriteMode::MergePatchBots => path
+            .strip_prefix("notifications.devices.")
+            .is_some_and(|id| !id.is_empty() && !id.contains('.')),
+        ConfigWriteMode::SetConversation => path == "notifications.overrides",
+        ConfigWriteMode::InitializeIfMissing => false,
+    }
+}
+
+/// The write, answering the stored value of each edit and the `agent` and `desktop` subtrees of the saved config (Node's
+/// `updateConfigAsync` result).
+async fn write(config: &Config, edits: Vec<ConfigEdit>) -> Result<Value, CoreError> {
+    let (_, saved) = config.batch_write_saved(&edits, SAVED_SUBTREES).await.map_err(core_error)?;
+    let values: Vec<Value> = edits.iter().map(|edit| config.get(&edit.path).unwrap_or(Value::Null)).collect();
+    Ok(json!({ "revision": config.revision(), "values": values, "config": saved }))
 }
 
 /// `setWorktreeSettings(patch)`: the patch is applied strictly to the stored section and the

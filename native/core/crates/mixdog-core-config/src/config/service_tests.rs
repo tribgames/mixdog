@@ -94,3 +94,48 @@ fn a_setter_type_error_answers_its_message() {
         other => panic!("{other:?}"),
     }
 }
+
+/// Input audit #150: a paired phone writes only the config keys Node's relay methods wrote. Each write below is one the
+/// desktop makes (it succeeds from a local connection); from a relay connection it is refused before anything is applied:
+/// the file and every value stay as they were. The writes Node's relay made pass.
+#[tokio::test]
+async fn a_relay_write_outside_nodes_relay_methods_changes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("mixdog-config.json");
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let (config, _) = Config::open(file.clone(), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    value_write(&config, &json!({ "opId": "op-0", "path": "desktop.keepAwake", "value": false }), false).await.unwrap();
+    let refused = [
+        json!({ "path": "remote.enabled", "value": false }),
+        json!({ "path": "desktop.browserPermissions", "value": { "defaults": { "camera": "allow" }, "sites": [] } }),
+        json!({ "path": "desktop.browserCookieAutoImport", "value": { "enabled": false, "profileId": "" } }),
+        json!({ "path": "desktop.notificationVolume", "value": 10 }),
+        json!({ "path": "desktop.sessionAutoDeleteDays", "value": 0 }),
+        json!({ "path": "desktop.activityRailPins", "value": ["sessions"], "mode": "initializeIfMissing" }),
+        json!({ "path": "quotaAutoResume", "value": { "enabled": true } }),
+        json!({ "path": "toolPolicy.mode", "value": "allow" }),
+        json!({ "path": "notifications.devices.pc", "value": { "scope": "off" } }),
+    ];
+    for edit in refused {
+        let params = json!({ "opId": "op-1", "path": edit["path"], "value": edit["value"], "mode": edit.get("mode") });
+        let before = (std::fs::read(&file).unwrap(), config.full());
+        match value_write(&config, &params, true).await {
+            Err(CoreError::DomainError { code, .. }) => assert_eq!(code.as_deref(), Some("REMOTE_DESKTOP_ONLY"), "{edit}"),
+            other => panic!("{edit}: a phone's write was not refused: {other:?}"),
+        }
+        assert_eq!((std::fs::read(&file).unwrap(), config.full()), before, "{edit}: the refused write changed the config");
+        value_write(&config, &params, false).await.unwrap_or_else(|error| panic!("{edit}: the desktop's write failed: {error:?}"));
+    }
+    for edit in [
+        json!({ "path": "desktop.keepAwake", "value": true }),
+        json!({ "path": "agent.autoClear.enabled", "value": false }),
+        json!({ "path": "desktop.activityRailPins", "value": ["sessions", "agents"] }),
+        json!({ "path": "quotaAutoResume", "value": false }),
+        json!({ "path": "notifications.devices.dev1", "value": { "scope": "off" }, "mode": "mergePatch" }),
+        json!({ "path": "notifications.overrides", "value": { "target": { "kind": "session", "id": "s1" }, "setting": { "mode": "always" } }, "mode": "setConversation" }),
+    ] {
+        let params = json!({ "opId": "op-2", "path": edit["path"], "value": edit["value"], "mode": edit.get("mode") });
+        value_write(&config, &params, true).await.unwrap_or_else(|error| panic!("{edit}: Node's relay wrote it: {error:?}"));
+    }
+}

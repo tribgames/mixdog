@@ -7990,6 +7990,27 @@
       },
       "type": "object"
     },
+    "NotifyStateParams": {
+      "description": "Params of `notify/state`: none.",
+      "type": "object"
+    },
+    "NotifyStateResult": {
+      "description": "Result of `notify/state`.",
+      "properties": {
+        "notifications": {
+          "description": "The config's `notifications` subtree after the defaults were written (`null` while it has none)."
+        },
+        "supported": {
+          "description": "The desktop host answered that this PC shows OS notifications (`Notification.isSupported()`).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "notifications",
+        "supported"
+      ],
+      "type": "object"
+    },
     "NotifyTestParams": {
       "description": "Params of `notify/test`.",
       "properties": {
@@ -17318,6 +17339,13 @@
         "action": {
           "$ref": "#/definitions/UpdaterAction"
         },
+        "confirmed": {
+          "description": "`install` only: the user confirmed installing past running agent tasks (Node's relay `showDesktopUpdate` argument, remote-methods.ts:1062-1063), passed on to the host as `host/update/command`'s `confirmed`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "opId": {
           "type": "string"
         }
@@ -19958,6 +19986,14 @@
       },
       "result": {
         "$ref": "#/definitions/ModelProxyResult"
+      }
+    },
+    "notify/state": {
+      "params": {
+        "$ref": "#/definitions/NotifyStateParams"
+      },
+      "result": {
+        "$ref": "#/definitions/NotifyStateResult"
       }
     },
     "notify/test": {
