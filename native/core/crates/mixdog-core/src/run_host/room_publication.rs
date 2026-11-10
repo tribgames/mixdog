@@ -241,7 +241,7 @@ mod tests {
         agents: Arc<Agents>,
         app: MockConnection,
         gate: Arc<Gate>,
-        _held: (Rig, tempfile::TempDir, tempfile::TempDir),
+        _held: (Rig, mixdog_core_session::session::testing::DataDir),
     }
 
     impl Composed {
@@ -477,7 +477,7 @@ mod tests {
     }
 
     async fn composed_with(agents: Agents) -> Composed {
-        let data = tempfile::tempdir().expect("data dir");
+        let data = mixdog_core_session::session::testing::DataDir::default();
         let tokens = mixdog_rt::testing::tokens();
         let root = data.path().to_path_buf();
         let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
@@ -487,12 +487,13 @@ mod tests {
         .await
         .expect("job ran")
         .expect("index");
+        let index = data.index(index);
         let store = Arc::new(StoreThreads::over_data_dir(data.path(), index.clone(), Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("thread store"));
         let rig = Rig::new();
         let directory = Arc::new(SessionDirectory::new(Arc::new(rig.deps_parts(store.clone()))));
         std::fs::create_dir_all(data.path().join("state")).expect("state dir");
         let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &data.path().join("state").join("core.sqlite")).expect("core state");
-        let rooms = Arc::new(Rooms::new(StateRoomStore::new(state)));
+        let rooms = Arc::new(Rooms::new(StateRoomStore::new(data.state(state))));
         let agents = Arc::new(agents);
         let limits = MockLimits::default();
         let feed = Arc::new(MockFeed::new("app".into(), mixdog_core_api::mock::epoch(1), Arc::new(mixdog_core_api::mock::EchoView), limits));
@@ -508,11 +509,11 @@ mod tests {
         list.fence(store);
         let sessions = Arc::new(DirectorySessions::new(directory.clone(), Arc::new(SessionThreads::new(directory.clone()))));
         let publication = wire(list.clone(), sections, agents.clone(), &index, directory, sessions.clone()).expect("wired");
-        let op_dir = tempfile::tempdir().expect("op dir");
-        let scopes = mixdog_core_base::support::testing::scopes(op_dir.path(), "room").await;
+        let ops = data.state(mixdog_core_base::support::testing::op_state(data.path()));
+        let scopes = mixdog_core_base::support::testing::scopes_over(ops, "room").await;
         // The agent deletion's room ports, as `compose_flip.rs` composes them.
         let homes = SessionHomePorts::new(agents.clone(), sessions, rooms.clone(), publication.host.clone(), Arc::new(Idle));
         let service = Arc::new(RoomService::new(rooms.clone(), publication.host, Arc::new(Idle), scopes, agents.clone()));
-        Composed { service, list, homes, agents, app, gate, _held: (rig, data, op_dir) }
+        Composed { service, list, homes, agents, app, gate, _held: (rig, data) }
     }
 }

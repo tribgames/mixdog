@@ -1889,6 +1889,50 @@ macro_rules! eventually_on_until {
     };
 }
 
+/// A test's data folder and the databases opened in it. Dropped (a panic included), the databases close first, then the folder is
+/// removed: Windows refuses to remove a database file another handle (a writer thread, a pooled read connection, a task still
+/// holding the store) keeps open, and the folder then stayed behind, one per run.
+pub struct DataDir {
+    indexes: Mutex<Vec<mixdog_store::sqlite::SqliteStore>>,
+    states: Mutex<Vec<mixdog_store::state::CoreState>>,
+    dir: tempfile::TempDir,
+}
+
+impl Default for DataDir {
+    fn default() -> Self {
+        Self { indexes: Mutex::default(), states: Mutex::default(), dir: tempfile::tempdir().expect("a data folder") }
+    }
+}
+
+impl DataDir {
+    pub fn path(&self) -> &std::path::Path {
+        self.dir.path()
+    }
+
+    /// `index`, closed with the folder.
+    pub fn index(&self, index: mixdog_store::sqlite::SqliteStore) -> mixdog_store::sqlite::SqliteStore {
+        self.indexes.lock().unwrap().push(index.clone());
+        index
+    }
+
+    /// `state`, closed with the folder.
+    pub fn state(&self, state: mixdog_store::state::CoreState) -> mixdog_store::state::CoreState {
+        self.states.lock().unwrap().push(state.clone());
+        state
+    }
+}
+
+impl Drop for DataDir {
+    fn drop(&mut self) {
+        for index in self.indexes.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner).drain(..) {
+            index.close();
+        }
+        for state in self.states.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner).drain(..) {
+            state.close();
+        }
+    }
+}
+
 /// Keeps a paused runtime clock from moving by itself while it is held: tokio advances a paused clock when the runtime is idle,
 /// except while a blocking task runs, so this holds one. Time then moves only by the test's own `advance`, and a wait for work
 /// that needs time to pass which the test did not give it stays pending until its deadline fails it.
