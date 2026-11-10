@@ -466,8 +466,27 @@ impl WorkspaceService {
         }
     }
 
+    /// The clock phone downloads expire on (the system clock unless set); set once, before the first download.
+    pub fn set_download_clock(&self, wall: Arc<dyn crate::transfer::WallClock>) {
+        self.transfers.set_wall(wall);
+    }
+
+    /// An unpair ends what the device holds. `device` names a connection of it (the unpair walks the device's attached connections,
+    /// still attached under its credential) or the credential itself: a phone's grants and transfers belong to its credential.
     pub fn revoke_device(&self, device: &str) {
-        self.transfers.end_owner(device);
+        self.transfers.revoke_owner(device);
+        let credential = device.parse::<u64>().ok().and_then(|id| self.phone_grants.get().and_then(|grants| (grants.credential_of)(ConnectionId(id))));
+        if let Some(credential) = credential.filter(|credential| !credential.is_empty()) {
+            self.transfers.revoke_owner(&credential);
+        }
+    }
+
+    /// Who a phone's download calls belong to: its paired credential, else (a local client) the connection (Node's `downloadRequester`).
+    fn download_owner(&self, req: &CoreRequest) -> String {
+        match (&req.ctx.caller, self.phone_grants.get()) {
+            (mixdog_core_api::call::Caller::Connection(id), Some(grants)) => (grants.credential_of)(*id).filter(|c| !c.is_empty()).unwrap_or_else(|| id.to_string()),
+            _ => Self::owner(req),
+        }
     }
 
     fn unwatch(&self, id: &str) {
@@ -951,12 +970,50 @@ impl WorkspaceService {
                     return value(run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::read_path_range(&root, &rel, offset, length)).await?);
                 }
                 let id = s(params, "transferId")?.to_owned();
-                let (owner, t) = (Self::owner(req), self.transfers.clone());
-                let range = run_fallible(self.lanes.interactive, &cancel, move || t.read_range(&owner, &id, offset, length)).await?;
+                let (owner, connection, t) = (self.download_owner(req), Self::owner(req), self.transfers.clone());
+                let version = params.get("version").and_then(Value::as_str).map(str::to_owned);
+                let range = run_fallible(self.lanes.interactive, &cancel, move || t.read_range(&[owner.as_str(), connection.as_str()], &id, offset, length, version.as_deref())).await?;
                 value(json!(range))
             }
+            "transfer/authorizeRead" => {
+                let source = params.get("source").ok_or_else(|| WsError::invalid("source is invalid."))?;
+                let owner = self.download_owner(req);
+                let mark = self.transfers.mark(&owner);
+                let t = self.transfers.clone();
+                let opened = match source.get("kind").and_then(Value::as_str) {
+                    Some("file") => {
+                        let outside = || WsError::new(Reason::Download("file-download:outside-project"), "The file is outside the conversation's project.");
+                        let root = self.root(req.ctx.origin, source).await.map_err(|_| outside())?;
+                        let rel = s(source, "rel")?.to_owned();
+                        run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_project_download(&root, &rel)).await?
+                    }
+                    Some("sessionFile") => {
+                        let path = s(source, "path")?.to_owned();
+                        // The conversation's project counts only while it is still a registered one.
+                        let given = source.get("projectPath").and_then(Value::as_str).map(PathBuf::from);
+                        let project = match &given {
+                            Some(given) => self.catalog.resolve(&given.to_string_lossy()).await.ok(),
+                            None => None,
+                        };
+                        run_fallible(self.lanes.interactive, &cancel, move || {
+                            crate::transfer::open_session_download(&path, project.as_deref(), given.as_deref())
+                        })
+                        .await?
+                    }
+                    _ => return Err(WsError::invalid("source.kind is invalid.")),
+                };
+                value(json!(t.authorize(&owner, mark, opened)?))
+            }
+            "transfer/redeemGrant" => {
+                let (owner, t, id) = (self.download_owner(req), self.transfers.clone(), s(params, "grantId")?.to_owned());
+                value(json!(run_fallible(self.lanes.interactive, &cancel, move || t.begin_grant(&owner, &id)).await?))
+            }
+            "transfer/finishRead" => {
+                let (owner, t, id) = (self.download_owner(req), self.transfers.clone(), s(params, "transferId")?.to_owned());
+                value(json!(run_fallible(self.lanes.interactive, &cancel, move || t.finish_read(&owner, &id)).await?))
+            }
             "transfer/endRead" => {
-                value(json!({ "ended": self.transfers.end_read(&Self::owner(req), s(params, "transferId")?) }))
+                value(json!({ "ended": self.transfers.end_read(&[self.download_owner(req).as_str(), Self::owner(req).as_str()], s(params, "transferId")?) }))
             }
             "transfer/beginWrite" if params.get("scope").is_some() => {
                 // `serverUploadBegin(name, size, scope)`: staged under the data dir, named at commit.
@@ -1337,6 +1394,9 @@ impl DomainService for WorkspaceService {
             "transfer/beginRead",
             "transfer/beginZip",
             "transfer/readRange",
+            "transfer/authorizeRead",
+            "transfer/redeemGrant",
+            "transfer/finishRead",
             "transfer/endRead",
             "transfer/beginWrite",
             "transfer/writeChunk",

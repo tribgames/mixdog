@@ -220,8 +220,19 @@ impl StatePublisher for Published {
     }
 }
 
+/// The clock phone downloads expire on, which only the test moves (Node's recorder moved its own by explicit steps too).
+#[derive(Default)]
+struct ManualWall(std::sync::atomic::AtomicI64);
+
+impl mixdog_workspace::transfer::WallClock for ManualWall {
+    fn now_ms(&self) -> i64 {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
 /// The core booted as `compose` and `serving::attach` boot it, with one paired device ("Pixel", `CRED`) in the relay's roster.
 struct Harness {
+    wall: Arc<ManualWall>,
     dir: tempfile::TempDir,
     core: Arc<Core>,
     registry: Arc<DeviceRegistry>,
@@ -328,6 +339,8 @@ impl Harness {
             releases: mixdog_workspace::release::FolderReleases::new(),
         })
         .unwrap();
+        let wall = Arc::new(ManualWall::default());
+        workspace.set_download_clock(wall.clone());
         let grants = Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(AllSessions)));
         workspace.set_phone_grants(grants.clone(), phone_credential(remote.registry.clone()));
         remote
@@ -375,7 +388,7 @@ impl Harness {
         relay.legs.recv().await.expect("the relay ended");
         remote.runtime.watch_connected().wait_for(|up| *up).await.expect("the runtime ended");
         remote.runtime.list_clients().await.unwrap();
-        Self { dir, core, registry: remote.registry, runtime: remote.runtime, published, relay, identity, desktop, reads, turns, closed, config, hub: own_hub, server: own_server }
+        Self { wall, dir, core, registry: remote.registry, runtime: remote.runtime, published, relay, identity, desktop, reads, turns, closed, config, hub: own_hub, server: own_server }
     }
 
     /// The phone `id` of `credential` pairs and states who it is; the connection the core opened for it.
@@ -806,6 +819,9 @@ fn a_local_client_is_recorded_by_what_it_states_and_a_relay_or_claimed_phone_is_
     assert_eq!(kind(4), None, "a relay connection is recorded by the dialer that opened it");
 }
 
+/// The clock Node's recorder started at (`record-unpair-access.mjs` `CLOCK_START`, 2031-01-01).
+const DOWNLOAD_CLOCK_START: i64 = 1_924_992_000_000;
+
 const SCREEN_ACCESS: &str = include_str!("../../../../../fixtures/screen-access/screen-access.json");
 
 /// The frame the core's wire carries for what Node sent the phone: `{ id, ok: true, value }` becomes `{ id, result }`, and
@@ -1046,7 +1062,7 @@ fn at<'a>(root: &'a Value, path: &str) -> &'a Value {
 }
 
 /// The branches that own recorded frames this test does not replay yet. A `NOT_REPLAYED` entry names only these.
-const OWNERS: &[&str] = &["phone-ph2-terminal", "phone-ph2-settings-notify", "phone-chat-live", "rs-thread-list-rows", "phone-download-grant"];
+const OWNERS: &[&str] = &["phone-ph2-terminal", "phone-ph2-settings-notify", "phone-chat-live", "rs-thread-list-rows"];
 
 struct NotReplayed {
     /// A recorded frame's path in a scenario (or `feedEvents`, the frames Node pushed to an attached phone).
@@ -1094,26 +1110,6 @@ const NOT_REPLAYED: &[NotReplayed] = &[
         why: "the roster after the unpair: it hides the device while the relay has not confirmed (only the PC is listed) and lists it with default preferences once it has",
     },
     NotReplayed { path: "after.notificationsAfterForget", owners: &["phone-ph2-settings-notify"], why: "as after.notifications" },
-    NotReplayed {
-        path: "before.files.grant",
-        owners: &["phone-download-grant"],
-        why: "Node's phone gets the file's name and size before it begins (file-download-transfer.ts:420-428): authorizing creates an expiring grant (file-downloads.ts:782-805). The core maps both stages to `transfer/beginRead` (inventory.rs), which has no authorize stage.",
-    },
-    NotReplayed {
-        path: "before.files.unbegun",
-        owners: &["phone-download-grant"],
-        why: "a second grant, authorized and never begun; the unpair revokes it before the relay is asked (remote-relay.ts:624)",
-    },
-    NotReplayed {
-        path: "before.files.transfer",
-        owners: &["phone-download-grant"],
-        why: "begin consumes the grant once and returns the transfer with its `media` metadata and lease times (file-downloads.ts:807-847). Replayed here only as the effect: a transfer of the file's size opens.",
-    },
-    NotReplayed {
-        path: "after.files.begin",
-        owners: &["phone-download-grant"],
-        why: "begin of the revoked, unbegun grant is refused `file-download:expired`; the core has no grant to refuse, only the transfer (replayed as after.files.range)",
-    },
     NotReplayed {
         path: "feedEvents",
         owners: &["phone-chat-live"],
@@ -1221,6 +1217,8 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
         macro_rules! replay {
             ($phone:expr, $path:expr, $method:expr, $params:expr) => {{
                 let recorded = at(scenario, $path);
+                // Node's recorder moved its clock a second for every call the phone made (its ids count from 100).
+                h.wall.0.store(DOWNLOAD_CLOCK_START + (recorded["id"].as_i64().unwrap() - 99) * 1000, Ordering::SeqCst);
                 $phone.send(&json!({ "id": recorded["id"], "method": $method, "params": $params }).to_string());
                 let wire = answer(&mut $phone, recorded["id"].as_u64().unwrap()).await;
                 let frame = canon.frame($path, &node_of(&wire));
@@ -1254,11 +1252,13 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
         let link = [minted["projectPath"].clone(), minted["relPath"].clone(), minted["accessToken"].clone()];
         let read_link = json!({ "root": link[0], "rel": link[1], "accessToken": link[2] });
         replay!(phone, "before.link.read", "projectFs/readText", read_link);
-        let source = json!({ "kind": "granted", "accessToken": link[2], "projectPath": link[0], "relPath": link[1] });
-        phone.send(&json!({ "id": 5000, "method": "transfer/beginRead", "params": { "source": source } }).to_string());
-        let began = answer(&mut phone, 5000).await;
-        assert_eq!(&began["result"]["size"], at(scenario, "before.files.transfer.value.size"), "{name}: an open transfer of the file");
-        let transfer = began["result"]["transferId"].clone();
+        // The download in its two stages, as Node's phone made them: the grant, the transfer it is consumed into, and a second grant
+        // never begun.
+        let source = json!({ "kind": "sessionFile", "path": download.to_string_lossy() });
+        let authorize = json!({ "source": source, "purpose": "save" });
+        let grant = replay!(phone, "before.files.grant", "transfer/authorizeRead", authorize)["result"]["grantId"].clone();
+        let transfer = replay!(phone, "before.files.transfer", "transfer/redeemGrant", json!({ "grantId": grant }))["result"]["transferId"].clone();
+        let unbegun = replay!(phone, "before.files.unbegun", "transfer/authorizeRead", authorize)["result"]["grantId"].clone();
 
         let chat_before = {
             phone.send(&json!({ "id": 5100, "method": "thread/list", "params": {} }).to_string());
@@ -1297,6 +1297,8 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
         replay!(*asks, "after.webPush", "remoteAccess/pushPublicKey", json!({}));
         // The transfer the device held ended with its unpair (the files of the device end at once, on any connection).
         replay!(*asks, "after.files.range", "transfer/readRange", json!({ "transferId": transfer, "offset": 0, "length": 4 }));
+        // And the grant it never begun.
+        replay!(*asks, "after.files.begin", "transfer/redeemGrant", json!({ "grantId": unbegun }));
         replay!(*asks, "after.link.read", "projectFs/readText", read_link);
         let asked = || h.desktop.asked.lock().unwrap().len();
         if attached {

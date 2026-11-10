@@ -57,11 +57,118 @@ pub fn version_string(version: &FileVersion) -> String {
     URL_SAFE_NO_PAD.encode(Sha256::digest(text.as_bytes()))
 }
 
+/// An unredeemed download authorization (Node's `Grant`, `file-downloads.ts`): the file opened once at authorize time and what the
+/// phone was told of it.
+struct Grant {
+    owner: String,
+    file: File,
+    size: u64,
+    version: String,
+    name: String,
+    mime: String,
+    expires_at: i64,
+    cleanup: Option<Cleanup>,
+}
+
+/// The times a phone's transfer ends at (Node's `Lease`): after the idle time without a read, and after the absolute lifetime.
+#[derive(Clone, Copy)]
+struct LeaseTimes {
+    expires_at: i64,
+    idle_until: i64,
+}
+
+/// An unredeemed grant lives this long (`FILE_DOWNLOAD_GRANT_TTL_MS`).
+pub const GRANT_TTL_MS: i64 = 60_000;
+/// A phone's transfer ends this long after its last read (`FILE_DOWNLOAD_LEASE_IDLE_MS`).
+pub const LEASE_IDLE_MS: i64 = 2 * 60_000;
+/// A phone's transfer ends this long after it began, however active (`FILE_DOWNLOAD_LEASE_MAX_MS`).
+pub const LEASE_MAX_MS: i64 = 30 * 60_000;
+/// Largest downloadable file, inclusive (`FILE_DOWNLOAD_MAX_BYTES`).
+pub const DOWNLOAD_MAX_BYTES: u64 = 256 * 1024 * 1024;
+/// Unredeemed grants one device holds; its oldest go first (`MAX_GRANTS_PER_DEVICE`).
+const MAX_GRANTS_PER_DEVICE: usize = 8;
+/// Concurrent phone transfers per device (`MAX_LEASES_PER_DEVICE`).
+const MAX_LEASES_PER_DEVICE: usize = 4;
+
+/// The wall clock grants and transfers expire on, in epoch milliseconds (Node's `Date.now`); tests substitute a controllable one.
+pub trait WallClock: Send + Sync {
+    fn now_ms(&self) -> i64;
+}
+
+/// The system clock, which a debug build pinned by `MIXDOG_FIXED_NOW_MS` replaces (see `editorcfg::now_ms`).
+pub struct SystemWall;
+
+impl WallClock for SystemWall {
+    fn now_ms(&self) -> i64 {
+        crate::editorcfg::now_ms()
+    }
+}
+
+fn download(code: &'static str, message: &str) -> WsError {
+    WsError::new(Reason::Download(code), message)
+}
+
+/// Node's `FileDownloadError('changed')`: what a phone is told when the file is no longer the version it was offered.
+fn download_changed() -> WsError {
+    download("file-download:changed", "The file changed on the host.")
+}
+
+/// What `authorize` tells the phone (Node's `FileDownloadGrant`).
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Authorized {
+    pub grant_id: String,
+    pub name: String,
+    pub size: u64,
+    pub mime: String,
+    pub version: String,
+    pub expires_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LeaseMedia {
+    pub asset_id: String,
+    pub variant: &'static str,
+    pub expires_at: i64,
+}
+
+/// What `begin` tells the phone (Node's `FileDownloadTransfer`).
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Leased {
+    pub transfer_id: String,
+    pub name: String,
+    pub size: u64,
+    pub mime: String,
+    pub version: String,
+    pub expires_at: i64,
+    pub range_max_bytes: u64,
+    pub media: LeaseMedia,
+}
+
+/// What `finish` tells the phone (Node's `FileDownloadFinished`).
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Finished {
+    pub transfer_id: String,
+    pub size: u64,
+    pub version: String,
+}
+
+/// Revocation generations: each only grows, so a changed value says something revoked the owner (or everything) meanwhile.
+#[derive(Default)]
+struct Generations {
+    all: u64,
+    owners: HashMap<String, u64>,
+}
+
 struct Read {
     owner: String,
     file: File,
     size: u64,
     version: String,
+    lease: Option<LeaseTimes>,
     // Declared after `file`, so the handle is closed before the removal (Windows cannot remove a
     // folder that holds an open file).
     _cleanup: Option<Cleanup>,
@@ -226,6 +333,13 @@ impl IdleTimer for TokioTimer {
 
 pub struct Transfers {
     reads: Mutex<HashMap<String, Read>>,
+    /// Insertion ordered, so a device's oldest grant is the first of its own.
+    grants: Mutex<Vec<(String, Grant)>>,
+    generations: Mutex<Generations>,
+    wall: std::sync::OnceLock<Arc<dyn WallClock>>,
+    /// Test seam: called with the name of a point in `authorize`, `begin_grant` or a lease read, where a revoke may run meanwhile.
+    #[cfg(test)]
+    pause: Mutex<Option<Arc<dyn Fn(&str) + Send + Sync>>>,
     writes: Mutex<HashMap<String, Upload>>,
     clock: Arc<dyn IdleClock>,
     idle: std::time::Duration,
@@ -245,7 +359,154 @@ fn new_id() -> String {
 
 impl Transfers {
     pub fn with_clock(clock: Arc<dyn IdleClock>, idle: std::time::Duration) -> Self {
-        Self { reads: Mutex::default(), writes: Mutex::default(), clock, idle, armed: tokio::sync::Notify::new() }
+        Self {
+            reads: Mutex::default(),
+            grants: Mutex::default(),
+            generations: Mutex::default(),
+            wall: std::sync::OnceLock::new(),
+            #[cfg(test)]
+            pause: Mutex::default(),
+            writes: Mutex::default(),
+            clock,
+            idle,
+            armed: tokio::sync::Notify::new(),
+        }
+    }
+
+    /// The clock grants and transfers expire on, set once before the first download (the system clock otherwise).
+    pub fn set_wall(&self, wall: Arc<dyn WallClock>) {
+        let _ = self.wall.set(wall);
+    }
+
+    fn now_ms(&self) -> i64 {
+        self.wall.get().map_or_else(|| SystemWall.now_ms(), |wall| wall.now_ms())
+    }
+
+    #[cfg(test)]
+    fn point(&self, name: &str) {
+        let hook = self.pause.lock().expect("pause").clone();
+        if let Some(hook) = hook {
+            hook(name);
+        }
+    }
+
+    #[cfg(not(test))]
+    fn point(&self, _name: &str) {}
+
+    fn generation(&self, owner: &str) -> u64 {
+        let generations = self.generations.lock().expect("generations");
+        generations.all + generations.owners.get(owner).copied().unwrap_or(0)
+    }
+
+    /// Ends every grant and phone transfer whose time is up (Node's `sweep`, run at the start of every call).
+    fn sweep_downloads(&self) {
+        let now = self.now_ms();
+        self.grants.lock().expect("transfer grants").retain(|(_, grant)| grant.expires_at > now);
+        self.reads.lock().expect("transfer reads").retain(|_, read| read.lease.is_none_or(|lease| lease.expires_at > now && lease.idle_until > now));
+    }
+
+    /// Unpair: everything `owner` holds ends now, and a call of it that is in flight finds it revoked.
+    pub fn revoke_owner(&self, owner: &str) {
+        *self.generations.lock().expect("generations").owners.entry(owner.to_owned()).or_default() += 1;
+        self.end_owner(owner);
+    }
+
+    /// The relay closed, or this host unpaired every device.
+    pub fn revoke_all(&self) {
+        self.generations.lock().expect("generations").all += 1;
+        self.grants.lock().expect("transfer grants").clear();
+        self.reads.lock().expect("transfer reads").retain(|_, read| read.lease.is_none());
+    }
+
+    /// Opens the download a phone asked for as a grant: the file stays open, so what was authorized is what is read. `mark` is
+    /// [`Self::mark`] taken before the file work.
+    pub fn authorize(&self, owner: &str, mark: u64, opened: SourceFile) -> WsResult<Authorized> {
+        self.sweep_downloads();
+        let SourceFile { file, name, mime_type, cleanup } = opened;
+        let size = file.metadata()?.len();
+        if size > DOWNLOAD_MAX_BYTES {
+            return Err(download("file-download:too-large", "Files larger than 256 MB cannot be downloaded."));
+        }
+        self.point("authorize.opened");
+        if self.generation(owner) != mark {
+            return Err(WsError::expired());
+        }
+        let version = version_string(&file_version(&file)?);
+        let name = sanitized_file_name(&name);
+        let grant_id = new_id();
+        let expires_at = self.now_ms() + GRANT_TTL_MS;
+        let mut grants = self.grants.lock().expect("transfer grants");
+        let held: Vec<String> = grants.iter().filter(|(_, g)| g.owner == owner).map(|(id, _)| id.clone()).collect();
+        for stale in held.iter().take((held.len() + 1).saturating_sub(MAX_GRANTS_PER_DEVICE)) {
+            grants.retain(|(id, _)| id != stale);
+        }
+        grants.push((
+            grant_id.clone(),
+            Grant { owner: owner.to_owned(), file, size, version: version.clone(), name: name.clone(), mime: mime_type.clone(), expires_at, cleanup: cleanup.map(Cleanup) },
+        ));
+        Ok(Authorized { grant_id, name, size, mime: mime_type, version, expires_at })
+    }
+
+    /// The revocation generation of `owner`, read before the file work of a call that checks it again afterwards.
+    pub fn mark(&self, owner: &str) -> u64 {
+        self.generation(owner)
+    }
+
+    /// Consumes the grant (once) into one transfer (Node's `begin`).
+    pub fn begin_grant(&self, owner: &str, grant_id: &str) -> WsResult<Leased> {
+        self.sweep_downloads();
+        let grant = {
+            let mut grants = self.grants.lock().expect("transfer grants");
+            let at = grants.iter().position(|(id, g)| id == grant_id && g.owner == owner).ok_or_else(WsError::expired)?;
+            grants.remove(at).1
+        };
+        // Out of the table, a revoke can no longer reach the grant: it is checked against this mark after the file work.
+        let mark = self.generation(owner);
+        self.point("begin.verify");
+        if version_string(&file_version(&grant.file)?) != grant.version {
+            return Err(download_changed());
+        }
+        if self.generation(owner) != mark {
+            return Err(WsError::expired());
+        }
+        let mut reads = self.reads.lock().expect("transfer reads");
+        if reads.values().filter(|r| r.owner == owner && r.lease.is_some()).count() >= MAX_LEASES_PER_DEVICE {
+            return Err(download("file-download:busy", "Too many downloads are in progress on this device."));
+        }
+        let at = self.now_ms();
+        let times = LeaseTimes { expires_at: at + LEASE_MAX_MS, idle_until: at + LEASE_IDLE_MS };
+        let transfer_id = new_id();
+        let Grant { file, size, version, name, mime, cleanup, .. } = grant;
+        reads.insert(
+            transfer_id.clone(),
+            Read { owner: owner.to_owned(), file, size, version: version.clone(), lease: Some(times), _cleanup: cleanup, opened: Instant::now() },
+        );
+        Ok(Leased {
+            transfer_id,
+            name,
+            size,
+            mime,
+            version,
+            expires_at: times.expires_at,
+            range_max_bytes: RANGE_MAX_BYTES,
+            media: LeaseMedia { asset_id: new_id(), variant: "download", expires_at: times.expires_at },
+        })
+    }
+
+    /// The phone is done: the file must still be the version that was leased, and the transfer ends either way.
+    pub fn finish_read(&self, owner: &str, id: &str) -> WsResult<Finished> {
+        self.sweep_downloads();
+        let read = {
+            let mut reads = self.reads.lock().expect("transfer reads");
+            if !reads.get(id).is_some_and(|r| r.owner == owner && r.lease.is_some()) {
+                return Err(WsError::expired());
+            }
+            reads.remove(id).expect("checked")
+        };
+        if version_string(&file_version(&read.file)?) != read.version {
+            return Err(download_changed());
+        }
+        Ok(Finished { transfer_id: id.to_owned(), size: read.size, version: read.version.clone() })
     }
 
     /// When the first upload goes idle (`fed + idle`), or none while no upload is open.
@@ -308,12 +569,12 @@ impl Transfers {
             return Err(WsError::new(Reason::Busy, "Too many downloads are open."));
         }
         let id = new_id();
-        reads.insert(
-            id.clone(),
-            Read { owner: owner.to_owned(), file, size, version: version.clone(), _cleanup: cleanup.map(Cleanup), opened: Instant::now() },
-        );
         // Every source's offered name goes through Node's `sanitizedFileName`, here and nowhere else.
         let name = sanitized_file_name(&name);
+        reads.insert(
+            id.clone(),
+            Read { owner: owner.to_owned(), file, size, version: version.clone(), lease: None, _cleanup: cleanup.map(Cleanup), opened: Instant::now() },
+        );
         Ok(Opened { transfer_id: id, size, mime_type: mime.to_owned(), name, version, range_max_bytes: RANGE_MAX_BYTES })
     }
 
@@ -380,14 +641,24 @@ impl Transfers {
         name.push_str(".zip");
         self.register(owner, file, name, "application/zip", Some(temp))
     }
-    pub fn read_range(&self, owner: &str, id: &str, offset: u64, length: u64) -> WsResult<Range> {
-        let (file, size, version) = {
+    /// `expected`: the version the phone leased (a phone's read names it; a mismatch is `changed`). A phone's transfer also ends
+    /// when its file changed, and its idle time starts over with each read.
+    pub fn read_range(&self, owners: &[&str], id: &str, offset: u64, length: u64, expected: Option<&str>) -> WsResult<Range> {
+        self.sweep_downloads();
+        let (file, size, version, leased) = {
             let reads = self.reads.lock().expect("transfer reads");
-            let read = reads.get(id).filter(|r| r.owner == owner).ok_or_else(WsError::expired)?;
-            (read.file.try_clone()?, read.size, read.version.clone())
+            let read = reads.get(id).filter(|r| owners.contains(&r.owner.as_str())).ok_or_else(WsError::expired)?;
+            (read.file.try_clone()?, read.size, read.version.clone(), read.lease.is_some())
         };
+        if expected.is_some_and(|expected| expected != version) {
+            return Err(download_changed());
+        }
         let current = version_string(&file_version(&file)?);
         if current != version {
+            if leased {
+                self.reads.lock().expect("transfer reads").remove(id);
+                return Err(download_changed());
+            }
             return Err(WsError::changed());
         }
         if offset > size {
@@ -403,6 +674,15 @@ impl Transfers {
             }
             filled += n;
         }
+        self.point("read.read");
+        // Revoked while reading: nothing more leaves the transfer.
+        {
+            let mut reads = self.reads.lock().expect("transfer reads");
+            let read = reads.get_mut(id).filter(|r| owners.contains(&r.owner.as_str())).ok_or_else(WsError::expired)?;
+            if let Some(lease) = read.lease.as_mut() {
+                lease.idle_until = self.now_ms() + LEASE_IDLE_MS;
+            }
+        }
         Ok(Range {
             transfer_id: id.to_owned(),
             offset,
@@ -413,13 +693,19 @@ impl Transfers {
         })
     }
 
-    pub fn end_read(&self, owner: &str, id: &str) -> bool {
+    /// Ends a transfer, or an unredeemed grant, of `owner`; whether anything was released.
+    pub fn end_read(&self, owners: &[&str], id: &str) -> bool {
+        self.sweep_downloads();
         let mut reads = self.reads.lock().expect("transfer reads");
-        if reads.get(id).is_some_and(|r| r.owner == owner) {
+        if reads.get(id).is_some_and(|r| owners.contains(&r.owner.as_str())) {
             reads.remove(id);
             return true;
         }
-        false
+        drop(reads);
+        let mut grants = self.grants.lock().expect("transfer grants");
+        let before = grants.len();
+        grants.retain(|(grant, g)| !(grant == id && owners.contains(&g.owner.as_str())));
+        grants.len() != before
     }
 
     pub fn begin_write(&self, owner: &str, root: &Path, rel: &str, size: u64) -> WsResult<String> {
@@ -554,13 +840,14 @@ impl Transfers {
             let _ = std::fs::remove_file(write.temp);
             return true;
         }
-        self.end_read(owner, id)
+        self.end_read(&[owner], id)
     }
 
     /// Ends every transfer of `owner` (a closed connection, a revoked device); in-flight
     /// reads fail with `expired` from then on.
     pub fn end_owner(&self, owner: &str) {
         self.reads.lock().expect("transfer reads").retain(|_, r| r.owner != owner);
+        self.grants.lock().expect("transfer grants").retain(|(_, g)| g.owner != owner);
         let stale: Vec<Upload> = {
             let mut writes = self.writes.lock().expect("transfer writes");
             let ids: Vec<String> = writes.iter().filter(|(_, w)| w.owner == owner).map(|(k, _)| k.clone()).collect();
@@ -577,6 +864,63 @@ impl Transfers {
 }
 
 pub type SharedTransfers = Arc<Transfers>;
+
+/// Node's `openRegularFile`: a regular file by its real path, never a network path, a folder or a device.
+fn open_regular(path: &Path) -> WsResult<(PathBuf, File)> {
+    let not_local = || download("file-download:not-a-file", "Only files on this PC can be downloaded.");
+    let network = |p: &Path| {
+        let text = p.to_string_lossy();
+        text.starts_with("//") || text.starts_with("\\\\")
+    };
+    if network(path) {
+        return Err(not_local());
+    }
+    let missing = |error: std::io::Error| match error.kind() {
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory => download("file-download:not-found", "The file no longer exists."),
+        _ => WsError::from(error),
+    };
+    let real = canonical(path).map_err(missing)?;
+    if network(&real) || !std::fs::metadata(&real).map_err(missing)?.is_file() {
+        return Err(not_local());
+    }
+    let file = File::open(&real).map_err(missing)?;
+    Ok((real, file))
+}
+
+fn offered(path: &Path, file: File) -> SourceFile {
+    let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    SourceFile { file, mime_type: mime_type(path).to_owned(), name, cleanup: None }
+}
+
+/// A project file of a conversation (`authorizeProjectFile`): the relative path may not leave `root`, and neither may its real place.
+pub fn open_project_download(root: &Path, rel: &str) -> WsResult<SourceFile> {
+    let outside = || download("file-download:outside-project", "The file is outside the conversation's project.");
+    let lexical_path = project_entry_path(root, rel).map_err(|_| outside())?;
+    let (real, file) = open_regular(&lexical_path)?;
+    if !crate::pathguard::is_within(root, &real) {
+        return Err(outside());
+    }
+    Ok(offered(&lexical_path, file))
+}
+
+/// A file a conversation names, absolute (`openSessionPath`): anywhere on this PC, but a path inside the conversation's project may not
+/// leave it through a link. `project` is the registered project's real folder and `project_given` the folder as the conversation
+/// states it.
+pub fn open_session_download(path: &str, project: Option<&Path>, project_given: Option<&Path>) -> WsResult<SourceFile> {
+    let requested = Path::new(path);
+    if !requested.is_absolute() || path.starts_with("//") || path.starts_with("\\\\") {
+        return Err(download("file-download:not-a-file", "Only files on this PC can be downloaded."));
+    }
+    let requested = crate::pathguard::lexical(requested);
+    let in_project = project.is_some_and(|root| {
+        crate::pathguard::is_within(root, &requested) || project_given.is_some_and(|given| crate::pathguard::is_within(&crate::pathguard::lexical(given), &requested))
+    });
+    let (real, file) = open_regular(&requested)?;
+    if in_project && !project.is_some_and(|root| crate::pathguard::is_within(root, &real)) {
+        return Err(download("file-download:outside-project", "The link resolves outside the conversation's project."));
+    }
+    Ok(offered(&requested, file))
+}
 
 fn upload_gone() -> WsError {
     WsError::new(Reason::Expired, "The upload is gone: it was cancelled or sat idle too long.")
@@ -667,16 +1011,16 @@ mod tests {
         let t = Transfers::default();
         let opened = t.begin_project_read("dev-a", &root, "report.bin").unwrap();
         assert_eq!((opened.size, opened.range_max_bytes), (128, 4_194_304));
-        let range = t.read_range("dev-a", &opened.transfer_id, 0, 64).unwrap();
+        let range = t.read_range(&["dev-a"], &opened.transfer_id, 0, 64, None).unwrap();
         assert_eq!((range.length, range.eof), (64, false));
         assert_eq!(STANDARD.decode(&range.data).unwrap(), b"0123456789abcdef".repeat(4));
-        assert_eq!(t.read_range("dev-b", &opened.transfer_id, 0, 8).unwrap_err().reason, Reason::DownloadExpired);
+        assert_eq!(t.read_range(&["dev-b"], &opened.transfer_id, 0, 8, None).unwrap_err().reason, Reason::DownloadExpired);
         assert_eq!(
-            t.read_range("dev-a", &opened.transfer_id, 1000, 8).unwrap_err().message,
+            t.read_range(&["dev-a"], &opened.transfer_id, 1000, 8, None).unwrap_err().message,
             "offset is past the end of the file."
         );
         std::fs::OpenOptions::new().append(true).open(root.join("report.bin")).unwrap().write_all(b"x").unwrap();
-        assert_eq!(t.read_range("dev-a", &opened.transfer_id, 0, 8).unwrap_err().message, "The file changed on the host.");
+        assert_eq!(t.read_range(&["dev-a"], &opened.transfer_id, 0, 8, None).unwrap_err().message, "The file changed on the host.");
         t.end_owner("dev-a");
         assert_eq!(t.open_reads(), 0);
     }
@@ -697,7 +1041,7 @@ mod tests {
         };
         let opened = t.begin_source("dev", source(folder.clone(), &folder.join("chart.png"))).unwrap();
         assert!(folder.exists(), "the folder lives while the transfer is open");
-        assert!(t.end_read("dev", &opened.transfer_id));
+        assert!(t.end_read(&["dev"], &opened.transfer_id));
         assert!(!folder.exists(), "the whole folder goes with the transfer, open handle included");
 
         let staged = base.path().join("staged.bin");
@@ -869,3 +1213,6 @@ mod tests {
         assert_eq!(std::fs::read(root.join("in/up.txt")).unwrap(), b"hello");
     }
 }
+
+#[cfg(test)]
+mod replay;
