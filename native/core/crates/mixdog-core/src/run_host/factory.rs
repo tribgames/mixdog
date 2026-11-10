@@ -141,6 +141,8 @@ pub struct Assembled {
     pub step_judge: Option<Arc<dyn mixdog_agent::step_effort::StepEffortJudge>>,
     pub artifacts: Option<Arc<dyn mixdog_agent::offload::ArtifactStore>>,
     pub images: Option<Arc<dyn mixdog_agent::offload::ImageCompactor>>,
+    /// Where the turn's failed tool calls are recorded (`history/tool-failures.jsonl`).
+    pub failures: Option<Arc<dyn mixdog_agent::env::ToolFailureLog>>,
     /// The attachment blob reader, for the display facts of a user row (a pasted text's body).
     pub blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>,
     /// The guard state that outlives one ask (the session record).
@@ -941,7 +943,7 @@ async fn drive(
         Err(error) => return RunOutcome::Failed(error),
     };
     let Assembled {
-        provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, reaction_scope: _reaction_scope, rows, tail, side, step_judge, artifacts, images, blobs, carry,
+        provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, reaction_scope: _reaction_scope, rows, tail, side, step_judge, artifacts, images, failures, blobs, carry,
     } = assembled;
     // `backfillFallbackSessionTitle` (`precommitUserTurn`, `ask-turn-execute.mjs`): a titleless session is named
     // from the earliest human turn of its history, else this turn's prompt (an injected turn never names it),
@@ -1141,6 +1143,7 @@ async fn drive(
         step_judge,
         artifacts,
         images,
+        failures,
     };
     // Node's `_api_call_with_interrupt` spans `agentLoop`: an abort inside reads "during call".
     progress.model_loop(true);
@@ -1424,6 +1427,7 @@ mod tests {
                 step_judge: None,
                 artifacts: None,
                 images: None,
+                failures: None,
                 blobs: Arc::new(NoBlobs),
                 carry: RunCarry::default(),
             })

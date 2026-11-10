@@ -20,6 +20,7 @@ mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true }
 mixdog-store = { workspace = true }
 mixdog-tools = { workspace = true }
+mixdog-trace = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt", "macros", "time"] }

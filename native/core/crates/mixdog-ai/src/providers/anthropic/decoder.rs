@@ -514,7 +514,7 @@ impl AnthropicDecoder {
                         Err(error) => json!({
                             "__invalidToolArgs": true,
                             "__rawArguments": json,
-                            "__parseError": error.to_string(),
+                            "__parseError": mixdog_js::v8_json_parse_error(json).unwrap_or_else(|| error.to_string()),
                         }),
                     }
                 };

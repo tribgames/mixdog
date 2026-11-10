@@ -620,8 +620,19 @@ struct Harness {
     reuse: Option<Arc<dyn ResultReuse>>,
     route: Option<Arc<dyn RouteFallback>>,
     mcp: Option<Arc<dyn mixdog_agent::env::McpCatalog>>,
+    failures: Option<Arc<FailureLog>>,
     cancel: CancellationToken,
     clock: Arc<FixedClock>,
+}
+
+/// The calls the loop reported to the host's failure log.
+#[derive(Default)]
+struct FailureLog(Mutex<Vec<mixdog_agent::env::FailedCall>>);
+
+impl mixdog_agent::env::ToolFailureLog for FailureLog {
+    fn failed(&self, call: mixdog_agent::env::FailedCall) {
+        self.0.lock().unwrap().push(call);
+    }
 }
 
 impl Harness {
@@ -640,6 +651,7 @@ impl Harness {
             reuse: None,
             route: None,
             mcp: None,
+            failures: None,
             cancel: CancellationToken::new(),
             clock: Arc::new(FixedClock(AtomicI64::new(1_000))),
         }
@@ -682,6 +694,7 @@ impl Harness {
             step_judge: None,
             artifacts: None,
             images: None,
+            failures: self.failures.clone().map(|f| f as Arc<dyn mixdog_agent::env::ToolFailureLog>),
         }
     }
 

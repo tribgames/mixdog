@@ -476,6 +476,9 @@ pub(crate) struct Executed {
     /// The executor returned this text rather than throwing (a gate or hook denial): Node's early notice calls such
     /// a settled call a normal result, not an error.
     pub(crate) returned: bool,
+    /// Dispatch to settle in ms (Node's `toolEndedAt - toolStartedAt`, the failure log's `tool_ms`); 0 for a
+    /// call that did not run.
+    pub(crate) tool_ms: i64,
 }
 
 impl Executed {
@@ -489,6 +492,7 @@ impl Executed {
             cache_hit: None,
             output: None,
             returned: false,
+            tool_ms: 0,
         }
     }
 
@@ -573,7 +577,9 @@ pub(crate) async fn execute_call(call: ToolCall, env: Arc<CallEnv>) -> Executed 
             format!("The arguments provided to `{name}` are invalid JSON and could not be parsed: {detail}. Re-issue this tool call with valid JSON arguments."),
         );
     }
-    let executed = execute_gated(&call, &env).await;
+    let started = env.clock.now_ms();
+    let mut executed = execute_gated(&call, &env).await;
+    executed.tool_ms = (env.clock.now_ms() - started).max(0);
     // PostToolUseFailure: a tool that resolved to a failure fires the hook;
     // it never breaks the loop.
     if executed.failed
@@ -928,6 +934,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
                 cache_hit: None,
                 output: Some(output),
                 returned: false,
+                tool_ms: 0,
             }
         }
         Err(error) => {
