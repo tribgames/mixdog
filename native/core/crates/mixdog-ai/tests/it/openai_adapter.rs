@@ -66,11 +66,15 @@ type Scripted = (u16, Vec<(String, String)>, Vec<Bytes>);
 struct ScriptedHttp {
     responses: Mutex<VecDeque<Scripted>>,
     seen: Mutex<Vec<WireRequest>>,
+    /// Every HEAD warm-up with the exchange it was sent under; they are not turns, so seen leaves them out.
+    warmups: Mutex<Vec<(WireRequest, mixdog_ai::transport::Exchange)>>,
+    /// The warm-ups fail while this is set (a refused connection).
+    warmup_fails: std::sync::atomic::AtomicBool,
 }
 
 impl ScriptedHttp {
     fn with(responses: Vec<Scripted>) -> Arc<Self> {
-        Arc::new(Self { responses: Mutex::new(responses.into()), seen: Mutex::default() })
+        Arc::new(Self { responses: Mutex::new(responses.into()), seen: Mutex::default(), warmups: Mutex::default(), warmup_fails: Default::default() })
     }
 }
 
@@ -79,10 +83,14 @@ impl HttpSend for ScriptedHttp {
     async fn send(
         &self,
         request: WireRequest,
-        _exchange: mixdog_ai::transport::Exchange,
+        exchange: mixdog_ai::transport::Exchange,
     ) -> Result<HttpResponse, ProviderError> {
-        // A HEAD is the provider's connection warm-up, not a turn: answered empty, neither recorded nor scripted.
+        // A HEAD is the provider's connection warm-up, not a turn: answered empty, recorded apart and never scripted.
         if request.method == "HEAD" {
+            self.warmups.lock().unwrap().push((request, exchange));
+            if self.warmup_fails.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(ProviderError::transport(TransportFault::Closed, mixdog_core_api::domain::provider::DeliveryState::NotSent));
+            }
             return Ok(HttpResponse { status: 200, headers: Vec::new(), body: Box::new(VecBody(VecDeque::new())) });
         }
         self.seen.lock().unwrap().push(request);
@@ -216,7 +224,16 @@ fn adapter(
     dial: Arc<ScriptedDial>,
     credentials: Arc<Credentials>,
 ) -> OpenAiAdapter {
-    let context = Arc::new(SessionContext::new());
+    adapter_in(Arc::new(SessionContext::new()), transport, http, dial, credentials)
+}
+
+fn adapter_in(
+    context: Arc<SessionContext>,
+    transport: TransportKind,
+    http: Arc<ScriptedHttp>,
+    dial: Arc<ScriptedDial>,
+    credentials: Arc<Credentials>,
+) -> OpenAiAdapter {
     let identity = CodexIdentity {
         installation_id: "i".into(),
         user_agent: "ua".into(),
@@ -400,4 +417,76 @@ async fn an_error_frame_that_is_not_an_effort_rejection_reaches_the_decoder() {
     let result = collect(&adapter, request(None)).await;
     assert!(result.is_err(), "the failure is the stream's, not swallowed");
     assert_eq!(dial.sent.lock().unwrap().len(), 1, "nothing was replayed");
+}
+
+// ---- the connection warm-up (shared/llm/http-agent.mjs:496-527, openai-oauth.mjs:106, :170) --------------------------
+
+fn clocked(now: &Arc<std::sync::atomic::AtomicU64>, var: Option<(&'static str, &'static str)>) -> Arc<SessionContext> {
+    let now = now.clone();
+    let context = SessionContext::with_sources(move || now.load(std::sync::atomic::Ordering::SeqCst), || "id".to_owned());
+    Arc::new(match var {
+        Some((name, value)) => context.with_var(move |asked| (asked == name).then(|| value.to_owned())),
+        None => context.with_var(|_| None),
+    })
+}
+
+#[tokio::test]
+async fn the_warm_up_is_one_fire_and_forget_head_to_the_codex_origin_under_the_ten_second_deadline() {
+    let http = ScriptedHttp::with(vec![(200, vec![], sse("text"))]);
+    let now = Arc::new(std::sync::atomic::AtomicU64::new(1_000));
+    let adapter = adapter_in(clocked(&now, None), TransportKind::Http1, http.clone(), ScriptedDial::with(vec![]), Credentials::new("t", None));
+    // Constructing the provider warms (`openai-oauth.mjs:106`); the request before any turn adds none inside the TTL.
+    assert_eq!(http.warmups.lock().unwrap().len(), 1);
+    collect(&adapter, request(None)).await.unwrap();
+    let warmups = http.warmups.lock().unwrap();
+    assert_eq!(warmups.len(), 1, "one warm-up per origin per TTL");
+    let (head, exchange) = &warmups[0];
+    assert_eq!((head.method.as_str(), head.url.as_str()), ("HEAD", "https://chatgpt.com/"));
+    assert!(head.headers.is_empty() && head.body.is_empty(), "the provider adds no header and no body of its own");
+    assert_eq!(*exchange, mixdog_ai::transport::deadlines::PRECONNECT, "10 s, no redirect followed");
+    assert_eq!(http.seen.lock().unwrap().len(), 1, "the warm-up is not a turn");
+}
+
+/// Warm-ups after the constructor's, when the clock moves `after` ms past it and one turn runs there. The warm-up
+/// stamp is per process (`_preconnectedAt`, a module Map), so each of these runs alone in its process under nextest.
+async fn warmups_after(var: Option<(&'static str, &'static str)>, steps: &[u64], fail: bool) -> usize {
+    let http = ScriptedHttp::with(steps.iter().map(|_| (200, vec![], sse("text"))).collect());
+    http.warmup_fails.store(fail, std::sync::atomic::Ordering::SeqCst);
+    let now = Arc::new(std::sync::atomic::AtomicU64::new(1_000));
+    let adapter = adapter_in(clocked(&now, var), TransportKind::Http1, http.clone(), ScriptedDial::with(vec![]), Credentials::new("t", None));
+    for after in steps {
+        now.store(1_000 + after, std::sync::atomic::Ordering::SeqCst);
+        collect(&adapter, request(None)).await.unwrap();
+    }
+    let count = http.warmups.lock().unwrap().len();
+    count - 1
+}
+
+#[tokio::test]
+async fn a_turn_inside_the_default_ttl_of_fifty_seconds_does_not_warm_again() {
+    assert_eq!(warmups_after(None, &[49_999], false).await, 0);
+}
+
+#[tokio::test]
+async fn a_turn_at_the_default_ttl_warms_again() {
+    assert_eq!(warmups_after(None, &[50_000], false).await, 1);
+}
+
+#[tokio::test]
+async fn a_short_keepalive_still_warms_every_five_seconds_at_most() {
+    let short = Some(("MIXDOG_LLM_KEEPALIVE_MS", "1000"));
+    assert_eq!(warmups_after(short, &[4_999], false).await, 0);
+}
+
+#[tokio::test]
+async fn a_short_keepalive_floor_is_reached_at_five_seconds() {
+    let short = Some(("MIXDOG_LLM_KEEPALIVE_MS", "1000"));
+    assert_eq!(warmups_after(short, &[5_000], false).await, 1);
+}
+
+#[tokio::test]
+async fn a_failed_warm_up_clears_the_stamp_so_the_next_turn_warms_again() {
+    // Every warm-up fails: the constructor's, and then one before each of two turns 1 ms apart, well inside the TTL
+    // (`http-agent.mjs:520-526` deletes the stamp on failure). Nothing reaches the caller: both turns succeed.
+    assert_eq!(warmups_after(None, &[1, 2], true).await, 2);
 }

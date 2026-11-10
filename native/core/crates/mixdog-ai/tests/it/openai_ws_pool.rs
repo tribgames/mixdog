@@ -55,6 +55,8 @@ impl BodyStream for VecBody {
 #[derive(Default)]
 struct Http {
     seen: Mutex<Vec<WireRequest>>,
+    /// The HEAD warm-ups, apart from the turns in seen.
+    warmups: Mutex<Vec<WireRequest>>,
 }
 
 #[async_trait]
@@ -64,8 +66,9 @@ impl HttpSend for Http {
         request: WireRequest,
         _exchange: mixdog_ai::transport::Exchange,
     ) -> Result<HttpResponse, ProviderError> {
-        // A HEAD is the provider's connection warm-up, not a turn: answered empty and not recorded.
+        // A HEAD is the provider's connection warm-up, not a turn: answered empty and recorded apart.
         if request.method == "HEAD" {
+            self.warmups.lock().unwrap().push(request);
             return Ok(HttpResponse { status: 200, headers: vec![], body: Box::new(VecBody(Default::default())) });
         }
         self.seen.lock().unwrap().push(request);
