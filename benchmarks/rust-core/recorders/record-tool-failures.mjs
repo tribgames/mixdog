@@ -12,7 +12,6 @@
 //   MIXDOG_RECORDER_SCRATCH=<scratch parent> node benchmarks/rust-core/recorders/record-tool-failures.mjs --tree <exact export of b6f10295a with node_modules> [--only <n>,<n>]
 //
 // Output: native/core/fixtures/tool-failures/golden.json (+ MANIFEST.json); with --only the scenarios named are recorded and printed.
-import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -151,6 +150,7 @@ if (process.argv[2] === '--child') {
 
 const { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 const { maskWorkspace, rowsByScenario } = await import('./lib/tool-failure-rows.mjs');
+const { readJobReport, spawnInJob } = await import('./lib/job-run.mjs');
 const argv = process.argv.slice(2);
 const onlyAt = argv.indexOf('--only');
 const only = onlyAt >= 0 ? argv[onlyAt + 1] : null;
@@ -158,15 +158,11 @@ const tree = resolveTree(parseArgs(onlyAt >= 0 ? argv.filter((_, i) => i !== onl
 const identity = exactProductIdentity(tree, NODE_COMMIT);
 const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
 
-/** Processes whose command line names `folder`, other than the lister itself: what a finished recording must not leave behind. */
-function processesNaming(folder) {
-  const script = `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '*${folder.replace(/'/g, "''")}*' } | ForEach-Object { "$($_.ProcessId) $($_.Name)" }`;
-  const listed = spawnSync('powershell', ['-NoProfile', '-Command', script], { encoding: 'utf8', timeout: 30_000 });
-  if (listed.status !== 0) throw new Error(`listing the processes that name ${folder} failed (${listed.status ?? listed.signal}): ${listed.stderr}`);
-  return listed.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
-}
-
-/** One recording in its own profile under the run's folder; the child is ended only through the handle held here. */
+/**
+ * One recording in its own profile under the run's folder. The child runs in a job object of its own (lib/job-run.mjs): every process
+ * it or its tools start is a member, and a member still running after the child exits fails the recording (and is ended). The child is
+ * ended only through the handle held here, which ends the job.
+ */
 async function record(label, run, workspace) {
   const sandbox = join(run, `profile-${label}`);
   const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, RECORDER_TREE: tree, RECORDER_WORKSPACE: workspace, MIXDOG_SKIP_USER_DATA_BACKUP: '1', MIXDOG_FEATURE_MEMORY: '0', ...(only ? { RECORDER_ONLY: only } : {}) };
@@ -174,7 +170,8 @@ async function record(label, run, workspace) {
     env[name] = join(sandbox, name.toLowerCase());
     mkdirSync(env[name], { recursive: true });
   }
-  const child = spawn(process.execPath, [SELF, '--child'], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  const report = join(sandbox, 'job.json');
+  const child = spawnInJob(process.execPath, [SELF, '--child'], { env, cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'], report });
   let output = '';
   child.stdout.on('data', (d) => { output += d; });
   child.stderr.on('data', (d) => { output += d; });
@@ -187,7 +184,9 @@ async function record(label, run, workspace) {
     await deadline(exited, 30_000, `recording ${label} ending after its kill`);
     throw new Error(`${error.message}\n${output}`);
   }
-  if (result.code !== 0) throw new Error(`recording ${label} failed (${result.code ?? result.signal}):\n${output}`);
+  const job = readJobReport(report);
+  if (job.left.length) throw new Error(`recording ${label} left processes behind (ended now): ${JSON.stringify(job.left)}`);
+  if (result.code !== 0 || job.exitCode !== 0) throw new Error(`recording ${label} failed (${job.exitCode}, host ${result.code ?? result.signal}):\n${output}`);
   const results = JSON.parse(readFileSync(join(env.MIXDOG_DATA_DIR, 'results.json'), 'utf8'));
   const sessions = results.map((r) => r?.session ?? null);
   const file = join(env.MIXDOG_DATA_DIR, 'history', 'tool-failures.jsonl');
@@ -258,16 +257,11 @@ try {
 } catch (error) {
   failure = error;
 }
-// Nothing may outlive the recording: a process still naming the run's folder fails it, and the folder is kept for a look.
-const left = processesNaming(run);
-if (left.length) {
-  console.error(`processes still naming ${run}: ${left.join(', ')}; the folder is kept`);
-  process.exitCode = 1;
-} else if (failure) {
+// A failed run keeps its folder for a look (what each recording left behind is its job report's, checked in `record`).
+if (failure) {
   console.error(`the run's folder ${run} is kept`);
-} else {
-  rmSync(run, { recursive: true, force: true });
+  throw failure;
 }
-if (failure) throw failure;
-process.exit(process.exitCode ?? 0);
+rmSync(run, { recursive: true, force: true });
+process.exit(0);
 
