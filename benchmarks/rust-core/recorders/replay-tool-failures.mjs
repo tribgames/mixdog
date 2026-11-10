@@ -34,7 +34,9 @@ const sse = (res, chunks) => {
 };
 const chunk = (delta, finish = null) => ({ id: 's', object: 'chat.completion.chunk', created: 0, model: golden.model, choices: [{ index: 0, delta, finish_reason: finish }] });
 
-function provider(replies) {
+// `requests` gets one entry per scripted reply handed out (the request's path, message count, last role and tool count), so a
+// request the turn did not make is seen against Node's send count.
+function provider(replies, requests) {
   let n = 0;
   const server = createServer((req, res) => {
     const body = [];
@@ -44,6 +46,9 @@ function provider(replies) {
         res.writeHead(200, { 'content-type': 'application/json' });
         return res.end(JSON.stringify({ object: 'list', data: [{ id: golden.model, object: 'model' }] }));
       }
+      let parsed = null;
+      try { parsed = JSON.parse(Buffer.concat(body).toString('utf8')); } catch {}
+      requests.push({ path: req.url, messages: parsed?.messages?.length ?? null, lastRole: parsed?.messages?.at(-1)?.role ?? null, tools: parsed?.tools?.length ?? 0 });
       const step = replies[n++];
       if (!step) return sse(res, [chunk({ role: 'assistant', content: 'extra' }), chunk({}, 'stop'), '[DONE]']);
       if (!step.calls.length) return sse(res, [chunk({ role: 'assistant', content: step.text }), chunk({}, 'stop'), '[DONE]']);
@@ -78,8 +83,9 @@ async function runScenario(scenario, root, ws, bin) {
   let child;
   let exited;
   let client;
+  const requests = [];
   try {
-    const prov = await deadline(provider(scenario.replies), 30_000, 'the scripted provider listening');
+    const prov = await deadline(provider(scenario.replies, requests), 30_000, 'the scripted provider listening');
     cleanups.push(() => deadline(prov.close(), 30_000, 'the scripted provider closing'));
     // A `full` scenario sees the MCP server `fx` (the recording connected the same stdio server under the session's scope).
     const mcpServers = scenario.full ? { fx: { command: process.execPath, args: ['fx-mcp.mjs'], cwd: ws } } : undefined;
@@ -192,8 +198,9 @@ async function runScenario(scenario, root, ws, bin) {
     if (job.exitCode !== 0) throw new Error(`the core exited with ${job.exitCode}`);
     const file = join(p.data, 'history', 'tool-failures.jsonl');
     // What the job still held when the core exited (ended since by the job host), compared with Node's by the caller.
-    return { threadId, dataDir: p.data, text: existsSync(file) ? readFileSync(file, 'utf8') : '', left: leftAtExit(job), rawLeft: job.left };
+    return { threadId, dataDir: p.data, text: existsSync(file) ? readFileSync(file, 'utf8') : '', left: leftAtExit(job), rawLeft: job.left, requests };
   } finally {
+    writeFileSync(join(root, 'requests.json'), JSON.stringify(requests, null, 1));
     // Every step of the teardown is bounded and runs; the first that failed fails the scenario (after a failure of its own, that one).
     const problems = [];
     for (const cleanup of cleanups.reverse()) {
@@ -225,7 +232,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (JSON.stringify(scenarios(ws)) !== JSON.stringify(golden.scenarios)) throw new Error('the scenarios built for this workspace are not the recorded ones');
     for (const [i, scenario] of golden.scenarios.entries()) {
       if (only && !only.includes(i)) continue;
-      const { threadId, dataDir, text, left, rawLeft } = await runScenario(scenario, join(base, `s${i}`), ws, bin);
+      const { threadId, dataDir, text, left, rawLeft, requests } = await runScenario(scenario, join(base, `s${i}`), ws, bin);
+      // The core must ask the provider as often as Node's session sent: an extra request takes a scripted reply meant for the turn.
+      if (requests.length !== golden.results[i].sends) {
+        bad += 1;
+        console.log(`DIFF ${i} ${scenario.name}: ${requests.length} provider requests, Node ${golden.results[i].sends}\n   core: ${JSON.stringify(requests)}`);
+      }
       // What the core left running at its exit must be what Node left at its own (Node's helpers set aside), whole and in join order.
       if (JSON.stringify(left) !== JSON.stringify(golden.leftAtExit[i])) {
         bad += 1;
