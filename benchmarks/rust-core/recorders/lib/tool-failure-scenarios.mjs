@@ -100,9 +100,25 @@ export function scenarios(workspace) {
           text: 'go',
           calls: [
             { id: 'k1', name: 'Skill', args: { name: 'no-such-skill' } },
+            { id: 'k2', name: 'Skill', args: {} },
             { id: 'g1', name: 'agent', args: { type: 'bogus' } },
             { id: 'g2', name: 'agent', args: { type: 'read', task_id: 'task_does_not_exist' } },
             { id: 'g3', name: 'agent', args: { type: 'send' } },
+          ],
+        },
+        DONE,
+      ],
+    },
+    {
+      // The core offers an MCP server's tools behind `load_tool` / `call_tool`, not by their `mcp__fx__*` names (its request carries
+      // neither), so a direct call is answered `unknown tool` there: `coreDiffers` names that, and the replay reports it as a difference.
+      name: 'MCP tool failures',
+      full: true,
+      coreDiffers: 'the core does not offer mcp__ tools by name in a full session (they are reached through load_tool / call_tool)',
+      replies: [
+        {
+          text: 'go',
+          calls: [
             { id: 'x1', name: 'mcp__fx__fail', args: {} },
             { id: 'x2', name: 'mcp__fx__boom', args: {} },
             { id: 'x3', name: 'mcp__fx__ok', args: {} },

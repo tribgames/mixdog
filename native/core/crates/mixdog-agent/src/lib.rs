@@ -31,6 +31,7 @@ pub mod project;
 pub mod recovery;
 pub mod repair;
 pub mod response;
+pub mod result_kind;
 pub mod run;
 mod send;
 pub use send::wire_request;

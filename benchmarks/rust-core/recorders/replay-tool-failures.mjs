@@ -5,7 +5,7 @@
 //   node replay-tool-failures.mjs --mixdogd <exe> [--only <n>,<n>]
 // Scenarios that need a hook or an approval answer are not driven yet and are listed as skipped; the exit code is 1 on any difference.
 import { spawn, spawnSync } from 'node:child_process';
-import { copyFileSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { register } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -39,7 +39,9 @@ function provider(replies) {
     req.on('data', (d) => body.push(d));
     req.on('end', () => {
       if (process.env.REPLAY_DEBUG && req.method === 'POST') {
-        const msgs = JSON.parse(Buffer.concat(body).toString('utf8')).messages ?? [];
+        const sent = JSON.parse(Buffer.concat(body).toString('utf8'));
+        const msgs = sent.messages ?? [];
+        console.log('TOOLS', n, (sent.tools ?? []).map((t) => t.function?.name ?? t.name).join(','));
         console.log('REQ', n, JSON.stringify(msgs.filter((m) => m.role === 'tool').map((m) => String(m.content).slice(0, 160))));
       }
       if (req.method === 'GET') {
@@ -90,7 +92,9 @@ async function runScenario(scenario) {
   const env = {};
   for (const [k, v] of Object.entries(process.env)) if (!DROP.test(k)) env[k] = v;
   Object.assign(env, { MIXDOG_DATA_DIR: p.data, MIXDOG_HOME: join(home, '.mixdog'), MIXDOG_CONFIG_DIR: join(home, '.mixdog'), MIXDOG_DESKTOP_USER_DATA: join(p.appData, 'Mixdog'), MIXDOG_RUNTIME_ROOT: p.runtime, MIXDOG_SKIP_USER_DATA_BACKUP: '1', HOME: home, USERPROFILE: home, APPDATA: p.appData, LOCALAPPDATA: p.local, TEMP: p.tmp, TMP: p.tmp, NO_PROXY: '127.0.0.1,localhost' });
-  const child = spawn(exe, ['serve'], { env, cwd: root, stdio: 'ignore', windowsHide: true });
+  // REPLAY_STDERR=<file> keeps the core's stderr for a scenario that does not replay.
+  const stderrFile = process.env.REPLAY_STDERR ? openSync(process.env.REPLAY_STDERR, 'a') : 'ignore';
+  const child = spawn(exe, ['serve'], { env, cwd: root, stdio: ['ignore', 'ignore', stderrFile], windowsHide: true });
   const exited = new Promise((r) => child.once('exit', r));
   let client;
   try {
@@ -130,6 +134,19 @@ async function runScenario(scenario) {
       : { toolProfile: 'headless', toolMode: 'full', ...(scenario.approval ? {} : { approvalMode: 'implicit' }), disallowDelegation: true, autoWakeCompletions: false, webSearch: false, memory: false };
     const started = await deadline(client.call('thread/start', { kind: 'task', session, projectPath: ws, draft: { projectPath: ws, route: { provider: CUSTOM, model: golden.model }, ...(scenario.full ? {} : { workflowId: 'headless' }), orchestrationMode: 'none' } }), 60_000, 'thread/start');
     const threadId = started.thread.id;
+    if (scenario.full) {
+      // The core connects a thread's MCP servers in the background; the recording connected `fx` before its turn, so the turn starts
+      // once the core reports the server connected.
+      let status;
+      await deadline((async () => {
+        for (;;) {
+          status = await client.call('mcp/mcpStatus', { threadId });
+          if (process.env.REPLAY_DEBUG) console.log('MCPSTATUS', JSON.stringify(status).slice(0, 600));
+          if (JSON.stringify(status).includes('"fx"') && /connected/i.test(JSON.stringify(status))) return;
+          await new Promise((r) => setTimeout(r, 200));
+        }
+      })(), 60_000, 'the MCP server fx connecting');
+    }
     const turn = await deadline(client.call('turn/start', { threadId, input: { prompt: 'go', options: {} } }), 60_000, 'turn/start');
     if (scenario.abortWhenFile) {
       await deadline(new Promise((res) => { const w = watch(ws, (_e, f) => { if (f === scenario.abortWhenFile) { w.close(); res(); } }); }), 60_000, 'the tool starting');
@@ -180,7 +197,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const got = normalize(await runScenario(scenario));
     const want = normalize(expectedOf(i).join('\n'));
     const same = got.length === want.length && got.every((l, k) => l === want[k]);
-    console.log(`${same ? 'SAME' : 'DIFF'} ${i} ${scenario.name} (${got.length} rows, Node ${want.length})`);
+    console.log(`${same ? 'SAME' : 'DIFF'} ${i} ${scenario.name} (${got.length} rows, Node ${want.length})${scenario.coreDiffers ? ` [known: ${scenario.coreDiffers}]` : ''}`);
     if (!same) {
       bad += 1;
       for (let k = 0; k < Math.max(got.length, want.length); k += 1) if (got[k] !== want[k]) console.log(`  row ${k}\n   core: ${got[k]}\n   node: ${want[k]}`);

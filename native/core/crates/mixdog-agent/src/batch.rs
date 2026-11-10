@@ -721,7 +721,13 @@ impl Run {
         // result the transcript holds, before the call's cache write.
         if let Some(log) = &self.env.failures {
             for i in &indices {
-                let Some(m) = staged[*i].as_ref().filter(|m| m.tool_kind == Some(ToolKind::Error)) else {
+                // A call fails when it threw (the executor's `Err`) or returned text that reads as an error
+                // (`classifyToolReturn`: the delegated-agent and skill tools answer `Error: …` instead of failing).
+                let Some(m) = staged[*i].as_ref().filter(|m| {
+                    m.tool_kind == Some(ToolKind::Error)
+                        || (m.tool_kind == Some(ToolKind::Normal)
+                            && crate::result_kind::classify_result_kind(&m.text(), &calls[*i].name) == crate::result_kind::ResultKind::Error)
+                }) else {
                     continue;
                 };
                 log.failed(crate::env::FailedCall {

@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 52217,
+      "bytes": 54446,
       "path": "golden.json",
-      "sha256": "61db6d3ec65fa8fbdd77dc9716d40ca33e39df2f7865ca5bd995a9de24ffc148"
+      "sha256": "bfa107a5a939e0becbf7dc35249f338e050564719bb31acb4d35a4db09aaec90"
     }
   ],
   "product": {
@@ -26,9 +26,9 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tool-failures.mjs",
-  "rows": 17,
+  "rows": 18,
   "set": "tool-failures",
-  "totalBytes": 52217,
+  "totalBytes": 54446,
   "varying": [
     "session_id",
     "tool_ms",
