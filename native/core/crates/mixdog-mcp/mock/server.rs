@@ -115,6 +115,16 @@ fn call(shared: &Arc<Shared>, id: Value, params: &Value) {
 }
 
 fn main() {
+    // `MOCK_STARTS`: a file that gets one line per start. `MOCK_DOWN_WHILE`: while that file
+    // exists, the server exits at once (a start that fails with an unchanged configuration).
+    if let Ok(starts) = std::env::var("MOCK_STARTS") {
+        let mut file = std::fs::OpenOptions::new().create(true).append(true).open(starts).unwrap();
+        writeln!(file, "start").unwrap();
+    }
+    if std::env::var("MOCK_DOWN_WHILE").is_ok_and(|path| std::path::Path::new(&path).exists()) {
+        eprintln!("down on purpose");
+        std::process::exit(1);
+    }
     let shared = Arc::new(Shared {
         out: Mutex::new(std::io::stdout()),
         cancels: AtomicUsize::new(0),
