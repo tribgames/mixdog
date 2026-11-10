@@ -37,6 +37,29 @@ export const CORRUPT = {
   'json-null': 'null',
 };
 
+/** How the replay compares a scenario with its recording (written into the fixture's manifest by the recorder): whole, by subtraction. */
+export const COMPARISON = {
+  method:
+    "each scenario whole: its `steps`, and for every recorded step everything in the recording except the paths of `notCompared`; the core's side is built as `translated` states, and both sides are normalised only as `normalised` states",
+  notCompared: {
+    'recorded[].daemonCalls':
+      "Node's calls from the desktop host to its daemon client inside one request (create, configure, submit, unsubscribe, read; the daemon is a model, leg.mjs): the core runs these steps inside its own `thread/start` with no wire between them. What they do is compared through `sessions` (a session made, given its prompt, or removed again) and `receipts`",
+  },
+  translated: {
+    'recorded[].step': 'the step the replay drives (scenarios.mjs), the same list the recording ran',
+    'recorded[].reply':
+      "`submitNewTask` through the desktop's service lane (service-route.ts: `thread/start`): an answer is `{ok: true, accepted: true, sessionId: thread.id}` (the core answers only a started task; Node's recording has no `accepted: false`), a rejection `{ok: false, error: message, code?}`; a crash step's reply is `{crashed: at}` on both sides",
+    'recorded[].receipts': 'the files of `<userdata>/new-task-receipts`, by name, byte for byte (latin1), as the recorder reads them',
+    'recorded[].sessions':
+      "every thread `thread/list` lists, with `prompts` = its `userMessage` items (`thread/items/list`) and `reserved` = no prompt yet (Node's daemon model sets `reserved` false exactly when it records a prompt, leg.mjs `submit`, and removes a reserved session without one on `unsubscribe`)",
+  },
+  normalised: {
+    'fresh session address': 'numbered `<fresh:N>` by first appearance in the scenario on both sides (see `random`)',
+    'thread.id': "the core's session address in `thread.id` is the reply's `sessionId` (see `translated`)",
+    'key order': 'objects are compared without regard to key order (the recording is written with sorted keys); arrays in order',
+  },
+};
+
 export const SCENARIOS = [
   { name: 'first-submit', steps: [submit('s-first', 'c1')] },
   // A reply lost after the receipt went to each phase: the client sends the same request again.

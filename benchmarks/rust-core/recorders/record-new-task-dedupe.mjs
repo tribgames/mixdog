@@ -14,7 +14,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { FIXTURES_ROOT, exactProductIdentity, parseArgs, resolveTree, stableStringify, writeSetManifest, writeText } from './lib/common.mjs';
-import { SCENARIOS } from './new-task-dedupe/scenarios.mjs';
+import { COMPARISON, SCENARIOS } from './new-task-dedupe/scenarios.mjs';
 
 const COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const WORK = 'D:\\mixdog-build\\tmp\\new-task-dedupe';
@@ -138,6 +138,7 @@ if (!args.get('replay')) {
           scenariosWhereTheTwoRunsDiffered: random,
         },
         daemon: 'the daemon is a model (leg.mjs) of the rules the new-task path uses; its calls are recorded for Node only',
+        comparison: COMPARISON,
       },
     });
   }

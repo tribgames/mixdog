@@ -36,8 +36,12 @@ function differences(a, b, path = '') {
 
 /** The core and the database it started, ended by the process tree of the one pid this replay spawned (a pid already gone is no error). */
 export function killTree(child) {
-  spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore' });
+  const ended = spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore', timeout: 60_000, windowsHide: true });
+  if (ended.error) throw new Error(`taskkill of the core's tree (pid ${child.pid}) did not finish within 60 s: ${ended.error.message}`);
 }
+
+/** How long a core may take to write its discovery file (its own start deadlines, the database's 30 s among them, are inside it). */
+const START_DEADLINE_MS = 120_000;
 
 export async function startCore(exe, coreRoot, relay, fresh = true, extraEnv = {}) {
   if (fresh) rmSync(coreRoot, { recursive: true, force: true });
@@ -64,10 +68,11 @@ export async function startCore(exe, coreRoot, relay, fresh = true, extraEnv = {
   let stderr = '';
   child.stderr.on('data', (chunk) => (stderr += chunk));
   // The core is up when it has written its discovery file. The watch is registered before the first look, so a write between the look and
-  // the wait still wakes it; the wait ends on the directory's change or on the child's exit, never on a timer.
+  // the wait still wakes it; the wait ends on the directory's change, on the child's exit, or at the start deadline, which fails it.
   const dir = join(coreRoot, 'runtime');
   const file = join(dir, 'daemon.json');
   let stirred = false;
+  let late = false;
   let wake = null;
   const stir = () => {
     stirred = true;
@@ -75,6 +80,10 @@ export async function startCore(exe, coreRoot, relay, fresh = true, extraEnv = {
   };
   const watcher = watch(dir, stir);
   child.once('exit', stir);
+  const deadline = setTimeout(() => {
+    late = true;
+    stir();
+  }, START_DEADLINE_MS);
   try {
     for (;;) {
       stirred = false;
@@ -82,6 +91,7 @@ export async function startCore(exe, coreRoot, relay, fresh = true, extraEnv = {
       try {
         return { child, env, endpoint: parseDiscovery(readFileSync(file, 'utf8')), dataDir: join(coreRoot, 'data') };
       } catch {
+        if (late) throw new Error(`mixdogd did not write its discovery file ${file} within ${START_DEADLINE_MS / 1000} s:\n${stderr}`);
         if (!stirred) await new Promise((resolve) => (wake = resolve));
       }
     }
@@ -89,6 +99,7 @@ export async function startCore(exe, coreRoot, relay, fresh = true, extraEnv = {
     killTree(child);
     throw error;
   } finally {
+    clearTimeout(deadline);
     watcher.close();
   }
 }
