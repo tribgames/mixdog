@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2345,
+      "bytes": 8188,
       "path": "golden.json",
-      "sha256": "d4316656cb717e9a45d9f3c06a1942e784ec50576da6a02af34f0723d205b23e"
+      "sha256": "f9d375dc698d3af3efae50b901f047d0b41033283de2ed99a6ecc489d6845305"
     }
   ],
   "product": {
@@ -27,5 +27,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-agent-dispatch-watchdog.mjs",
   "set": "agent-dispatch-watchdog",
-  "totalBytes": 2345
+  "totalBytes": 8188
 }

@@ -143,22 +143,28 @@ async fn changes_are_published_at_a_bounded_rate_and_an_unchanged_ledger_is_neve
 #[tokio::test(start_paused = true)]
 async fn a_failed_read_with_no_later_change_is_never_retried() {
     let _held = HeldClock::hold();
-    let (source, mut reads) = scripted(vec![Err("a statistics read".to_owned())]);
+    // A second scripted failure, so that a retry would be counted below and not end the feed by a missing answer.
+    let (source, mut reads) = scripted(vec![Err("a statistics read".to_owned()), Err("a statistics read".to_owned())]);
     let (publisher, mut published) = seen();
     let (changed, changes) = super::changes();
-    let mut feed = tokio::spawn(run(Arc::downgrade(&source), STATS_KEY, changes, None, push_into(publisher), REFRESH_INTERVAL));
+    // The feed runs inside this test's own task, one poll at a time: what it does between two polls is exactly what that poll
+    // did, so there is no turn of a runtime to wait for and no count of turns to tune.
+    let feed = run(Arc::downgrade(&source), STATS_KEY, changes, None, push_into(publisher), REFRESH_INTERVAL);
+    tokio::pin!(feed);
+    let mut poll_feed = async || std::future::poll_fn(|cx| std::task::Poll::Ready(feed.as_mut().poll(cx))).await;
 
-    next("the failing read to begin", &mut reads, &mut feed).await;
-    // The failure was taken in the very poll that began the read (the source answers without awaiting), so by now the feed is
-    // either parked for the next change or waiting on a timer a retry would need. Going far past the end of the interval makes
-    // any such timer due.
+    // The source answers without awaiting, so the first poll takes the failure and parks the feed.
+    assert!(poll_feed().await.is_pending());
+    assert_eq!(began(&mut reads), 1, "the startup read began");
+    // Far past the end of any retry interval, held by the explicit advance; the advance gives the clock's timers their turn, and the
+    // next poll resumes a feed that waited on one.
     tokio::time::advance(REFRESH_INTERVAL * 100).await;
-    // Closing the writer ends a feed that is parked for a change; one still waiting on a retry timer cannot see it before it has
-    // read, so its end is after any read it makes, and the count below is complete when the feed has ended, in no count of turns.
-    drop(changed);
-    awaiting("the feed to end once its writer is gone", feed).await.expect("a retry read has no scripted answer and would panic the feed");
+    assert!(poll_feed().await.is_pending(), "the feed is parked on the writer, not finished");
     assert_eq!(began(&mut reads), 0, "no timer retries a failure");
     assert!(published.try_recv().is_err());
+    // The writer was open the whole time; its closing is what ends the parked feed.
+    drop(changed);
+    assert!(poll_feed().await.is_ready(), "a feed parked on the next change ends with its writer");
 }
 
 /// A failure clears what was pending and starts the interval like any read: the next change reads again, but only at the
