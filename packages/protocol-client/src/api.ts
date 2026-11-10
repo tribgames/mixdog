@@ -180,6 +180,9 @@ export interface FoldStore<S = Json> {
   sections(section: SectionName): readonly SectionEntry[];
   /** App-feed position, once subscribed. */
   appFeed(): FeedStamp | undefined;
+  /** The app-feed change being folded was published while the current app subscription was attached: not a snapshot's, and not one a
+   *  resumed subscription replays from the time the connection was away (below the subscription's `liveSeq`). */
+  appLive(): boolean;
   /** Called after each fold, in order. */
   subscribe(listener: (change: StoreChange) => void): () => void;
 }

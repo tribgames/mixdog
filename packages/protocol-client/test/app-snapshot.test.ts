@@ -167,6 +167,33 @@ test('a disconnect during the announcements: the reconnect completes them, ahead
   assert.equal(client.store.section('config')?.value, 'newer');
 });
 
+test('what a resumed app subscription replays from the time away is not live; what follows its liveSeq is', async () => {
+  const { net, conn, client, changes } = await setup();
+  conn.serverSend(snapshot([section('notice', 'a', 1, 'standing')], 0));
+  for (let i = 0; i < 5; i++) await tick();
+  const live: Array<[string | null, boolean]> = [];
+  client.store.subscribe((c) => {
+    if (c.type === 'section' && c.section === 'notice') live.push([c.key, client.store.appLive()]);
+  });
+  conn.serverSend({ method: 'notice/updated', params: section('notice', 'b', 1, 'raised'), feed: { id: 'app', epoch: 'ae', seq: 1 } });
+  for (let i = 0; i < 5; i++) await tick();
+  conn.serverClose(1006);
+  const again = await net.accept();
+  const init = JSON.parse(await again.nextSent());
+  again.serverSend({ id: init.id, result: { ...options.initializeResult, serverInstanceId: 's1' } });
+  await again.nextSent();
+  const resume = JSON.parse(await again.nextSent());
+  assert.equal(resume.params.resumeFrom.seq, 1);
+  // Seqs 2 and 3 were published while the client was away; 4 is the first after the resumed attach.
+  again.serverSend({ id: resume.id, result: { subscription: { id: 'as2', mode: 'replay', epoch: 'ae', startSeq: 2, liveSeq: 4 } } });
+  again.serverSend({ method: 'notice/updated', params: section('notice', 'c', 1, 'away'), feed: { id: 'app', epoch: 'ae', seq: 2 } });
+  again.serverSend({ method: 'notice/updated', params: section('notice', 'd', 1, 'away'), feed: { id: 'app', epoch: 'ae', seq: 3 } });
+  again.serverSend({ method: 'notice/updated', params: section('notice', 'e', 1, 'back'), feed: { id: 'app', epoch: 'ae', seq: 4 } });
+  for (let i = 0; i < 10; i++) await tick();
+  assert.deepEqual(live, [['b', true], ['c', false], ['d', false], ['e', true]]);
+  assert.ok(changes.length > 0);
+});
+
 test('scanning the old store and resolving a deep value are budgeted too', async () => {
   const turn = new FakeTurn();
   const { conn, client } = await setup(turn);
