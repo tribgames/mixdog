@@ -207,9 +207,12 @@ export const adapter: PhoneProtocolAdapter = {
     // connection's one call queue (remote-protocol-queue.ts), which the router enters for every call; the adapter has no lane of its own.
     termEnsure: async ([id, cwd, shell], host) => {
       const { method, params } = terminalEnsureRequest(id, cwd, shell);
-      const reply = await rpc(host.client(), method, params);
+      // The core subscribes the phone to the new tab's relay feed with its answer, so the shell's first output finds a reader (Node
+      // pushed every tab's output while the lane was read); Node's answer carries no subscription.
+      const reply = await rpc(host.client(), method, { ...params, options: { ...(params.options as object), relayFeed: true } });
       remembered.get(host.ctx)?.(reply);
-      return terminalReply(reply);
+      const { subscription: _subscription, ...answer } = (reply ?? {}) as Record<string, unknown>;
+      return terminalReply(answer);
     },
     termAttach: async ([id], host) => {
       const reply = await rpc(host.client(), 'terminal/attach', { tabId: requiredString(id, 'terminal id', 128) });
