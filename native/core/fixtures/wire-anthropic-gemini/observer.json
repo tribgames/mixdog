@@ -1,0 +1,214 @@
+{
+  "recorder": "benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs",
+  "scenarios": [
+    {
+      "id": "warn-notice-then-text",
+      "steps": [
+        [
+          "notice",
+          "warn",
+          "gemini-2.5-pro is now served by Google as gemini-3.8-flash (redirect effective 2026-12-01; billed at gemini-3.8-flash rates)"
+        ],
+        [
+          "text",
+          "ok"
+        ]
+      ],
+      "observed": [
+        [
+          "onProviderSendStarted"
+        ],
+        [
+          "onStageChange",
+          "notice",
+          {
+            "tone": "warn",
+            "message": "gemini-2.5-pro is now served by Google as gemini-3.8-flash (redirect effective 2026-12-01; billed at gemini-3.8-flash rates)"
+          }
+        ],
+        [
+          "onStreamDelta",
+          "text"
+        ],
+        [
+          "onTextDelta",
+          "ok"
+        ]
+      ],
+      "outcome": {
+        "content": "ok"
+      }
+    },
+    {
+      "id": "info-notice-then-text",
+      "steps": [
+        [
+          "notice",
+          "info",
+          "a note"
+        ],
+        [
+          "text",
+          "ok"
+        ]
+      ],
+      "observed": [
+        [
+          "onProviderSendStarted"
+        ],
+        [
+          "onStageChange",
+          "notice",
+          {
+            "tone": "info",
+            "message": "a note"
+          }
+        ],
+        [
+          "onStreamDelta",
+          "text"
+        ],
+        [
+          "onTextDelta",
+          "ok"
+        ]
+      ],
+      "outcome": {
+        "content": "ok"
+      }
+    },
+    {
+      "id": "text-notice-text",
+      "steps": [
+        [
+          "text",
+          "one "
+        ],
+        [
+          "notice",
+          "warn",
+          "gemini-2.5-pro is now served by Google as gemini-3.8-flash (redirect effective 2026-12-01; billed at gemini-3.8-flash rates)"
+        ],
+        [
+          "text",
+          "two"
+        ]
+      ],
+      "observed": [
+        [
+          "onProviderSendStarted"
+        ],
+        [
+          "onStreamDelta",
+          "text"
+        ],
+        [
+          "onTextDelta",
+          "one "
+        ],
+        [
+          "onStageChange",
+          "notice",
+          {
+            "tone": "warn",
+            "message": "gemini-2.5-pro is now served by Google as gemini-3.8-flash (redirect effective 2026-12-01; billed at gemini-3.8-flash rates)"
+          }
+        ],
+        [
+          "onStreamDelta",
+          "text"
+        ],
+        [
+          "onTextDelta",
+          "two"
+        ]
+      ],
+      "outcome": {
+        "content": "one two"
+      }
+    },
+    {
+      "id": "two-notices-then-text",
+      "steps": [
+        [
+          "notice",
+          "warn",
+          "gemini-2.5-pro is now served by Google as gemini-3.8-flash (redirect effective 2026-12-01; billed at gemini-3.8-flash rates)"
+        ],
+        [
+          "notice",
+          "info",
+          "a note"
+        ],
+        [
+          "text",
+          "ok"
+        ]
+      ],
+      "observed": [
+        [
+          "onProviderSendStarted"
+        ],
+        [
+          "onStageChange",
+          "notice",
+          {
+            "tone": "warn",
+            "message": "gemini-2.5-pro is now served by Google as gemini-3.8-flash (redirect effective 2026-12-01; billed at gemini-3.8-flash rates)"
+          }
+        ],
+        [
+          "onStageChange",
+          "notice",
+          {
+            "tone": "info",
+            "message": "a note"
+          }
+        ],
+        [
+          "onStreamDelta",
+          "text"
+        ],
+        [
+          "onTextDelta",
+          "ok"
+        ]
+      ],
+      "outcome": {
+        "content": "ok"
+      }
+    },
+    {
+      "id": "notice-then-refusal",
+      "steps": [
+        [
+          "notice",
+          "warn",
+          "gemini-2.5-pro is now served by Google as gemini-3.8-flash (redirect effective 2026-12-01; billed at gemini-3.8-flash rates)"
+        ],
+        [
+          "fail",
+          401,
+          "API key not valid. Please pass a valid API key."
+        ]
+      ],
+      "observed": [
+        [
+          "onProviderSendStarted"
+        ],
+        [
+          "onStageChange",
+          "notice",
+          {
+            "tone": "warn",
+            "message": "gemini-2.5-pro is now served by Google as gemini-3.8-flash (redirect effective 2026-12-01; billed at gemini-3.8-flash rates)"
+          }
+        ]
+      ],
+      "outcome": {
+        "error": "API key not valid. Please pass a valid API key.",
+        "status": 401
+      }
+    }
+  ]
+}

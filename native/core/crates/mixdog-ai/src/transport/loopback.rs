@@ -24,7 +24,8 @@ use tokio_rustls::TlsAcceptor;
 pub const RANDOM: &str = "<random>";
 
 /// What the server answers: a dial is accepted or refused, each data message sent is answered with the next entry of
-/// `replies`, each http request with the next entry of `http`.
+/// `replies`, each http request with the next entry of `http` (`then: 'withhold'` keeps it back until
+/// [`Loopback::release`]).
 #[derive(Default)]
 pub struct Script {
     pub dials: VecDeque<Value>,
@@ -38,11 +39,16 @@ struct Inner {
     script: Mutex<Script>,
     paused: AtomicBool,
     next: AtomicUsize,
+    /// The scenario's sequence of moments an http request started (its head was read) and completed (its body was
+    /// read), counted from 1 as `wire-server.mjs` counts `traffic.order`.
+    order: AtomicUsize,
     ended: Mutex<HashMap<usize, watch::Receiver<bool>>>,
     upgraded: Mutex<Vec<usize>>,
     unanswered: Mutex<Option<String>>,
-    /// A reply that holds (`then: 'hold'`) has been written.
+    /// A reply that holds (`then: 'hold'`) has been written, or an http answer is withheld (`then: 'withhold'`).
     held: tokio::sync::Notify,
+    /// The connections waiting to write a withheld http answer, in the order they were withheld.
+    withheld: Mutex<Vec<tokio::sync::oneshot::Sender<()>>>,
 }
 
 pub struct Loopback {
@@ -98,6 +104,7 @@ impl Loopback {
     /// Starts a scenario: a fresh recording and script.
     pub fn begin(&self, script: Script) {
         self.inner.sink.lock().unwrap().clear();
+        self.inner.order.store(0, Ordering::SeqCst);
         *self.inner.script.lock().unwrap() = script;
         *self.inner.unanswered.lock().unwrap() = None;
     }
@@ -129,6 +136,13 @@ impl Loopback {
     /// Resolves once a reply that holds has been written; the caller puts the deadline on it.
     pub async fn held(&self) {
         self.inner.held.notified().await;
+    }
+
+    /// Writes the withheld http answers (`then: 'withhold'`), in the order they were withheld.
+    pub fn release(&self) {
+        for waiting in self.inner.withheld.lock().unwrap().drain(..) {
+            waiting.send(()).ok();
+        }
     }
 
     /// The numbers of the connections that upgraded to a WebSocket.
@@ -184,7 +198,7 @@ fn server_frame(opcode: u8, payload: &[u8]) -> Vec<u8> {
 
 enum Mode {
     Head,
-    Body { line: String, headers: Vec<(String, String)>, length: usize },
+    Body { line: String, headers: Vec<(String, String)>, length: usize, started: Value },
     Frames,
 }
 
@@ -196,6 +210,8 @@ async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
     let mut mode = Mode::Head;
     // `then: 'mute'`: the client's close frames are recorded, never answered (a close that ends slowly).
     let mut muted = false;
+    // The next moment of the scenario's sequence; nothing is counted while the recorder is paused.
+    let moment = || if inner.paused.load(Ordering::SeqCst) { Value::Null } else { json!(inner.order.fetch_add(1, Ordering::SeqCst) + 1) };
     // A connection is numbered by its first recorded event, as in `wire-server.mjs`.
     let record = |conn: &mut usize, event: Value| {
         if *conn == 0 {
@@ -252,17 +268,18 @@ async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
                     } else {
                         assert!(header(&headers, "transfer-encoding").is_none(), "the recorder reads content-length bodies only");
                         let length = header(&headers, "content-length").map_or(0, |v| v.parse().unwrap());
-                        mode = Mode::Body { line, headers, length };
+                        mode = Mode::Body { line, headers, length, started: moment() };
                     }
                 }
                 Mode::Body { length, .. } => {
                     if buffer.len() < *length {
                         break;
                     }
-                    let Mode::Body { line, headers, length } = std::mem::replace(&mut mode, Mode::Head) else { unreachable!() };
+                    let Mode::Body { line, headers, length, started } = std::mem::replace(&mut mode, Mode::Head) else { unreachable!() };
                     let body: Vec<u8> = buffer.drain(..length).collect();
                     let shown: Vec<Value> = headers.iter().map(|(n, v)| json!([n, v])).collect();
-                    record(&mut conn, json!({ "kind": "http", "line": line, "headers": shown, "body": body_record(&body, &headers) }));
+                    let event = json!({ "kind": "http", "line": line, "headers": shown, "body": body_record(&body, &headers), "started": started, "completed": moment() });
+                    record(&mut conn, event);
                     // A HEAD request is a socket warm-up, recorded and answered empty.
                     if line.starts_with("HEAD ") {
                         io.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await.ok();
@@ -289,6 +306,15 @@ async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
                     fields.push(("content-length".into(), text.len().to_string()));
                     let status = plan["status"].as_u64().unwrap_or(200);
                     let head: String = fields.iter().map(|(n, v)| format!("{n}: {v}\r\n")).collect();
+                    if plan["then"] == "withhold" {
+                        // Written when the caller releases it ([`Loopback::release`]); the caller puts the deadline on that.
+                        let (release, released) = tokio::sync::oneshot::channel();
+                        inner.withheld.lock().unwrap().push(release);
+                        inner.held.notify_one();
+                        if released.await.is_err() {
+                            break 'serving;
+                        }
+                    }
                     io.write_all(format!("HTTP/1.1 {status} X\r\n{head}\r\n").as_bytes()).await.ok();
                     io.write_all(text.as_bytes()).await.ok();
                     if plan["then"] == "reset" {

@@ -246,7 +246,7 @@ impl ProviderAdapter for AccountedAdapter {
         match self.inner.attempt(request).await {
             Ok(stream) => Ok(Box::new(AccountedStream {
                 inner: stream,
-                open: Some(Open { accounting, usage: None }),
+                open: Some(Open { accounting, usage: None, served: None }),
                 group,
                 now: Arc::clone(&self.deps.now),
             })),
@@ -294,6 +294,8 @@ struct Open {
     accounting: SendAccounting,
     /// The last usage the stream showed (`StreamEvent::Usage` replaces).
     usage: Option<Usage>,
+    /// The model the stream named as the one that answered (`StreamEvent::ServedModel`).
+    served: Option<String>,
 }
 
 struct AccountedStream {
@@ -314,10 +316,16 @@ impl ModelStream for AccountedStream {
                 open.usage = Some(usage.clone());
                 Some(Ok(StreamEvent::Usage(usage)))
             }
+            // Node's `result.model`: the ledger books the send under the model that answered.
+            Some(Ok(StreamEvent::ServedModel(model))) => {
+                open.served = Some(model.clone());
+                Some(Ok(StreamEvent::ServedModel(model)))
+            }
             Some(Ok(StreamEvent::Completed { stop, pricing_model, request_ms })) => {
                 let open = self.open.take()?;
                 let done = Completed {
                     facts: open.usage.as_ref().map(Facts::from),
+                    model: open.served.clone(),
                     pricing_model: pricing_model.clone(),
                     stream_ended_at: (self.now)(),
                     ..Completed::default()

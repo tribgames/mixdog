@@ -33,7 +33,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::run_host::cycle1_dispatch::{AgentDispatch, AgentDispatchPayload};
 use crate::run_host::summary_host::trimmed;
-use crate::run_host::watchdog::Watchdog;
+use crate::run_host::watchdog::{StallSite, Watchdog, stall_abort_ctx};
 
 /// `ROLE_BY_MAINT_KEY`: the settings agent whose route a hidden role runs on.
 const ROLE_BY_MAINT_KEY: [(&str, &str); 2] = [("memory", "maintainer"), ("explore", "explore")];
@@ -100,6 +100,8 @@ pub trait DispatchSessions: Send + Sync {
     async fn ask(&self, id: &str, request: AskRequest, cancel: &Cancel) -> Result<String, String>;
     /// `getSessionProgressSnapshot(id)` at `now`.
     fn progress(&self, id: &str, now: i64) -> Option<Snapshot>;
+    /// `sess.lastIterationIndex` when it is a number.
+    fn last_iteration_index(&self, id: &str) -> Option<Value>;
     /// `armTurnTimeout(id)`: the watchdog is the source that stops the turn.
     fn arm_turn_timeout(&self, id: &str);
     /// `closeSession(id, reason)`.
@@ -122,6 +124,9 @@ pub trait DispatchWorld: Send + Sync {
     fn clock(&self) -> Arc<dyn Clock>;
     /// One `[agent-dispatch] ...` diagnostic line (no trailing newline).
     fn diagnostic(&self, line: &str);
+    /// `recordAgentWatchdogAbort(ctx)`: the `stall_abort` trace row and failure row of the stop (see `mixdog_trace::watchdog_abort_records`
+    /// for the fields of `ctx`).
+    fn record_stall_abort(&self, ctx: Map<String, Value>);
 }
 
 /// The runner behind [`dispatch`]: Node's `dispatchAdmitted`.
@@ -195,8 +200,14 @@ impl HiddenRoleRunner {
                 move |now| sessions.progress(&id, now)
             },
             {
-                let (sessions, id) = (self.sessions.clone(), id.clone());
-                move || sessions.arm_turn_timeout(&id)
+                // `startDispatchWatchdog`: the stop is recorded with the clocks it judged, then the turn's own timeout is armed, then the abort.
+                let (sessions, world, id, agent) = (self.sessions.clone(), self.world.clone(), id.clone(), agent.to_owned());
+                let anchor_ts = clock.now_ms();
+                move |snapshot: &Snapshot, message: &str, now: i64| {
+                    let site = StallSite::Dispatch { iteration: sessions.last_iteration_index(&id).unwrap_or(Value::Null) };
+                    world.record_stall_abort(stall_abort_ctx(&id, Some(&agent), &site, &policy, anchor_ts, snapshot, message, now));
+                    sessions.arm_turn_timeout(&id);
+                }
             },
         );
         // One composite survives the ask's controller swap: the caller's abort and the watchdog's

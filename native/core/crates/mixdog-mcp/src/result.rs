@@ -487,19 +487,21 @@ pub async fn cap_parts(parts: Vec<Part>, policy: OutputPolicy, spiller: &Spiller
     (apply_cut(parts, &plan, &spill_note), Some(note))
 }
 
-/// Node's `isError` text: prefixed once, on the first part when media is present.
+/// Node's `isError` text of a result without media (`normalizeMcpToolResult`, mcp/client.mjs:904-905): the text, prefixed once.
 fn error_text(parts: &[Part]) -> String {
-    let prefixed = |text: &str| if text.starts_with("Error:") { text.to_owned() } else { format!("Error: {text}") };
-    if !parts.iter().any(Part::is_media) {
-        let joined = parts.iter().filter_map(|p| if let Part::Text(t) = p { Some(t.as_str()) } else { None }).collect::<Vec<_>>().join("\n");
-        return prefixed(&joined);
+    let joined = parts.iter().filter_map(|p| if let Part::Text(t) = p { Some(t.as_str()) } else { None }).collect::<Vec<_>>().join("\n");
+    if joined.starts_with("Error:") { joined } else { format!("Error: {joined}") }
+}
+
+/// Node's `isError` result with media (mcp/client.mjs:906-909): the parts stay a structured result, the first text part prefixed
+/// once, or an `Error:` text put first when the first part is not text.
+fn error_parts(mut parts: Vec<Part>) -> Vec<Part> {
+    match parts.first_mut() {
+        Some(Part::Text(text)) if !text.starts_with("Error:") => *text = format!("Error: {text}"),
+        Some(Part::Text(_)) => {}
+        _ => parts.insert(0, Part::Text("Error:".to_owned())),
     }
-    let mut texts: Vec<String> = parts.iter().filter_map(|p| if let Part::Text(t) = p { Some(t.clone()) } else { None }).collect();
-    match parts.first() {
-        Some(Part::Text(_)) => texts[0] = prefixed(&texts[0]),
-        _ => texts.insert(0, "Error:".to_owned()),
-    }
-    texts.join("\n")
+    parts
 }
 
 /// The parts of a result's `content` as Node normalizes them: without media, one text (the text
@@ -538,12 +540,17 @@ fn tool_part(part: Part) -> ToolPart {
 
 /// Maps a `tools/call` result. `Err` carries the server's own error text.
 pub async fn map_call_result(result: &Value, policy: OutputPolicy, spiller: &Spiller) -> Result<ToolOutput, ReportedError> {
-    let parts = normalize_parts(result, spiller).await;
+    let mut parts = normalize_parts(result, spiller).await;
     if result.get("isError").and_then(Value::as_bool) == Some(true) {
-        return Err(ReportedError {
-            text: error_text(&parts),
-            data: result.get("structuredContent").filter(|v| !v.is_null()).cloned(),
-        });
+        // Without media Node returns the `Error: …` text (classified an error by the loop); with media it returns the parts as a
+        // structured result, which the loop does not classify (execute-call.mjs classifyToolReturn: a non-string is normal).
+        if !parts.iter().any(Part::is_media) {
+            return Err(ReportedError {
+                text: error_text(&parts),
+                data: result.get("structuredContent").filter(|v| !v.is_null()).cloned(),
+            });
+        }
+        parts = error_parts(parts);
     }
     let (parts, truncation) = cap_parts(parts, policy, spiller).await;
     Ok(ToolOutput { parts: parts.into_iter().map(tool_part).collect(), truncation, ..ToolOutput::default() })

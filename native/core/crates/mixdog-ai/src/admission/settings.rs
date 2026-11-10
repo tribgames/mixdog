@@ -28,10 +28,21 @@ pub fn provider_lane_settings(max_queue: Option<&str>) -> Arc<dyn Fn(&LaneKey) -
     Arc::new(move |key| LaneSettings { concurrency: None, max_queue, adaptive: adaptive_lane(key), unattended_lease: None })
 }
 
+type Rule = Arc<dyn Fn(&LaneKey) -> LaneSettings + Send + Sync>;
+
+/// [`process_lane_settings`]'s rule once it has read the environment.
+static SETTINGS: std::sync::Mutex<Option<Rule>> = std::sync::Mutex::new(None);
+
 /// The rule every lane opener uses: [`provider_lane_settings`] with the process environment, read once
 /// (Node builds its scheduler once). A send, a cache warm, the model proxy and the hosted-search sender
 /// open the same lane the same way.
-pub fn process_lane_settings() -> &'static Arc<dyn Fn(&LaneKey) -> LaneSettings + Send + Sync> {
-    static SETTINGS: std::sync::OnceLock<Arc<dyn Fn(&LaneKey) -> LaneSettings + Send + Sync>> = std::sync::OnceLock::new();
-    SETTINGS.get_or_init(|| provider_lane_settings(std::env::var("MIXDOG_PROVIDER_ADMISSION_MAX_QUEUE").ok().as_deref()))
+pub fn process_lane_settings() -> Rule {
+    let mut settings = SETTINGS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    settings.get_or_insert_with(|| provider_lane_settings(std::env::var("MIXDOG_PROVIDER_ADMISSION_MAX_QUEUE").ok().as_deref())).clone()
+}
+
+/// The environment is read again by the next [`process_lane_settings`], as a new process reads it.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn reset_process_lane_settings() {
+    *SETTINGS.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
 }

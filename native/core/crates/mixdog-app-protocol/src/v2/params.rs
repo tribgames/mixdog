@@ -3527,6 +3527,13 @@ pub struct AccountRefreshProviderSetupParams {
     pub unlock_keychain: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recheck_keychain: Option<bool>,
+    /// A provider id whose current account's OAuth token is refreshed now unless it lasts
+    /// `minimumValidityMs` more (the host preflight of a benchmark run); needs `minimumValidityMs`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub renew_credential: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub minimum_validity_ms: Option<u64>,
 }
 
 impl crate::common::HasOpId for AccountRefreshProviderSetupParams {
@@ -4136,6 +4143,14 @@ pub struct ToolsToolsStatusParams {
     pub thread_id: Option<ThreadId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub query: Option<String>,
+    /// `true`: the reply also carries `requestSnapshot`, the provider request the thread's next send
+    /// would carry (needs `threadId`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<bool>,
+    /// With snapshot: the user message the snapshot's request carries as its last turn, as the send of that message would;
+    /// a thread with no user turn yet cannot be encoded by every provider (Gemini refuses a request with nothing to send).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_user_message: Option<String>,
 }
 
 /// Params of `memory/memoryControl`.
