@@ -2561,7 +2561,16 @@ export type ProcessInputParams = { processHandle: ProcessHandle, bytesB64: strin
  */
 export type ProcessKillParams = { processHandle: ProcessHandle, };
 
-export type ProcessOutputDeltaParams = { processHandle: ProcessHandle, bytesB64: string, };
+export type ProcessOutputDeltaParams = { processHandle: ProcessHandle, bytesB64: string,
+/**
+ * A terminal relay frame whose cut fell inside a non-BMP character (Node's frames are cut in UTF-16 units): the lone low surrogate
+ * that comes before the bytes' text.
+ */
+leadUnit?: number,
+/**
+ * The lone high surrogate that comes after the bytes' text, for the same cut.
+ */
+tailUnit?: number, };
 
 /**
  * Params of `process/resizePty`.
@@ -3647,7 +3656,13 @@ export type TerminalPauseParams = { tabId: TerminalTabId, };
  */
 export type TerminalProfilesParams = Record<string, never>;
 
-export type TerminalResizeParams = { tabId: TerminalTabId, cols: number, rows: number, };
+export type TerminalResizeParams = { tabId: TerminalTabId, cols: number, rows: number,
+/**
+ * A phone showing the terminal claims the PTY size (Node's `termResize` `phoneOwner`): the
+ * claim holds for 30 s unless renewed, the newest claim owns, and zero columns or rows with
+ * `claim` release it. Without `claim` the resize is ignored while any claim stands.
+ */
+claim?: boolean, };
 
 /**
  * Params of `terminal/resume`.
