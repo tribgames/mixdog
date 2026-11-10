@@ -62,6 +62,7 @@ pub mod media;
 pub mod exec;
 pub mod exec_events;
 pub mod ownership;
+mod office_startup;
 pub mod pair_code;
 pub mod project_workspaces;
 pub mod server;

@@ -12,6 +12,8 @@ path = "src/main.rs"
 workspace = true
 
 [features]
+# Built only for the phone terminal replay (apps/desktop/src/renderer/remote-protocol-terminal.scenario.mjs); no release build enables it.
+terminal-lease-clock = ["mixdog-app-server-daemon/terminal-lease-clock"]
 # The controls a replay drives a spawned core with: the download recording's (mixdog-workspace, replay_controls.rs) and the tool-failure
 # recording's held flush timer (mixdog-core-run, failure_log.rs `replay_held`). Never in an ordinary build.
 replay-controls = ["mixdog-app-server-daemon/replay-controls"]
@@ -53,7 +55,7 @@ mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test"] }
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set

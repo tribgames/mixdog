@@ -1,43 +1,53 @@
 {
-  "delta": {
-    "frame": {
-      "type": "response.create"
-    },
-    "mode": "full",
-    "reason": "no_anchor"
-  },
   "fullFrame": {
-    "include": [
-      "reasoning.encrypted_content"
-    ],
+    "type": "response.create",
+    "model": "gpt-fixture",
+    "instructions": "You are a fixture assistant.",
     "input": [
       {
+        "type": "message",
+        "role": "user",
         "content": [
           {
-            "text": "Look up the answer.",
-            "type": "input_text"
+            "type": "input_text",
+            "text": "Look up the answer."
           }
         ],
-        "internal_chat_message_metadata_passthrough": {},
-        "role": "user",
-        "type": "message"
+        "internal_chat_message_metadata_passthrough": {}
       },
       {
-        "arguments": "{\"key\":\"answer\"}",
+        "type": "function_call",
         "call_id": "call_fx1",
         "name": "lookup",
-        "type": "function_call"
+        "arguments": "{\"key\":\"answer\"}"
       },
       {
+        "type": "function_call_output",
         "call_id": "call_fx1",
-        "output": "42",
-        "type": "function_call_output"
+        "output": "42"
       }
     ],
-    "instructions": "You are a fixture assistant.",
-    "model": "gpt-fixture",
+    "tools": [
+      {
+        "type": "function",
+        "name": "lookup",
+        "description": "Read a value",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key"
+          ]
+        },
+        "strict": false
+      }
+    ],
+    "tool_choice": "auto",
     "parallel_tool_calls": true,
-    "prompt_cache_key": "mixdog-codex",
     "reasoning": {
       "effort": "medium",
       "summary": "auto"
@@ -46,29 +56,19 @@
     "stream_options": {
       "reasoning_summary_delivery": "sequential_cutoff"
     },
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "prompt_cache_key": "mixdog-codex",
     "text": {
       "verbosity": "low"
-    },
-    "tool_choice": "auto",
-    "tools": [
-      {
-        "description": "Read a value",
-        "name": "lookup",
-        "parameters": {
-          "properties": {
-            "key": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "key"
-          ],
-          "type": "object"
-        },
-        "strict": false,
-        "type": "function"
-      }
-    ],
-    "type": "response.create"
+    }
+  },
+  "delta": {
+    "mode": "full",
+    "reason": "no_anchor",
+    "frame": {
+      "type": "response.create"
+    }
   }
 }

@@ -84,7 +84,7 @@ fn change_kind(letter: char) -> ChangeKind {
 }
 
 /// `git diff --raw --numstat -z` rows by path: the status letter and the line counts.
-fn parse_raw_numstat(raw: &str) -> BTreeMap<String, (ChangeKind, u64, u64)> {
+pub(crate) fn parse_raw_numstat(raw: &str) -> BTreeMap<String, (ChangeKind, u64, u64)> {
     let mut rows: BTreeMap<String, (ChangeKind, u64, u64)> = BTreeMap::new();
     let mut fields = raw.split('\0');
     while let Some(field) = fields.next() {
@@ -135,70 +135,6 @@ fn split_patches(diff: &str, paths: &[&str]) -> HashMap<String, String> {
         }
     }
     out
-}
-
-/// One entry of a `gitReviewDiffs` request.
-pub struct BatchFile {
-    pub path: String,
-    pub untracked: bool,
-}
-
-/// Command-line text one batch passes to git (Windows caps it near 32k), in UTF-16 units.
-const BATCH_ARGS_CHARS: usize = 20_000;
-/// Total patch text one batch returns before the remaining files are omitted, in UTF-16 units.
-const BATCH_PATCH_CHARS: usize = 8_000_000;
-
-/// Paths git would quote in a diff header, so the header cannot be matched back
-/// (`UNMATCHABLE_HEADER_PATH`: `"`, `\` and control characters).
-pub fn batch_unmatchable(path: &str) -> bool {
-    path.chars().any(|c| c == '"' || c == '\\' || c < '\u{20}')
-}
-
-fn utf16_len(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
-/// `gitReviewDiffs`: `{patches, omitted}`, both always arrays. A repeated path counts once, at its
-/// first position, with its last entry. Tracked paths come first in request order, then the
-/// untracked ones. A tracked path git would quote in a header, or one past the command-line
-/// budget (`len + 3` units each), is `omitted`; so is any file whose patch no longer fits the
-/// patch budget (a patch is taken whole or not at all). `patch_of` answers a path's patch ("" for
-/// an unchanged file).
-pub fn review_batch(files: &[BatchFile], mut patch_of: impl FnMut(&str) -> String) -> serde_json::Value {
-    let mut order: Vec<&str> = Vec::new();
-    let mut untracked_of: HashMap<&str, bool> = HashMap::new();
-    for file in files {
-        if untracked_of.insert(file.path.as_str(), file.untracked).is_none() {
-            order.push(file.path.as_str());
-        }
-    }
-    let (mut tracked, mut untracked, mut omitted): (Vec<&str>, Vec<&str>, Vec<String>) = (Vec::new(), Vec::new(), Vec::new());
-    let mut arg_chars = 0usize;
-    for path in order {
-        if untracked_of[path] {
-            untracked.push(path);
-            continue;
-        }
-        arg_chars += utf16_len(path) + 3;
-        if batch_unmatchable(path) || arg_chars > BATCH_ARGS_CHARS {
-            omitted.push(path.to_owned());
-        } else {
-            tracked.push(path);
-        }
-    }
-    let mut budget = BATCH_PATCH_CHARS;
-    let mut patches: Vec<serde_json::Value> = Vec::new();
-    for path in tracked.into_iter().chain(untracked) {
-        let patch = patch_of(path);
-        let length = utf16_len(&patch);
-        if length > budget {
-            omitted.push(path.to_owned());
-        } else {
-            budget -= length;
-            patches.push(serde_json::json!({ "path": path, "patch": patch }));
-        }
-    }
-    serde_json::json!({ "patches": patches, "omitted": omitted })
 }
 
 /// The commit a repository review diffs against: HEAD for uncommitted work, the merge-base with

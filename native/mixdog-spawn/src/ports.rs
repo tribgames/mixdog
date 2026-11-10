@@ -491,6 +491,9 @@ struct HubInner {
     state: Mutex<HubState>,
     wake: Condvar,
     sampler_threads: AtomicUsize,
+    /// Notified, under the state lock, when a sampler thread has finished: what a test waits on to know no sampling follows.
+    #[cfg(feature = "core-test")]
+    stopped: Condvar,
 }
 
 impl HubInner {
@@ -530,6 +533,8 @@ impl PortsHub {
                 }),
                 wake: Condvar::new(),
                 sampler_threads: AtomicUsize::new(0),
+                #[cfg(feature = "core-test")]
+                stopped: Condvar::new(),
             }),
         }
     }
@@ -579,6 +584,18 @@ impl PortsHub {
     pub fn sampler_threads(&self) -> usize {
         self.inner.sampler_threads.load(Ordering::Acquire)
     }
+
+    /// Returns true once no sampler thread is alive, false if one still is after `deadline`. A finished thread calls the source no more.
+    #[cfg(feature = "core-test")]
+    pub fn wait_samplers_stopped(&self, deadline: Duration) -> bool {
+        let state = self.inner.lock();
+        let (_state, timeout) = self
+            .inner
+            .stopped
+            .wait_timeout_while(state, deadline, |_| self.inner.sampler_threads.load(Ordering::Acquire) != 0)
+            .unwrap_or_else(|e| e.into_inner());
+        !timeout.timed_out()
+    }
 }
 
 fn sampler(inner: Arc<HubInner>, generation: u64) {
@@ -608,5 +625,9 @@ fn sampler(inner: Arc<HubInner>, generation: u64) {
             break;
         }
     }
+    #[cfg(feature = "core-test")]
+    let _state = inner.lock();
     inner.sampler_threads.fetch_sub(1, Ordering::AcqRel);
+    #[cfg(feature = "core-test")]
+    inner.stopped.notify_all();
 }

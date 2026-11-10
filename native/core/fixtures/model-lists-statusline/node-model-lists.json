@@ -302,9 +302,9 @@
             "savedModelParameters": {}
           },
           {
-            "id": "claude-fable-5-1",
+            "id": "claude-fable-5-2",
             "provider": "anthropic-oauth",
-            "display": "Claude Fable 5.1",
+            "display": "Claude Fable 5.2",
             "created": null,
             "releaseDate": null,
             "contextWindow": 500000,
@@ -656,9 +656,9 @@
               "savedModelParameters": {}
             },
             {
-              "id": "claude-fable-5-1",
+              "id": "claude-fable-5-2",
               "provider": "anthropic-oauth",
-              "display": "Claude Fable 5.1",
+              "display": "Claude Fable 5.2",
               "created": null,
               "releaseDate": null,
               "contextWindow": 500000,
@@ -846,9 +846,9 @@
               "savedModelParameters": {}
             },
             {
-              "id": "claude-fable-5-1",
+              "id": "claude-fable-5-2",
               "provider": "anthropic-oauth",
-              "display": "Claude Fable 5.1",
+              "display": "Claude Fable 5.2",
               "created": null,
               "releaseDate": null,
               "contextWindow": 500000,

@@ -67,7 +67,6 @@ mod windows {
 
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::Foundation::HANDLE;
-    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
     use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
     use windows_sys::Win32::System::Console::COORD;
     use windows_sys::Win32::System::Console::ClosePseudoConsole;
@@ -202,7 +201,8 @@ mod windows {
 
     fn pipe() -> io::Result<(HANDLE, HANDLE)> {
         let (mut read, mut write): (HANDLE, HANDLE) = (std::ptr::null_mut(), std::ptr::null_mut());
-        if unsafe { CreatePipe(&mut read, &mut write, std::ptr::null(), 0) } == 0 {
+        // node-pty's pipes hold 128 KiB each way (`conpty.cc` `createDataServerPipe`); the default is one page.
+        if unsafe { CreatePipe(&mut read, &mut write, std::ptr::null(), 128 * 1024) } == 0 {
             return Err(io::Error::last_os_error());
         }
         Ok((read, write))
@@ -267,11 +267,12 @@ mod windows {
             startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
             startup.lpAttributeList = list;
             // Without this a child whose parent has redirected standard handles (a service, a
-            // test harness) would write to them instead of the pseudo-console.
+            // test harness) would write to them instead of the pseudo-console. Null handles, as
+            // node-pty's `conpty.cc` passes: the child then opens the pseudo-console's own.
             startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
-            startup.StartupInfo.hStdInput = INVALID_HANDLE_VALUE;
-            startup.StartupInfo.hStdOutput = INVALID_HANDLE_VALUE;
-            startup.StartupInfo.hStdError = INVALID_HANDLE_VALUE;
+            startup.StartupInfo.hStdInput = std::ptr::null_mut();
+            startup.StartupInfo.hStdOutput = std::ptr::null_mut();
+            startup.StartupInfo.hStdError = std::ptr::null_mut();
             let mut command_line = wide(&launch.command_line());
             let environment = environment_block(env);
             let directory = wide(&cwd.to_string_lossy());

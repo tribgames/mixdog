@@ -35,7 +35,9 @@ pub(crate) fn git(cwd: &Path, args: &[&str]) -> String {
 
 pub(crate) fn fixture_repo() -> (tempfile::TempDir, std::path::PathBuf, String) {
     let dir = tempfile::tempdir().unwrap();
-    let repo = std::fs::canonicalize(dir.path()).unwrap().join("repo");
+    // The plain spelling of the folder, as git names it and as every caller of the core passes it (not the verbatim `\\?\` one).
+    let canonical = std::fs::canonicalize(dir.path()).unwrap();
+    let repo = std::path::PathBuf::from(canonical.to_string_lossy().trim_start_matches(r"\\?\")).join("repo");
     std::fs::create_dir_all(repo.join("src")).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     // The engine's own git commands read the repository config; the helper above only sets it
@@ -156,6 +158,35 @@ async fn commit_transaction_commits_only_the_selection() {
     assert_eq!(git(&repo, &["status", "--porcelain"]), "M a.txt");
 }
 
+/// The index refresh after a commit holds `index.lock` from reading the index to publishing it (Node: refreshCommittedPaths,
+/// git-commit-transaction.ts:1010), so a stage another process makes in that window is refused by git instead of read and then
+/// overwritten. The same sequence is recorded from Node as `gitCommitPaths-competing-stage` (its `competing` answer).
+#[tokio::test]
+async fn a_stage_by_another_process_inside_the_index_refresh_is_never_overwritten() {
+    let (_guard, repo, _head) = fixture_repo();
+    std::fs::write(repo.join("other.txt"), "staged by another process\n").unwrap();
+    let scm = scm();
+    let cancel = CancellationToken::new();
+    let open = scm.open(&repo, &cancel).await.unwrap();
+    let git_dir = repo.join(".git");
+    let (reached, release) = crate::commit_tx::commit_gate::arm(&git_dir);
+    let competing = async {
+        tokio::time::timeout(std::time::Duration::from_secs(60), reached.notified()).await.expect("the refresh never reached its gate");
+        let ran = Command::new("git").args(["add", "other.txt"]).current_dir(&repo).output().unwrap();
+        release.notify_one();
+        ran
+    };
+    let selection = ["src/b.mjs".to_owned()];
+    let (committed, ran) = tokio::join!(open.commit_paths("only b", &selection), competing);
+    committed.unwrap();
+    assert!(!ran.status.success(), "git staged a file while the refresh held the index lock");
+    assert!(String::from_utf8_lossy(&ran.stderr).contains("index.lock"), "{}", String::from_utf8_lossy(&ran.stderr));
+    // The refused stage is simply made again afterwards, and the published index holds it next to the refreshed entry.
+    git(&repo, &["add", "other.txt"]);
+    let staged = git(&repo, &["diff", "--cached", "--name-only"]).replace('\r', "");
+    assert_eq!(staged, "other.txt");
+}
+
 #[tokio::test]
 async fn concurrent_status_reads_share_one_inspection_and_evidence_refreshes() {
     let (_guard, repo, _head) = fixture_repo();
@@ -182,7 +213,7 @@ async fn concurrent_status_reads_share_one_inspection_and_evidence_refreshes() {
 }
 
 #[tokio::test]
-async fn a_credential_request_is_told_by_the_askpass_helper_not_by_text() {
+async fn a_credential_request_reads_as_node_words_it() {
     use std::io::Read;
     use std::io::Write;
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1752,11 +1783,11 @@ async fn a_status_that_skips_line_stats_has_no_counts_and_leaves_the_counted_sca
     let (_guard, repo, _head) = fixture_repo();
     let scm = scm();
     let cancel = CancellationToken::new();
-    let skipped = scm.git_status_counting(&repo, &cancel, false).await.unwrap();
+    let skipped = scm.git_status_counting(&repo, &cancel, false, false).await.unwrap();
     let files = skipped["files"].as_array().unwrap();
     assert!(!files.is_empty());
     assert!(files.iter().all(|file| file["additions"] == 0 && file["deletions"] == 0));
-    let counted = scm.git_status_counting(&repo, &cancel, true).await.unwrap();
+    let counted = scm.git_status_counting(&repo, &cancel, true, false).await.unwrap();
     assert!(counted["files"].as_array().unwrap().iter().any(|file| file["additions"].as_u64().unwrap_or(0) > 0));
 }
 #[test]
@@ -1767,56 +1798,4 @@ fn a_review_revision_names_the_file_identity_or_deleted() {
     assert!(revision.starts_with("3:"), "size first: {revision}");
     assert_eq!(revision.split(':').count(), 4);
     assert_eq!(crate::inspect::status::worktree_revision(dir.path(), "gone.txt"), "deleted");
-}
-/// Node's `gitReviewDiffs` answers (`fixtures/desktop/review-batch/record.mjs`), replayed with the
-/// patches Node read: a quoted-header name, the command-line budget, the patch budget, duplicates.
-#[test]
-fn review_batches_match_the_recorded_node_answers() {
-    use crate::inspect::review::{BatchFile, review_batch};
-    let recorded: serde_json::Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../fixtures/desktop/review-batch/corpus.json"
-    )))
-    .unwrap();
-    let patch_of = |path: &str| match &recorded["patchOf"][path] {
-        entry if entry["patch"].is_string() => entry["patch"].as_str().unwrap().to_owned(),
-        entry => "x".repeat(entry["length"].as_u64().unwrap_or(0) as usize),
-    };
-    for case in recorded["cases"].as_array().unwrap() {
-        let files: Vec<BatchFile> = case["files"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|f| BatchFile { path: f["path"].as_str().unwrap().to_owned(), untracked: f["untracked"] == true })
-            .collect();
-        let got = review_batch(&files, patch_of);
-        let label = case["label"].as_str().unwrap();
-        let want = &case["answer"];
-        assert_eq!(got["omitted"], want["omitted"], "{label}");
-        let shape = |patches: &serde_json::Value| -> Vec<(String, String)> {
-            patches
-                .as_array()
-                .unwrap_or_else(|| panic!("{label}: patches must be an array"))
-                .iter()
-                .map(|p| {
-                    let text = p["patch"].as_str().map_or_else(|| p["length"].to_string(), |t| t.to_owned());
-                    (p["path"].as_str().unwrap().to_owned(), text)
-                })
-                .collect()
-        };
-        // Long patches are recorded by length: ours are `x` runs of that length.
-        let ours: Vec<(String, String)> = got["patches"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|p| {
-                let (path, patch) = (p["path"].as_str().unwrap(), p["patch"].as_str().unwrap());
-                let recorded_long = want["patches"].as_array().unwrap().iter().any(|w| w["path"] == path && w["length"].is_number());
-                (path.to_owned(), if recorded_long { patch.encode_utf16().count().to_string() } else { patch.to_owned() })
-            })
-            .collect();
-        assert_eq!(ours, shape(&want["patches"]), "{label}");
-    }
-    // No files: both arrays are empty, never null.
-    assert_eq!(review_batch(&[], patch_of), serde_json::json!({ "patches": [], "omitted": [] }));
 }

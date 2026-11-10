@@ -1,0 +1,540 @@
+{
+  "note": "What Node answers per class of project path, on a Windows host with the working directory on the project's parent: `known` (the registry's lookup), `inspect` (the catalog's answer for any path, JSON), `ensure` (the folder the catalog makes) and `add` (the real path `addProject` registers); `{proj}` is the registered folder, `{tmp}` its parent. Answers are in the order of `inputs`.",
+  "inputs": [
+    {
+      "name": "absolute",
+      "template": "{proj}"
+    },
+    {
+      "name": "trailing separator",
+      "template": "{proj}\\"
+    },
+    {
+      "name": "forward slashes",
+      "template": "{projSlash}"
+    },
+    {
+      "name": "upper case",
+      "template": "{projUpper}"
+    },
+    {
+      "name": "dot-dot inside",
+      "template": "{proj}\\sub\\.."
+    },
+    {
+      "name": "padded",
+      "template": "  {proj}  "
+    },
+    {
+      "name": "relative",
+      "template": "proj"
+    },
+    {
+      "name": "relative dot",
+      "template": ".\\proj"
+    },
+    {
+      "name": "relative dot-dot",
+      "template": "..\\{tmpName}\\proj"
+    },
+    {
+      "name": "relative, nothing there",
+      "template": "other"
+    },
+    {
+      "name": "relative, a new nested folder",
+      "template": "made\\deep"
+    },
+    {
+      "name": "rooted backslash",
+      "template": "{tmpRooted}\\proj"
+    },
+    {
+      "name": "rooted slash",
+      "template": "{tmpRootedSlash}/proj"
+    },
+    {
+      "name": "drive-relative",
+      "template": "{drive}proj"
+    },
+    {
+      "name": "absolute, not registered",
+      "template": "{tmp}\\other"
+    },
+    {
+      "name": "absolute, a new nested folder",
+      "template": "{tmp}\\made2\\deep"
+    },
+    {
+      "name": "device path",
+      "template": "\\\\?\\{proj}"
+    },
+    {
+      "name": "empty",
+      "template": ""
+    },
+    {
+      "name": "blank",
+      "template": "   "
+    },
+    {
+      "name": "NUL inside",
+      "template": "{proj}\u0000"
+    }
+  ],
+  "answers": {
+    "known": [
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "error": {
+          "name": "Error",
+          "message": "Project is not available.",
+          "code": "PROJECT_UNAVAILABLE"
+        }
+      },
+      {
+        "error": {
+          "name": "Error",
+          "message": "Project is not available.",
+          "code": "PROJECT_UNAVAILABLE"
+        }
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "error": {
+          "name": "Error",
+          "message": "Project is not available.",
+          "code": "PROJECT_UNAVAILABLE"
+        }
+      },
+      {
+        "error": {
+          "name": "Error",
+          "message": "Project is not available.",
+          "code": "PROJECT_UNAVAILABLE"
+        }
+      },
+      {
+        "error": {
+          "name": "Error",
+          "message": "Project is not available.",
+          "code": "PROJECT_UNAVAILABLE"
+        }
+      },
+      {
+        "error": {
+          "name": "Error",
+          "message": "Project is not available.",
+          "code": "PROJECT_UNAVAILABLE"
+        }
+      },
+      {
+        "error": {
+          "name": "Error",
+          "message": "Project is not available.",
+          "code": "PROJECT_UNAVAILABLE"
+        }
+      },
+      {
+        "error": {
+          "name": "Error",
+          "message": "Project is not available.",
+          "code": "PROJECT_UNAVAILABLE"
+        }
+      }
+    ],
+    "inspect": [
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{PROJ}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{tmp}\\\\other\",\"exists\":false,\"directory\":false}"
+      },
+      {
+        "result": "{\"path\":\"{tmp}\\\\made\\\\deep\",\"exists\":false,\"directory\":false}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "result": "{\"path\":\"{tmp}\\\\other\",\"exists\":false,\"directory\":false}"
+      },
+      {
+        "result": "{\"path\":\"{tmp}\\\\made2\\\\deep\",\"exists\":false,\"directory\":false}"
+      },
+      {
+        "result": "{\"path\":\"\\\\\\\\?\\\\{proj}\",\"exists\":true,\"directory\":true}"
+      },
+      {
+        "error": {
+          "name": "TypeError",
+          "message": "project path is required"
+        }
+      },
+      {
+        "error": {
+          "name": "TypeError",
+          "message": "project path is required"
+        }
+      },
+      {
+        "result": "{\"path\":\"{proj}\\u0000\",\"exists\":false,\"directory\":false}"
+      }
+    ],
+    "ensure": [
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{PROJ}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{tmp}\\other"
+      },
+      {
+        "result": "{tmp}\\made\\deep"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{tmp}\\other"
+      },
+      {
+        "result": "{tmp}\\made2\\deep"
+      },
+      {
+        "result": "\\\\?\\{proj}"
+      },
+      {
+        "error": {
+          "name": "TypeError",
+          "message": "project path is required"
+        }
+      },
+      {
+        "error": {
+          "name": "TypeError",
+          "message": "project path is required"
+        }
+      },
+      {
+        "error": {
+          "name": "Error",
+          "message": "project directory could not be created"
+        }
+      }
+    ],
+    "add": [
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{tmp}\\other"
+      },
+      {
+        "result": "{tmp}\\made\\deep"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{tmp}\\other"
+      },
+      {
+        "result": "{tmp}\\made2\\deep"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "error": {
+          "name": "TypeError",
+          "message": "projectPath is invalid."
+        }
+      },
+      {
+        "error": {
+          "name": "TypeError",
+          "message": "projectPath is invalid."
+        }
+      },
+      {
+        "error": {
+          "name": "TypeError",
+          "message": "The argument 'path' must be a string, Uint8Array, or URL without null bytes. Received '{proj}\\x00'",
+          "code": "ERR_INVALID_ARG_VALUE"
+        }
+      }
+    ]
+  },
+  "posix": {
+    "note": "resolveProjectPath (projects.mjs:251) loaded with node:path as path.posix and `cwd` as the working directory: Node's answers on a POSIX host, '' for an input it resolves to nothing.",
+    "cwd": "/home/user/work",
+    "inputs": [
+      {
+        "name": "absolute",
+        "value": "/home/user/proj"
+      },
+      {
+        "name": "trailing separator",
+        "value": "/home/user/proj/"
+      },
+      {
+        "name": "double slashes",
+        "value": "//home//user/proj"
+      },
+      {
+        "name": "dot-dot inside",
+        "value": "/home/user/proj/sub/.."
+      },
+      {
+        "name": "dot-dot above the root",
+        "value": "/../../proj"
+      },
+      {
+        "name": "padded",
+        "value": "  /home/user/proj  "
+      },
+      {
+        "name": "trimmed tab and newline",
+        "value": "\t/home/user/proj\n"
+      },
+      {
+        "name": "case is kept",
+        "value": "/Home/User/PROJ"
+      },
+      {
+        "name": "relative",
+        "value": "proj"
+      },
+      {
+        "name": "relative dot",
+        "value": "./proj"
+      },
+      {
+        "name": "relative dot-dot",
+        "value": "../work/proj"
+      },
+      {
+        "name": "relative, a nested folder",
+        "value": "made/deep"
+      },
+      {
+        "name": "relative above the root",
+        "value": "../../../../x"
+      },
+      {
+        "name": "backslashes are a file name",
+        "value": "a\\b"
+      },
+      {
+        "name": "drive-looking",
+        "value": "C:\\proj"
+      },
+      {
+        "name": "drive-looking with slashes",
+        "value": "C:/proj"
+      },
+      {
+        "name": "root",
+        "value": "/"
+      },
+      {
+        "name": "empty",
+        "value": ""
+      },
+      {
+        "name": "blank",
+        "value": "   "
+      },
+      {
+        "name": "NUL inside",
+        "value": "/home/user/pr\u0000oj"
+      }
+    ],
+    "answers": [
+      {
+        "result": "/home/user/proj"
+      },
+      {
+        "result": "/home/user/proj"
+      },
+      {
+        "result": "/home/user/proj"
+      },
+      {
+        "result": "/home/user/proj"
+      },
+      {
+        "result": "/proj"
+      },
+      {
+        "result": "/home/user/proj"
+      },
+      {
+        "result": "/home/user/proj"
+      },
+      {
+        "result": "/Home/User/PROJ"
+      },
+      {
+        "result": "/home/user/work/proj"
+      },
+      {
+        "result": "/home/user/work/proj"
+      },
+      {
+        "result": "/home/user/work/proj"
+      },
+      {
+        "result": "/home/user/work/made/deep"
+      },
+      {
+        "result": "/x"
+      },
+      {
+        "result": "/home/user/work/a\\b"
+      },
+      {
+        "result": "/home/user/work/C:\\proj"
+      },
+      {
+        "result": "/home/user/work/C:/proj"
+      },
+      {
+        "result": "/"
+      },
+      {
+        "result": ""
+      },
+      {
+        "result": ""
+      },
+      {
+        "result": "/home/user/pr\u0000oj"
+      }
+    ]
+  }
+}

@@ -41,6 +41,13 @@ pub struct ExecSpec {
     pub max_output: u64,
 }
 
+/// Node's `childEnvironment` (env-scrub.mjs `scrubRuntimeRootVars`): the host's own identity never reaches a child.
+pub fn child_env_removed() -> Vec<String> {
+    ["MIXDOG_ROOT", "NODE_ENV", "MIXDOG_DAEMON_HOST", "MIXDOG_WORKER_MODE", "MIXDOG_DAEMON_SPAWNED_FOR", "MIXDOG_SUPERVISOR_PID", "MIXDOG_SERVER_PID", "ELECTRON_RUN_AS_NODE"]
+        .map(String::from)
+        .to_vec()
+}
+
 impl ExecSpec {
     pub fn new(program: impl Into<String>, cwd: impl Into<PathBuf>) -> Self {
         Self {
@@ -48,7 +55,8 @@ impl ExecSpec {
             args: Vec::new(),
             cwd: cwd.into(),
             env_set: Vec::new(),
-            env_remove: Vec::new(),
+            // Node's `childEnvironment` (env-scrub.mjs `scrubRuntimeRootVars`): the host's own identity never reaches a child.
+            env_remove: child_env_removed(),
             stdin: None,
             time_limit: None,
             max_output: DEFAULT_MAX_OUTPUT,
@@ -86,6 +94,7 @@ pub struct Exec {
 
 impl Exec {
     pub fn new(processes: Arc<dyn ProcessManager>) -> Self {
+        crate::seam::start();
         Self {
             processes,
             next: AtomicU64::new(0),
@@ -110,9 +119,30 @@ impl Exec {
     ) -> Result<ExecOutput, ScmFailure> {
         let cwd = AbsPath::new(&spec.cwd)
             .ok_or_else(|| ScmFailure::invalid("cwd", "an absolute directory"))?;
+        let attempt = crate::seam::attempt_begin(&spec.program, &spec.args, false, &spec.cwd, &spec.env_set, &spec.env_remove);
+        let result = self.run_attempt(spec, cwd, cancel, &attempt).await;
+        attempt.done(&match &result {
+            Ok(out) => crate::seam::Ended::Code(out.code),
+            Err(ScmFailure::TimedOut { .. }) => crate::seam::Ended::TimedOut,
+            Err(ScmFailure::OutputTooLarge { .. }) => crate::seam::Ended::TooLarge,
+            Err(_) => crate::seam::Ended::Cancelled,
+        });
+        result
+    }
+
+    async fn run_attempt(
+        &self,
+        spec: ExecSpec,
+        cwd: AbsPath,
+        cancel: &CancellationToken,
+        attempt: &crate::seam::Attempt,
+    ) -> Result<ExecOutput, ScmFailure> {
         let handle = self.handle();
         let stdin_piped = spec.stdin.is_some();
+        let (time_limit, mut deadline) = crate::seam::run_limit(spec.time_limit, attempt);
         let program = spec.program.clone();
+        // Node's runners word a deadline or an overflow with the command as `git status -z` (git-runner.ts gitTimeout).
+        let command = command_label(&spec.program, &spec.args);
         let request = SpawnRequest {
             handle: handle.clone(),
             command: CommandSpec::Argv {
@@ -129,12 +159,11 @@ impl Exec {
             stdin_piped,
             output: OutputMode::Separate,
             owner: ProcessOwner::Internal,
-            time_limit: spec.time_limit,
+            time_limit,
         };
-        self.processes
-            .spawn(request)
-            .await
-            .map_err(|error| spawn_failure(error, &program))?;
+        let spawned = self.processes.spawn(request).await;
+        attempt.spawned(spawned.is_ok());
+        spawned.map_err(|error| spawn_failure(error, &program))?;
         let mut events = self
             .processes
             .subscribe(&handle, Some(0))
@@ -151,11 +180,17 @@ impl Exec {
         let mut killed = false;
         let mut cancelled = false;
         let mut too_large = false;
+        // A virtual run limit (a replay's debug seam) reached: the child is killed here, as the process manager kills at a real one.
+        let mut limit_reached = false;
         loop {
             tokio::select! {
                 biased;
                 _ = cancel.cancelled(), if !cancelled => {
                     cancelled = true;
+                    let _ = self.processes.kill(&handle);
+                }
+                () = deadline.fired(), if !limit_reached => {
+                    limit_reached = true;
                     let _ = self.processes.kill(&handle);
                 }
                 event = events.next() => match event {
@@ -185,6 +220,7 @@ impl Exec {
         }
         if too_large {
             return Err(ScmFailure::OutputTooLarge {
+                command,
                 limit: spec.max_output,
             });
         }
@@ -192,8 +228,11 @@ impl Exec {
             os_code: None,
             message: "process events ended without an exit".into(),
         })?;
-        if exit.killed == Some(KillReason::TimeLimit) {
-            return Err(ScmFailure::TimedOut);
+        if limit_reached || exit.killed == Some(KillReason::TimeLimit) {
+            return Err(ScmFailure::TimedOut {
+                command,
+                millis: spec.time_limit.map_or(0, |limit| limit.as_millis() as u64),
+            });
         }
         out.code = match exit.status {
             ExitStatus::Code(code) => Some(code),
@@ -203,11 +242,20 @@ impl Exec {
     }
 }
 
+/// The program as the child was started with it (the resolved path of git, as `gitCommand()` gives it), then its arguments:
+/// the words of run-child.mjs, `${command} ${args.join(' ')}`.
+pub(crate) fn command_label(program: &str, args: &[String]) -> String {
+    std::iter::once(program).chain(args.iter().map(String::as_str)).collect::<Vec<_>>().join(" ")
+}
+
 fn spawn_failure(error: ProcessError, program: &str) -> ScmFailure {
     match error {
         ProcessError::ProgramNotFound { .. } => ScmFailure::Unavailable {
             capability: program.to_owned(),
         },
+        // CreateProcess answers ERROR_BAD_EXE_FORMAT (193) or ERROR_EXE_MACHINE_TYPE_MISMATCH (216, what this Windows answers for a
+        // text file named git.exe) for a file the loader cannot run; libuv has no name for either.
+        ProcessError::Io { os_code: Some(193 | 216) } if cfg!(windows) => ScmFailure::Spawn { code: "UNKNOWN" },
         ProcessError::Io { os_code } => ScmFailure::Io {
             os_code,
             message: format!("could not start {program}"),

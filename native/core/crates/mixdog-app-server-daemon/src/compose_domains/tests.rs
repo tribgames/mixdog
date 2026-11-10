@@ -9,6 +9,7 @@ use mixdog_app_protocol::CLIENT_METHODS;
 use mixdog_app_protocol::CLIENT_NOTIFICATIONS;
 use mixdog_core_api::CallContext;
 use mixdog_core_api::CoreError;
+use mixdog_core_api::CoreHandle;
 use mixdog_core_api::HostChannel;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::mock::MockHostChannel;
@@ -358,6 +359,12 @@ const OWNED: [&str; 17] = [
 /// Methods of an owned namespace whose service another work package is still building, with the owner.
 const OTHER_OWNERS: &[(&str, &str)] = &[("host/claim", "wp-compaction-world: the server owns the connection registry")];
 
+/// Methods of an owned namespace that the real composition (`compose_flip::real_core`) serves with a service it builds itself, after
+/// `compose_domains`, each with that service's whole method list: the phone's live view (`live_view::LiveViewService`, SPEC R36) needs
+/// the remote runtime and device registry `real_core` builds. The test asks the core composed above which service serves each one.
+const COMPOSED_BY_REAL_CORE: &[(&str, &[&str])] =
+    &[("live_view::LiveViewService", &["browser/stream", "browser/webrtcSignal", "browser/screenDisplays", "host/browser/page"])];
+
 impl mixdog_agent::compact::settings_service::CompactionHost for Quiet {
     fn route_provider(&self, _: Option<&ThreadId>) -> Option<String> {
         None
@@ -585,12 +592,20 @@ fn every_method_of_the_domains_built_here_has_a_real_service() {
         }
         let unclaimed = builder.unclaimed();
         let table = CLIENT_METHODS.iter().map(|spec| spec.method).chain(CLIENT_NOTIFICATIONS.iter().map(|spec| spec.method));
-        let missing: Vec<&str> = table
+        let (in_real_core, missing): (Vec<&str>, Vec<&str>) = table
             .filter(|method| OWNED.contains(&method.split('/').next().unwrap()))
             .filter(|method| unclaimed.contains(method))
             .filter(|method| !OTHER_OWNERS.iter().any(|(name, _)| name == method))
-            .collect();
+            .partition(|method| COMPOSED_BY_REAL_CORE.iter().any(|(_, methods)| methods.contains(method)));
         assert!(missing.is_empty(), "owned methods without a service: {missing:?}");
+        // Each listed method is one this composition leaves to the real one, and the composed core routes it to the one service
+        // that claims exactly the listed methods.
+        assert_eq!(in_real_core.len(), COMPOSED_BY_REAL_CORE.iter().map(|(_, methods)| methods.len()).sum::<usize>(), "listed methods this composition serves itself: {in_real_core:?}");
+        for (service, methods) in COMPOSED_BY_REAL_CORE {
+            for method in *methods {
+                assert_eq!(core.domain_for(method).map(|domain| domain.methods()), Some(*methods), "{method}: the composed core serves it with {service}");
+            }
+        }
         // The core's memory stack stops with it.
         core.set_stop_reason("test");
         core.run_stop_steps().await;
