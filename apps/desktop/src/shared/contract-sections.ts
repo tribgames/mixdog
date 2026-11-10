@@ -19,11 +19,18 @@ export const SECTION_NAMES = [
   'gitStatus', 'lspStatus', 'lspDiagnostics', 'mediaJobs', 'ports',
 ] as const;
 
+/** Sections that are a tell, not state (Node's `turn-review-changed` desktop event): a change notifies the listeners that
+ *  are there when it happens. A store never takes one from a snapshot or a whole-store replace, so a window that attaches
+ *  later, or a reconnect of the core, does not make a listener act on a tell it was not there for. */
+export const EVENT_SECTIONS: readonly string[] = ['reviewDiff'];
+
 export type DesktopProtocolStatus = 'ready' | 'reconnecting' | 'closed';
 
 export interface DesktopSectionsSnapshot {
   readonly status: DesktopProtocolStatus;
   readonly entries: readonly DesktopSectionEntry[];
+  /** The core's app feed these entries are of (see the commit push's `epoch`). */
+  readonly epoch?: string;
 }
 
 /** `entry: null` removes the `(section, key)`. */
@@ -41,7 +48,8 @@ export type DesktopSectionsPush =
    *  whatever the staged store lacks. Changes made after `begin` follow the commit as ordinary `sections` pushes. */
   | { readonly kind: 'replace'; readonly stage: 'begin' }
   | { readonly kind: 'replace'; readonly stage: 'chunk'; readonly entries: readonly DesktopSectionEntry[] }
-  | { readonly kind: 'replace'; readonly stage: 'commit' }
+  /** `epoch`: the core's app feed the store comes from (a restarted core has another), so a store can tell a reconnect to the same core from one to a restarted core. */
+  | { readonly kind: 'replace'; readonly stage: 'commit'; readonly epoch?: string }
   /** A scoped feed the window watches could not be restored after a reconnect, for a reason other than the core not
    *  holding it (that one is a removal of its sections). Its held sections stay. */
   | { readonly kind: 'feedError'; readonly feedId: string; readonly message: string }

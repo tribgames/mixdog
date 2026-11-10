@@ -336,6 +336,12 @@ const CASES = [
   ],
 ];
 
+/** [operation, args, params]: Node's announcements, the core methods the lane calls for them (no host display preferences here). */
+const ANNOUNCEMENTS = [
+  ['notifySettingsChanged', ['git'], { scope: 'git' }],
+  ['notifyProviderModelsChanged', ['win-1'], { origin: 'win-1' }],
+];
+
 for (const [name, args, method, params] of CASES) {
   test(`${name}(${args.length} args) is ${method} with its named params`, () => {
     assert.deepEqual(routeDesktopOperation(name, args), { method, params });
@@ -347,7 +353,8 @@ test('termEnsure without a tab id sends none: the core spawns a new terminal and
     const sent = routeDesktopOperation('termEnsure', [id, R, null]);
     assert.equal(sent.method, 'terminal/ensure');
     assert.equal('tabId' in sent.params, false);
-    assert.deepEqual(sent.params.options, { cwd: R, profile: null });
+    // Node's `termEnsure([id, cwd, shell])` (remote-methods.ts:1143) has no core params to record; `options` is the spec table's shape for them.
+    assert.deepEqual(sent.params.options, { cwd: R });
   }
   assert.equal(routeDesktopOperation('termEnsure', ['t9', R, null]).params.tabId, 't9');
 });
@@ -368,10 +375,17 @@ test('the routed operations are the spec map targets with params the Rust schema
   // Two operations have a core method the desktop never sends: `visualizeRemoteViewing` is read from a section, and
   // `browserRemoteWebrtcSignal` was the relay's own call into the desktop service (Node `main/index.ts`
   // `invokeDesktopOperation('browserRemoteWebrtcSignal', [clientId, signal])`); the phone now sends
-  // `browser/webrtcSignal` to the core itself, on a relay connection, the only origin the method allows.
+  // `browser/webrtcSignal` to the core itself, on a relay connection, the only origin the method allows. The two announcements are
+  // sent by the lane itself (a settings change publishes the display preferences first); the next test holds them to the map.
   assert.deepEqual(
     [...wantedMethods].filter(([, methods]) => methods).map(([name]) => name).sort(),
-    [...ROUTED_DESKTOP_OPERATIONS, ...UNROUTED_DESKTOP_OPERATIONS, 'visualizeRemoteViewing', 'browserRemoteWebrtcSignal'].sort()
+    [
+      ...ROUTED_DESKTOP_OPERATIONS,
+      ...UNROUTED_DESKTOP_OPERATIONS,
+      ...ANNOUNCEMENTS.map(([name]) => name),
+      'visualizeRemoteViewing',
+      'browserRemoteWebrtcSignal',
+    ].sort()
   );
   assert.throws(() => routeDesktopOperation('browserRemoteWebrtcSignal', ['client-1', {}]), { code: 'unknownMethod' });
   const covered = new Set(CASES.map(([name]) => name));
@@ -392,6 +406,15 @@ test('the routed operations are the spec map targets with params the Rust schema
   }
 });
 
+test('the announcements are the spec map methods, sent by the lane', async () => {
+  for (const [name, args, params] of ANNOUNCEMENTS) {
+    const { lane, calls } = laneWith({});
+    assert.equal(await lane.invoke(name, args), undefined);
+    const row = operations.find((entry) => entry.name === name);
+    assert.deepEqual(calls, [{ method: row.target.kind === 'method' ? row.target.target : null, params }], name);
+  }
+});
+
 test('mutations carry no opId here: the client library assigns it in call()', () => {
   for (const [, , , params] of CASES) assert.equal('opId' in params, false);
 });
@@ -400,7 +423,8 @@ test('an operation with no Rust op is unknownMethod and one the schema cannot ca
   const unknown = operations
     .filter((row) => row.target.kind !== 'method' && row.target.kind !== 'methods')
     .map((row) => row.name);
-  assert.equal(unknown.length, 40);
+  // 38 since the two announcements became the core methods `ui/settings/announce` and `ui/providerModels/announce`.
+  assert.equal(unknown.length, 38);
   for (const name of unknown) {
     assert.throws(() => routeDesktopOperation(name, []), { code: 'unknownMethod' }, name);
   }
@@ -769,7 +793,14 @@ for (const [name, args, method, params, result] of NOTIFICATIONS) {
 
 test('the notification operations are the spec map clientNotification rows', () => {
   const wanted = operations.filter((row) => row.target.kind === 'clientNotification').map((row) => row.name);
-  assert.deepEqual([...NOTIFICATION_DESKTOP_OPERATIONS].sort(), wanted.sort());
+  // `browserRemoteFrame` (`host/browser/frame`) is sent by the host role, whose X17 picture must follow it on the host connection
+  // (host/browser-view.ts; host.test.mjs holds the frames it sends); the lane refuses it.
+  assert.deepEqual([...NOTIFICATION_DESKTOP_OPERATIONS, 'browserRemoteFrame'].sort(), wanted.sort());
+  assert.equal(
+    operations.find((row) => row.name === 'browserRemoteFrame').target.target,
+    'host/browser/frame'
+  );
+  assert.throws(() => routeDesktopOperation('browserRemoteFrame', [{}]), { code: 'unknownMethod' });
 });
 
 test('termEnsure leaves sizeOwner out when the core says null and keeps an owner', async () => {

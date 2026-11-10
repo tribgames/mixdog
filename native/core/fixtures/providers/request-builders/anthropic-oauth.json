@@ -1,185 +1,185 @@
 {
-  "effortHigh": {
+  "text": {
+    "model": "claude-sonnet-4-6",
     "max_tokens": 16384,
     "messages": [
       {
+        "role": "user",
         "content": [
           {
+            "type": "text",
+            "text": "Look up the answer.",
             "cache_control": {
               "type": "ephemeral"
-            },
-            "text": "Look up the answer.",
-            "type": "text"
+            }
           }
-        ],
-        "role": "user"
+        ]
       }
     ],
+    "stream": true,
+    "system": [
+      {
+        "type": "text",
+        "text": "You are Claude Code, Anthropic's official CLI for Claude."
+      },
+      {
+        "type": "text",
+        "text": "\n\nYou are a fixture assistant.",
+        "cache_control": {
+          "type": "ephemeral",
+          "ttl": "1h"
+        }
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "description": "Read a value",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key"
+          ]
+        },
+        "eager_input_streaming": true
+      }
+    ],
+    "thinking": {
+      "type": "adaptive"
+    }
+  },
+  "toolResult": {
     "model": "claude-sonnet-4-6",
+    "max_tokens": 16384,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Look up the answer."
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "call_fx1",
+            "name": "lookup",
+            "input": {
+              "key": "answer"
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "call_fx1",
+            "content": "42",
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          }
+        ]
+      }
+    ],
+    "stream": true,
+    "system": [
+      {
+        "type": "text",
+        "text": "You are Claude Code, Anthropic's official CLI for Claude."
+      },
+      {
+        "type": "text",
+        "text": "\n\nYou are a fixture assistant.",
+        "cache_control": {
+          "type": "ephemeral",
+          "ttl": "1h"
+        }
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "description": "Read a value",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key"
+          ]
+        },
+        "eager_input_streaming": true
+      }
+    ],
+    "thinking": {
+      "type": "adaptive"
+    }
+  },
+  "effortHigh": {
+    "model": "claude-sonnet-4-6",
+    "max_tokens": 16384,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Look up the answer.",
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          }
+        ]
+      }
+    ],
+    "stream": true,
+    "system": [
+      {
+        "type": "text",
+        "text": "You are Claude Code, Anthropic's official CLI for Claude."
+      },
+      {
+        "type": "text",
+        "text": "\n\nYou are a fixture assistant.",
+        "cache_control": {
+          "type": "ephemeral",
+          "ttl": "1h"
+        }
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "description": "Read a value",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key"
+          ]
+        },
+        "eager_input_streaming": true
+      }
+    ],
     "output_config": {
       "effort": "high"
     },
-    "stream": true,
-    "system": [
-      {
-        "text": "You are Claude Code, Anthropic's official CLI for Claude.",
-        "type": "text"
-      },
-      {
-        "cache_control": {
-          "ttl": "1h",
-          "type": "ephemeral"
-        },
-        "text": "\n\nYou are a fixture assistant.",
-        "type": "text"
-      }
-    ],
     "thinking": {
       "type": "adaptive"
-    },
-    "tools": [
-      {
-        "description": "Read a value",
-        "eager_input_streaming": true,
-        "input_schema": {
-          "properties": {
-            "key": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "key"
-          ],
-          "type": "object"
-        },
-        "name": "lookup"
-      }
-    ]
-  },
-  "text": {
-    "max_tokens": 16384,
-    "messages": [
-      {
-        "content": [
-          {
-            "cache_control": {
-              "type": "ephemeral"
-            },
-            "text": "Look up the answer.",
-            "type": "text"
-          }
-        ],
-        "role": "user"
-      }
-    ],
-    "model": "claude-sonnet-4-6",
-    "stream": true,
-    "system": [
-      {
-        "text": "You are Claude Code, Anthropic's official CLI for Claude.",
-        "type": "text"
-      },
-      {
-        "cache_control": {
-          "ttl": "1h",
-          "type": "ephemeral"
-        },
-        "text": "\n\nYou are a fixture assistant.",
-        "type": "text"
-      }
-    ],
-    "thinking": {
-      "type": "adaptive"
-    },
-    "tools": [
-      {
-        "description": "Read a value",
-        "eager_input_streaming": true,
-        "input_schema": {
-          "properties": {
-            "key": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "key"
-          ],
-          "type": "object"
-        },
-        "name": "lookup"
-      }
-    ]
-  },
-  "toolResult": {
-    "max_tokens": 16384,
-    "messages": [
-      {
-        "content": "Look up the answer.",
-        "role": "user"
-      },
-      {
-        "content": [
-          {
-            "id": "call_fx1",
-            "input": {
-              "key": "answer"
-            },
-            "name": "lookup",
-            "type": "tool_use"
-          }
-        ],
-        "role": "assistant"
-      },
-      {
-        "content": [
-          {
-            "cache_control": {
-              "type": "ephemeral"
-            },
-            "content": "42",
-            "tool_use_id": "call_fx1",
-            "type": "tool_result"
-          }
-        ],
-        "role": "user"
-      }
-    ],
-    "model": "claude-sonnet-4-6",
-    "stream": true,
-    "system": [
-      {
-        "text": "You are Claude Code, Anthropic's official CLI for Claude.",
-        "type": "text"
-      },
-      {
-        "cache_control": {
-          "ttl": "1h",
-          "type": "ephemeral"
-        },
-        "text": "\n\nYou are a fixture assistant.",
-        "type": "text"
-      }
-    ],
-    "thinking": {
-      "type": "adaptive"
-    },
-    "tools": [
-      {
-        "description": "Read a value",
-        "eager_input_streaming": true,
-        "input_schema": {
-          "properties": {
-            "key": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "key"
-          ],
-          "type": "object"
-        },
-        "name": "lookup"
-      }
-    ]
+    }
   }
 }

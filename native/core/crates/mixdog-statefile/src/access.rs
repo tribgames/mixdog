@@ -1,11 +1,13 @@
 //! Who may open a new file, set when the file is created so there is no readable window, and
 //! the directory sync the publish path asks for.
 
-use std::fs::File;
-use std::fs::OpenOptions;
 use std::io;
 use std::path::Path;
 
+use mixdog_fsio::File;
+use mixdog_fsio::OpenOptions;
+use mixdog_fsio::ReadProof;
+use mixdog_fsio::WriteProof;
 use mixdog_rt::InLane;
 
 use crate::IoLane;
@@ -24,7 +26,7 @@ pub enum Access {
 /// Creates `path`, which must not exist, with `access`. `unix_mode` applies to `Inherit` on
 /// Unix; elsewhere it is ignored.
 pub fn create_new<L: WriteLane>(_lane: &InLane<L>, path: &Path, access: Access, unix_mode: u32) -> io::Result<File> {
-    create_new_platform(path, access, unix_mode)
+    create_new_platform(_lane, path, access, unix_mode)
 }
 
 /// The same three primitives without a lane proof, for `mixdog_store::fsio` alone: its
@@ -34,126 +36,143 @@ pub fn create_new<L: WriteLane>(_lane: &InLane<L>, path: &Path, access: Access, 
 // Hidden from the docs so it is not mistaken for API: `mixdog_store::fsio` is the only caller.
 #[doc(hidden)]
 pub mod unlaned {
-    use std::fs::File;
     use std::io;
     use std::path::Path;
+
+    use mixdog_fsio::File;
+    use mixdog_fsio::Unlaned;
 
     use super::Access;
 
     /// [`super::create_new`].
     pub fn create_new(path: &Path, access: Access, unix_mode: u32) -> io::Result<File> {
-        super::create_new_platform(path, access, unix_mode)
+        super::create_new_platform(&Unlaned, path, access, unix_mode)
     }
 
     /// [`super::is_owner_only`].
     pub fn is_owner_only(path: &Path) -> io::Result<bool> {
-        super::is_owner_only_platform(path)
+        super::is_owner_only_platform(&Unlaned, path)
     }
 
     /// [`super::sync_dir`].
     pub fn sync_dir(dir: &Path) -> io::Result<()> {
-        super::open_dir(dir)?.sync_all()
+        super::open_dir(&Unlaned, dir)?.sync_all(&Unlaned)
     }
 }
 
 /// Creates `path` and every missing ancestor with the process defaults (Node's
 /// `mkdirSync(path, { recursive: true })`: the umask on Unix, the parent's ACL on Windows).
-pub fn create_dir_all<L: WriteLane>(_lane: &InLane<L>, path: &Path) -> io::Result<()> {
-    std::fs::create_dir_all(path)
+pub fn create_dir_all<L: WriteLane>(lane: &InLane<L>, path: &Path) -> io::Result<()> {
+    mixdog_fsio::create_dir_all(lane, path)
 }
 
 /// Creates `path` alone, failing with `AlreadyExists` when anything is there already (Node's
 /// `mkdirSync(path)` without `recursive`, which throws `EEXIST`): the claim of a name no one else holds.
-pub fn create_dir<L: WriteLane>(_lane: &InLane<L>, path: &Path) -> io::Result<()> {
-    std::fs::create_dir(path)
+pub fn create_dir<L: WriteLane>(lane: &InLane<L>, path: &Path) -> io::Result<()> {
+    mixdog_fsio::create_dir(lane, path)
 }
 
 /// Creates `path` and every missing ancestor as a private directory: Unix mode 0700 (Node's
 /// `mkdirSync(path, { recursive: true, mode: 0o700 })`, subject to the umask); Windows a
 /// protected DACL with one full-access entry for the current user, inherited by what the
 /// directory holds. A directory that exists is left as it is.
-pub fn create_private_dir_all<L: WriteLane>(_lane: &InLane<L>, path: &Path) -> io::Result<()> {
-    if path.is_dir() {
+pub fn create_private_dir_all<L: WriteLane>(lane: &InLane<L>, path: &Path) -> io::Result<()> {
+    if mixdog_fsio::is_dir(lane, path) {
         return Ok(());
     }
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-        create_private_dir(parent)?;
+        create_private_dir(lane, parent)?;
     }
-    create_private_dir(path)
+    create_private_dir(lane, path)
 }
 
-fn create_private_dir(path: &Path) -> io::Result<()> {
-    if path.is_dir() {
+fn create_private_dir<P: WriteProof>(proof: &P, path: &Path) -> io::Result<()> {
+    if mixdog_fsio::is_dir(proof, path) {
         return Ok(());
     }
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-        create_private_dir(parent)?;
+        create_private_dir(proof, parent)?;
     }
-    match create_dir_platform(path) {
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists && path.is_dir() => Ok(()),
+    match create_dir_platform(proof, path) {
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists && mixdog_fsio::is_dir(proof, path) => Ok(()),
         other => other,
     }
 }
 
+/// Makes the existing directory `path` private (Node's `enforceOwnerOnlyDirectoryWin32Async` on Windows, `chmod 0o700` elsewhere):
+/// Unix mode 0700; Windows its whole DACL replaced by the one protected, inheritable owner-only entry
+/// [`create_private_dir_all`] gives a new directory, and the files directly in it reset to inherit only that entry.
+pub fn secure_private_dir<L: WriteLane>(_lane: &InLane<L>, path: &Path) -> io::Result<()> {
+    secure_private_dir_platform(path)
+}
+
 #[cfg(unix)]
-fn create_dir_platform(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
-    std::fs::DirBuilder::new().mode(0o700).create(path)
+fn secure_private_dir_platform(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
 }
 
 #[cfg(windows)]
-fn create_dir_platform(path: &Path) -> io::Result<()> {
+fn secure_private_dir_platform(path: &Path) -> io::Result<()> {
+    owner_only::secure_dir(path)
+}
+
+#[cfg(unix)]
+fn create_dir_platform<P: WriteProof>(proof: &P, path: &Path) -> io::Result<()> {
+    mixdog_fsio::DirBuilder::new().mode(0o700).create(proof, path)
+}
+
+#[cfg(windows)]
+fn create_dir_platform<P: WriteProof>(_proof: &P, path: &Path) -> io::Result<()> {
     owner_only::create_dir(path)
 }
 
 #[cfg(unix)]
-fn create_new_platform(path: &Path, access: Access, unix_mode: u32) -> io::Result<File> {
-    use std::os::unix::fs::OpenOptionsExt;
+pub(crate) fn create_new_platform<P: WriteProof>(proof: &P, path: &Path, access: Access, unix_mode: u32) -> io::Result<File> {
     let mode = if access == Access::OwnerOnly { 0o600 } else { unix_mode };
-    OpenOptions::new().write(true).create_new(true).mode(mode).open(path)
+    OpenOptions::new().write(true).create_new(true).mode(mode).open(proof, path)
 }
 
 #[cfg(windows)]
-fn create_new_platform(path: &Path, access: Access, _unix_mode: u32) -> io::Result<File> {
+pub(crate) fn create_new_platform<P: WriteProof>(proof: &P, path: &Path, access: Access, _unix_mode: u32) -> io::Result<File> {
     match access {
         Access::OwnerOnly => owner_only::create_new(path),
-        Access::Inherit => OpenOptions::new().write(true).create_new(true).open(path),
+        Access::Inherit => OpenOptions::new().write(true).create_new(true).open(proof, path),
     }
 }
 
 /// Whether only the current user can open `path`: Unix no group/other mode bits; Windows
 /// exactly the protected owner-only DACL `create_new` sets.
-pub fn is_owner_only<L: IoLane>(_lane: &InLane<L>, path: &Path) -> io::Result<bool> {
-    is_owner_only_platform(path)
+pub fn is_owner_only<L: IoLane>(lane: &InLane<L>, path: &Path) -> io::Result<bool> {
+    is_owner_only_platform(lane, path)
 }
 
 #[cfg(unix)]
-fn is_owner_only_platform(path: &Path) -> io::Result<bool> {
+fn is_owner_only_platform<P: ReadProof>(proof: &P, path: &Path) -> io::Result<bool> {
     use std::os::unix::fs::PermissionsExt;
-    Ok(std::fs::metadata(path)?.permissions().mode() & 0o077 == 0)
+    Ok(mixdog_fsio::metadata(proof, path)?.permissions().mode() & 0o077 == 0)
 }
 
 #[cfg(windows)]
-fn is_owner_only_platform(path: &Path) -> io::Result<bool> {
+fn is_owner_only_platform<P: ReadProof>(_proof: &P, path: &Path) -> io::Result<bool> {
     owner_only::is_owner_only(path)
 }
 
 /// `fsync` / `FlushFileBuffers` of a directory's entries. Windows needs a write handle opened
 /// with `FILE_FLAG_BACKUP_SEMANTICS`; a read-only directory handle is refused.
-pub fn sync_dir<L: WriteLane>(_lane: &InLane<L>, dir: &Path) -> io::Result<()> {
-    open_dir(dir)?.sync_all()
+pub fn sync_dir<L: WriteLane>(lane: &InLane<L>, dir: &Path) -> io::Result<()> {
+    open_dir(lane, dir)?.sync_all(lane)
 }
 
 #[cfg(windows)]
-fn open_dir(dir: &Path) -> io::Result<File> {
-    use std::os::windows::fs::OpenOptionsExt;
+fn open_dir<P: WriteProof>(proof: &P, dir: &Path) -> io::Result<File> {
     use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
-    OpenOptions::new().read(true).write(true).custom_flags(FILE_FLAG_BACKUP_SEMANTICS).open(dir)
+    OpenOptions::new().read(true).write(true).custom_flags(FILE_FLAG_BACKUP_SEMANTICS).open(proof, dir)
 }
 
 #[cfg(not(windows))]
-fn open_dir(dir: &Path) -> io::Result<File> {
-    File::open(dir)
+fn open_dir<P: WriteProof>(proof: &P, dir: &Path) -> io::Result<File> {
+    File::open(proof, dir)
 }
 
 /// `path` as a NUL-terminated verbatim Win32 path (`\\?\C:\…`, `\\?\UNC\server\…`), the form
@@ -196,13 +215,13 @@ pub fn verbatim_wide(path: &Path) -> io::Result<Vec<u16>> {
 
 #[cfg(windows)]
 mod owner_only {
-    use std::fs::File;
     use std::io;
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::io::FromRawHandle;
     use std::path::Path;
     use std::ptr::null_mut;
 
+    use mixdog_fsio::File;
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::Foundation::GENERIC_READ;
     use windows_sys::Win32::Foundation::GENERIC_WRITE;
@@ -214,8 +233,15 @@ mod owner_only {
     use windows_sys::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
     use windows_sys::Win32::Security::Authorization::GetNamedSecurityInfoW;
     use windows_sys::Win32::Security::Authorization::SDDL_REVISION_1;
+    use windows_sys::Win32::Security::ACL;
+    use windows_sys::Win32::Security::ACL_REVISION;
     use windows_sys::Win32::Security::Authorization::SE_FILE_OBJECT;
+    use windows_sys::Win32::Security::Authorization::SetNamedSecurityInfoW;
     use windows_sys::Win32::Security::DACL_SECURITY_INFORMATION;
+    use windows_sys::Win32::Security::GetSecurityDescriptorDacl;
+    use windows_sys::Win32::Security::InitializeAcl;
+    use windows_sys::Win32::Security::PROTECTED_DACL_SECURITY_INFORMATION;
+    use windows_sys::Win32::Security::UNPROTECTED_DACL_SECURITY_INFORMATION;
     use windows_sys::Win32::Security::GetTokenInformation;
     use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
     use windows_sys::Win32::Security::TOKEN_QUERY;
@@ -313,6 +339,47 @@ mod owner_only {
         // SAFETY: allocated by ConvertStringSecurityDescriptorToSecurityDescriptorW.
         unsafe { LocalFree(descriptor) };
         if created == 0 { Err(error) } else { Ok(()) }
+    }
+
+    /// The DACL of `path` replaced (`protected`: no inheritance from its parent) by `dacl`.
+    fn set_dacl(path: &Path, dacl: *mut ACL, protected: bool) -> io::Result<()> {
+        let name = super::verbatim_wide(path)?;
+        let flags = DACL_SECURITY_INFORMATION | if protected { PROTECTED_DACL_SECURITY_INFORMATION } else { UNPROTECTED_DACL_SECURITY_INFORMATION };
+        // SAFETY: `name` is NUL-terminated; `dacl` is a valid ACL that outlives the call.
+        let status = unsafe { SetNamedSecurityInfoW(name.as_ptr().cast_mut(), SE_FILE_OBJECT, flags, null_mut(), null_mut(), dacl, null_mut()) };
+        if status == 0 { Ok(()) } else { Err(io::Error::from_raw_os_error(status as i32)) }
+    }
+
+    /// `secure_private_dir`: the directory's DACL becomes the owner-only entry (inherited by what it holds, which the system
+    /// propagates), and each file directly in it is given an empty unprotected DACL, so it inherits only that entry.
+    #[allow(clippy::disallowed_methods, reason = "synchronous file-state step: its callers run it as a lane job, like the rest of this crate")]
+    pub fn secure_dir(path: &Path) -> io::Result<()> {
+        let sddl = wide(std::ffi::OsStr::new(&owner_only_sddl(true)?));
+        let mut descriptor = null_mut();
+        // SAFETY: `sddl` is NUL-terminated; the descriptor is freed below.
+        if unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut descriptor, null_mut()) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let (mut present, mut defaulted, mut dacl) = (0, 0, null_mut());
+        // SAFETY: `descriptor` was just built; the ACL it yields lives as long as it does.
+        let got = unsafe { GetSecurityDescriptorDacl(descriptor, &mut present, &mut dacl, &mut defaulted) };
+        let result = if got == 0 || present == 0 { Err(io::Error::last_os_error()) } else { set_dacl(path, dacl, true) };
+        // SAFETY: allocated by ConvertStringSecurityDescriptorToSecurityDescriptorW.
+        unsafe { LocalFree(descriptor) };
+        result?;
+        // An empty ACL (revision header only), eight bytes, aligned for the ACL structure.
+        let mut empty = [0u64; 1];
+        // SAFETY: the buffer holds eight bytes, the size of an empty ACL.
+        if unsafe { InitializeAcl(empty.as_mut_ptr().cast(), 8, ACL_REVISION) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            if entry.file_type()?.is_file() {
+                set_dacl(&entry.path(), empty.as_mut_ptr().cast(), false)?;
+            }
+        }
+        Ok(())
     }
 
     pub fn create_new(path: &Path) -> io::Result<File> {

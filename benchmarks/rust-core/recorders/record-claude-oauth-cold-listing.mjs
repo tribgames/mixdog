@@ -14,9 +14,11 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { FIXTURES_ROOT, commitStage, parseArgs, productIdentity, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, exactProductIdentity, parseArgs, recordingProvenance, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
-const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
+// The commit the exported tree is (`--commit`; b6f10295a when not given). Re-recorded from 7f633e730, whose
+// offline model list (lib/anthropic-models.mjs) is what this listing answers.
+const NODE_COMMIT = parseArgs().get('commit') ?? 'b6f10295a2f698afc85332467192de28500bd146';
 const recorder = 'benchmarks/rust-core/recorders/record-claude-oauth-cold-listing.mjs';
 const SCENARIOS = [
   { name: 'registry-answers', env: {}, net: [{ status: 200, body: JSON.stringify({ version: '2.1.500' }) }] },
@@ -59,16 +61,22 @@ for (const scenario of SCENARIOS) {
   for (const key of ENV_KEYS) delete env[key];
   const root = mkdtempSync(join(tmpdir(), 'claude-oauth-cold-'));
   Object.assign(env, { MIXDOG_DATA_DIR: join(root, 'data'), MIXDOG_HOME: join(root, 'home'), HOME: root, USERPROFILE: root }, scenario.env);
-  const run = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--tree', tree, '--child', scenario.name], { env, encoding: 'utf8' });
+  // A child that outlives two minutes is ended (it starts no process of its own) and the recording fails on its exit.
+  const run = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--tree', tree, '--child', scenario.name], { env, encoding: 'utf8', timeout: 120_000 });
   const line = run.stdout.split(/\r?\n/).find((l) => l.startsWith('RESULT '));
   if (run.status !== 0 || !line) throw new Error(`${scenario.name}: exit ${run.status}\n${run.stdout}\n${run.stderr}`);
   results.push({ name: scenario.name, env: scenario.env, net: scenario.net, ...JSON.parse(line.slice(7)) });
 }
 
-const identity = productIdentity(tree, NODE_COMMIT);
-if (!identity.refComparison.exact) throw new Error(`the tree is not an exact export of ${NODE_COMMIT}: ${JSON.stringify(identity.refComparison)}`);
+const identity = exactProductIdentity(tree, NODE_COMMIT);
 const finalDir = join(FIXTURES_ROOT, 'claude-oauth-cold-listing');
 const stage = stageSet(finalDir);
 writeJson(join(stage, 'golden.json'), { scenarios: results });
-writeSetManifest(stage, { set: 'claude-oauth-cold-listing', recorder, command: `node ${recorder} --tree <tree>`, identity });
+writeSetManifest(stage, {
+  set: 'claude-oauth-cold-listing',
+  recorder,
+  command: `node ${recorder} --tree <tree> --commit ${NODE_COMMIT}`,
+  identity,
+  extra: recordingProvenance(recorder, ['benchmarks/rust-core/recorders/lib/common.mjs']),
+});
 commitStage(stage, finalDir);

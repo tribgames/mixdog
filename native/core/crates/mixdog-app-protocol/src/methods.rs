@@ -343,6 +343,27 @@ crate::client_request_definitions! {
         mutation: op(Thread),
         origins: [Local, Ssh, Relay],
     },
+    /// Today's `answerApprovalNotification`: a notification's Allow or Deny on the approval the thread shows. Allow is taken only
+    /// where the PC's card allows once with a bare Enter, and answers with that card's decision; like a server-request response,
+    /// it is not an op.
+    ThreadApprovalAnswerNotification => "thread/approval/answerNotification" {
+        params: v2::approval::ThreadApprovalAnswerNotificationParams,
+        result: v2::approval::ThreadApprovalAnswerNotificationResponse,
+        scope: thread(thread_id),
+        class: C2,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// Today's `resolveToolApprovalForSession`: a card's decision on the approval request it shows, answered once the thread took
+    /// it or another decision had (`accepted`), as Node's serialized answer was; like a server-request response, it is not an op.
+    ThreadApprovalAnswer => "thread/approval/answer" {
+        params: v2::approval::ThreadApprovalAnswerParams,
+        result: v2::approval::ThreadApprovalAnswerResponse,
+        scope: thread(thread_id),
+        class: C2,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
     /// Set the goal.
     ThreadGoalSet => "thread/goal/set" {
         params: v2::thread::ThreadGoalSetParams,
@@ -3804,7 +3825,7 @@ crate::client_request_definitions! {
     GithubLoginOpenBrowser => "github/login/openBrowser" {
         params: GithubLoginOpenBrowserParams,
         result: JsonValue,
-        scope: keyed("githubLogin", flow_id),
+        scope: keyed_text("githubLogin", flow_id, 200),
         class: C2,
         mutation: op(Github),
         origins: [Local, Ssh, Relay],
@@ -3813,7 +3834,7 @@ crate::client_request_definitions! {
     GithubLoginCancel => "github/login/cancel" {
         params: GithubLoginCancelParams,
         result: JsonValue,
-        scope: keyed("githubLogin", flow_id),
+        scope: keyed_text("githubLogin", flow_id, 200),
         class: C2,
         mutation: op(Github),
         origins: [Local, Ssh, Relay],
@@ -4221,6 +4242,40 @@ crate::client_request_definitions! {
         scope: none,
         class: C2,
         mutation: op(Notify),
+        origins: [Local, Ssh, Relay],
+    },
+    /// What Settings › Notifications reads besides the sections: whether this PC shows OS notifications (the desktop host's
+    /// `host/notification/status`, false with no host: Node asked its window at each read, desktop-service.ts:866) and the
+    /// stored notification document after the default of this PC and of every paired device without stored preferences was
+    /// written (Node's `notificationPreferencesState` wrote them, notification-preferences.ts `withDefaults`).
+    NotifyState => "notify/state" {
+        params: NotifyStateParams,
+        result: NotifyStateResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// Node's `notifySettingsChanged(scope)` (desktop-operations.ts:459-464): open settings pages on every client re-read.
+    /// Published to every client as `ui/settings/changed`. The desktop's alone: Node's relay methods had no such call (a
+    /// phone's own setting write announces through `config/value/write`'s `announce`).
+    UiSettingsAnnounce => "ui/settings/announce" {
+        params: v2::config::UiSettingsChangedParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local, Ssh],
+    },
+    /// Node's `notifyProviderModelsChanged(origin)` (desktop-operations.ts:455-458, relay remote-methods.ts:916-917): every
+    /// client drops its provider model lists. Published to every client, the caller included, as `ui/providerModels/changed`.
+    /// The only input rule is Node's `requiredString(origin, 'origin', 128)`.
+    UiProviderModelsAnnounce => "ui/providerModels/announce" {
+        params: v2::config::UiProviderModelsChangedParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
         origins: [Local, Ssh, Relay],
     },
     /// Claim the desktop host role.

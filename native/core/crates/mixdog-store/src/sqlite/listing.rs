@@ -130,8 +130,8 @@ impl SqliteStore {
     /// `stat` of each session's newest log file under `sessions` (`<data>/sessions`).
     pub async fn sweep_sessions(&self, sessions: PathBuf) -> Result<Vec<SweepSession>, DbError> {
         self.shared
-            .pool
-            .run_in_lane(move |lane, c| {
+            .gate
+            .read_in_lane(move |lane, c| {
                 Ok(list_on(c, true, None, None)?
                     .iter()
                     .map(|listed| {

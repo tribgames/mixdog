@@ -171,9 +171,10 @@ impl GoogleCodec {
             family_gated: false,
             replay_same_model: true,
             default_tool_mode: None,
+            omit_ignored_sampling: false,
         };
         match self.target {
-            Target::Gemini { .. } => base,
+            Target::Gemini { .. } => Dialect { omit_ignored_sampling: true, ..base },
             Target::Vertex { .. } => Dialect {
                 system_role: None,
                 function_ids: false,
@@ -299,7 +300,9 @@ impl GoogleCodec {
             }
             None => inner.clone(),
         };
-        let mut headers = vec![("content-type".to_owned(), "application/json".to_owned())];
+        // The Gemini API's own spelling (`geminiApiHeaders`, gemini.mjs:94), which undici keeps on the wire.
+        let content_type = if matches!(self.target, Target::Gemini { .. }) { "Content-Type" } else { "content-type" };
+        let mut headers = vec![(content_type.to_owned(), "application/json".to_owned())];
         let (url, body) = match &self.target {
             Target::Gemini { origin } => (
                 format!("{origin}/v1beta/models/{}:streamGenerateContent?alt=sse", path_segment(id)),

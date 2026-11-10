@@ -1,0 +1,789 @@
+{
+  "calls": 62,
+  "cases": 554,
+  "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch applied, with node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch",
+  "entry": {
+    "clock": "Date.now, new Date() and the run-limit timeouts are virtual; every other timer of the code under test is real and is printed, by delay, at the end of a recording",
+    "featureGit": "MIXDOG_FEATURE_GIT is unset, as in the product: no production code sets it (read at builtin-features.mjs:70,219)",
+    "git": "runChild on the calling thread. The daemon runs the same runChild in its process-runner worker pool (desktop-service.ts:1049-1053, process-runner.mjs:19-37, four threads): the same limits and errors; the spawns of one thread queue, which this recording does not reproduce",
+    "notRun": "the relay above it, which reads no source-control method or argument: the payload cap (remote-relay.ts:75,190), frame admission (remote-relay-clients.ts:215-217), the handshake and decryption (remote-relay-client-lifecycle.ts:86-99), the transport registrations and the state-resync frame of remote-relay-client-calls.ts:181-455",
+    "runs": "executeRemoteFrame over createRemoteMethods (remote-methods.ts:1256, :828): the frame parse, the method lookup, every argument check and the desktop operation"
+  },
+  "fileCount": 3,
+  "files": [
+    {
+      "bytes": 848,
+      "path": "calls.txt",
+      "sha256": "fb478bbea7ada0ce291005c19d307544036883efb7084e908d28ec534378f563"
+    },
+    {
+      "bytes": 24633,
+      "path": "gh-script.json",
+      "sha256": "8b63c7e51d857b2c89d826722e34efdb5c7c34485b33f69dd19a5ade73364257"
+    },
+    {
+      "bytes": 1885000,
+      "path": "golden.json",
+      "sha256": "aa13df3bfaf5b67944697db75d10f6e8ee639c7e4cca68ef54de7e5e1746521b"
+    }
+  ],
+  "groups": {
+    "git": {
+      "cases": 154,
+      "what": "status, diff, staging, commits, branches, tags, stash, the remote and the ordering scenario (sections 1-5, 11)"
+    },
+    "github": {
+      "cases": 98,
+      "what": "the GitHub CLI, its sign-in, pull requests and githubRequest (sections 6-8)"
+    },
+    "input": {
+      "cases": 265,
+      "what": "the argument checks (section 0)"
+    },
+    "runner": {
+      "cases": 37,
+      "what": "the installers and the git runner's own failures (sections 9-10)"
+    }
+  },
+  "node": "v22.20.0",
+  "notes": {
+    "githubStatusRefresh": "githubCliStatus took no arguments over the relay (remote-methods.ts:562); the core ignores `refresh` on a relay connection and honours it for the desktop's own calls.",
+    "loginOptions": "githubCliLoginOpenBrowser's second argument (optionalGithubLoginOptions) has no core param: the page checks it and leaves it out (scm-operation-route.ts), so no core request carries it.",
+    "loneSurrogate": "An open difference, not parity. A JSON string holding an escaped lone surrogate (\"\\ud800\") is a string to Node: its string checks take it and the call acts on it (golden.json limits[lone-surrogate-gitLog-query]; Node's spawn writes it on git's command line as U+FFFD, bytes EF BF BD). The core reads every inbound frame into Rust strings (mixdog-app-protocol rpc.rs decode_inbound_text), which cannot hold one: the frame is invalid and the connection is closed with 1007, for every method, before any check runs. The case is not replayed.",
+    "posixCwd": "The directory rule is the platform's path.isAbsolute (git-contract.mjs:3), and so is the core's (mixdog-scm input.rs is_absolute): on POSIX only a leading \"/\" is absolute, so a backslash-rooted, a drive (C:\\x) or a UNC spelling is refused there where Windows (this recording) takes it. The trim is JavaScript's on both platforms.",
+    "repository": "Each case records the state of the repository its request names (`repository`: the first argument of a call that takes a directory, JavaScript-trimmed and without a verbatim `\\\\?\\` prefix, when it is a folder of the world: a repository is read with git, refs by commit tree, message and history length, and its local origin's refs; another folder is its files by content hash; a call that names none has `null`) and the global git config file (`globalConfig`). A case Node refused before any program ran (the frame is a refusal and the case has no `processes`) cannot have changed either: its state is read once after the run of such cases, before anything else touches the world, and the replay does the same for the core (only when the core also started no program).",
+    "requestText": "A case with `paramsText` was given to Node as those bytes (`{\"id\":1,\"method\":<call>,\"params\":<paramsText>}`). Its `request` is the core request the phone's route (shared/scm-operation-route.ts) makes of the same argument texts, each argument kept as spelled (`text`), with the op id the replay gives it; the replay sends those bytes and compares, byte for byte, the params of the frame its socket writer was given.",
+    "reviewWithoutFiles": "The core request of the phone's gitReviewDiff and gitReviewDiffs is one method (review/diff/get, scope repo, patch true): one with neither `path` nor `files` cannot say which call it stands for, and is checked as gitReviewDiff. A request that names either is checked as its own call; the page always names one.",
+    "scratchIndex": "A comparison rule, applied to both sides: the GIT_INDEX_FILE a commit gives its git children names a scratch folder `mixdog-commit-<pid>-<suffix>`, which is compared as `mixdog-commit-*`. Node makes the folder with mkdtemp (apps/desktop/src/main/git-commit-transaction.ts:1203), which appends six random characters to the prefix that holds its pid, so the name differs between any two runs, of Node as of the core; the rest of the path and every other variable are compared as recorded."
+  },
+  "product": {
+    "appsSha256": "841fa7c35d344615b8c4d139f864e24916cc50a69a289456cc94232a23d2c85d",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9140,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-relay-optional-args.patch",
+      "paths": [
+        "apps/desktop/src/main/remote-methods-optional-args.test.mjs",
+        "apps/desktop/src/main/remote-methods.ts"
+      ],
+      "sha256": "65b71087d1e63e4a62f4285f746d0a75ddf25feec6f98d7e9e5d3ef9b306a923"
+    },
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 2
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-phone-scm.mjs",
+  "recorderFiles": [
+    {
+      "path": "benchmarks/rust-core/recorders/record-phone-scm.mjs",
+      "sha256": "1bb41466efe27b53b33cf9ddcfb0976371bc5d9d883c9bba37534329a776a24d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "1effe442db273be9927f41e9dcba0e2ceb356dc84d14a57c27aeee4a0bc3aeaa"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/phone-scm-world.mjs",
+      "sha256": "220daaf1e01bd187785fe0b6a1306e695056d868569eb3cb98b460ca208b81a0"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/scripted-tool.rs",
+      "sha256": "2bdfabde20c9e4c454644001334c7e68da79d91d6b37aec0739e85d5859c0fe6"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/spawn-log.cjs",
+      "sha256": "91bfe06247e38e2e2d3b351b4ce26fcedce1d0c736c35456053e143a93d807c6"
+    }
+  ],
+  "set": "phone-scm",
+  "syntheticInput": {
+    "file": "gh-script.json",
+    "reason": "no authenticated gh (and no winget or soffice.com) on the recording machine; Node and the core run against the same rules and are compared with each other",
+    "rules": [
+      {
+        "argv": [
+          "--version"
+        ],
+        "imitates": {
+          "command": "gh --version",
+          "shape": "two lines on stdout: \"gh version <semver> (<date>)\" then the release URL (cli.github.com manual: gh --version)"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "auth",
+          "status",
+          "--hostname",
+          "github.com",
+          "--active"
+        ],
+        "imitates": {
+          "command": "gh auth status --hostname github.com --active",
+          "shape": "exit 0; stdout \"<host>\" then an indented \"✓ Logged in to <host> account <login> (<store>)\" and \"- Active account: true\" (gh >= 2.40 format)"
+        },
+        "tool": "gh",
+        "when": {
+          "ghAuth": true
+        }
+      },
+      {
+        "argv": [
+          "auth",
+          "status",
+          "--hostname",
+          "github.com",
+          "--active"
+        ],
+        "imitates": {
+          "command": "gh auth status --hostname github.com --active",
+          "shape": "exit 1; \"You are not logged into any GitHub hosts. To log in, run: gh auth login\" on stderr"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "auth",
+          "setup-git",
+          "--hostname",
+          "github.com"
+        ],
+        "imitates": {
+          "command": "gh auth setup-git --hostname github.com",
+          "shape": "exit 0, no output"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "auth",
+          "logout",
+          "--hostname",
+          "github.com"
+        ],
+        "imitates": {
+          "command": "gh auth logout --hostname github.com",
+          "shape": "exit 0; \"✓ Logged out of <host> account <login>\" on stderr"
+        },
+        "tool": "gh",
+        "when": {
+          "ghAuth": true
+        }
+      },
+      {
+        "argv": [
+          "auth",
+          "logout",
+          "--hostname",
+          "github.com"
+        ],
+        "imitates": {
+          "command": "gh auth logout --hostname github.com",
+          "shape": "exit 1 with a \"not logged in\" message on stderr"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "api",
+          "user"
+        ],
+        "imitates": {
+          "command": "gh api user (network down)",
+          "shape": "exit 1; gh api reports a transport failure on stderr (\"error connecting to api.github.com\")"
+        },
+        "tool": "gh",
+        "when": {
+          "ghApiDown": true
+        }
+      },
+      {
+        "argv": [
+          "api",
+          "user"
+        ],
+        "imitates": {
+          "command": "gh api user",
+          "shape": "exit 0; the REST \"Get the authenticated user\" object as JSON on stdout (login, id, name, email)"
+        },
+        "tool": "gh",
+        "when": {
+          "ghAuth": true
+        }
+      },
+      {
+        "argv": [
+          "api",
+          "user"
+        ],
+        "imitates": {
+          "command": "gh api user (not logged in)",
+          "shape": "exit 1; \"To use GitHub CLI, run: gh auth login\" on stderr"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "api",
+          "user/starred/tribgames/mixdog",
+          "--silent"
+        ],
+        "imitates": {
+          "command": "gh api user/starred/<owner>/<repo> --silent",
+          "shape": "exit 0, no output (REST \"Check if a repository is starred\": 204)"
+        },
+        "tool": "gh",
+        "when": {
+          "starred": true
+        }
+      },
+      {
+        "argv": [
+          "api",
+          "user/starred/tribgames/mixdog",
+          "--silent"
+        ],
+        "imitates": {
+          "command": "gh api user/starred/<owner>/<repo> --silent (network down)",
+          "shape": "exit 1; transport failure on stderr"
+        },
+        "tool": "gh",
+        "when": {
+          "ghApiDown": true
+        }
+      },
+      {
+        "argv": [
+          "api",
+          "user/starred/tribgames/mixdog",
+          "--silent"
+        ],
+        "imitates": {
+          "command": "gh api user/starred/<owner>/<repo> --silent",
+          "shape": "exit 1; \"gh: Not Found (HTTP 404)\" on stderr (REST: 404 when not starred)"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "api",
+          "-X",
+          "PUT",
+          "user/starred/tribgames/mixdog",
+          "--silent"
+        ],
+        "imitates": {
+          "command": "gh api -X PUT user/starred/<owner>/<repo> --silent (network down)",
+          "shape": "exit 1; transport failure on stderr"
+        },
+        "tool": "gh",
+        "when": {
+          "ghApiDown": true
+        }
+      },
+      {
+        "argv": [
+          "api",
+          "-X",
+          "PUT",
+          "user/starred/tribgames/mixdog",
+          "--silent"
+        ],
+        "imitates": {
+          "command": "gh api -X PUT user/starred/<owner>/<repo> --silent",
+          "shape": "exit 0, no output (REST \"Star a repository\": 204)"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "repo",
+          "view",
+          "--json",
+          "defaultBranchRef",
+          "--jq",
+          ".defaultBranchRef.name"
+        ],
+        "imitates": {
+          "command": "gh repo view --json defaultBranchRef --jq .defaultBranchRef.name",
+          "shape": "exit 0; the branch name and a newline on stdout"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "repo",
+          "view",
+          "--json",
+          "nameWithOwner"
+        ],
+        "imitates": {
+          "command": "gh repo view --json nameWithOwner",
+          "shape": "exit 0; {\"nameWithOwner\":\"<owner>/<repo>\"} on stdout"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "pr",
+          "list",
+          "--search",
+          "is:open author:copilot assignee:@me",
+          "**"
+        ],
+        "imitates": {
+          "command": "gh pr list --search <query> --json ...",
+          "shape": "exit 1; GraphQL error \"Could not resolve to a User with the login of <login>.\" on stderr"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "pr",
+          "list",
+          "--search",
+          "is:open review-requested:@me",
+          "**"
+        ],
+        "imitates": {
+          "command": "gh pr list --search \"is:open review-requested:@me\" --json ...",
+          "shape": "exit 0; JSON array of pull requests with the --json fields (number, title, author.login, headRefName, baseRefName, isDraft, state, url, updatedAt, reviewDecision, statusCheckRollup)"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "pr",
+          "list",
+          "--search",
+          "is:open author:@me",
+          "**"
+        ],
+        "imitates": {
+          "command": "gh pr list --search \"is:open author:@me\" --json ...",
+          "shape": "exit 0; JSON array, here empty"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "pr",
+          "list",
+          "--search",
+          "is:open",
+          "**"
+        ],
+        "imitates": {
+          "command": "gh pr list --search \"is:open\" --json ...",
+          "shape": "exit 0; JSON array of pull requests, same field shape as the review-requested list"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "api",
+          "repos/octo/demo/pulls?per_page=5&page=1&state=open",
+          "--hostname",
+          "github.com",
+          "--method",
+          "GET"
+        ],
+        "imitates": {
+          "command": "gh api repos/<owner>/<repo>/pulls?... --method GET",
+          "shape": "exit 0; the REST \"List pull requests\" array (number, title, state, user.login)"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "pr",
+          "create",
+          "**"
+        ],
+        "imitates": {
+          "command": "gh pr create ...",
+          "shape": "exit 0; the new pull request URL on stdout"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "pr",
+          "view",
+          "13",
+          "--json",
+          "*"
+        ],
+        "imitates": {
+          "command": "gh pr view <n> --json ...",
+          "shape": "exit 0; one pull request object with the requested --json fields"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "pr",
+          "view",
+          "12",
+          "--json",
+          "*"
+        ],
+        "imitates": {
+          "command": "gh pr view <n> --json ...",
+          "shape": "exit 0; the pull request object plus body, additions, deletions, changedFiles, files, mergeable, mergeStateStatus, createdAt, labels, comments, reviews, reviewRequests"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "pr",
+          "view",
+          "404",
+          "--json",
+          "*"
+        ],
+        "imitates": {
+          "command": "gh pr view <n> --json ... (no such pull request)",
+          "shape": "exit 1; GraphQL \"Could not resolve to a PullRequest with the number of <n>.\" on stderr"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "pr",
+          "checkout",
+          "12"
+        ],
+        "imitates": {
+          "command": "gh pr checkout <n>",
+          "shape": "exit 0; \"Switched to branch '<head>'\" on stderr; and the repository change gh makes (fetch refs/pull/<n>/head into the branch, check it out), run here as real git by `effect`"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "pr",
+          "checkout",
+          "404"
+        ],
+        "imitates": {
+          "command": "gh pr checkout <n> (no such pull request)",
+          "shape": "exit 1; GraphQL \"Could not resolve to a PullRequest ...\" on stderr"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "pr",
+          "merge",
+          "12",
+          "--merge"
+        ],
+        "imitates": {
+          "command": "gh pr merge <n> --merge",
+          "shape": "exit 0; \"✓ Merged pull request <owner>/<repo>#<n>\" on stdout"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "pr",
+          "merge",
+          "12",
+          "--squash"
+        ],
+        "imitates": {
+          "command": "gh pr merge <n> --squash",
+          "shape": "exit 0; \"✓ Squashed and merged pull request <owner>/<repo>#<n>\" on stdout"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "pr",
+          "merge",
+          "404",
+          "--merge"
+        ],
+        "imitates": {
+          "command": "gh pr merge <n> --merge (no such pull request)",
+          "shape": "exit 1; GraphQL \"Could not resolve to a PullRequest ...\" on stderr"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "pr",
+          "diff",
+          "12"
+        ],
+        "imitates": {
+          "command": "gh pr diff <n>",
+          "shape": "exit 0; a unified diff on stdout"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "pr",
+          "diff",
+          "404"
+        ],
+        "imitates": {
+          "command": "gh pr diff <n> (no such pull request)",
+          "shape": "exit 1; GraphQL \"Could not resolve to a PullRequest ...\" on stderr"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "pr",
+          "diff",
+          "1"
+        ],
+        "imitates": {
+          "command": "gh pr diff <n> (no such pull request)",
+          "shape": "exit 1; GraphQL \"Could not resolve to a PullRequest ...\" on stderr"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "api",
+          "repos/octo/demo/pulls/1/merge",
+          "--hostname",
+          "github.com",
+          "--method",
+          "PUT",
+          "--input",
+          "-"
+        ],
+        "imitates": {
+          "command": "gh api repos/<owner>/<repo>/pulls/<n>/merge --method PUT --input - (REST: merge a pull request)",
+          "shape": "exit 0; the merge result object {sha, merged, message} on stdout"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "api",
+          "repos/octo/demo/pulls/1/reviews",
+          "--hostname",
+          "github.com",
+          "--method",
+          "POST",
+          "--input",
+          "-"
+        ],
+        "imitates": {
+          "command": "gh api repos/<owner>/<repo>/pulls/<n>/reviews --method POST --input - (REST: create a review)",
+          "shape": "exit 0; the review object {id, state, body, commit_id} on stdout"
+        },
+        "tool": "gh",
+        "when": null
+      },
+      {
+        "argv": [
+          "**"
+        ],
+        "imitates": {
+          "command": "winget (not installed)",
+          "shape": "the program cannot be started: ENOENT"
+        },
+        "tool": "winget",
+        "when": {
+          "wingetMissing": true
+        }
+      },
+      {
+        "argv": [
+          "**"
+        ],
+        "imitates": {
+          "command": "winget install ... (installer failure)",
+          "shape": "exit 1; \"Found Package\" and \"Installer hash does not match\" on stdout (winget installer-hash failure)"
+        },
+        "tool": "winget",
+        "when": {
+          "wingetFails": true
+        }
+      },
+      {
+        "argv": [
+          "install",
+          "--id",
+          "GitHub.cli",
+          "**"
+        ],
+        "imitates": {
+          "command": "winget install --id GitHub.cli",
+          "shape": "exit 0; \"Successfully installed\" on stdout; afterwards gh exists"
+        },
+        "tool": "winget",
+        "when": {
+          "wingetInstallsGh": true
+        }
+      },
+      {
+        "argv": [
+          "install",
+          "--id",
+          "GitHub.cli",
+          "**"
+        ],
+        "imitates": {
+          "command": "winget install --id GitHub.cli",
+          "shape": "exit 0; \"Successfully installed\" on stdout"
+        },
+        "tool": "winget",
+        "when": null
+      },
+      {
+        "argv": [
+          "install",
+          "--id",
+          "Git.Git",
+          "**"
+        ],
+        "imitates": {
+          "command": "winget install --id Git.Git",
+          "shape": "exit 0; \"Successfully installed\" on stdout; afterwards git exists"
+        },
+        "tool": "winget",
+        "when": {
+          "wingetInstallsGit": true
+        }
+      },
+      {
+        "argv": [
+          "install",
+          "--id",
+          "Git.Git",
+          "**"
+        ],
+        "imitates": {
+          "command": "winget install --id Git.Git",
+          "shape": "exit 0; \"Successfully installed\" on stdout"
+        },
+        "tool": "winget",
+        "when": null
+      },
+      {
+        "argv": [
+          "install",
+          "--id",
+          "TheDocumentFoundation.LibreOffice",
+          "**"
+        ],
+        "imitates": {
+          "command": "winget install --id TheDocumentFoundation.LibreOffice",
+          "shape": "exit 0; \"Successfully installed\" on stdout; afterwards soffice exists"
+        },
+        "tool": "winget",
+        "when": {
+          "wingetInstallsSoffice": true
+        }
+      },
+      {
+        "argv": [
+          "install",
+          "--id",
+          "TheDocumentFoundation.LibreOffice",
+          "**"
+        ],
+        "imitates": {
+          "command": "winget install --id TheDocumentFoundation.LibreOffice",
+          "shape": "exit 0; \"Successfully installed\" on stdout"
+        },
+        "tool": "winget",
+        "when": null
+      },
+      {
+        "argv": [
+          "--version"
+        ],
+        "imitates": {
+          "command": "git --version (git not installed)",
+          "shape": "the program cannot be started: ENOENT"
+        },
+        "tool": "git",
+        "when": {
+          "gitMissing": true
+        }
+      },
+      {
+        "argv": [
+          "--version"
+        ],
+        "imitates": {
+          "command": "git --version",
+          "shape": "\"git version <semver>.windows.<n>\" on stdout"
+        },
+        "tool": "git",
+        "when": null
+      },
+      {
+        "argv": [
+          "--version"
+        ],
+        "imitates": {
+          "command": "soffice.com --version",
+          "shape": "\"LibreOffice <version> <build>\" on stdout"
+        },
+        "tool": "soffice.com",
+        "when": {
+          "soffice": true
+        }
+      },
+      {
+        "argv": [
+          "--version"
+        ],
+        "imitates": {
+          "command": "soffice.com --version (not installed)",
+          "shape": "the program cannot be started: ENOENT"
+        },
+        "tool": "soffice.com",
+        "when": null
+      }
+    ]
+  },
+  "totalBytes": 1910481
+}

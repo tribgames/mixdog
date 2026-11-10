@@ -19,6 +19,7 @@ use crate::rpc::JsonRpcErrorBody;
 use crate::v2::approval::ServerRequestResolvedParams;
 use crate::v2::feed::AppSnapshotParams;
 use crate::v2::feed::FeedSnapshotParams;
+use crate::v2::host::BrowserFrameParams;
 use crate::v2::host::BrowserWebrtcSignalParams;
 use crate::v2::host::HostBrowserViewFramesParams;
 use crate::v2::host::CoreDrainParams;
@@ -27,6 +28,8 @@ use crate::v2::host::ModelProxyCancelParams;
 use crate::v2::host::ModelProxyRunEventParams;
 use crate::v2::host::RemotePointerParams;
 use crate::v2::host::UiOpenRequestedParams;
+use crate::v2::config::UiProviderModelsChangedParams;
+use crate::v2::config::UiSettingsChangedParams;
 use crate::v2::thread::*;
 
 /// `error`: a connection-scoped failure, or a thread error with `willRetry`.
@@ -92,6 +95,15 @@ pub struct SearchCompletedParams {
 pub struct ProcessOutputDeltaParams {
     pub process_handle: ProcessHandle,
     pub bytes_b64: String,
+    /// A terminal relay frame whose cut fell inside a non-BMP character (Node's frames are cut in UTF-16 units): the lone low surrogate
+    /// that comes before the bytes' text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub lead_unit: Option<u16>,
+    /// The lone high surrogate that comes after the bytes' text, for the same cut.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub tail_unit: Option<u16>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -158,8 +170,6 @@ crate::notification_definitions! {
     ThreadSetupUiRequestUpdated => "thread/setupUiRequest/updated" (ThreadSectionParams<Option<SetupUiRequest>>) @thread,
     /// Section `roomView`: a group room log's view while the room runs (`decorateRoomSnapshot`).
     ThreadRoomViewUpdated => "thread/roomView/updated" (ThreadSectionParams<Option<ThreadRoomView>>) @thread,
-    /// Section `reviewDiff`, key = thread id.
-    ReviewDiffUpdated => "review/diff/updated" (SectionUpdate) @thread,
     // ---- connection-scoped
     Error => "error" (ErrorNotificationParams) @connection,
     ServerRequestResolved => "serverRequest/resolved" (ServerRequestResolvedParams) @connection,
@@ -167,6 +177,8 @@ crate::notification_definitions! {
     HostBrowserViewFrames => "host/browser/viewFrames" (HostBrowserViewFramesParams) @connection,
     /// The core's live-view signal to one phone (offer, candidate, promote, demote, close, geometry).
     BrowserWebrtcSignal => "browser/webrtcSignal" (BrowserWebrtcSignalParams) @connection,
+    /// A JPEG-view frame of a browser session the phone streams (Node's `browserRemoteFrame` push): one in flight until `browser/streamAck`.
+    BrowserFrame => "browser/frame" (BrowserFrameParams) @connection,
     ModelProxyRunEvent => "modelProxy/run/event" (ModelProxyRunEventParams) @connection,
     ModelProxyCancel => "model/proxy/cancel" (ModelProxyCancelParams) @connection,
     // ---- app feed (P §6.2, DS §2.4)
@@ -179,6 +191,11 @@ crate::notification_definitions! {
     Warning => "warning" (WarningParams) @app,
     ConfigWarning => "configWarning" (WarningParams) @app,
     UiOpenRequested => "ui/openRequested" (UiOpenRequestedParams) @app,
+    /// Node's `settings-changed` event: settings pages re-read (a writer's announcement, a notification store write, or a
+    /// change of the config outside `desktop`).
+    UiSettingsChanged => "ui/settings/changed" (UiSettingsChangedParams) @app,
+    /// Node's `provider-models-changed` event: every client drops its provider model lists; `origin` names the announcer.
+    UiProviderModelsChanged => "ui/providerModels/changed" (UiProviderModelsChangedParams) @app,
     RemotePointer => "remote/pointer" (RemotePointerParams) @app,
     /// Draining: what still runs and the token that authorizes an abort (`lifecycle-remote.md` §5.1).
     CoreDrain => "core/drain" (CoreDrainParams) @app,
@@ -207,6 +224,8 @@ crate::notification_definitions! {
     CoreStateUpdated => "core/state/updated" (SectionUpdate) @app,
     CoreHealthUpdated => "core/health/updated" (SectionUpdate) @app,
     MigrationProgress => "migration/progress" (SectionUpdate) @app,
+    /// Section `reviewDiff`: the app-wide tell that open reviews may read differently (Node's `turn-review-changed`).
+    ReviewDiffUpdated => "review/diff/updated" (SectionUpdate) @app,
     // ---- scoped feeds (DS §2.1)
     /// Snapshot of any scoped feed (its read model).
     FeedSnapshot => "feed/snapshot" (FeedSnapshotParams) @scoped(Any),
@@ -234,10 +253,16 @@ pub struct TerminalInputParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TerminalResizeParams {
     pub tab_id: TerminalTabId,
     pub cols: u16,
     pub rows: u16,
+    /// A phone showing the terminal claims the PTY size (Node's `termResize` `phoneOwner`): the
+    /// claim holds for 30 s unless renewed, the newest claim owns, and zero columns or rows with
+    /// `claim` release it. Without `claim` the resize is ignored while any claim stands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -260,7 +285,7 @@ pub enum ClientNotification {
     #[serde(rename = "terminal/input")]
     #[cfg_attr(feature = "codegen", ts(rename = "terminal/input"))]
     TerminalInput(TerminalInputParams),
-    /// Ignored unless the sender owns the PTY size.
+    /// Ignored while a phone's claim stands, unless the sender claims (`claim`).
     #[serde(rename = "terminal/resize")]
     #[cfg_attr(feature = "codegen", ts(rename = "terminal/resize"))]
     TerminalResize(TerminalResizeParams),
@@ -288,6 +313,14 @@ pub enum ClientNotification {
     #[serde(rename = "host/browser/page")]
     #[cfg_attr(feature = "codegen", ts(rename = "host/browser/page"))]
     HostBrowserPage(crate::v2::host::HostBrowserPageParams),
+    /// A viewed browser page's frame facts; a picture announced in them follows as the next X17 frame of the stream.
+    #[serde(rename = "host/browser/frame")]
+    #[cfg_attr(feature = "codegen", ts(rename = "host/browser/frame"))]
+    HostBrowserFrame(crate::v2::host::HostBrowserFrameParams),
+    /// The phone painted a JPEG-view frame (`browser/frame`): its next one may go out.
+    #[serde(rename = "browser/streamAck")]
+    #[cfg_attr(feature = "codegen", ts(rename = "browser/streamAck"))]
+    BrowserStreamAck(crate::v2::host::BrowserStreamAckParams),
     #[serde(rename = "host/notification/clicked")]
     #[cfg_attr(feature = "codegen", ts(rename = "host/notification/clicked"))]
     HostNotificationClicked(crate::v2::host::HostNotificationClickedParams),
@@ -366,6 +399,16 @@ pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
     crate::common::NotificationSpec {
         method: "host/browser/page",
         params: "HostBrowserPageParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
+        method: "host/browser/frame",
+        params: "HostBrowserFrameParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
+        method: "browser/streamAck",
+        params: "BrowserStreamAckParams",
         delivery: None,
     },
     crate::common::NotificationSpec {

@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use super::model_list_node_tests::{Rig, assert_rows, node_calls, recording, rig, web_search};
+use super::model_list_node_tests::{Rig, assert_rows, node_calls, recording, rig, three_reads, web_search};
 use super::model_warmup::{ModelWarmup, WarmupConfig, WarmupGates};
 use crate::domains::ai_account::SetupSource;
 use crate::domains::ai_account::auth_refresh::{AuthRefreshFlow, ProviderEffects};
@@ -85,7 +85,7 @@ fn env(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Optio
 async fn a_refresh_that_settled_before_the_warm_was_bound_does_not_lose_the_warm() {
     let rig = scenario("custom-discovery").await;
     rig.host.ensure_ready().await.unwrap();
-    rig.catalog.refresh().await;
+    rig.readiness.settle_refreshes().await;
     assert!(!rig.catalog.refresh_in_flight());
     assert!(!rig.service.cache_loaded());
     let warm = warmup(&rig, ON, Arc::default());
@@ -94,62 +94,26 @@ async fn a_refresh_that_settled_before_the_warm_was_bound_does_not_lose_the_warm
     assert!(rig.service.cache_loaded(), "the cache is loaded with no reader having asked");
 }
 
-// A catalog refresh still running parks the warm (it invalidates every model-derived cache when it lands); the wake its
-// settling gives runs it.
+// The startup catalog refresh a readiness call started, still running, parks the warm (it invalidates every
+// model-derived cache when it lands, provider-warmups.mjs:84-89); the wake its settling gives runs it.
 #[tokio::test]
-async fn a_running_catalog_refresh_parks_the_warm_until_it_settles() {
+async fn a_running_startup_catalog_refresh_parks_the_warm_until_its_settling_wakes_it() {
     let rig = scenario("custom-discovery").await;
-    rig.host.ensure_ready().await.unwrap();
     rig.gate.send_replace(false);
-    let catalog = rig.catalog.clone();
-    let refresh = tokio::spawn(async move { catalog.refresh().await });
+    rig.host.ensure_ready().await.unwrap();
     rig.arrived.acquire().await.unwrap().forget();
     assert!(rig.catalog.refresh_in_flight());
     let warm = warmup(&rig, ON, Arc::default());
+    let waker = warm.clone();
+    rig.catalog.on_refresh_settled(Arc::new(move || waker.wake()));
     warm.start();
     warm.settle().await;
     assert!(!rig.service.cache_loaded() && !rig.host.load_in_flight(), "parked, no load started");
     rig.gate.send_replace(true);
-    refresh.await.unwrap();
+    rig.readiness.settle_refreshes().await;
     assert!(!rig.catalog.refresh_in_flight());
-    warm.wake();
-    warm.settle().await;
-    assert!(rig.service.cache_loaded());
-}
-
-// The warm-up loop is armed but its first refresh has not begun (the 200 ms boot delay, or a busy runtime): the boot warm
-// waits for it as Node's `startupProviderCatalogRefreshPending` makes it, instead of loading a cache the refresh then drops.
-#[tokio::test]
-async fn the_boot_warm_waits_for_a_startup_refresh_that_has_not_begun() {
-    let rig = scenario("custom-discovery").await;
-    rig.host.ensure_ready().await.unwrap();
-    rig.catalog.expect_startup_refresh();
-    let warm = warmup(&rig, ON, Arc::default());
-    let waker = warm.clone();
-    rig.catalog.on_refresh_settled(Arc::new(move || waker.wake()));
-    warm.start();
-    warm.settle().await;
-    assert!(!rig.service.cache_loaded() && !rig.host.load_in_flight() && hits(&rig) == 0, "parked behind the pending refresh");
-    rig.catalog.refresh_startup().await;
     warm.settle().await;
     assert!(rig.service.cache_loaded(), "the refresh settling woke the warm");
-}
-
-// The warm-up loop stopped before its first refresh: nothing is pending, and the parked warm is woken.
-#[tokio::test]
-async fn a_stopped_warm_up_loop_releases_the_boot_warm() {
-    let rig = scenario("custom-discovery").await;
-    rig.host.ensure_ready().await.unwrap();
-    rig.catalog.expect_startup_refresh();
-    let warm = warmup(&rig, ON, Arc::default());
-    let waker = warm.clone();
-    rig.catalog.on_refresh_settled(Arc::new(move || waker.wake()));
-    warm.start();
-    warm.settle().await;
-    assert!(!rig.service.cache_loaded());
-    rig.catalog.abandon_startup_refresh();
-    warm.settle().await;
-    assert!(rig.service.cache_loaded());
 }
 
 #[tokio::test]
@@ -230,6 +194,8 @@ async fn a_full_reader_overlapping_a_quick_reads_warm_shares_its_one_load() {
 #[tokio::test]
 async fn an_invalidation_during_the_boot_warm_refuses_it_and_the_first_turn_warms_again() {
     let rig = scenario("custom-discovery").await;
+    // The load is held at its own listing, not at the startup catalog refresh it joins.
+    rig.past_startup_refresh().await;
     rig.gate.send_replace(false);
     let warm = warmup(&rig, ON, Arc::default());
     warm.start();
@@ -344,7 +310,7 @@ async fn the_account_change_warm_loads_once_at_once_and_is_not_adopted() {
 async fn startup_with_no_reader_leaves_the_cache_loaded_as_nodes_boot_warm_does() {
     let recording = recording();
     let mut complete = 0;
-    for scenario in recording["scenarios"].as_array().unwrap().iter().filter(|s| s["name"] != "custom-discovery-update") {
+    for scenario in recording["scenarios"].as_array().unwrap().iter().filter(|s| three_reads(s)) {
         let name = scenario["name"].as_str().unwrap();
         let [quick, full, search] = node_calls(scenario);
         let rig = rig(scenario, &recording["seeds"], false).await;
@@ -404,6 +370,8 @@ async fn the_account_change_warm_reads_no_secret() {
 #[tokio::test]
 async fn an_invalidation_during_the_preparation_refuses_the_load() {
     let rig = scenario("custom-discovery").await;
+    // The startup catalog refresh is past: its completion would supersede a load begun before it.
+    rig.past_startup_refresh().await;
     // The reads of building the rig are not the held load's arrivals.
     while let Ok(permit) = rig.vault_arrived.try_acquire() {
         permit.forget();

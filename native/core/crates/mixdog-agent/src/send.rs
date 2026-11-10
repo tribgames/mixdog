@@ -196,6 +196,19 @@ fn request_policy(provider: &dyn ProviderAdapter, retry_529: bool) -> std::borro
     std::borrow::Cow::Owned(policy)
 }
 
+/// The one assembly of a send's request: [`wire_request`] with the reminder `tail`'s rules give for `model` (also
+/// returned, the turn keeps its text). The loop's sends and the request snapshot both build their request here.
+pub fn assemble_request(
+    model: &str,
+    options: mixdog_core_api::domain::provider::RequestOptions,
+    messages: Vec<mixdog_core_api::domain::provider::Message>,
+    tail: Option<&dyn crate::env::TailReminder>,
+    tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+) -> (ModelRequest, Option<String>) {
+    let reminder = tail.and_then(|t| t.text(model));
+    (wire_request(model, options, messages, reminder.as_deref(), tools), reminder)
+}
+
 /// The request the loop sends: the projected transcript, the tail reminder when the turn has one
 /// (it rides on this request only), the tool definitions and the options. A side question rebuilds
 /// the request of the session's next turn through the same function.
@@ -259,8 +272,9 @@ impl Run {
         };
         // The tail reminder rides on this request only; the assistant turn it
         // produces keeps its text.
-        self.last_reminder = self.env.tail.as_ref().and_then(|t| t.text(&self.model));
-        wire_request(&self.model, options, messages, self.last_reminder.as_deref(), self.request_tools())
+        let (request, reminder) = assemble_request(&self.model, options, messages, self.env.tail.as_deref(), self.request_tools());
+        self.last_reminder = reminder;
+        request
     }
 
     /// Sends the transcript, recovering from failures. The returned response
@@ -437,7 +451,10 @@ impl Run {
         };
         let mut stream = match attempt {
             None => return Err(AgentError::Aborted),
-            Some(Err(error)) => return Ok(fail(error, builder, false, 0, false)),
+            Some(Err(error)) => {
+                self.show_notices(&error);
+                return Ok(fail(error, builder, false, 0, false));
+            }
             Some(Ok(stream)) => stream,
         };
         self.emit(RunEvent::Stage(Stage::Streaming));
@@ -450,6 +467,7 @@ impl Run {
             let event = match next {
                 None => break,
                 Some(Err(error)) => {
+                    self.show_notices(&error);
                     return Ok(fail(error, builder, true, shown_chars, reasoning_shown));
                 }
                 Some(Ok(event)) => event,
@@ -479,6 +497,8 @@ impl Run {
                     self.provider_state = Some(state.clone());
                     self.provider_state_changed = true;
                 }
+                // `onStageChange('notice', { tone, message })`: shown in the transcript, nothing else.
+                StreamEvent::Notice { message, warn } => self.show_notice(message, *warn),
                 _ => {}
             }
             let tool_done = matches!(event, StreamEvent::ToolCallDone(_));
@@ -501,6 +521,18 @@ impl Run {
         }
         self.last_streamed_chars = shown_chars;
         Ok(Ok(builder.finish()))
+    }
+
+    fn show_notice(&self, message: &str, warn: bool) {
+        let tone = if warn { Tone::Warn } else { Tone::Info };
+        self.emit(RunEvent::Stage(Stage::Notice { message: message.to_owned(), tone }));
+    }
+
+    /// The notices a failed request raised before it failed (`ProviderError::notices`).
+    fn show_notices(&self, error: &ProviderError) {
+        for (message, warn) in &error.notices {
+            self.show_notice(message, *warn);
+        }
     }
 
     async fn recover(&mut self, fail: Failure) -> Result<Recovery, AgentError> {

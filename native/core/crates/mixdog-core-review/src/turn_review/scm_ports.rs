@@ -43,6 +43,12 @@ impl TurnReview {
         let worktrees = Arc::new(ScmWorktrees::new(shadow));
         Self::new(Config::from_env(env), tokens.cpu_interactive, data_dir, disk, git, worktrees, bases)
     }
+
+    /// Resolves once every review signal raised so far has reached its listeners.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn review_signal_settled(&self) {
+        self.inner.worktrees.review_signal_settled().await;
+    }
 }
 
 /// `runGitOffThread` over the scm engine's git runner.
@@ -72,7 +78,7 @@ impl ReviewGit for ScmGit {
         let out = self.scm.git.outcome(&CancellationToken::new(), Path::new(cwd), &refs, &options).await.map_err(|e| match e {
             mixdog_scm::error::ScmFailure::OutputTooLarge { .. } => OUTPUT_OVERFLOW.to_owned(),
             // `run-child.mjs`: `${command} ${args.join(' ')} timed out after ${timeoutMs}ms`.
-            mixdog_scm::error::ScmFailure::TimedOut => {
+            mixdog_scm::error::ScmFailure::TimedOut { .. } => {
                 format!("{} {} timed out after {}ms", mixdog_scm::git_launch::git_command(), args.join(" "), timeout.as_millis())
             }
             other => other.to_string(),
@@ -120,7 +126,16 @@ impl ReviewWorktrees for ScmWorktrees {
         self.shadow.note_change(paths);
     }
 
+    fn on_review_changed(&self, listener: Arc<dyn Fn() + Send + Sync>) -> Arc<dyn Fn() -> bool + Send + Sync> {
+        self.shadow.on_review_changed(listener)
+    }
+
     fn canonical_path(&self, path: &str) -> String {
         canonical_path(path)
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    async fn review_signal_settled(&self) {
+        self.shadow.review_signal_settled().await;
     }
 }

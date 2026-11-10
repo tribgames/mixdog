@@ -585,13 +585,13 @@
       "type": "string"
     },
     "HostBrowserViewFramesParams": {
-      "description": "First viewer → `on`, last viewer gone → `off` (SPEC §4.7.3).",
+      "description": "A subscriber change → `on` with the largest options of the session's subscribers, last subscriber gone → `off` (SPEC §4.7.3; Node's `browserRemote('stream', [sessionId, options | null])`).",
       "properties": {
         "on": {
           "type": "boolean"
         },
         "request": {
-          "description": "Phone stream request (fit, quality) as today's take-over request."
+          "description": "The largest `{maxWidth, maxHeight, fit?}` of the session's subscribers (Node's `largest`, `remote-browser-streams.ts`); `null` with `on: false`."
         },
         "streamId": {
           "description": "The X17 `streamId` the host stamps on this tab's frames.",
@@ -1221,8 +1221,26 @@
         "bytesB64": {
           "type": "string"
         },
+        "leadUnit": {
+          "description": "A terminal relay frame whose cut fell inside a non-BMP character (Node's frames are cut in UTF-16 units): the lone low surrogate that comes before the bytes' text.",
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "processHandle": {
           "type": "string"
+        },
+        "tailUnit": {
+          "description": "The lone high surrogate that comes after the bytes' text, for the same cut.",
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -1705,6 +1723,48 @@
           },
           "required": [
             "state",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A display-only transcript notice raised while preparing the request (`StreamEvent::Notice`).",
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "notice"
+              ],
+              "type": "string"
+            },
+            "warn": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "message",
+            "type",
+            "warn"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The model that answered when it is not the one the request named (`StreamEvent::ServedModel`).",
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "servedModel"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "model",
             "type"
           ],
           "type": "object"
@@ -2587,7 +2647,7 @@
           "type": "string"
         },
         {
-          "description": "Review summary of a thread; key = thread id (thread feed).",
+          "description": "The tell that open reviews may read differently (Node's global `turn-review-changed`): one app-wide revision per tell, no value; each window rereads the review of every session it shows.",
           "enum": [
             "reviewDiff"
           ],
@@ -2710,6 +2770,17 @@
         "threadId"
       ],
       "type": "object"
+    },
+    "SettingsScope": {
+      "description": "Node's `SettingsChange.scope` (shared/settings-changed.ts `SETTINGS_SCOPES`).",
+      "enum": [
+        "desktop",
+        "git",
+        "permissions",
+        "notifications",
+        "agent"
+      ],
+      "type": "string"
     },
     "SetupUiRequest": {
       "description": "The setup tool's desktop request waiting for a window to claim it (Node's session store `setupUiRequest`): its id, and when the thread took it.",
@@ -5161,6 +5232,30 @@
         }
       ]
     },
+    "UiProviderModelsChangedParams": {
+      "description": "`ui/providerModels/changed` (app feed) and `ui/providerModels/announce`: Node's `provider-models-changed` desktop event `{origin}` (ipc-state-bridge.ts:113, remote-relay-push-lanes.ts:53).",
+      "properties": {
+        "origin": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "origin"
+      ],
+      "type": "object"
+    },
+    "UiSettingsChangedParams": {
+      "description": "`ui/settings/changed` (app feed) and `ui/settings/announce`: Node's `settings-changed` desktop event, which reached the windows and every paired device (ipc-state-bridge.ts:114, remote-relay-push-lanes.ts:54).",
+      "properties": {
+        "scope": {
+          "$ref": "#/definitions/SettingsScope"
+        }
+      },
+      "required": [
+        "scope"
+      ],
+      "type": "object"
+    },
     "UiTerminalTab": {
       "description": "`DesktopTerminalRunTab`.",
       "properties": {
@@ -6053,25 +6148,6 @@
       "type": "object"
     },
     {
-      "description": "Section `reviewDiff`, key = thread id.",
-      "properties": {
-        "method": {
-          "enum": [
-            "review/diff/updated"
-          ],
-          "type": "string"
-        },
-        "params": {
-          "$ref": "#/definitions/SectionUpdate"
-        }
-      },
-      "required": [
-        "method",
-        "params"
-      ],
-      "type": "object"
-    },
-    {
       "properties": {
         "method": {
           "enum": [
@@ -6155,6 +6231,23 @@
         "params": {
           "$ref": "#/definitions/BrowserWebrtcSignalParams"
         }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A JPEG-view frame of a browser session the phone streams (Node's `browserRemoteFrame` push): one in flight until `browser/streamAck`.",
+      "properties": {
+        "method": {
+          "enum": [
+            "browser/frame"
+          ],
+          "type": "string"
+        },
+        "params": true
       },
       "required": [
         "method",
@@ -6352,6 +6445,44 @@
         },
         "params": {
           "$ref": "#/definitions/UiOpenRequestedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Node's `settings-changed` event: settings pages re-read (a writer's announcement, a notification store write, or a change of the config outside `desktop`).",
+      "properties": {
+        "method": {
+          "enum": [
+            "ui/settings/changed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/UiSettingsChangedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Node's `provider-models-changed` event: every client drops its provider model lists; `origin` names the announcer.",
+      "properties": {
+        "method": {
+          "enum": [
+            "ui/providerModels/changed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/UiProviderModelsChangedParams"
         }
       },
       "required": [
@@ -6817,6 +6948,25 @@
         "method": {
           "enum": [
             "migration/progress"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Section `reviewDiff`: the app-wide tell that open reviews may read differently (Node's `turn-review-changed`).",
+      "properties": {
+        "method": {
+          "enum": [
+            "review/diff/updated"
           ],
           "type": "string"
         },

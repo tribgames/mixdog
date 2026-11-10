@@ -31,6 +31,9 @@ benchmarks/terminal-bench-2.1/records/*/*/*/** -text whitespace=-blank-at-eol,-b
 # must check out as LF on every platform. text=auto keeps binary fixtures untouched.
 native/core/** text=auto eol=lf
 
+# Node fixes a recording is made with (lib/common.mjs exactPatchedIdentity): applied with git apply and named by sha256.
+benchmarks/rust-core/recorders/node-patches/*.patch text eol=lf
+
 # Recorded evidence hashed by a fixture MANIFEST in the exact bytes it was recorded
 # with (CRLF / mixed line endings): keep verbatim, no end-of-line conversion.
 native/core/fixtures/agent/compact/record.mjs -text

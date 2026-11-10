@@ -11,7 +11,6 @@ use mixdog_core_api::domain::repo::RepoOperation;
 
 use crate::engine::Repo;
 use crate::error::ScmFailure;
-use crate::error::scrub_credentials;
 use crate::git::RunOptions;
 use crate::git::nul_records;
 use crate::locks::RepoGuard;
@@ -55,14 +54,13 @@ impl Repo {
     /// cached inspection: the work tree may have changed with no evidence delivered yet.
     pub async fn dirty_paths(&self) -> Result<Vec<String>, ScmFailure> {
         self.touched();
-        let repo = self.repo_ref()?;
-        let scan = self
-            .scm
-            .inspector
-            .scan(self.scm.lane, repo)
-            .await
-            .map_err(scm_error)?;
-        Ok(scan.json.files.iter().map(|file| file.path.clone()).collect())
+        // `gitStatus(cwd)`: Node's own read of the directory the call was given (git-branches.ts assertCleanWorktree).
+        let status = crate::inspect::status::node_status(&self.scm.git, self.scm.lane, &self.cancel, &self.cwd, false, false).await?;
+        if !status.repository {
+            // git-branches.ts:92: Node reads "no repository" as an empty list.
+            return Ok(Vec::new());
+        }
+        Ok(status.files.iter().map(|file| file.path.clone()).collect())
     }
 
     async fn assert_no_operation(&self, action: &str) -> Result<(), ScmFailure> {
@@ -121,13 +119,18 @@ impl Repo {
             return Ok(());
         }
         let _scope = self.write_scope().await?;
-        let mut args = if self.has_head().await? {
-            vec!["restore", "--staged", "--"]
-        } else {
-            vec!["rm", "--cached", "-r", "--ignore-unmatch", "--"]
-        };
+        let with_head = self.has_head().await?;
+        let mut args = if with_head { vec!["restore", "--staged", "--"] } else { vec!["rm", "--cached", "-r", "--ignore-unmatch", "--"] };
         args.extend(paths.iter().map(String::as_str));
-        self.run(&args).await.map(drop)
+        match self.run(&args).await {
+            // git-mutations.ts:75-79: a git without `restore` falls back to `reset HEAD`.
+            Err(_) if with_head => {
+                let mut reset = vec!["reset", "HEAD", "--"];
+                reset.extend(paths.iter().map(String::as_str));
+                self.run(&reset).await.map(drop)
+            }
+            other => other.map(drop),
+        }
     }
 
     pub async fn apply_patch(&self, path: &str, patch: &str, reverse: bool) -> Result<(), ScmFailure> {
@@ -175,7 +178,9 @@ impl Repo {
             format!("/{}", escape_ignore_literal(normalized))
         };
         let _scope = self.write_scope().await?;
-        let ignore_path = self.root()?.join(".gitignore");
+        // gitIgnore asks git for the repository root each time (git-mutations.ts): the file goes where it names, else beside `cwd`.
+        let top = self.run(&["rev-parse", "--show-toplevel"]).await?;
+        let ignore_path = if top.trim().is_empty() { self.cwd.join(".gitignore") } else { std::path::PathBuf::from(top.trim()).join(".gitignore") };
         on_lane(self.scm.lane, &self.cancel, move || append_ignore(&ignore_path, &pattern)).await?
     }
 
@@ -241,7 +246,11 @@ impl Repo {
             return self.run(&["clean", "-f", "-d", "--", path]).await.map(drop);
         }
         if !whole {
-            return self.run(&["restore", "--worktree", "--", path]).await.map(drop);
+            // git-mutations.ts:195-200: a git without `restore` falls back to `checkout --`.
+            return match self.run(&["restore", "--worktree", "--", path]).await {
+                Err(_) => self.run(&["checkout", "--", path]).await.map(drop),
+                other => other.map(drop),
+            };
         }
         if self.has_head().await? {
             return self
@@ -258,9 +267,9 @@ impl Repo {
             .succeeds(&["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
             .await?;
         if has_upstream {
-            self.remote(&["push"]).await
+            self.run(&["push"]).await
         } else {
-            self.remote(&["push", "-u", "origin", "HEAD"]).await
+            self.run(&["push", "-u", "origin", "HEAD"]).await
         }
     }
 
@@ -279,7 +288,7 @@ impl Repo {
 
     pub async fn sync(&self) -> Result<String, ScmFailure> {
         let pulled = self.pull().await?;
-        let pushed = self.push().await?;
+        let pushed = self.push().await.map_err(crate::git::readable_remote_error)?;
         Ok([pulled, pushed]
             .into_iter()
             .filter(|part| !part.is_empty())
@@ -394,7 +403,8 @@ impl Repo {
         commit: &str,
         failure: ScmFailure,
     ) -> ScmFailure {
-        if self.operation() != Some(operation) {
+        // git-mutations.ts:321 `sequencerFailure`: a diagnostic naming a conflict counts as one even with no operation in progress.
+        if !failure.to_string().to_lowercase().contains("conflict") && self.operation() != Some(operation) {
             return failure;
         }
         let files = self.conflicted_paths().await;
@@ -441,12 +451,25 @@ impl Repo {
         self.assert_no_operation(&action).await?;
         self.assert_clean(&action).await?;
         let mainline = self.parent_count(&commit).await > 1;
-        let mut args = vec!["cherry-pick", "--allow-empty", "--keep-redundant-commits"];
+        let mut args = vec!["cherry-pick", "--empty=keep"];
         if mainline {
             args.extend(["-m", "1"]);
         }
         args.push(&commit);
-        match self.run(&args).await {
+        // runCherryPick: a git that does not know `--empty=keep` is asked again with the legacy pair.
+        let outcome = match self.run(&args).await {
+            Err(failure) if {
+                let text = failure.to_string().to_lowercase();
+                text.contains("unknown option") || text.contains("usage: git cherry-pick")
+            } =>
+            {
+                let mut legacy = vec!["cherry-pick", "--allow-empty", "--keep-redundant-commits"];
+                legacy.extend(&args[2..]);
+                self.run(&legacy).await
+            }
+            other => other,
+        };
+        match outcome {
             Ok(out) => Ok(out),
             Err(failure) => Err(self
                 .sequencer_failure(RepoOperation::CherryPick, "Cherry-picking", &commit, failure)
@@ -507,19 +530,6 @@ impl Repo {
         let mut args = vec!["ls-files", "-z"];
         args.extend(extra);
         Ok(nul_records(&self.run(&args).await?).map(str::to_owned).collect())
-    }
-}
-
-pub(crate) fn scm_error(error: mixdog_core_api::domain::repo::ScmError) -> ScmFailure {
-    use mixdog_core_api::domain::repo::ScmError;
-    match error {
-        ScmError::NotARepository => ScmFailure::NotARepository,
-        ScmError::ObjectMissing { id } => ScmFailure::ObjectMissing(id),
-        ScmError::Io { os_code } => ScmFailure::Io {
-            os_code,
-            message: "io error".into(),
-        },
-        ScmError::Corrupt { detail } => ScmFailure::git(scrub_credentials(&detail)),
     }
 }
 

@@ -1,8 +1,40 @@
 import { isAbsolute as pathIsAbsolute, resolve as resolvePath } from 'node:path';
+import {
+  optionalGithubLoginOptions,
+  requiredGitBranchName,
+  requiredGitDiscardMode,
+  requiredGitGlobalConfigKey,
+  requiredGitLogLimit,
+  requiredGitLogOffset,
+  requiredGitLogQuery,
+  requiredGitOptionalMessage,
+  requiredGitPatch,
+  requiredGitPath,
+  requiredGitPaths,
+  requiredGitRequestContextInput,
+  requiredReviewDiffFiles,
+  requiredString,
+} from '../shared/scm-input';
+// The source-control grammar is shared with the phone's protocol adapter (shared/scm-input.ts).
+export {
+  optionalGithubLoginOptions,
+  requiredGitBranchName,
+  requiredGitDiscardMode,
+  requiredGitGlobalConfigKey,
+  requiredGitLogLimit,
+  requiredGitLogOffset,
+  requiredGitLogQuery,
+  requiredGitOptionalMessage,
+  requiredGitPatch,
+  requiredGitPath,
+  requiredGitPaths,
+  requiredGitRequestContextInput,
+  requiredReviewDiffFiles,
+  requiredString,
+};
 
 import {
   DESKTOP_CAPABILITIES,
-  DESKTOP_GIT_GLOBAL_CONFIG_KEYS,
   DESKTOP_LSP_REQUEST_METHODS,
   DESKTOP_READ_CAPABILITIES,
   NOTIFICATION_VOLUME_MAX,
@@ -13,7 +45,6 @@ import {
   type DesktopCapability,
   type DesktopCapabilityReadRequest,
   type DesktopCapabilityRequest,
-  type DesktopGitGlobalConfigKey,
   type DesktopLspDocumentInput,
   type DesktopLspRequestInput,
   type DesktopLspRequestMethod,
@@ -21,7 +52,6 @@ import {
   type DesktopModelSelection,
   type DesktopNewTaskDraft,
   type DesktopPromptContent,
-  type DesktopSettingKey,
   type DesktopSubmitOptions,
   type DesktopTextFileEncoding,
   type DesktopTranscriptHistoryRequest,
@@ -30,12 +60,6 @@ import {
   DESKTOP_TRANSCRIPT_HISTORY_PAGE_ITEMS,
   type ToolApprovalDecision,
 } from '../shared/contract';
-import {
-  type ConversationNotificationSetting,
-  NOTIFICATION_EVENTS,
-  type NotificationPreferencesPatch,
-  type NotificationTarget,
-} from '../shared/contract-notifications';
 import {
   canonicalPromptFileMimeType,
   MAX_PROMPT_FILE_BASE64_LENGTH,
@@ -642,24 +666,6 @@ const CAPABILITY_ARITY = {
   ...IMPORT_CAPABILITY_ARITY,
 } as const satisfies Record<DesktopCapability, readonly [number, number]>;
 
-/** Optional `{ openBrowser?: boolean }` for GitHub CLI sign-in. */
-export function optionalGithubLoginOptions(value: unknown): { openBrowser?: boolean } {
-  if (value === undefined || value === null) return {};
-  if (typeof value !== 'object' || Array.isArray(value)) throw new TypeError('options must be an object.');
-  const { openBrowser } = value as { openBrowser?: unknown };
-  if (openBrowser !== undefined && typeof openBrowser !== 'boolean') {
-    throw new TypeError('openBrowser must be a boolean.');
-  }
-  return openBrowser === undefined ? {} : { openBrowser };
-}
-
-export function requiredString(value: unknown, name: string, maximum = 32_768): string {
-  if (typeof value !== 'string') throw new TypeError(`${name} must be a string.`);
-  const text = value.trim();
-  if (!text || text.length > maximum) throw new TypeError(`${name} is invalid.`);
-  return text;
-}
-
 /** A paired device's local nickname: a string, where only an explicit '' clears
  *  it. Anything else is refused rather than read as a clear. */
 export function requiredDeviceAlias(value: unknown): string {
@@ -1012,13 +1018,6 @@ function requiredModelPreferences(provider: unknown, changes: unknown): void {
       }
     }
   }
-}
-
-export function requiredGitGlobalConfigKey(value: unknown): DesktopGitGlobalConfigKey {
-  if (typeof value === 'string' && (DESKTOP_GIT_GLOBAL_CONFIG_KEYS as readonly string[]).includes(value)) {
-    return value as DesktopGitGlobalConfigKey;
-  }
-  throw new TypeError('key must be user.name, user.email, or init.defaultBranch.');
 }
 
 function requireAllowedKeys(input: Record<string, unknown>, allowed: ReadonlySet<string>, name: string): void {
@@ -1912,103 +1911,6 @@ function requiredQuestionAnswers(value: unknown): NonNullable<ToolApprovalDecisi
   });
 }
 
-export function requiredGitPaths(value: unknown): string[] {
-  if (!Array.isArray(value) || value.length === 0 || value.length > 500) {
-    throw new TypeError('git paths are invalid.');
-  }
-  return value.map(requiredGitPath);
-}
-
-/** Island Git request: the listed files (may be empty) and an optional base branch. */
-export function requiredGitRequestContextInput(value: unknown): { paths: string[]; base: string } {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('git request input is invalid.');
-  const { paths, base } = value as Record<string, unknown>;
-  if (!Array.isArray(paths) || paths.length > 500) throw new TypeError('git paths are invalid.');
-  return {
-    paths: paths.map(requiredGitPath),
-    base: base === undefined || base === '' ? '' : requiredGitBranchName(base),
-  };
-}
-
-export function requiredReviewDiffFiles(value: unknown): { path: string; untracked: boolean }[] {
-  if (!Array.isArray(value) || value.length > 512) throw new TypeError('git review files are invalid.');
-  return value.map((entry) => {
-    if (typeof entry !== 'object' || entry === null) throw new TypeError('git review file is invalid.');
-    const { path, untracked } = entry as { path?: unknown; untracked?: unknown };
-    return { path: requiredGitPath(path), untracked: untracked === true };
-  });
-}
-
-export function requiredGitPath(value: unknown): string {
-  const path = requiredString(value, 'git path', 4_096);
-  if (
-    pathIsAbsolute(path) ||
-    path.includes('\0') ||
-    path
-      .replace(/\\/g, '/')
-      .split('/')
-      .some((part) => part === '..')
-  ) {
-    throw new TypeError('git path is invalid.');
-  }
-  return path;
-}
-
-export function requiredGitPatch(value: unknown): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > 4_000_000 || value.includes('\0')) {
-    throw new TypeError('git patch is invalid.');
-  }
-  return value;
-}
-
-export function requiredGitDiscardMode(value: unknown): 'worktree' | 'all' {
-  if (value === undefined || value === 'all') return 'all';
-  if (value === 'worktree') return 'worktree';
-  throw new TypeError('git discard mode is invalid.');
-}
-
-export function requiredGitBranchName(value: unknown): string {
-  const branch = requiredString(value, 'git branch', 512);
-  if (branch.startsWith('-') || branch.includes('\0') || /[\r\n]/.test(branch)) {
-    throw new TypeError('git branch is invalid.');
-  }
-  return branch;
-}
-
-export function requiredGitOptionalMessage(value: unknown): string {
-  if (value === undefined || value === null || value === '') return '';
-  if (typeof value !== 'string' || value.length > 20_000 || value.includes('\0')) {
-    throw new TypeError('git message is invalid.');
-  }
-  return value.trim();
-}
-
-export function requiredGitLogQuery(value: unknown): string {
-  if (value === undefined || value === null) return '';
-  if (typeof value !== 'string' || value.length > 200 || value.includes('\0')) {
-    throw new TypeError('git history query is invalid.');
-  }
-  return value.trim();
-}
-
-export function requiredGitLogOffset(value: unknown): number {
-  if (value === undefined || value === null) return 0;
-  const offset = Number(value);
-  if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1_000_000) {
-    throw new TypeError('git history offset is invalid.');
-  }
-  return offset;
-}
-
-export function requiredGitLogLimit(value: unknown): number {
-  if (value === undefined || value === null) return 40;
-  const limit = Number(value);
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
-    throw new TypeError('git history limit is invalid.');
-  }
-  return limit;
-}
-
 export function requiredExternalUrl(value: unknown): string {
   const input = requiredString(value, 'url', 8_192);
   let url: URL;
@@ -2192,137 +2094,13 @@ export function requiredSessionRetentionSetting(
   return { key, days };
 }
 
-export function requiredDesktopSettingKey(value: unknown): DesktopSettingKey {
-  if (
-    value === 'autoClear' ||
-    value === 'autoCompact' ||
-    value === 'keepAwake' ||
-    value === 'runInBackground' ||
-    value === 'usagePinned' ||
-    value === 'usageRailShortLong' ||
-    value === 'usageAccountsExpanded' ||
-    value === 'usageRailSlotsThree' ||
-    value === 'usageRailSlotsAll' ||
-    value === 'computerControl' ||
-    value === 'computerObserveOnly' ||
-    value === 'browserControl' ||
-    value === 'browserAutoSignIn' ||
-    value === 'browserHidDevices' ||
-    value === 'saveChatLogins' ||
-    value === 'computerInstalled' ||
-    value === 'browserInstalled'
-  )
-    return value;
-  throw new TypeError('setting key is invalid.');
-}
-
-const NOTIFICATION_DEVICE_ID = /^[\w.:-]{1,80}$/u;
-const NOTIFICATION_TARGET_ID = /^[\w.:-]{1,200}$/u;
-const NOTIFICATION_TIME = /^([01]\d|2[0-3]):[0-5]\d$/u;
-const NOTIFICATION_PATCH_KEYS = new Set([
-  'scope',
-  'events',
-  'automaticRuns',
-  'quietHours',
-  'holdWhileDesktopActive',
-  'taskbarFlash',
-]);
-const NOTIFICATION_QUIET_KEYS = new Set(['enabled', 'start', 'end', 'days', 'allowWaiting']);
-
-function onlyKeys(input: Record<string, unknown>, allowed: ReadonlySet<string>, name: string): void {
-  for (const key of Object.keys(input)) {
-    if (!allowed.has(key)) throw new TypeError(`${name} has an unsupported field: ${key}.`);
-  }
-}
-
-function optionalBoolean(input: Record<string, unknown>, key: string, name: string): boolean | undefined {
-  if (input[key] === undefined) return undefined;
-  if (typeof input[key] !== 'boolean') throw new TypeError(`${name}.${key} must be a boolean.`);
-  return input[key] as boolean;
-}
-
-/** A notification device: NOTIFICATION_PC_DEVICE_ID or a paired client id. */
-export function requiredNotificationDeviceId(value: unknown): string {
-  if (typeof value !== 'string' || !NOTIFICATION_DEVICE_ID.test(value)) {
-    throw new TypeError('notification device id is invalid.');
-  }
-  return value;
-}
-
-export function requiredNotificationPreferencesPatch(value: unknown): NotificationPreferencesPatch {
-  const input = plainRecord(value, 'notification preferences');
-  onlyKeys(input, NOTIFICATION_PATCH_KEYS, 'notification preferences');
-  const patch: NotificationPreferencesPatch = {};
-  if (input.scope !== undefined) {
-    if (input.scope !== 'all' && input.scope !== 'bots' && input.scope !== 'off') {
-      throw new TypeError('notification scope is invalid.');
-    }
-    patch.scope = input.scope;
-  }
-  if (input.events !== undefined) {
-    const events = plainRecord(input.events, 'notification events');
-    onlyKeys(events, new Set(NOTIFICATION_EVENTS), 'notification events');
-    patch.events = {};
-    for (const event of NOTIFICATION_EVENTS) {
-      const enabled = optionalBoolean(events, event, 'notification events');
-      if (enabled !== undefined) patch.events[event] = enabled;
-    }
-  }
-  if (input.quietHours !== undefined) {
-    const quiet = plainRecord(input.quietHours, 'quiet hours');
-    onlyKeys(quiet, NOTIFICATION_QUIET_KEYS, 'quiet hours');
-    patch.quietHours = {};
-    for (const key of ['enabled', 'allowWaiting'] as const) {
-      const flag = optionalBoolean(quiet, key, 'quiet hours');
-      if (flag !== undefined) patch.quietHours[key] = flag;
-    }
-    for (const key of ['start', 'end'] as const) {
-      if (quiet[key] === undefined) continue;
-      if (typeof quiet[key] !== 'string' || !NOTIFICATION_TIME.test(quiet[key] as string)) {
-        throw new TypeError(`quiet hours ${key} must be HH:MM.`);
-      }
-      patch.quietHours[key] = quiet[key] as string;
-    }
-    if (quiet.days !== undefined) {
-      if (quiet.days !== 'every' && quiet.days !== 'weekdays' && quiet.days !== 'weekends') {
-        throw new TypeError('quiet hours days is invalid.');
-      }
-      patch.quietHours.days = quiet.days;
-    }
-  }
-  for (const key of ['automaticRuns', 'holdWhileDesktopActive', 'taskbarFlash'] as const) {
-    const flag = optionalBoolean(input, key, 'notification preferences');
-    if (flag !== undefined) patch[key] = flag;
-  }
-  return patch;
-}
-
-export function requiredNotificationTarget(value: unknown): NotificationTarget {
-  const input = plainRecord(value, 'notification target');
-  onlyKeys(input, new Set(['kind', 'id']), 'notification target');
-  if (input.kind !== 'session' && input.kind !== 'agent' && input.kind !== 'room') {
-    throw new TypeError('notification target kind is invalid.');
-  }
-  if (typeof input.id !== 'string' || !NOTIFICATION_TARGET_ID.test(input.id)) {
-    throw new TypeError('notification target id is invalid.');
-  }
-  return { kind: input.kind, id: input.id };
-}
-
-export function requiredConversationNotificationSetting(value: unknown): ConversationNotificationSetting {
-  const input = plainRecord(value, 'notification setting');
-  if (input.mode === 'inherit' || input.mode === 'always') {
-    onlyKeys(input, new Set(['mode']), 'notification setting');
-    return { mode: input.mode };
-  }
-  if (input.mode !== 'muted') throw new TypeError('notification setting mode is invalid.');
-  onlyKeys(input, new Set(['mode', 'until']), 'notification setting');
-  const until = input.until;
-  if (until !== null && !(Number.isSafeInteger(until) && (until as number) > 0)) {
-    throw new TypeError('notification mute end must be epoch milliseconds or null.');
-  }
-  return { mode: 'muted', until: until as number | null };
-}
+export {
+  requiredConversationNotificationSetting,
+  requiredDesktopSettingKey,
+  requiredNotificationDeviceId,
+  requiredNotificationPreferencesPatch,
+  requiredNotificationTarget,
+} from '../shared/settings-input';
 
 const LSP_REQUEST_METHOD_SET: ReadonlySet<string> = new Set(DESKTOP_LSP_REQUEST_METHODS);
 const LSP_DOCUMENT_KEYS = new Set(['kind', 'projectPath', 'relPath', 'languageId', 'version', 'content']);

@@ -138,6 +138,10 @@ fn core_wiring(
         ext_host: core.ext_host().clone(),
         runtime: runtime.clone(),
         cancel: Arc::new(CancelRegistry::default()),
+        cut_new_tasks: {
+            let core = core.clone();
+            Arc::new(move || core.cut_new_tasks())
+        },
         final_barriers: {
             let core = core.clone();
             Arc::new(move || core.run_final_barriers())
@@ -209,6 +213,12 @@ impl crate::lifecycle::CorePort for LateCorePort {
     fn cancel_running(&self, running: &[crate::lifecycle::Running]) {
         if let Some(core) = self.core.get() {
             core.cancel_running(running);
+        }
+    }
+
+    fn cut_new_tasks(&self) {
+        if let Some(core) = self.core.get() {
+            core.cut_new_tasks();
         }
     }
 
@@ -713,75 +723,75 @@ mod tests {
     /// `start` against a temp runtime root: discovery is written and names both listeners, the
     /// control and RPC listeners answer (and refuse a wrong token), and a stop takes the lifecycle
     /// through the release procedure: barriers once, `last-exit.json`, discovery withdrawn, `Stopped`.
-    #[tokio::test(flavor = "multi_thread")]
+    #[test]
     #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
-    async fn start_serves_both_listeners_and_a_stop_releases_once() {
-        let _one = crate::compose_test_support::exclusive().await;
-        let dir = tempfile::tempdir().unwrap();
-        let tokens = mixdog_rt::testing::tokens();
-        let outgoing = mixdog_app_server::Outgoing::new();
-        let core = Arc::new(
-            crate::compose::compose(
+    fn start_serves_both_listeners_and_a_stop_releases_once() {
+        crate::compose_test_support::in_child(module_path!(), "start_serves_both_listeners_and_a_stop_releases_once", tokio::runtime::Builder::new_multi_thread(), |dir| async move {
+            let tokens = mixdog_rt::testing::tokens();
+            let outgoing = mixdog_app_server::Outgoing::new();
+            let core = Arc::new(
+                crate::compose::compose(
+                    &tokens,
+                    ComposeConfig {
+                        data_dir: crate::compose_test_support::data_in(&dir),
+                        user_data_dir: dir.join("userdata"),
+                        js_runtime: crate::js_runtime::fixture(&dir),
+                        ort_library: mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
+                        outgoing: outgoing.clone(),
+                ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
+                        log: crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
+                        stop: mixdog_rt::CancellationToken::new(),
+                        catalog_http: crate::compose_test_support::offline_http(),
+                        pg_install: None,
+                    },
+                )
+                .await
+                .unwrap(),
+            );
+            let barriers = Arc::new(AtomicUsize::new(0));
+            let counted = barriers.clone();
+            core.on_final_barrier("count", Arc::new(move || {
+                counted.fetch_add(1, Ordering::SeqCst);
+            }));
+            let (exited, exit) = oneshot::channel();
+            let root = dir.join("runtime");
+            let serving = start(
                 &tokens,
-                ComposeConfig {
-                    data_dir: crate::compose_test_support::data_dir().to_path_buf(),
-                    user_data_dir: dir.path().join("userdata"),
-                    js_runtime: crate::js_runtime::fixture(dir.path()),
-                    ort_library: mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
-                    outgoing: outgoing.clone(),
-            ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
-                    log: crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
-                    stop: mixdog_rt::CancellationToken::new(),
-                    catalog_http: crate::compose_test_support::offline_http(),
-                    pg_install: None,
+                core,
+                outgoing,
+                StartIn {
+                    runtime_root: root.clone(),
+                    exiter: Arc::new(RecordedExit(Mutex::new(Some(exited)))),
+                    update_text: "Update.".into(),
                 },
             )
             .await
-            .unwrap(),
-        );
-        let barriers = Arc::new(AtomicUsize::new(0));
-        let counted = barriers.clone();
-        core.on_final_barrier("count", Arc::new(move || {
-            counted.fetch_add(1, Ordering::SeqCst);
-        }));
-        let (exited, exit) = oneshot::channel();
-        let root = dir.path().join("runtime");
-        let serving = start(
-            &tokens,
-            core,
-            outgoing,
-            StartIn {
-                runtime_root: root.clone(),
-                exiter: Arc::new(RecordedExit(Mutex::new(Some(exited)))),
-                update_text: "Update.".into(),
-            },
-        )
-        .await
-        .unwrap();
-        serving.lifecycle.set_serving().unwrap();
-        let writer = serving.discovery.clone();
-        tokio::task::spawn_blocking(move || writer.flush()).await.unwrap();
+            .unwrap();
+            serving.lifecycle.set_serving().unwrap();
+            let writer = serving.discovery.clone();
+            tokio::task::spawn_blocking(move || writer.flush()).await.unwrap();
 
-        let document: serde_json::Value =
-            serde_json::from_slice(&tokio::fs::read(discovery::path(&root)).await.unwrap()).unwrap();
-        assert_eq!(document["core"]["state"], "serving");
-        let token = document["endpoints"]["session"]["token"].as_str().unwrap().to_owned();
-        let control = u16::try_from(document["core"]["control"]["port"].as_u64().unwrap()).unwrap();
-        let rpc = u16::try_from(document["core"]["rpc"]["port"].as_u64().unwrap()).unwrap();
+            let document: serde_json::Value =
+                serde_json::from_slice(&tokio::fs::read(discovery::path(&root)).await.unwrap()).unwrap();
+            assert_eq!(document["core"]["state"], "serving");
+            let token = document["endpoints"]["session"]["token"].as_str().unwrap().to_owned();
+            let control = u16::try_from(document["core"]["control"]["port"].as_u64().unwrap()).unwrap();
+            let rpc = u16::try_from(document["core"]["rpc"]["port"].as_u64().unwrap()).unwrap();
 
-        let client = reqwest::Client::new();
-        let status = format!("http://127.0.0.1:{control}/mgmt/status");
-        let answered = client.get(&status).bearer_auth(&token).send().await.unwrap();
-        assert_eq!(answered.status(), 200);
-        assert_eq!(client.get(&status).bearer_auth("wrong").send().await.unwrap().status(), 401);
-        assert!(upgrade(rpc, Some(&token)).await.contains("101"));
-        assert!(upgrade(rpc, Some("wrong")).await.contains("401"));
+            let client = reqwest::Client::new();
+            let status = format!("http://127.0.0.1:{control}/mgmt/status");
+            let answered = client.get(&status).bearer_auth(&token).send().await.unwrap();
+            assert_eq!(answered.status(), 200);
+            assert_eq!(client.get(&status).bearer_auth("wrong").send().await.unwrap().status(), 401);
+            assert!(upgrade(rpc, Some(&token)).await.contains("101"));
+            assert!(upgrade(rpc, Some("wrong")).await.contains("401"));
 
-        serving.lifecycle.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-        exit.await.unwrap();
-        assert!(matches!(*serving.lifecycle.state().borrow(), CoreState::Stopped));
-        assert_eq!(barriers.load(Ordering::SeqCst), 1);
-        assert!(tokio::fs::try_exists(root.join("last-exit.json")).await.unwrap());
-        assert!(!tokio::fs::try_exists(discovery::path(&root)).await.unwrap());
+            serving.lifecycle.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+            exit.await.unwrap();
+            assert!(matches!(*serving.lifecycle.state().borrow(), CoreState::Stopped));
+            assert_eq!(barriers.load(Ordering::SeqCst), 1);
+            assert!(tokio::fs::try_exists(root.join("last-exit.json")).await.unwrap());
+            assert!(!tokio::fs::try_exists(discovery::path(&root)).await.unwrap());
+        });
     }
 }

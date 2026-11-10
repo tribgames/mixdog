@@ -36,7 +36,7 @@ pub(crate) async fn relay_over(runner: &Arc<Fake>) -> (MemberRelay<Mem, Fake>, A
     let rooms = Arc::new(Rooms::new(Mem(Default::default())));
     let input = RoomConfigInput { name: "Plan".into(), members: vec!["lead".into(), "bench".into()], ..Default::default() };
     rooms.create(&input, "room01", 1).await.unwrap();
-    (MemberRelay::new(rooms, scheduler(runner)), Arc::default())
+    (MemberRelay::new(rooms, scheduler(runner), crate::rooms::ready::RoomsReady::prepared()), Arc::default())
 }
 
 pub(crate) fn options(id: &str, hop: u32) -> WakeOptions {

@@ -14,8 +14,6 @@ use crate::JsonValue;
 pub enum SectionFeed {
     /// App feed; part of the app attach snapshot.
     App,
-    /// The thread feed of the key (`reviewDiff`).
-    Thread,
     /// Scoped feed `git:<repoRoot>`.
     Git,
     /// Scoped feed `lsp:<root>`.
@@ -24,6 +22,21 @@ pub enum SectionFeed {
     Media,
     /// Scoped feed `ports` (exists only while subscribed, SPEC §4.10).
     Ports,
+}
+
+impl SectionFeed {
+    /// Whether the feed is of the ordered class (Lead decision 2026-11-11): its events are ones
+    /// Node's phone path never drops, so a lane of it never lags once live.
+    /// - `App`: settings, models, updater, notices, review, terminal activity and the browser /
+    ///   visualize state are non-droppable pushes (`remote-relay-push-lanes.ts:119-168`), and
+    ///   the session and agent rosters it carries are never droppable
+    ///   (`remote-relay-catalog.ts:79-90`).
+    /// - `Lsp`: `lspDiagnostics` / `lspStatus` (`remote-relay-push-lanes.ts:171-174`).
+    /// - `Git`, `Media`, `Ports`: replace polls (re-reads after `folder-changed`, P9, P11), which
+    ///   Node's phone path never pushed; merged latest-wins state.
+    pub const fn ordered(self) -> bool {
+        matches!(self, SectionFeed::App | SectionFeed::Lsp)
+    }
 }
 
 macro_rules! sections {
@@ -115,8 +128,9 @@ sections! {
     CoreHealth => "coreHealth", "core/health/updated", App, keyed: false;
     /// Migration progress.
     Migration => "migration", "migration/progress", App, keyed: false;
-    /// Review summary of a thread; key = thread id (thread feed).
-    ReviewDiff => "reviewDiff", "review/diff/updated", Thread, keyed: true;
+    /// The tell that open reviews may read differently (Node's global `turn-review-changed`): one app-wide revision per tell, no
+    /// value; each window rereads the review of every session it shows.
+    ReviewDiff => "reviewDiff", "review/diff/updated", App, keyed: false;
     /// Repository status; key = repo root (scoped feed `git:<root>`).
     GitStatus => "gitStatus", "git/status/updated", Git, keyed: true;
     /// Language-server status (scoped feed `lsp:<root>`); key = `<languageId>`, or

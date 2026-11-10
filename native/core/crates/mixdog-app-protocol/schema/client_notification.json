@@ -1,6 +1,23 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
+    "BrowserStreamAckParams": {
+      "description": "`browser/streamAck` (phone → core notification, Node's `browserRemoteStreamAck([sessionId, seq])`): the phone painted the `browser/frame` of `seq`, so its next (newest) frame of the session may go out.",
+      "properties": {
+        "seq": {
+          "format": "double",
+          "type": "number"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "seq",
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "ClientActivityParams": {
       "description": "`client/activity`: sent on user input, at most once per 60 s (client-side rate).",
       "properties": {
@@ -22,6 +39,21 @@
       },
       "required": [
         "line"
+      ],
+      "type": "object"
+    },
+    "HostBrowserFrameParams": {
+      "description": "`host/browser/frame` (host → core notification, Node's `browserRemoteFrame` desktop operation): a frame of a viewed session (`DesktopRemoteBrowserStreamFrame`) without its picture bytes. When `frame.image` is present (`{mimeType: \"image/jpeg\"}`, no `data`), the picture is the next X17 frame of the session's stream on the same connection, and the core sends the frame once it has the picture; a frame without `image` carries facts only.",
+      "properties": {
+        "frame": true,
+        "tabId": {
+          "description": "The session, as in `host/browser/viewFrames`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "frame",
+        "tabId"
       ],
       "type": "object"
     },
@@ -540,6 +572,48 @@
           "type": "object"
         },
         {
+          "description": "A display-only transcript notice raised while preparing the request (`StreamEvent::Notice`).",
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "notice"
+              ],
+              "type": "string"
+            },
+            "warn": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "message",
+            "type",
+            "warn"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The model that answered when it is not the one the request named (`StreamEvent::ServedModel`).",
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "servedModel"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "model",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
           "description": "`pricing_model`: the catalog model the send bills as when it differs from the one sent. `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).",
           "properties": {
             "pricing_model": {
@@ -888,6 +962,13 @@
     },
     "TerminalResizeParams": {
       "properties": {
+        "claim": {
+          "description": "A phone showing the terminal claims the PTY size (Node's `termResize` `phoneOwner`): the claim holds for 30 s unless renewed, the newest claim owns, and zero columns or rows with `claim` release it. Without `claim` the resize is ignored while any claim stands.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "cols": {
           "format": "uint16",
           "minimum": 0.0,
@@ -1014,7 +1095,7 @@
       "type": "object"
     },
     {
-      "description": "Ignored unless the sender owns the PTY size.",
+      "description": "Ignored while a phone's claim stands, unless the sender claims (`claim`).",
       "properties": {
         "method": {
           "enum": [
@@ -1152,6 +1233,44 @@
         },
         "params": {
           "$ref": "#/definitions/HostBrowserPageParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A viewed browser page's frame facts; a picture announced in them follows as the next X17 frame of the stream.",
+      "properties": {
+        "method": {
+          "enum": [
+            "host/browser/frame"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserFrameParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The phone painted a JPEG-view frame (`browser/frame`): its next one may go out.",
+      "properties": {
+        "method": {
+          "enum": [
+            "browser/streamAck"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/BrowserStreamAckParams"
         }
       },
       "required": [

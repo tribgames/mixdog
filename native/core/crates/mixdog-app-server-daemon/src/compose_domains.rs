@@ -166,6 +166,8 @@ pub struct DomainSeams {
     pub notification_clicks: Arc<dyn NotificationClicks>,
     /// Publishes the host's browser surface requests as `ui/openRequested` (`host/browser/surface`).
     pub browser_surfaces: Arc<dyn mixdog_core_domains::domains::host::BrowserSurfaces>,
+    /// The visualize tabs the desktop sets (`host/state/set`), folded for the phone's pane pages (`document/previewPages`).
+    pub visualize_panes: Arc<mixdog_exthost::VisualizePanes>,
     /// Drops the prompt-rules and context-status caches and publishes the profile change: WP-SESSION.
     pub instructions_changed: Arc<dyn InstructionsChanged>,
     /// The one OS proxy decision of the process: WP-AI-SVC.
@@ -316,6 +318,10 @@ pub struct PreDomains {
 pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, ComposeDomainsError> {
     let mut services: Vec<Arc<dyn DomainService>> = Vec::new();
     let (state, config) = (inputs.state.clone(), inputs.config.clone());
+    // Node's `settings-changed` and `provider-models-changed` desktop events: app-feed notifications, in order with the
+    // sections they follow.
+    let app = state.app.clone();
+    config.announce_to(Arc::new(move |method, params| app.notify(method, &params)));
     let watcher = ConfigWatcher::start(config.clone()).map_err(ComposeDomainsError::Watch)?;
     let local = local::build(inputs, &config).await?;
     let tool_modules = ToolModules::new(config.clone(), local.tool_modules_host.clone(), state.publisher.clone(), inputs.cancel.clone());

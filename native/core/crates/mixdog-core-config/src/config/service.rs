@@ -73,7 +73,39 @@ const METHODS: &[&str] = &[
     "config/setBotOrder",
     "config/getOutputStyle",
     "config/listOutputStyles",
+    "ui/settings/announce",
+    "ui/providerModels/announce",
 ];
+
+/// Node's settings scopes (shared/settings-changed.ts `SETTINGS_SCOPES`).
+const SETTINGS_SCOPES: &[&str] = &["desktop", "git", "permissions", "notifications", "agent"];
+
+/// `params.<key>` as one of Node's settings scopes.
+fn scope_of(params: &Value, key: &str) -> Result<Option<&'static str>, CoreError> {
+    match params.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => SETTINGS_SCOPES
+            .iter()
+            .copied()
+            .find(|scope| value.as_str() == Some(*scope))
+            .map(Some)
+            .ok_or_else(|| invalid(&format!("params.{key}"), "desktop | git | permissions | notifications | agent")),
+    }
+}
+
+/// `ui/providerModels/announce`: Node's `requiredString(origin, 'origin', 128)` (ipc-validation.ts:656-661) is the only
+/// rule; every client, the caller included, is told the trimmed origin (desktop-operations.ts:455-458).
+fn announce_provider_models(config: &Config, params: &Value) -> Result<Value, CoreError> {
+    let Some(origin) = params.get("origin").and_then(Value::as_str) else {
+        return Err(failed("config", "origin must be a string."));
+    };
+    let origin = mixdog_js::js_trim(origin);
+    if origin.is_empty() || origin.encode_utf16().count() > 128 {
+        return Err(failed("config", "origin is invalid."));
+    }
+    config.announce("ui/providerModels/changed", json!({ "origin": origin }));
+    Ok(json!({}))
+}
 
 pub struct ConfigService {
     config: Config,
@@ -89,13 +121,11 @@ impl ConfigService {
         Self { config, tool_modules, settings, output_styles }
     }
 
-    async fn dispatch(&self, method: &str, params: &Value) -> Result<Value, CoreError> {
+    /// `relay`: a paired phone's call (see [`settings_call`]).
+    async fn dispatch(&self, method: &str, params: &Value, relay: bool) -> Result<Value, CoreError> {
         match method {
             "config/read" => self.read(params),
-            "config/value/write" => {
-                let edit = edit_of(params)?;
-                self.write(vec![edit]).await
-            }
+            "config/value/write" => value_write(&self.config, params, relay).await,
             "config/batchWrite" => {
                 let edits = params
                     .get("edits")
@@ -104,8 +134,14 @@ impl ConfigService {
                     .iter()
                     .map(edit_of)
                     .collect::<Result<Vec<_>, _>>()?;
-                self.write(edits).await
+                write(&self.config, edits, None).await
             }
+            "ui/settings/announce" => {
+                let scope = scope_of(params, "scope")?.ok_or_else(|| invalid("params.scope", "a settings scope"))?;
+                self.config.announce(super::SETTINGS_CHANGED, json!({ "scope": scope }));
+                Ok(json!({}))
+            }
+            "ui/providerModels/announce" => announce_provider_models(&self.config, params),
             "config/getToolModuleSettings" => Ok(self.tool_modules.settings().await),
             "config/setWebSearchEnabled" => {
                 let enabled = flag(params, "enabled")?;
@@ -144,7 +180,7 @@ impl ConfigService {
                 set_worktree_settings(&self.config, &patch).await
             }
             "config/getOutputStyle" | "config/listOutputStyles" => tool(self.output_styles.status().await),
-            other => settings_call(&self.settings, other, params).await,
+            other => settings_call(&self.settings, other, params, relay).await,
         }
     }
 
@@ -175,14 +211,77 @@ impl ConfigService {
         Ok(json!({ "config": config }))
     }
 
-    async fn write(&self, edits: Vec<ConfigEdit>) -> Result<Value, CoreError> {
-        let (_, saved) = self.config.batch_write_saved(&edits, SAVED_SUBTREES).await.map_err(core_error)?;
-        let values: Vec<Value> = edits
-            .iter()
-            .map(|edit| self.config.get(&edit.path).unwrap_or(Value::Null))
-            .collect();
-        Ok(json!({ "revision": self.config.revision(), "values": values, "config": saved }))
+}
+
+/// `config/value/write`. A paired phone (`relay`) writes only what Node's relay methods wrote for it ([`relay_may_write`]);
+/// anything else is refused before the edit is applied, so nothing changes.
+async fn value_write(config: &Config, params: &Value, relay: bool) -> Result<Value, CoreError> {
+    let edit = edit_of(params)?;
+    let announce = scope_of(params, "announce")?;
+    // A phone announced only what Node's relay `updateSetting` announced: `desktop`, after one of its keys.
+    let announce_allowed = announce.is_none_or(|scope| scope == "desktop" && RELAY_SETTING_PATHS.contains(&edit.path.as_str()));
+    if relay && !(relay_may_write(&edit) && announce_allowed) {
+        return Err(CoreError::DomainError {
+            domain: "config".into(),
+            code: Some("REMOTE_DESKTOP_ONLY".into()),
+            message: Some(format!("config/value/write cannot write {} over remote access; use the desktop.", edit.path).into()),
+            detail: None,
+        });
     }
+    write(config, vec![edit], announce).await
+}
+
+/// The `desktop` flags Node's relay `updateSetting` wrote (b6f10295a remote-methods.ts:1093-1101): the
+/// `DesktopSettingKey`s `requiredDesktopSettingKey` accepted (ipc-validation.ts:2195-2217), each a boolean, stored by
+/// `DesktopSettingsStore.update` (settings-store.ts:317-381) under `desktop`, `autoClear` and `autoCompact` under `agent`.
+const RELAY_SETTING_PATHS: &[&str] = &[
+    "agent.autoClear.enabled",
+    "agent.compaction.auto",
+    "desktop.keepAwake",
+    "desktop.runInBackground",
+    "desktop.usagePinned",
+    "desktop.usageRailShortLong",
+    "desktop.usageAccountsExpanded",
+    "desktop.usageRailSlotsThree",
+    "desktop.usageRailSlotsAll",
+    "desktop.computerControl",
+    "desktop.computerObserveOnly",
+    "desktop.browserControl",
+    "desktop.browserAutoSignIn",
+    "desktop.browserHidDevices",
+    "desktop.saveChatLogins",
+    "desktop.computerInstalled",
+    "desktop.browserInstalled",
+];
+
+/// Whether a paired phone may make `edit`: exactly the config writes of Node's relay method table (b6f10295a
+/// remote-methods.ts `createRemoteMethods`): `updateSetting` ([`RELAY_SETTING_PATHS`]), `updateActivityRailPins` (:915,
+/// whole pins only, never `initializeIfMissing`), `setNotificationPreferences` (:1116, one device's merge),
+/// `setConversationNotification` (:1126) and `setQuotaAutoResume` (remote-session-methods.ts:89-92, a boolean). Remote
+/// access, browser site permissions, cookie auto-import, retention, volume and every other key were the desktop's alone.
+fn relay_may_write(edit: &ConfigEdit) -> bool {
+    let path = edit.path.as_str();
+    match edit.mode {
+        ConfigWriteMode::Replace => {
+            RELAY_SETTING_PATHS.contains(&path)
+                || path == "desktop.activityRailPins"
+                || (path == "quotaAutoResume" && edit.value.is_boolean())
+        }
+        ConfigWriteMode::MergePatch | ConfigWriteMode::MergePatchBots => path
+            .strip_prefix("notifications.devices.")
+            .is_some_and(|id| !id.is_empty() && !id.contains('.')),
+        ConfigWriteMode::SetConversation => path == "notifications.overrides",
+        ConfigWriteMode::InitializeIfMissing => false,
+    }
+}
+
+/// The write, answering the stored value of each edit and the `agent` and `desktop` subtrees of the saved config (Node's
+/// `updateConfigAsync` result).
+/// `announce`: the scope the writer announces once it is saved ([`Config::batch_write_saved`]).
+async fn write(config: &Config, edits: Vec<ConfigEdit>, announce: Option<&'static str>) -> Result<Value, CoreError> {
+    let (_, saved) = config.batch_write_saved(&edits, SAVED_SUBTREES, announce).await.map_err(core_error)?;
+    let values: Vec<Value> = edits.iter().map(|edit| config.get(&edit.path).unwrap_or(Value::Null)).collect();
+    Ok(json!({ "revision": config.revision(), "values": values, "config": saved }))
 }
 
 /// `setWorktreeSettings(patch)`: the patch is applied strictly to the stored section and the
@@ -208,9 +307,19 @@ fn worktree_view(config: &Config) -> Value {
 }
 
 /// The scalar settings: reads answer the view, writes the view after the change. Argument
-/// names are the Node parameter names.
-async fn settings_call(settings: &Settings, method: &str, params: &Value) -> Result<Value, CoreError> {
+/// names are the Node parameter names. A paired phone (`relay`) may only turn "Allow all actions" off: Node's host
+/// refused turning it on over remote access (`remote-methods.ts` `assertRemoteCapabilityCall`,
+/// `developer-risk-confirm.ts` `isAllowAllActionsEnable`), with the code the clients read (`REMOTE_DESKTOP_ONLY`).
+async fn settings_call(settings: &Settings, method: &str, params: &Value, relay: bool) -> Result<Value, CoreError> {
     let arg = |key: &str| params.get(key).cloned().unwrap_or(Value::Null);
+    if relay && method == "config/setDeveloperOption" && arg("id") == "allowAllActions" && arg("enabled") == true {
+        return Err(CoreError::DomainError {
+            domain: "config".into(),
+            code: Some("REMOTE_DESKTOP_ONLY".into()),
+            message: Some("setDeveloperOption cannot turn on Allow all actions over remote access; use the desktop.".into()),
+            detail: None,
+        });
+    }
     let result = match method {
         "config/getHeartbeatSettings" => return Ok(settings.heartbeat()),
         "config/getReactionSettings" => return Ok(settings.reactions()),
@@ -321,7 +430,8 @@ impl DomainService for ConfigService {
     }
 
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
-        Ok(Reply::Value(self.dispatch(req.method.as_str(), &req.params).await?))
+        let relay = req.ctx.origin == mixdog_protocol::Origin::Relay;
+        Ok(Reply::Value(self.dispatch(req.method.as_str(), &req.params, relay).await?))
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {

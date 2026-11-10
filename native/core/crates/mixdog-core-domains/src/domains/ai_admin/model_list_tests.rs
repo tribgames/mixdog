@@ -8,12 +8,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_ai::catalog::{CatalogSnapshot, ModelSource, ModelsDevSource};
+use mixdog_ai::catalog::{CatalogSnapshot, ModelSource, ModelsDevSource, ProviderStatus};
 use mixdog_ai::catalog::CatalogService;
 use mixdog_ai::oauth::CredentialIo;
 use mixdog_ai::service::effort_configuration::UnsupportedEfforts;
 use mixdog_ai::transport::http::{HttpResponse, HttpSend};
-use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ProviderError, WireRequest};
+use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ProviderAdapter as _, ProviderError, WireRequest};
 use mixdog_core_api::mock::MockStatePublisher;
 use serde_json::{Value, json};
 
@@ -46,6 +46,9 @@ impl HttpSend for Offline {
     }
 }
 
+/// The recorder's `Date.now()`.
+const NOW: u64 = 1_700_000_000_000;
+
 #[tokio::test]
 async fn model_list_matches_node() {
     for (i, case) in twin()["cases"].as_array().unwrap().iter().enumerate() {
@@ -53,8 +56,25 @@ async fn model_list_matches_node() {
         let tokens = mixdog_rt::testing::tokens();
         let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
         let snapshot: CatalogSnapshot = serde_json::from_value(case["snapshot"].clone()).unwrap();
+        // Node's registry holds every provider of the case (`getAllProviders`), each listing what the snapshot
+        // recorded of it: its models, or its failure.
+        let sources = snapshot
+            .models
+            .iter()
+            .map(|(provider, models)| {
+                let answer = match snapshot.status.get(provider) {
+                    Some(ProviderStatus::Missing { message, .. }) => {
+                        let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
+                        error.message = message.clone();
+                        Err(error)
+                    }
+                    _ => Ok(models.clone()),
+                };
+                ModelSource::answering(provider.clone(), answer)
+            })
+            .collect();
         let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
-        let catalog = Arc::new(CatalogService::cold_start(snapshot, Vec::new(), metadata).await);
+        let catalog = Arc::new(CatalogService::cold_start(snapshot, sources, metadata).await.with_clock(Arc::new(|| NOW)));
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
         let path = dir.path().join("mixdog-config.json");
         std::fs::write(&path, serde_json::to_vec(&json!({ "agent": case["config"] })).unwrap()).unwrap();
@@ -196,6 +216,56 @@ impl ProviderBuilder for NoBuilds {
     }
 }
 
+/// A registered provider whose listing is a recorded scenario's.
+struct ListsLoad {
+    mock: mixdog_core_api::domain::mock::MockProvider,
+    listing: Arc<LoadListing>,
+}
+
+#[async_trait]
+impl mixdog_core_api::domain::provider::ProviderAdapter for ListsLoad {
+    fn id(&self) -> &mixdog_protocol::ProviderId {
+        self.mock.id()
+    }
+    fn codec(&self) -> &dyn mixdog_core_api::domain::provider::WireCodec {
+        self.mock.codec()
+    }
+    fn retry_policy(&self) -> &mixdog_core_api::domain::retry::RetryPolicy {
+        self.mock.retry_policy()
+    }
+    fn keepalive(&self) -> &mixdog_core_api::domain::keepalive::KeepaliveSchedule {
+        self.mock.keepalive()
+    }
+    async fn attempt(
+        &self,
+        request: Arc<mixdog_core_api::domain::provider::ModelRequest>,
+    ) -> Result<Box<dyn mixdog_core_api::domain::provider::ModelStream>, ProviderError> {
+        self.mock.attempt(request).await
+    }
+    fn models(&self) -> Option<&dyn mixdog_core_api::domain::provider::ModelListing> {
+        Some(&*self.listing)
+    }
+}
+
+/// A builder whose one provider lists a recorded scenario: the registry registers it as production does.
+struct BuildsLoad(Arc<LoadListing>);
+
+#[async_trait]
+impl ProviderBuilder for BuildsLoad {
+    async fn build(&self, _: &str, _: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
+        Ok(Arc::new(ListsLoad { mock: mixdog_core_api::domain::mock::MockProvider::new([]), listing: self.0.clone() }))
+    }
+    async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
+    fn available(&self, _: &str) -> bool {
+        true
+    }
+    async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+        Ok(false)
+    }
+}
+
 /// A builder whose providers are mocks: the registry prepares them as production does.
 struct BuildsMock;
 
@@ -222,7 +292,7 @@ impl Environment for NoEnv {
     }
 }
 
-/// Both full-load scenarios Node recorded (`oracles/model-meta.json`, from `b6f10295a`, by
+/// Both full-load scenarios Node recorded (`oracles/model-meta.json`, from `7f633e730`, by
 /// `record-model-meta.mjs`): a load remembers the rows of `rowsForEntry` only (empty ids and non-selectable models are
 /// left out, a hidden selectable model is kept and leaves only the picker) over what a lookup had pinned, a model the
 /// load skipped keeps answering its provider's cached row, and a load an invalidation overtook (the load sequence moved
@@ -243,18 +313,20 @@ async fn a_load_remembers_what_node_recorded() {
             host: std::sync::OnceLock::new(),
             invalidate_while_listing: spec["duringList"] == "invalidate",
         });
-        let source = ModelSource::new("p".into(), listing.clone());
         let dir = tempfile::tempdir().unwrap();
         let tokens = mixdog_rt::testing::tokens();
         let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
         let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
-        let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), vec![source], metadata).await);
+        let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await);
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
         let path = dir.path().join("mixdog-config.json");
         std::fs::write(&path, serde_json::to_vec(&json!({ "agent": {} })).unwrap()).unwrap();
         let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+        // Provider `p` is registered, as in Node's scenario: the load lists the providers of the registry.
+        let registry = Arc::new(ProviderRegistry::new(Arc::new(BuildsLoad(listing.clone()))));
+        registry.init_providers(&json!({ "p": { "enabled": true } }).as_object().unwrap().clone()).await.expect("p registers");
         let builder: Arc<dyn ProviderBuilder> = Arc::new(NoBuilds);
-        let readiness = ProviderReadiness::new(Arc::new(ProviderRegistry::new(builder.clone())), catalog.clone());
+        let readiness = ProviderReadiness::new(registry, catalog.clone());
         let env: Arc<dyn Environment> = Arc::new(NoEnv);
         let keys = ApiKeyStore::new(Arc::new(MemoryVault::default()), env.clone(), false);
         let effective = Arc::new(EffectiveProviders::new(builder, keys, env));
@@ -283,7 +355,7 @@ async fn a_load_remembers_what_node_recorded() {
                 }
                 "load" => {
                     service.ready(false, None).await;
-                    // The catalog keeps each provider's rows sorted by id; the picker sorts them at read anyway.
+                    // The catalog keeps each provider's rows in listing order; the picker sorts them at read anyway.
                     let by_id = |mut rows: Vec<Value>| {
                         rows.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
                         rows
