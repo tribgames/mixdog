@@ -2384,6 +2384,9 @@ pub(crate) struct ReadPool {
     path: PathBuf,
     lane: InteractiveIo,
     conns: Mutex<Vec<Connection>>,
+    /// Set by [`close`](Self::close): no connection opens or returns to the pool after it.
+    #[cfg(any(test, feature = "test-support"))]
+    closed: std::sync::atomic::AtomicBool,
 }
 
 impl ReadPool {
@@ -2392,24 +2395,39 @@ impl ReadPool {
             path: path.to_path_buf(),
             lane,
             conns: Mutex::new(Vec::new()),
+            #[cfg(any(test, feature = "test-support"))]
+            closed: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
-    /// Closes the idle connections (test teardown, with the store's close).
+    /// Closes the idle connections, and a read still running closes its own when it ends; a read after it fails as the stopped
+    /// writer does (test teardown, with the store's close).
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn close(&self) {
+        self.closed.store(true, std::sync::atomic::Ordering::SeqCst);
         self.conns.lock().expect("pool lock").clear();
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    fn is_closed(&self) -> bool {
+        self.closed.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    #[cfg(not(any(test, feature = "test-support")))]
+    fn is_closed(&self) -> bool {
+        false
     }
 
     pub(crate) fn with<T>(&self, f: impl FnOnce(&Connection) -> Result<T, DbError>) -> Result<T, DbError> {
         let conn = self.conns.lock().expect("pool lock").pop();
         let conn = match conn {
             Some(c) => c,
+            None if self.is_closed() => return Err(DbError::Stopped),
             None => open_connection(&self.path)?,
         };
         let out = f(&conn);
         let mut pool = self.conns.lock().expect("pool lock");
-        if pool.len() < READ_POOL {
+        if pool.len() < READ_POOL && !self.is_closed() {
             pool.push(conn);
         }
         out
