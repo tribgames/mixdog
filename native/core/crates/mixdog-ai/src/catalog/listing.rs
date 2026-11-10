@@ -235,7 +235,7 @@ pub fn restate_row(record: &mut ModelRecord, key: &str, value: Option<Value>) {
     let Some(row) = record.enriched.0.as_mut() else { return };
     match value {
         Some(value) => row.insert(key.to_owned(), value),
-        None => row.remove(key),
+        None => row.shift_remove(key),
     };
 }
 
