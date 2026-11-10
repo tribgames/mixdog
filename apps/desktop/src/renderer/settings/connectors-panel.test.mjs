@@ -43,7 +43,7 @@ const { groupConnectors, detectConnectorSource, uniqueServerName, isConnectorPlu
 const { connectCatalogConnector, connectorLoginState, cancelConnectorLogin, startConnectorLogin } = await import(
   '../connector-connect.ts'
 );
-const { connectorById } = await import('../../../../../src/runtime/shared/connector-catalog.mjs');
+const { connectorById } = await import('../../shared/core-src/runtime/shared/connector-catalog.mjs');
 const { CategoryPanel } = await import('./capability-panels.tsx');
 const { ConnectorStep } = await import('../connector-step.tsx');
 const { McpEditorDialog, mcpErrorSummary } = await import('./mcp-editor-dialog.tsx');

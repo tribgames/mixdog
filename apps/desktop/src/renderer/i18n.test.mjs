@@ -29,8 +29,8 @@ import { goalCompletedTimeLabel } from './session-goal-presentation';
 import { uiCurrency } from './ui-format';
 import { memoryCacheStorage } from './sw-test-harness.mjs';
 import { UI_LANGUAGE_ENTRY, APP_STATE_CACHE_NAME } from './push-notification-bridge';
-import { parseMarkdownFrontmatter } from '../../../../src/runtime/shared/markdown-frontmatter.mjs';
-import { DEVELOPER_SECTIONS } from '../../../../src/runtime/shared/developer-options.mjs';
+import { parseMarkdownFrontmatter } from '../shared/test-recorded/i18n.test.0.recorded.mjs';
+import { DEVELOPER_SECTIONS } from '../shared/test-recorded/i18n.test.1.recorded.mjs';
 
 const catalogs = new Map(
   SUPPORTED_UI_LANGUAGES.filter(({ value }) => value !== 'en').map(({ value }) => [

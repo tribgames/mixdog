@@ -5,7 +5,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
-import { resolveUsageStatsPeriod } from '../../../../src/standalone/usage-stats-period.mjs';
+import { resolveUsageStatsPeriod } from './test-support/usage-stats-period.recorded.mjs';
 
 // The usage dialog ("모델 통계") on an iPhone: it covers the screen and shell
 // behind it is inert, so the dialog MUST always carry its own way out. This

@@ -1,0 +1,440 @@
+{
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/session-runtime/usage-stats-api.mjs",
+  "test": "apps/desktop/src/renderer/usage-stats-speed-layout.slow.test.mjs"
+ },
+ "constants": {},
+ "calls": {
+  "createUsageStatsApi#0.getQuotaHistory\u0000[{\"provider\":\"\",\"account\":\"\",\"window\":\"\",\"view\":\"window\"}]": [
+   {
+    "result": {
+     "generatedAt": 1790748000000,
+     "view": "window",
+     "subscriptions": [
+      {
+       "provider": "anthropic-oauth",
+       "account": "default",
+       "windows": [
+        "5H"
+       ],
+       "accountLabel": "Account 1",
+       "accountRank": 0,
+       "accountInRoster": true
+      }
+     ],
+     "selection": {
+      "provider": "anthropic-oauth",
+      "account": "default",
+      "label": "5H"
+     },
+     "range": {
+      "firstDay": "2026-09-30"
+     },
+     "period": {
+      "view": "window",
+      "anchor": "1790740800000",
+      "fromMs": 1790740800000,
+      "toMs": 1790758800000,
+      "startDay": "2026-09-30",
+      "endDay": "2026-09-30",
+      "previousAnchor": null,
+      "nextAnchor": null,
+      "isCurrent": true
+     },
+     "domain": {
+      "fromMs": 1790740800000,
+      "toMs": 1790758800000
+     },
+     "points": [
+      [
+       1790740800000,
+       0,
+       0
+      ],
+      [
+       1790743200000,
+       10,
+       2
+      ]
+     ],
+     "focus": {
+      "startMs": 1790740800000,
+      "endMs": 1790758800000,
+      "resetAt": 1790758800000,
+      "usedPct": 10,
+      "readAt": 1790743200000,
+      "peak": 10,
+      "exhaustedAt": null,
+      "current": true,
+      "paced": true
+     },
+     "forecast": {
+      "ratePerHour": 15,
+      "fromMs": 1790743200000,
+      "fromPct": 10,
+      "exhaustAt": null,
+      "atResetPct": 75
+     },
+     "summary": {
+      "consumed": 10,
+      "outside": 0,
+      "costUsd": 0,
+      "outsideCostUsd": null,
+      "estimatedTotalCostUsd": null,
+      "costPerPercent": null,
+      "estimateSamples": 0,
+      "maxedOut": 0
+     },
+     "totals": {
+      "consumed": 10,
+      "turns": 3,
+      "input": 300000,
+      "output": 1200,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "tokens": 301200,
+      "unmeasuredTurns": 0,
+      "costUsd": 0,
+      "costUnpricedTurns": 3,
+      "cacheHitRate": 0,
+      "outputTokensPerSecond": 200
+     },
+     "outside": 0,
+     "models": [
+      {
+       "model": "claude-opus-5-5",
+       "consumed": 3.33,
+       "turns": 1,
+       "input": 100000,
+       "output": 300,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "tokens": 100300,
+       "unmeasuredTurns": 0,
+       "costUsd": 0,
+       "costUnpricedTurns": 1,
+       "cacheHitRate": 0,
+       "outputTokensPerSecond": 150
+      },
+      {
+       "model": "claude-opus-5-5\u0000fast",
+       "fast": true,
+       "modelId": "claude-opus-5-5",
+       "consumed": 3.34,
+       "turns": 1,
+       "input": 100000,
+       "output": 600,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "tokens": 100600,
+       "unmeasuredTurns": 0,
+       "costUsd": 0,
+       "costUnpricedTurns": 1,
+       "cacheHitRate": 0,
+       "outputTokensPerSecond": 300
+      },
+      {
+       "model": "claude-sonnet-4-6-with-a-very-long-model-identifier\u0000fast",
+       "fast": true,
+       "modelId": "claude-sonnet-4-6-with-a-very-long-model-identifier",
+       "consumed": 3.33,
+       "turns": 1,
+       "input": 100000,
+       "output": 300,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "tokens": 100300,
+       "unmeasuredTurns": 0,
+       "costUsd": 0,
+       "costUnpricedTurns": 1,
+       "cacheHitRate": 0,
+       "outputTokensPerSecond": 150
+      }
+     ],
+     "slotMs": 1800000,
+     "slots": [
+      {
+       "fromMs": 1790740800000,
+       "toMs": 1790742600000,
+       "future": false,
+       "startPct": 0,
+       "endPct": 7.5,
+       "consumed": 6.67,
+       "outside": 0,
+       "tokens": 200900,
+       "turns": 2,
+       "costUsd": 0,
+       "outsideCostUsd": null,
+       "estimatedTotalCostUsd": null,
+       "models": [
+        {
+         "model": "claude-opus-5-5",
+         "consumed": 3.33,
+         "tokens": 100300,
+         "costUsd": 0
+        },
+        {
+         "model": "claude-opus-5-5\u0000fast",
+         "fast": true,
+         "modelId": "claude-opus-5-5",
+         "consumed": 3.34,
+         "tokens": 100600,
+         "costUsd": 0
+        }
+       ]
+      },
+      {
+       "fromMs": 1790742600000,
+       "toMs": 1790744400000,
+       "future": false,
+       "startPct": 7.5,
+       "endPct": 10,
+       "consumed": 3.33,
+       "outside": 0,
+       "tokens": 100300,
+       "turns": 1,
+       "costUsd": 0,
+       "outsideCostUsd": null,
+       "estimatedTotalCostUsd": null,
+       "models": [
+        {
+         "model": "claude-sonnet-4-6-with-a-very-long-model-identifier\u0000fast",
+         "fast": true,
+         "modelId": "claude-sonnet-4-6-with-a-very-long-model-identifier",
+         "consumed": 3.33,
+         "tokens": 100300,
+         "costUsd": 0
+        }
+       ]
+      },
+      {
+       "fromMs": 1790744400000,
+       "toMs": 1790746200000,
+       "future": false,
+       "startPct": 10,
+       "endPct": 10,
+       "consumed": 0,
+       "outside": 0,
+       "tokens": 0,
+       "turns": 0,
+       "costUsd": 0,
+       "outsideCostUsd": null,
+       "estimatedTotalCostUsd": null,
+       "models": []
+      },
+      {
+       "fromMs": 1790746200000,
+       "toMs": 1790748000000,
+       "future": false,
+       "startPct": 10,
+       "endPct": 10,
+       "consumed": 0,
+       "outside": 0,
+       "tokens": 0,
+       "turns": 0,
+       "costUsd": 0,
+       "outsideCostUsd": null,
+       "estimatedTotalCostUsd": null,
+       "models": []
+      },
+      {
+       "fromMs": 1790748000000,
+       "toMs": 1790749800000,
+       "future": true,
+       "startPct": 10,
+       "endPct": 10,
+       "consumed": 0,
+       "outside": 0,
+       "tokens": 0,
+       "turns": 0,
+       "costUsd": 0,
+       "outsideCostUsd": null,
+       "estimatedTotalCostUsd": null,
+       "models": []
+      },
+      {
+       "fromMs": 1790749800000,
+       "toMs": 1790751600000,
+       "future": true,
+       "startPct": 10,
+       "endPct": 10,
+       "consumed": 0,
+       "outside": 0,
+       "tokens": 0,
+       "turns": 0,
+       "costUsd": 0,
+       "outsideCostUsd": null,
+       "estimatedTotalCostUsd": null,
+       "models": []
+      },
+      {
+       "fromMs": 1790751600000,
+       "toMs": 1790753400000,
+       "future": true,
+       "startPct": 10,
+       "endPct": 10,
+       "consumed": 0,
+       "outside": 0,
+       "tokens": 0,
+       "turns": 0,
+       "costUsd": 0,
+       "outsideCostUsd": null,
+       "estimatedTotalCostUsd": null,
+       "models": []
+      },
+      {
+       "fromMs": 1790753400000,
+       "toMs": 1790755200000,
+       "future": true,
+       "startPct": 10,
+       "endPct": 10,
+       "consumed": 0,
+       "outside": 0,
+       "tokens": 0,
+       "turns": 0,
+       "costUsd": 0,
+       "outsideCostUsd": null,
+       "estimatedTotalCostUsd": null,
+       "models": []
+      },
+      {
+       "fromMs": 1790755200000,
+       "toMs": 1790757000000,
+       "future": true,
+       "startPct": 10,
+       "endPct": 10,
+       "consumed": 0,
+       "outside": 0,
+       "tokens": 0,
+       "turns": 0,
+       "costUsd": 0,
+       "outsideCostUsd": null,
+       "estimatedTotalCostUsd": null,
+       "models": []
+      },
+      {
+       "fromMs": 1790757000000,
+       "toMs": 1790758800000,
+       "future": true,
+       "startPct": 10,
+       "endPct": 10,
+       "consumed": 0,
+       "outside": 0,
+       "tokens": 0,
+       "turns": 0,
+       "costUsd": 0,
+       "outsideCostUsd": null,
+       "estimatedTotalCostUsd": null,
+       "models": []
+      }
+     ],
+     "modelSeries": [
+      {
+       "key": "claude-opus-5-5",
+       "points": [
+        [
+         1790740800000,
+         0
+        ],
+        [
+         1790742600000,
+         3.33
+        ],
+        [
+         1790744400000,
+         3.33
+        ],
+        [
+         1790746200000,
+         3.33
+        ],
+        [
+         1790748000000,
+         3.33
+        ]
+       ]
+      },
+      {
+       "key": "claude-opus-5-5\u0000fast",
+       "fast": true,
+       "modelId": "claude-opus-5-5",
+       "points": [
+        [
+         1790740800000,
+         0
+        ],
+        [
+         1790742600000,
+         3.34
+        ],
+        [
+         1790744400000,
+         3.34
+        ],
+        [
+         1790746200000,
+         3.34
+        ],
+        [
+         1790748000000,
+         3.34
+        ]
+       ]
+      },
+      {
+       "key": "claude-sonnet-4-6-with-a-very-long-model-identifier\u0000fast",
+       "fast": true,
+       "modelId": "claude-sonnet-4-6-with-a-very-long-model-identifier",
+       "points": [
+        [
+         1790740800000,
+         0
+        ],
+        [
+         1790742600000,
+         0
+        ],
+        [
+         1790744400000,
+         3.33
+        ],
+        [
+         1790746200000,
+         3.33
+        ],
+        [
+         1790748000000,
+         3.33
+        ]
+       ]
+      }
+     ],
+     "peaks": []
+    },
+    "async": true
+   }
+  ]
+ },
+ "services": {
+  "createUsageStatsApi": [
+   "getUsageStats",
+   "getUsageRequests",
+   "getSessionUsage",
+   "getQuotaHistory"
+  ]
+ },
+ "stubs": {
+  "UsageLedger": "class",
+  "makeUsageRecord": "identity"
+ },
+ "opaque": [],
+ "factories": {
+  "createUsageStatsApi": {
+   "createUsageStatsApi\u0000[{\"ledger\":{\"$fn\":1},\"importHistory\":{\"$fn\":1},\"accountPool\":{\"$fn\":1}}]": [
+    0
+   ]
+  }
+ }
+}

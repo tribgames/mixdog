@@ -4,7 +4,7 @@ import test from 'node:test';
 import { createDesktopTurnNotifier } from './desktop-turn-notifier.ts';
 import { agentHomeName } from './browser/approval-requester.ts';
 import { sessionFinalAnswer } from './session-final-answer.ts';
-import { restoreTranscriptItems } from '../../../../src/runtime/agent/orchestrator/session/transcript-restore/restore.mjs';
+import { restoreTranscriptItems } from '../shared/test-recorded/desktop-turn-notifier.test.0.recorded.mjs';
 import { notificationPreview } from './notification-preview.ts';
 import { openDesktopNotificationSession } from './notification-window.ts';
 import { DESKTOP_IPC } from '../shared/contract-ipc.ts';

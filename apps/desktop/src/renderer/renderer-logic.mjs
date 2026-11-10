@@ -3,7 +3,7 @@ function stableItemKey(item, index) {
   return `${item?.kind || 'item'}:${item?.text || item?.label || item?.status || ''}:${index}`;
 }
 
-import { transcriptTurnKeys } from '../../../../src/runtime/shared/transcript-turn-keys.mjs';
+import { transcriptTurnKeys } from '../shared/core-src/runtime/shared/transcript-turn-keys.mjs';
 export { transcriptTurnKeys };
 
 export function turnReviewScope(items) {

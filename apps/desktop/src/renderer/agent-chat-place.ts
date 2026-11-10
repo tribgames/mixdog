@@ -2,7 +2,7 @@
 // sits on, and whether it opens a run of one sender (face, name, tail) or
 // closes it (time). Tool rounds and the live band neither group nor break a
 // run; a date divider goes where the day changes.
-import { agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { splitAskUser } from './ask-user-record';
 import { asRecord } from './text-format';
 import { desktopToolDisplayIdentity } from './transcript-tool-core';
@@ -13,7 +13,7 @@ import {
   type RoutineTrigger,
   isRoutineQuietReply,
   normalizeRoutineTrigger,
-} from '../../../../src/runtime/shared/routine-trigger.mjs';
+} from '../shared/core-src/runtime/shared/routine-trigger.mjs';
 
 export type AgentChatSide = 'agent' | 'user' | 'aside' | 'hidden';
 export interface AgentChatPlace {

@@ -16,8 +16,6 @@ setServerPayloadResolver(async () => ({
 after(() => setServerPayloadResolver(null));
 
 const deps = {
-  moduleUrl: () => 'file:///daemon.cjs',
-  environmentReady: () => Promise.resolve(),
   sessionOptions: () => ({
     userDataPath: 'C:\\profile',
     packaged: false,
@@ -26,9 +24,6 @@ const deps = {
     appVersion: '0.0.0',
     rendererDir: '',
   }),
-  loadModelProxyRuntime: async () => {
-    throw new Error('unused');
-  },
   appVersion: '0.0.0',
 };
 

@@ -1,7 +1,7 @@
 // Agent mode's chat faces (agent-chat-mode.ts): the empty thread's profile
 // intro and a bot chat tab's glyph. A bot chat sits in the shared tab strip
 // like any session, on the phone too.
-import { MIXY_AGENT_ID, agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { MIXY_AGENT_ID, agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { RoomAvatar, RoomMemberFace, useRoomContacts } from './agent-room-parts';
 import { useAgentRoom } from './agent-room-store';
 import { t } from './i18n';

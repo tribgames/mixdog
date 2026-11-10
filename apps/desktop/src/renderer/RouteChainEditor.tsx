@@ -5,7 +5,7 @@ import { canonicalJson } from '../shared/remote-view-resume';
 import type { RecordValue } from './desktop-types';
 import { ModelRouteEditor } from './ModelRouteEditor';
 import { t } from './i18n';
-import { canonicalRouteProvider, routeChain } from '../../../../src/runtime/shared/model-route-chain.mjs';
+import { canonicalRouteProvider, routeChain } from '../shared/core-src/runtime/shared/model-route-chain.mjs';
 import './route-chain-editor.css';
 
 export function routeChainComplete(route: RecordValue) {

@@ -1,5 +1,5 @@
 import { type ReactNode, useMemo } from 'react';
-import { roomIdOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { useAgentRoom } from './agent-room-store';
 import { MarkdownMentionNamesContext } from './markdown-mentions';
 import { collapseSelectionOnPress, JumpToLatestButton } from './conversation-support';

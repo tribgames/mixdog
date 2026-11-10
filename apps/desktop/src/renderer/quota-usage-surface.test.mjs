@@ -10,8 +10,8 @@ import { applyAccountUsageWindows } from './usage-dashboard-store.ts';
 import { t } from './i18n.ts';
 import { usageMoney } from './usage-format.ts';
 import { quotaValue } from './quota-usage-model.ts';
-import { UsageLedger, makeUsageRecord } from '../../../../src/runtime/shared/llm/usage-ledger.mjs';
-import { createUsageStatsApi } from '../../../../src/session-runtime/usage-stats-api.mjs';
+import { UsageLedger, makeUsageRecord } from '../shared/test-recorded/quota-usage-surface.test.0.recorded.mjs';
+import { createUsageStatsApi } from '../shared/test-recorded/quota-usage-surface.test.1.recorded.mjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const MINUTE = 60_000;

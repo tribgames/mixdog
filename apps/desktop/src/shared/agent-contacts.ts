@@ -1,7 +1,7 @@
 // Which agents are contacts in the Agents pane: the host resolves home threads
 // for exactly these, and every surface lists exactly these.
-import { MIXY_AGENT_ID } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
-import { isContactAgentId } from '../../../../src/runtime/shared/agent-route-config.mjs';
+import { MIXY_AGENT_ID } from './core-src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { isContactAgentId } from './core-src/runtime/shared/agent-route-config.mjs';
 
 export { MIXY_AGENT_ID };
 

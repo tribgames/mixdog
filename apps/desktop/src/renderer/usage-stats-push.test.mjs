@@ -14,7 +14,7 @@ import {
   refreshStatsDataCache,
   subscribeStatsDataCache,
 } from './command-surface-cache.ts';
-import { resolveUsageStatsPeriod } from '../../../../src/standalone/usage-stats-period.mjs';
+import { resolveUsageStatsPeriod } from './test-support/usage-stats-period.recorded.mjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 

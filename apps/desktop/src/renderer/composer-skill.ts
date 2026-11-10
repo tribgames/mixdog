@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import type { DesktopPromptContent } from '../shared/contract';
 import { isBuiltInSkill, skillDisplayDescription } from './skill-presentation';
 import { t } from './i18n';
-import { skillSelectionHeader } from '../../../../src/runtime/shared/skill-selection.mjs';
+import { skillSelectionHeader } from '../shared/core-src/runtime/shared/skill-selection.mjs';
 
 export type ComposerSkill = { name: string; description: string };
 // Thunks, not literals: the key must be a static t() argument for extraction

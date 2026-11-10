@@ -8,7 +8,7 @@ import { DIALOG_BRIDGE_SCRIPT } from './dialog-bridge.ts';
 import { BrowserGuestStateStore } from './guest-state.ts';
 import { MAX_CHILD_CDP_SESSIONS } from './command.ts';
 import { formatPageReport } from './snapshot-format.ts';
-import { waitUntil } from '../../../../../src/runtime/shared/wait-until.test-support.mjs';
+import { waitUntil } from '../../shared/core-src/runtime/shared/wait-until.test-support.mjs';
 
 function fixture(
   send = async () => ({}),

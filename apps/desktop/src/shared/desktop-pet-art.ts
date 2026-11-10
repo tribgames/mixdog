@@ -1,6 +1,6 @@
 // The bot's drawn art, shared by the pet window (which draws it) and main
 // (which stands it on the composer and keeps the island clear of it).
-import { agentAvatar, mascotCells } from '../../../../src/runtime/shared/agent-avatar.mjs';
+import { agentAvatar, mascotCells } from './core-src/runtime/shared/agent-avatar.mjs';
 import type { DesktopPetFace, DesktopPetMember } from './desktop-pet';
 
 /** The look a face has: its mascot pick or its custom picture (the pet

@@ -4,7 +4,7 @@
 // pool but never write one (runtime/memory/lib/core-memory-access.mjs). A
 // deleted agent's pool is retained, unreferenced, until its entries are
 // deleted here; an agent created again under the same id sees them.
-import { agentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { agentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import type { DesktopAgentMemoryEntry } from '../shared/contract';
 
 type MemoryControl = (method: string, args: unknown[]) => Promise<unknown>;

@@ -2,7 +2,7 @@
 // "주소 또는 명령어" is. Presentation only: server names, credentials, plugin
 // ids, enabled flags and the per-agent/per-project off-lists are read as they
 // are and never rewritten here.
-import { CONNECTOR_CATALOG, type ConnectorCatalogEntry } from '../../../../src/runtime/shared/connector-catalog.mjs';
+import { CONNECTOR_CATALOG, type ConnectorCatalogEntry } from '../shared/core-src/runtime/shared/connector-catalog.mjs';
 
 type Row = Record<string, unknown>;
 

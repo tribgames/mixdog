@@ -1,0 +1,117 @@
+{
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/agent/orchestrator/session/conversation-import/convert.mjs",
+  "test": "apps/desktop/src/renderer/transcript-tool-i18n.test.mjs"
+ },
+ "constants": {
+  "IMPORT_ERROR_TOO_LARGE": "tooLarge",
+  "IMPORT_MAX_FILE_BYTES": 268435456,
+  "IMPORT_MAX_LINE_BYTES": 33554432,
+  "IMPORT_MAX_METADATA_BYTES": 16777216,
+  "IMPORT_MAX_RETAINED_ENTRIES": 200000,
+  "IMPORT_MAX_TRANSCRIPT_CHARS": 4194304
+ },
+ "calls": {
+  "convertConversationText\u0000[\"codex\",\"{\\\"type\\\":\\\"session_meta\\\",\\\"payload\\\":{\\\"id\\\":\\\"c\\\",\\\"cwd\\\":\\\"/x\\\"}}\\n{\\\"type\\\":\\\"response_item\\\",\\\"payload\\\":{\\\"type\\\":\\\"message\\\",\\\"role\\\":\\\"user\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"Fix it\\\"}]}}\\n{\\\"type\\\":\\\"response_item\\\",\\\"payload\\\":{\\\"type\\\":\\\"message\\\",\\\"role\\\":\\\"assistant\\\",\\\"content\\\":[{\\\"type\\\":\\\"output_text\\\",\\\"text\\\":\\\"Looking.\\\"}]}}\\n{\\\"type\\\":\\\"response_item\\\",\\\"payload\\\":{\\\"type\\\":\\\"function_call\\\",\\\"name\\\":\\\"shell\\\",\\\"arguments\\\":\\\"{}\\\"}}\\n{\\\"type\\\":\\\"response_item\\\",\\\"payload\\\":{\\\"type\\\":\\\"function_call\\\",\\\"name\\\":\\\"shell\\\",\\\"arguments\\\":\\\"{}\\\"}}\\n{\\\"type\\\":\\\"response_item\\\",\\\"payload\\\":{\\\"type\\\":\\\"function_call\\\",\\\"name\\\":\\\"Read\\\",\\\"arguments\\\":\\\"{}\\\"}}\\n{\\\"type\\\":\\\"response_item\\\",\\\"payload\\\":{\\\"type\\\":\\\"function_call\\\",\\\"name\\\":\\\"apply_patch\\\",\\\"arguments\\\":\\\"{}\\\"}}\\n{\\\"type\\\":\\\"response_item\\\",\\\"payload\\\":{\\\"type\\\":\\\"message\\\",\\\"role\\\":\\\"assistant\\\",\\\"content\\\":[{\\\"type\\\":\\\"output_text\\\",\\\"text\\\":\\\"Done.\\\"}]}}\"]": [
+   {
+    "result": {
+     "source": "codex",
+     "errorCode": null,
+     "foreignSessionId": "c",
+     "cwd": "/x",
+     "internalKind": null,
+     "historyBase": null,
+     "turns": [
+      {
+       "role": "user",
+       "text": "Fix it",
+       "at": null
+      },
+      {
+       "role": "assistant",
+       "text": "Looking.\n\n[ran tools: shell ×2, Read ×1, apply_patch ×1]\n\nDone.",
+       "at": null,
+       "toolRuns": [
+        {
+         "start": 10,
+         "end": 56,
+         "tools": [
+          {
+           "name": "shell",
+           "count": 2
+          },
+          {
+           "name": "Read",
+           "count": 1
+          },
+          {
+           "name": "apply_patch",
+           "count": 1
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "title": "Fix it",
+     "messageCount": 2,
+     "warnings": []
+    },
+    "async": false
+   }
+  ],
+  "convertConversationText\u0000[\"claude\",\"{\\\"sessionId\\\":\\\"c\\\",\\\"cwd\\\":\\\"/x\\\",\\\"timestamp\\\":\\\"2026-01-01T00:00:00.000Z\\\",\\\"type\\\":\\\"user\\\",\\\"uuid\\\":\\\"u1\\\",\\\"parentUuid\\\":null,\\\"message\\\":{\\\"role\\\":\\\"user\\\",\\\"content\\\":\\\"Fix it\\\"}}\\n{\\\"sessionId\\\":\\\"c\\\",\\\"cwd\\\":\\\"/x\\\",\\\"timestamp\\\":\\\"2026-01-01T00:00:00.000Z\\\",\\\"type\\\":\\\"assistant\\\",\\\"uuid\\\":\\\"a1\\\",\\\"parentUuid\\\":\\\"u1\\\",\\\"message\\\":{\\\"role\\\":\\\"assistant\\\",\\\"content\\\":[{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"Looking.\\\"},{\\\"type\\\":\\\"tool_use\\\",\\\"name\\\":\\\"shell\\\",\\\"input\\\":{}},{\\\"type\\\":\\\"tool_use\\\",\\\"name\\\":\\\"shell\\\",\\\"input\\\":{}},{\\\"type\\\":\\\"tool_use\\\",\\\"name\\\":\\\"Read\\\",\\\"input\\\":{}},{\\\"type\\\":\\\"tool_use\\\",\\\"name\\\":\\\"apply_patch\\\",\\\"input\\\":{}},{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"Done.\\\"}]}}\"]": [
+   {
+    "result": {
+     "source": "claude",
+     "errorCode": null,
+     "foreignSessionId": "c",
+     "cwd": "/x",
+     "internalKind": null,
+     "historyBase": null,
+     "turns": [
+      {
+       "role": "user",
+       "text": "Fix it",
+       "at": 1767225600000
+      },
+      {
+       "role": "assistant",
+       "text": "Looking.\n\n[ran tools: shell ×2, Read ×1, apply_patch ×1]\n\nDone.",
+       "at": 1767225600000,
+       "toolRuns": [
+        {
+         "start": 10,
+         "end": 56,
+         "tools": [
+          {
+           "name": "shell",
+           "count": 2
+          },
+          {
+           "name": "Read",
+           "count": 1
+          },
+          {
+           "name": "apply_patch",
+           "count": 1
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "title": "Fix it",
+     "messageCount": 2,
+     "warnings": []
+    },
+    "async": false
+   }
+  ]
+ },
+ "services": {},
+ "stubs": {},
+ "opaque": []
+}

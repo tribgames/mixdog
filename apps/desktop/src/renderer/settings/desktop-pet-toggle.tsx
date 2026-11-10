@@ -7,7 +7,7 @@ import { useState } from 'react';
 import {
   HEARTBEAT_INTERVAL_CHOICES,
   normalizeHeartbeatIntervalMinutes,
-} from '../../../../../src/runtime/shared/heartbeat-interval.mjs';
+} from '../../shared/core-src/runtime/shared/heartbeat-interval.mjs';
 import { isSshConnectionWindow } from '../desktop-connection';
 import { record } from '../record-utils';
 import { isRemoteHostRenderer } from '../remote-ui-projection';

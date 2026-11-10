@@ -4,7 +4,7 @@
 // Routines are bot-based: with no bot at all (no representative bot yet) none
 // can be made (RoutineNeedsBot), and a routine whose bot is gone is paused.
 import { Fragment, type ReactNode, useMemo } from 'react';
-import { agentAvatar } from '../../../../src/runtime/shared/agent-avatar.mjs';
+import { agentAvatar } from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 import { MIXY_AGENT_ID } from '../shared/agent-contacts';
 import { agentContacts } from './agent-contacts-model';
 import { RoomMemberFace, type RoomMemberLabel } from './agent-room-parts';

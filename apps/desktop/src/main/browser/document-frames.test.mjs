@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { createBrowserFrameCollector } from './document-frames.ts';
-import { waitUntil } from '../../../../../src/runtime/shared/wait-until.test-support.mjs';
+import { waitUntil } from '../../shared/core-src/runtime/shared/wait-until.test-support.mjs';
 
 // Drains the already-resolved microtasks of the mocked CDP calls (no real I/O)
 // before asserting that a pending collection has not finished.

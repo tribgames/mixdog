@@ -9,9 +9,9 @@ import { localizeErrorRecovery } from './error-notice-copy.ts';
 import { localizedTurnFailureReason } from './transcript-failure-text.ts';
 import i18n from './i18n.ts';
 // @ts-expect-error Shared runtime module is plain ESM.
-import { presentErrorText } from '../../../../src/runtime/shared/err-text.mjs';
+import { presentErrorText } from '../../../../packages/protocol-client/src/rows/err-text.mjs';
 // @ts-expect-error Shared runtime module is plain ESM.
-import { describeError } from '../../../../src/runtime/shared/error-presentation.mjs';
+import { describeError } from '../../../../packages/protocol-client/src/rows/error-presentation.mjs';
 
 const runtime =
   'The latest message cannot fit this model (LATEST_TURN_EXCEEDS_CONTEXT): it needs about 471,912 tokens, ' +

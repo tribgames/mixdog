@@ -14,7 +14,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import type { DesktopSessionSummary } from '../shared/contract';
 import type { SessionAttention } from '../shared/session-attention';
 import { sessionDisplayTitle } from './session-display-title';
-import { agentAvatar } from '../../../../src/runtime/shared/agent-avatar.mjs';
+import { agentAvatar } from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 import { RoomMemberFace } from './agent-room-parts';
 import { useArchivedBotIdentities } from './archived-bot-identity';
 import { SessionRowStatusIcon, SessionRowUnreadDot } from './session-status-mark';

@@ -1,4 +1,4 @@
-import type { GithubRequest, GithubResult } from '../../../../src/runtime/github/contract.mjs';
+import type { GithubRequest, GithubResult } from './core-src/runtime/github/contract.mjs';
 import type { FileDownloadApi } from './file-downloads';
 import type { DesktopNotice } from './desktop-notice';
 import type { DesktopSectionsApi } from './contract-sections';
@@ -195,7 +195,7 @@ export * from './contract-ssh';
 export * from './contract-connection-link';
 export * from './contract-notifications';
 
-export type { GithubRequest, GithubResult } from '../../../../src/runtime/github/contract.mjs';
+export type { GithubRequest, GithubResult } from './core-src/runtime/github/contract.mjs';
 
 /** What a Stop of a background shell job answers. `stopped`: the job was
  *  cancelled. `unconfirmed`: the kill was sent, the processes are not yet

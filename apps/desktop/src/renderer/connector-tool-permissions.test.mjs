@@ -1,6 +1,8 @@
-// A bot's per-tool connector permissions in its profile, over the real host
-// connector API (read side and writer) with the agent editor reduced to a policy.
+// A bot's per-tool connector permissions in its profile. The host's connector API is Node b6f10295a's `createAgentConnectorsApi`:
+// the ordered calls the pane made and the replies (and policy writes) it gave are recorded, and replayed in that order; a call that
+// was not recorded, or comes out of order, fails the test.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
@@ -13,41 +15,53 @@ const { dom } = installTestDom(null, {
 dom.window.HTMLElement.prototype.scrollIntoView = () => {};
 const { createRoot } = await import('react-dom/client');
 const { AgentProfilePane } = await import('./AgentProfilePane.tsx');
-const { createAgentConnectorsApi } = await import(
-  '../../../../src/session-runtime/workflow-agents-api/agent-connectors.mjs'
-);
-const { parseConnectorPolicy } = await import('../../../../src/runtime/agent/orchestrator/mcp/agent-connectors.mjs');
-const { rememberServerConnector } = await import(
-  '../../../../src/runtime/agent/orchestrator/mcp/server-connectors.mjs'
-);
 test.after(() => dom.window.close());
 
-// gmail is a catalog connector (its send_email asks by default); notion is not.
-rememberServerConnector('gmail', { connector: 'gmail' });
 const SERVERS_ONE = [{ name: 'gmail' }, { name: 'notion' }];
 const TOOLS_ONE = ['gmail__search_emails', 'gmail__send_email', 'gmail__delete_thing', 'notion__search_pages'].map(
   (name) => ({ name: `mcp__${name}` })
 );
+
+const RECORDED = JSON.parse(
+  readFileSync(new URL('./test-support/connector-tool-permissions.calls.recorded.json', import.meta.url), 'utf8')
+);
+const RECORDED_CAPABILITIES = new Set(RECORDED.flat().map((call) => call.capability));
+let instance = 0;
+
+/** The connector API of one recorded host: the n-th call must be the n-th recorded call (capability and arguments); it answers the
+ *  recorded reply, after the policy write Node made inside it. */
+function replayConnectors(state, editor) {
+  const calls = structuredClone(RECORDED[instance++]);
+  assert.ok(calls, 'a host that was not recorded');
+  let next = 0;
+  return new Proxy(
+    {},
+    {
+      get: (_target, capability) =>
+        RECORDED_CAPABILITIES.has(capability)
+          ? async (...args) => {
+              const at = next++;
+              const expected = calls[at];
+              assert.ok(expected, `connector call #${at} was not recorded: ${capability}`);
+              assert.deepEqual([capability, args], [expected.capability, expected.args], `connector call #${at} is out of order`);
+              for (const update of expected.updates) {
+                assert.deepEqual(editor.getAgentConnectorPolicy(update.id), update.current);
+                state.policy = update.after;
+              }
+              return structuredClone(expected.value);
+            }
+          : undefined,
+    }
+  );
+}
 
 /** The profile over a host whose policy is `policy`; returns the policy getter and the writes. */
 function host(policy, { second = false } = {}) {
   const state = { policy, writes: [] };
   const SERVERS = second ? [...SERVERS_ONE, { name: 'gmail-2' }] : SERVERS_ONE;
   const TOOLS = second ? [...TOOLS_ONE, { name: 'mcp__gmail-2__send_email' }] : TOOLS_ONE;
-  const editor = {
-    getAgentConnectorPolicy: () => state.policy,
-    setAgentConnectorPolicy: async (_id, stored) => {
-      state.policy = stored ? parseConnectorPolicy(stored) : null;
-      return stored;
-    },
-    async updateAgentConnectorPolicy(id, derive) {
-      return this.setAgentConnectorPolicy(id, derive(this.getAgentConnectorPolicy(id)));
-    },
-  };
-  const connectors = createAgentConnectorsApi(
-    { mcpStatus: () => ({ servers: SERVERS }), getMcpTools: () => TOOLS },
-    editor
-  );
+  const editor = { getAgentConnectorPolicy: () => state.policy };
+  const connectors = replayConnectors(state, editor);
   const api = {
     invokeCapability: async ({ capability, args }) => {
       if (capability === 'getAgentDefinition') {

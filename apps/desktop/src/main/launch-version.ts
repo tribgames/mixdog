@@ -7,7 +7,7 @@
 import { readFile } from 'node:fs/promises';
 
 import { holdsNoData, writeFileAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
-import { compareSemver } from '../../../../src/runtime/shared/semver.mjs';
+import { compareSemver } from '../shared/core-src/runtime/shared/semver.mjs';
 
 export const LAUNCH_VERSION_FILE = 'last-launch-version';
 

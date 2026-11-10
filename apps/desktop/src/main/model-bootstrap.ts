@@ -3,7 +3,7 @@
 // path, so this reads only the selected preset from the small shared JSON file.
 import { readFileSync } from 'node:fs';
 
-import { withDefaultPresets } from '../../../../src/runtime/agent/orchestrator/config-presets.mjs';
+import { withDefaultPresets } from '../shared/core-src/runtime/agent/orchestrator/config-presets.mjs';
 import type { SessionSnapshot } from '../shared/contract';
 import { mixdogConfigPath } from './onboarding-status-file';
 import { objectRecord as record } from './workflow-config';

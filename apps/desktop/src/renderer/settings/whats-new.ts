@@ -1,6 +1,6 @@
 // Last app version whose first launch was announced. A fresh install has
 // nothing to announce, so it only records the current version.
-import { compareSemver } from '../../../../../src/runtime/shared/semver.mjs';
+import { compareSemver } from '../../shared/core-src/runtime/shared/semver.mjs';
 
 export const SEEN_VERSION_KEY = 'mixdog.desktop.whats-new-seen-version';
 

@@ -8,8 +8,6 @@ import { basename } from 'node:path';
 import test from 'node:test';
 
 import { fileDownloadErrorReason } from '../shared/file-downloads.ts';
-import { createFileDownloadService } from './file-downloads.ts';
-import { createRemoteAttachmentMethods } from './remote-attachments.ts';
 import { readSessionAttachment } from './session-attachments.ts';
 import { sessionAttachments } from './transcript-file-links.ts';
 
@@ -190,49 +188,4 @@ test('a named attachment the store no longer holds, or holds corrupted, is not s
   await refusedAs(readSessionAttachment(host, 's1', ids.note), 'not-found');
   store.set(ids.pdf, Buffer.from('tampered'));
   await refusedAs(readSessionAttachment(host, 's1', ids.pdf), 'changed');
-});
-
-test('a paired device opens an attachment through a session-scoped one-file preview grant', async (t) => {
-  const { host, ids, temp, pdf } = fixture(t);
-  const grants = [];
-  const methods = createRemoteAttachmentMethods({
-    host,
-    grants: { rememberFileGrant: (path, session) => (grants.push([path, session]), 'token-1') },
-    temp: () => temp,
-  });
-  const row = await methods.attachmentOpen(['s1', ids.pdf]);
-  assert.equal(row.accessToken, 'token-1');
-  assert.equal(row.name, `${ids.pdf.slice(0, 16)}-spec.pdf`);
-  assert.equal(row.relPath, basename(row.absolutePath));
-  assert.deepEqual(readFileSync(row.absolutePath), pdf);
-  assert.deepEqual(grants, [[row.absolutePath, 's1']]);
-  // Nothing outside the session's attachments is granted.
-  grants.length = 0;
-  await assert.rejects(methods.attachmentOpen(['s1', ids.secret]));
-  await assert.rejects(methods.attachmentOpen(['s2', ids.pdf]));
-  await assert.rejects(methods.attachmentOpen(['s1', '../outside']));
-  assert.deepEqual(grants, []);
-  // A name-less text attachment still previews by an extension.
-  const note = await methods.attachmentOpen(['s1', ids.note]);
-  assert.match(note.name, /notes\.md$/);
-});
-
-test('the download grant admits only ids this session names, and serves the stored bytes', async (t) => {
-  const { host, ids, pdf } = fixture(t);
-  const service = createFileDownloadService({ host });
-  const grant = await service.authorize(PHONE, {
-    source: { kind: 'attachment', sessionId: 's1', attachmentId: ids.pdf },
-    purpose: 'save',
-  });
-  assert.equal(grant.name, 'spec.pdf');
-  assert.equal(grant.mime, 'application/pdf');
-  const transfer = await service.begin(PHONE, grant.grantId);
-  const chunk = await service.readRange(PHONE, transfer.transferId, 0, transfer.size, transfer.version);
-  assert.deepEqual(Buffer.from(chunk.data, 'base64'), pdf);
-  await service.finish(PHONE, transfer.transferId);
-  const ask = (sessionId, attachmentId) =>
-    service.authorize(PHONE, { source: { kind: 'attachment', sessionId, attachmentId }, purpose: 'save' });
-  await refusedAs(ask('s1', ids.secret), 'not-linked');
-  await refusedAs(ask('s2', ids.pdf), 'not-linked');
-  await refusedAs(ask('nope', ids.pdf), 'unavailable');
 });

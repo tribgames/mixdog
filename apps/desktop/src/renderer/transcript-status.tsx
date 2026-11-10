@@ -19,7 +19,7 @@ import { completionTone, formatTokenCount, TextShimmer } from './transcript-prim
 import { localizedTurnFailureReason } from './transcript-failure-text';
 import { activityVerb, thinkingEffortLabel } from './activity-verbs';
 import { QuietCue, useLaneSpinnerQuiet } from './quiet-cue';
-import type { QuietProgressParts } from '../../../../src/runtime/shared/quiet-progress.mjs';
+import type { QuietProgressParts } from '../../../../packages/protocol-client/src/rows/quiet-progress.mjs';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
 import { buildSpinnerMeta } from '../../../../src/tui/spinner-meta.mjs';
 

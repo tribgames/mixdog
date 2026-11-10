@@ -1,6 +1,6 @@
 import type { Toast } from './desktop-types';
 // @ts-expect-error Shared runtime module is plain ESM.
-import { describeError, safeErrorDetails } from '../../../../src/runtime/shared/error-presentation.mjs';
+import { describeError, safeErrorDetails } from '../../../../packages/protocol-client/src/rows/error-presentation.mjs';
 
 type ToastRecord = {
   id: string;

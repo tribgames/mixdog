@@ -3,7 +3,7 @@
  * failing or timing out are served from pixels/OCR for a while instead of
  * restarting the same stalled provider after every input.
  */
-import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
+import { computerErrorCode } from '../../../shared/core-src/runtime/computer-bridge/error-code.mjs';
 import { createVisualOnlyCapabilityStore, shouldRecordVisualOnlyCapabilityMiss } from '../input/capability-policy';
 import type { ComputerCommand } from '../shared/types';
 import type { CaptureMode } from './capture-target';

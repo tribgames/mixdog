@@ -1,4 +1,4 @@
-import { raiseDesktopNotice } from '../../../../../src/runtime/shared/desktop-notice-host.mjs';
+import { raiseDesktopNotice } from '../../shared/core-src/runtime/shared/desktop-notice-host.mjs';
 
 /** This PC's OS encryption (Electron safeStorage) refused: saved logins and
  *  sign-ins can be neither opened nor sealed. Told once per run, under the

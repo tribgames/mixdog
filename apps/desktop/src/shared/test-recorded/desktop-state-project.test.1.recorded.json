@@ -1,0 +1,79 @@
+{
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/session-runtime/lifecycle/session-catalog.mjs",
+  "test": "apps/desktop/src/main/desktop-state-project.test.mjs"
+ },
+ "constants": {},
+ "calls": {
+  "listLeadSessions\u0000[{\"listSessions\":{\"$fn\":1}}]": [
+   {
+    "result": [
+     {
+      "id": "sess_truncated_only",
+      "agent": null,
+      "sessionMode": "coding",
+      "owner": "user",
+      "visibility": "ordinary",
+      "ownerSessionId": null,
+      "realTurnCount": 0,
+      "updatedAt": 1000,
+      "lastUsedAt": 0,
+      "cwd": "C:\\Project\\mixdog",
+      "model": null,
+      "provider": null,
+      "messageCount": 2,
+      "compactCount": 0,
+      "title": "",
+      "preview": "",
+      "desktopSession": {
+       "classification": "project",
+       "projectPath": "C:\\Project\\mixdog"
+      },
+      "sourceType": null,
+      "sourceName": null,
+      "createdAt": 0,
+      "inheritedFromSessionId": null
+     }
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     {
+      "id": "sess_truncated_only",
+      "agent": null,
+      "sessionMode": "coding",
+      "owner": "user",
+      "visibility": "ordinary",
+      "ownerSessionId": null,
+      "realTurnCount": 1,
+      "updatedAt": 1000,
+      "lastUsedAt": 0,
+      "cwd": "C:\\Project\\mixdog",
+      "model": null,
+      "provider": null,
+      "messageCount": 3,
+      "compactCount": 0,
+      "title": "",
+      "preview": "",
+      "lastMessagePreview": "Fix the login bug",
+      "desktopSession": {
+       "classification": "project",
+       "projectPath": "C:\\Project\\mixdog"
+      },
+      "sourceType": null,
+      "sourceName": null,
+      "createdAt": 0,
+      "inheritedFromSessionId": null
+     }
+    ],
+    "async": false
+   }
+  ]
+ },
+ "services": {},
+ "stubs": {},
+ "opaque": []
+}

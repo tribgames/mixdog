@@ -8,7 +8,6 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import { toUSVString } from 'node:util';
 
 import { isFileFsyncUnsupported } from '../../../../src/runtime/shared/atomic-file.mjs';
-import { codeGraphModuleUrl } from './desktop-support';
 import { comparablePath } from './opened-file-authorization';
 import { ProjectRecoveryError } from '../shared/project-recovery';
 import { withFileIdentities, withProjectMutationPaths } from './project-mutation-queue';
@@ -235,36 +234,6 @@ export async function statProjectFileIn(
 ): Promise<{ mtimeMs: number; size: number; directory: boolean }> {
   const info = await stat(projectEntryPathIn(root, relPath));
   return { mtimeMs: info.mtimeMs, size: info.size, directory: info.isDirectory() };
-}
-
-/** Editor F12 / Shift+F12: symbol lookup through the bundled code graph.
- *  Returns the tool's text output; the renderer extracts path:line anchors. */
-export async function codeGraphQueryIn(
-  root: string,
-  mode: 'find_symbol' | 'references' | 'symbols',
-  query: string,
-  env: {
-    packaged: boolean;
-    resourcesPath: string;
-    appPath: string | undefined;
-    executeCodeGraphTool?: (name: string, args: Record<string, unknown>, cwd: string) => Promise<unknown>;
-  }
-): Promise<string> {
-  const trimmed = query.trim();
-  if (!trimmed || trimmed.length > (mode === 'symbols' ? 1_024 : 256)) {
-    throw new TypeError(mode === 'symbols' ? 'File path is invalid.' : 'Symbol is invalid.');
-  }
-  const args = mode === 'symbols' ? { mode, files: trimmed, limit: 200 } : { mode, symbols: trimmed, limit: 20 };
-  let execute = env.executeCodeGraphTool;
-  if (!execute) {
-    const moduleUrl = codeGraphModuleUrl(env.packaged, env.resourcesPath, env.appPath);
-    const graph = (await import(/* @vite-ignore */ moduleUrl)) as {
-      executeCodeGraphTool(name: string, args: Record<string, unknown>, cwd: string): Promise<unknown>;
-    };
-    execute = graph.executeCodeGraphTool;
-  }
-  const result = await execute('code_graph', args, root);
-  return String(result ?? '');
 }
 
 /** Editor saves serialize with overlapping project mutations in this process.

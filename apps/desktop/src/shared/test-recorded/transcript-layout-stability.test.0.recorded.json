@@ -1,0 +1,98 @@
+{
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/agent/orchestrator/session/agent-room.mjs",
+  "test": "apps/desktop/src/renderer/transcript-layout-stability.test.mjs"
+ },
+ "constants": {
+  "ROOM_INSTRUCTION_LIMIT": 200,
+  "ROOM_LIMITS": {
+   "maxRounds": {
+    "min": 1,
+    "max": 10,
+    "default": 3
+   },
+   "maxMessages": {
+    "min": 1,
+    "max": 30,
+    "default": 8
+   }
+  },
+  "ROOM_MAX_MEMBERS": 6,
+  "ROOM_MIN_MEMBERS": 2,
+  "ROOM_ROW_SOURCE": "agent-room"
+ },
+ "calls": {
+  "roomRowMessage\u0000[{\"id\":\"sub-room\",\"kind\":\"user\",\"at\":5,\"text\":\"[Image #1] check [PDF #2: spec.pdf]\",\"to\":[\"gh\"],\"toName\":[\"GitHub\"],\"parts\":[{\"type\":\"image\",\"attachmentRef\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"mimeType\":\"image/png\",\"sizeBytes\":3},{\"type\":\"file\",\"attachmentRef\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"mimeType\":\"application/pdf\",\"filename\":\"spec.pdf\",\"sizeBytes\":9}],\"attachments\":[{\"id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"kind\":\"image\",\"name\":\"shot.png\",\"mimeType\":\"image/png\",\"size\":3},{\"id\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"kind\":\"file\",\"name\":\"spec.pdf\",\"mimeType\":\"application/pdf\",\"size\":9}],\"images\":[{\"id\":1,\"name\":\"shot.png\",\"mimeType\":\"image/png\",\"bytes\":3,\"attachmentRef\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}]": [
+   {
+    "result": {
+     "role": "user",
+     "content": "[Image #1] check [PDF #2: spec.pdf]",
+     "meta": {
+      "source": "agent-room",
+      "room": {
+       "kind": "user",
+       "to": [
+        "gh"
+       ],
+       "toName": [
+        "GitHub"
+       ],
+       "parts": [
+        {
+         "type": "image",
+         "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+         "mimeType": "image/png",
+         "sizeBytes": 3
+        },
+        {
+         "type": "file",
+         "attachmentRef": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+         "mimeType": "application/pdf",
+         "filename": "spec.pdf",
+         "sizeBytes": 9
+        }
+       ],
+       "images": [
+        {
+         "id": 1,
+         "name": "shot.png",
+         "mimeType": "image/png",
+         "bytes": 3,
+         "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+       ]
+      },
+      "transcript": {
+       "at": 5,
+       "messageId": "sub-room",
+       "attachments": [
+        {
+         "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+         "attachmentRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+         "kind": "image",
+         "name": "shot.png",
+         "mimeType": "image/png",
+         "size": 3
+        },
+        {
+         "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+         "attachmentRef": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+         "kind": "file",
+         "name": "spec.pdf",
+         "mimeType": "application/pdf",
+         "size": 9
+        }
+       ]
+      }
+     }
+    },
+    "async": false
+   }
+  ]
+ },
+ "services": {},
+ "stubs": {},
+ "opaque": []
+}

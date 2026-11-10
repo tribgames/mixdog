@@ -27,10 +27,10 @@ const [
   import('./use-composer-submission.ts'),
   import('./conversation-prompt-items.ts'),
   import('./composer-support.tsx'),
-  import('../../../../src/tui/session/session-flow/queue/entry-shape.mjs'),
-  import('../../../../src/tui/session/queue-helpers.mjs'),
-  import('../../../../src/runtime/agent/orchestrator/session/transcript-restore/user-text.mjs'),
-  import('../../../../src/runtime/attachments/store.mjs'),
+  import('../shared/test-recorded/attachment-bubbles.test.0.recorded.mjs'),
+  import('../shared/test-recorded/attachment-bubbles.test.1.recorded.mjs'),
+  import('../shared/test-recorded/attachment-bubbles.test.2.recorded.mjs'),
+  import('../shared/test-recorded/attachment-bubbles.test.3.recorded.mjs'),
 ]);
 
 const PNG = Buffer.from('png bytes').toString('base64');

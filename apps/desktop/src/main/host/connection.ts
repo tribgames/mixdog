@@ -12,6 +12,7 @@ export const HOST_METHOD = {
   systemProxyResolve: 'host/systemProxy/resolve',
   notificationShow: 'host/notification/show',
   notificationClicked: 'host/notification/clicked',
+  notificationStatus: 'host/notification/status',
   power: 'host/power',
   updateReport: 'host/update/report',
   remoteTargetSet: 'host/remoteTarget/set',

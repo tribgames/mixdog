@@ -10,7 +10,7 @@ import { desktopSessionSummaries } from '../desktop-state.ts';
 import {
   roomMemberSessionId,
   roomSessionId,
-} from '../../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+} from '../../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 
 const agents = [{ id: 'agent-12c3dee5bf', custom: true, kind: 'bot', definition: { name: '마케터' } }];
 const sessions = [

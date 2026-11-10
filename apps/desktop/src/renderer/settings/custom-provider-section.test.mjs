@@ -725,7 +725,7 @@ test('a provider whose stored config is invalid shows Failed with the configurat
 test('the editor offers exactly the runtime reasoning levels', async () => {
   const { REASONING_LEVELS } = await import('./custom-model-editor.tsx');
   const { CUSTOM_REASONING_LEVELS } = await import(
-    '../../../../../src/runtime/agent/orchestrator/providers/custom-provider-config.mjs'
+    '../../shared/test-recorded/custom-provider-section.test.0.recorded.mjs'
   );
   assert.deepEqual([...REASONING_LEVELS], [...CUSTOM_REASONING_LEVELS]);
 });

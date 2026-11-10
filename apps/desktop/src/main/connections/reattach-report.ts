@@ -9,7 +9,7 @@ import type {
   DesktopSessionSummary,
   SessionSnapshot,
 } from '../../shared/contract';
-import type { ModelProxyCallSettled } from '../model-proxy-host';
+import type { ModelProxyCallSettled } from '../protocol/model-proxy-relay';
 
 /** How long after re-attaching the fresh session list may take before the
  *  report is made from the list already known. */

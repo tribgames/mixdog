@@ -2,7 +2,7 @@
 // and route editors, the loading dialog while a definition is read, and the
 // saves, deletions and on/off switches they make.
 import { useRef, useState } from 'react';
-import { WORKFLOW_AGENT_KIND } from '../../../../src/runtime/shared/agent-route-config.mjs';
+import { WORKFLOW_AGENT_KIND } from '../shared/core-src/runtime/shared/agent-route-config.mjs';
 import type { DesktopApi, DesktopModelOption, DesktopModelSelection } from '../shared/contract';
 import type { RecordValue, Snapshot } from './desktop-types';
 import { draftModelSelectionFromSnapshot } from './draft-pane-prefs-store';

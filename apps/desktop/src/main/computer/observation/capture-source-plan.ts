@@ -9,7 +9,7 @@ import { CaptureSourceError, type Bounds, type Surface } from './capture-source-
 import { gnomeShellSourceId, gnomeWindowHandle, usesGnomeHelper, type GnomeShellSource } from '../host/gnome-helper';
 import { captureGnomeShellSource } from './gnome-shell-capture';
 import { electronWindowForNativeId } from './window-handles';
-import { computerCaptureSize } from '../../../../../../src/runtime/computer-bridge/capture-size.mjs';
+import { computerCaptureSize } from '../../../shared/core-src/runtime/computer-bridge/capture-size.mjs';
 
 /** Ceiling for one GNOME Shell screenshot; above the 10 s gdbus call timeout
  *  (gnome-helper.ts) so the helper's own timeout error surfaces first. */

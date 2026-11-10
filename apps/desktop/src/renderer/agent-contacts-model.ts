@@ -2,9 +2,9 @@
 // one a messenger row over its home thread. Built only from the agent catalog,
 // the session catalog (the host stamps each home thread with its agent) and
 // the agent pool the pane already reads.
-import { agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
-import { type AgentAvatarValue, agentAvatar } from '../../../../src/runtime/shared/agent-avatar.mjs';
-import { plainPreviewText } from '../../../../src/runtime/shared/plain-preview.mjs';
+import { agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { type AgentAvatarValue, agentAvatar } from '../shared/core-src/runtime/shared/agent-avatar.mjs';
+import { plainPreviewText } from '../shared/core-src/runtime/shared/plain-preview.mjs';
 import { MIXY_AGENT_ID, agentRowName, contactAgentRows } from '../shared/agent-contacts';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { unseenIncomingCount } from '../shared/incoming-tail';

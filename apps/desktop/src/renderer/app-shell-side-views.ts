@@ -10,7 +10,7 @@ import { loadSidebarReferences, WORKFLOW_REFERENCE_KEYS } from './sidebar-refere
 import { paneActiveSelection, type PaneLeaf } from './pane-layout';
 import { isSessionSidePanelView } from './session-side-surface-policy';
 import { allowVisualizeReveal } from './visualize-store';
-import { roomIdOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { borrowedBrowserTab, showBorrowedBrowserTab } from './browser-pane-borrowed-tab';
 import { latestChildBrowserPage } from './child-surface-peeks';
 import { subscribeDrawerDismiss } from './drawer-intent';

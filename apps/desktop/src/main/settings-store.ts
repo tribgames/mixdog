@@ -1,9 +1,3 @@
-import { mkdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-
-import { writeJsonAtomicSync } from '../../../../src/runtime/shared/atomic-file.mjs';
-
 import {
   NOTIFICATION_VOLUME_DEFAULT,
   isSessionRetentionDays,
@@ -18,44 +12,32 @@ import {
   storedPinsState,
   type ActivityRailPinsState,
 } from '../shared/activity-rail-pins';
-import {
-  BROWSER_PERMISSION_MAX_SITES,
-  type BrowserPermissionPolicy,
-  normalizeBrowserPermissionPolicy,
-  storableBrowserPermissionPolicy,
-} from '../shared/browser-permission-policy';
+import { type BrowserPermissionPolicy } from '../shared/browser-permission-policy';
 import { desktopSettingsFromConfig, isNotificationVolume, SESSION_RETENTION_DEFAULTS } from '../shared/desktop-settings';
-import { packagedRuntimeSourceRoot } from './runtime-layout';
+import type { ProtocolConnection } from './protocol/connection';
 
-export interface MixdogConfigModule {
-  readConfig(): unknown;
-  updateConfigAsync(updater: (current: Record<string, unknown>) => Record<string, unknown>): Promise<unknown>;
-  /** Persisted config changes from this process or another; absent on an older daemon. */
-  subscribeConfigChange?(listener: () => void): () => void;
-  /** account -> token of the last applied keychain change (no values); absent on an older daemon. */
-  secretChangeTokens?(): Record<string, string>;
+/** What the store needs of this PC's core: desktop operations (settings are keys of the core's Config actor, routed in
+ *  protocol/desktop-operation-route.ts), plain requests, and the core's pushed `config` section. */
+export interface DesktopSettingsPort {
+  invoke(name: string, args: unknown[]): Promise<unknown>;
+  call(method: string, params: unknown): Promise<unknown>;
+  /** Called after every change of the `config` section; returns the removal. */
+  watchConfig(listener: () => void): () => void;
 }
 
-interface DesktopSettingsStoreOptions {
-  packaged?: boolean;
-  resourcesPath?: string;
-  appPath?: string;
-  loadConfig?: () => Promise<MixdogConfigModule>;
+export function desktopSettingsPort(connection: {
+  client: { invokeDesktopOperation(name: string, args: unknown[]): Promise<unknown> };
+  protocol: Pick<ProtocolConnection, 'call' | 'watchSection'>;
+}): DesktopSettingsPort {
+  return {
+    invoke: (name, args) => connection.client.invokeDesktopOperation(name, args),
+    call: (method, params) => connection.protocol.call(method, params),
+    watchConfig: (listener) => connection.protocol.watchSection('config', () => listener()),
+  };
 }
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
-
-export function settingsConfigModuleUrl(
-  packaged = false,
-  resourcesPath = process.resourcesPath,
-  appPath = process.cwd()
-): string {
-  const configPath = packaged
-    ? join(packagedRuntimeSourceRoot(resourcesPath), 'runtime', 'shared', 'config.mjs')
-    : resolve(appPath, '../../src/runtime/shared/config.mjs');
-  return pathToFileURL(configPath).href;
 }
 
 /** The stored session retention policy (absent = default), or null when a
@@ -90,152 +72,52 @@ function cookieAutoImportFromConfig(value: unknown): BrowserCookieAutoImportSett
 
 export { desktopSettingsFromConfig };
 
-/** Settings persisted as a plain `desktop.<key>` boolean, with no companion
- *  field to reconcile. */
-const DESKTOP_FLAG_KEYS: ReadonlySet<DesktopSettingKey> = new Set([
-  'keepAwake',
-  'runInBackground',
-  'usagePinned',
-  'usageRailShortLong',
-  'usageAccountsExpanded',
-  'usageRailSlotsThree',
-  'usageRailSlotsAll',
-  'computerObserveOnly',
-  'browserAutoSignIn',
-  'browserHidDevices',
-  'saveChatLogins',
-  'computerInstalled',
-  'browserInstalled',
-]);
-
-/** Code defaults of the user-facing `desktop.<key>` toggles; storage holds
- *  only a value that differs. Install markers are system state: no default. */
-const DESKTOP_FLAG_DEFAULTS: Readonly<Partial<Record<DesktopSettingKey, boolean>>> = {
-  keepAwake: true,
-  runInBackground: true,
-  usagePinned: true,
-  usageRailShortLong: false,
-  usageAccountsExpanded: false,
-  usageRailSlotsThree: false,
-  usageRailSlotsAll: false,
-  computerControl: false,
-  computerObserveOnly: false,
-  browserControl: false,
-  browserAutoSignIn: true,
-  browserHidDevices: false,
-  saveChatLogins: true,
-};
-
-/** Marker in the `desktop` section: the one-time defaults separation ran. */
-const DEFAULTS_SEPARATION_MARKER = 'defaultsSeparationVersion';
-const DEFAULTS_SEPARATION_VERSION = 1;
-/** Every activity-rail default list ever shipped (order matters). */
-const HISTORICAL_ACTIVITY_RAIL_PINS: readonly (readonly string[])[] = [
-  ['sessions', 'agents', 'schedules', 'workflows', 'projects'],
-  ['sessions', 'agents', 'schedules', 'workflows', 'projects', 'extensions'],
-  DEFAULT_ACTIVITY_RAIL_PINS,
-];
-
-function withFlag(desktop: Record<string, unknown>, key: DesktopSettingKey, enabled: boolean): Record<string, unknown> {
-  const next = { ...desktop };
-  if (DESKTOP_FLAG_DEFAULTS[key] === enabled) delete next[key];
-  else next[key] = enabled;
-  return next;
-}
-
-function sameList(a: readonly unknown[], b: readonly unknown[]): boolean {
-  return a.length === b.length && a.every((entry, index) => entry === b[index]);
-}
-
 export { storedPinsState };
 
-/** Write the pre-image to a fresh backup directory; an existing one is never reused. */
-function backupPreImage(dataDir: string, now: Date, preImage: unknown): void {
-  const root = join(dataDir, 'backups');
-  mkdirSync(root, { recursive: true });
-  const base = `defaults-separation-${now.toISOString().replace(/[:.]/g, '-')}`;
-  for (let attempt = 0; ; attempt += 1) {
-    const dir = join(root, attempt ? `${base}-${attempt}` : base);
-    try {
-      mkdirSync(dir);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
-      throw error;
-    }
-    // The directory is new, so nothing is replaced; the copy is flushed whole
-    // before it appears under its name.
-    writeJsonAtomicSync(join(dir, 'mixdog-config.json'), preImage);
-    return;
-  }
-}
-
+/** The desktop's settings, read from and written to this PC's core. The core owns the config file; every write is one
+ *  of its operations. */
 export class DesktopSettingsStore {
-  private readonly loadConfig: () => Promise<MixdogConfigModule>;
-
-  constructor({
-    packaged = false,
-    resourcesPath = process.resourcesPath,
-    appPath = process.cwd(),
-    loadConfig,
-  }: DesktopSettingsStoreOptions = {}) {
-    this.loadConfig =
-      loadConfig ??
-      (async () =>
-        import(
-          /* @vite-ignore */ settingsConfigModuleUrl(packaged, resourcesPath, appPath)
-        ) as Promise<MixdogConfigModule>);
-  }
+  constructor(private readonly port: DesktopSettingsPort) {}
 
   async read(): Promise<DesktopSettings> {
-    const config = await this.loadConfig();
-    return desktopSettingsFromConfig(config.readConfig());
+    return (await this.port.invoke('readSettings', [])) as DesktopSettings;
   }
 
-  /** Call `listener` with the desktop settings whenever a persisted change
-   *  (any writer: the daemon, another window, a hand edit) alters them.
-   *  Resolves to the unsubscribe; undefined on a config layer without change events. */
-  async watch(listener: (settings: DesktopSettings) => void): Promise<(() => void) | undefined> {
-    const config = await this.loadConfig();
-    const read = (): DesktopSettings => desktopSettingsFromConfig(config.readConfig());
-    let known = JSON.stringify(read());
-    return config.subscribeConfigChange?.(() => {
-      const next = read();
-      const serialized = JSON.stringify(next);
-      if (serialized === known) return;
-      known = serialized;
-      listener(next);
+  /** Call `listener` with the desktop settings whenever a persisted change (any writer: the core, another window, a
+   *  hand edit) alters them. Resolves to the unsubscribe. */
+  async watch(
+    listener: (settings: DesktopSettings) => void,
+    onError: (error: unknown) => void = () => undefined
+  ): Promise<() => void> {
+    let known = JSON.stringify(await this.read());
+    return this.port.watchConfig(() => {
+      this.read().then((next) => {
+        const serialized = JSON.stringify(next);
+        if (serialized === known) return;
+        known = serialized;
+        listener(next);
+      }, onError);
     });
   }
 
   async readActivityRailPins(): Promise<ActivityRailPinsState | null> {
-    const config = await this.loadConfig();
-    return storedPinsState(record(record(config.readConfig()).desktop).activityRailPins);
+    return (await this.port.invoke('readActivityRailPins', [])) as ActivityRailPinsState | null;
   }
 
   async updateActivityRailPins(value: unknown, initializeIfMissing = false): Promise<ActivityRailPinsState> {
     const pins = normalizeActivityRailPins(value);
     if (!pins) throw new TypeError('Activity rail pins must be an array of supported destinations.');
     if (typeof initializeIfMissing !== 'boolean') throw new TypeError('initializeIfMissing must be a boolean.');
-    const config = await this.loadConfig();
-    const saved = await config.updateConfigAsync((current) => {
-      const desktop = record(current.desktop);
-      const previous = storedPinsState(desktop.activityRailPins);
-      if (initializeIfMissing && previous) return current;
-      const revision = (previous?.revision ?? 0) + 1;
-      if (!Number.isSafeInteger(revision)) throw new RangeError('Activity rail pin revision is exhausted.');
-      // The default list is never stored; the revision alone keeps ordering.
-      const stored = sameList(pins, DEFAULT_ACTIVITY_RAIL_PINS) ? { revision } : { pins, revision };
-      return { ...current, desktop: { ...desktop, activityRailPins: stored } };
-    });
-    const state = storedPinsState(record(record(saved).desktop).activityRailPins);
-    if (!state) throw new TypeError('The config write did not return valid activity rail pins.');
-    return state;
+    return (await this.port.invoke('updateActivityRailPins', [pins, initializeIfMissing])) as ActivityRailPinsState;
+  }
+
+  private async readDesktopConfig(): Promise<unknown> {
+    return record(await this.port.call('config/read', { keys: ['desktop'] })).config;
   }
 
   /** 설정 › 인증 관리: re-import cookies from this Chrome profile whenever Chrome is closed. On by default. */
   async readBrowserCookieAutoImport(): Promise<BrowserCookieAutoImportSetting> {
-    const config = await this.loadConfig();
-    return cookieAutoImportFromConfig(config.readConfig());
+    return cookieAutoImportFromConfig(await this.readDesktopConfig());
   }
 
   async updateBrowserCookieAutoImport(next: BrowserCookieAutoImportSetting): Promise<BrowserCookieAutoImportSetting> {
@@ -247,169 +129,38 @@ export class DesktopSettingsStore {
     if (/[\\/]/.test(profileId) || (enabled && !profileId)) {
       throw new TypeError('Automatic cookie import needs a Chrome profile.');
     }
-    const config = await this.loadConfig();
-    const saved = await config.updateConfigAsync((current) => {
-      // Always stored: an explicit "off" must not fall back to the on default.
-      const desktop = { ...record(current.desktop), browserCookieAutoImport: { enabled, profileId } };
-      return { ...current, desktop };
+    // Always stored: an explicit "off" must not fall back to the on default.
+    await this.port.call('config/value/write', {
+      path: 'desktop.browserCookieAutoImport',
+      value: { enabled, profileId },
     });
-    return cookieAutoImportFromConfig(saved);
+    return cookieAutoImportFromConfig(await this.readDesktopConfig());
   }
 
   async update(key: DesktopSettingKey, enabled: boolean): Promise<DesktopSettings> {
-    const config = await this.loadConfig();
-    const saved = await config.updateConfigAsync((current) => {
-      const next = { ...record(current) };
-      const agent = { ...record(next.agent) };
-      if (key === 'autoClear') {
-        const autoClear: Record<string, unknown> = { ...record(agent.autoClear), enabled };
-        // On is the code default: storage keeps only an explicit off.
-        if (enabled) delete autoClear.enabled;
-        if (Object.keys(autoClear).length) agent.autoClear = autoClear;
-        else delete agent.autoClear;
-      } else if (key === 'autoCompact') {
-        const compaction: Record<string, unknown> = {
-          ...record(agent.compaction),
-          auto: enabled,
-        };
-        if (!compaction.summaryModel && compaction.semanticModel) {
-          compaction.summaryModel = compaction.semanticModel;
-        }
-        if (!compaction.memoryTimeoutMs && compaction.recallMemoryTimeoutMs) {
-          compaction.memoryTimeoutMs = compaction.recallMemoryTimeoutMs;
-        }
-        // `enabled` was an old alias. Remove it so it cannot override the
-        // canonical `auto` field when a legacy config is switched back on.
-        for (const legacyKey of [
-          'enabled',
-          'type',
-          'compactType',
-          'compact_type',
-          'semantic',
-          'semanticModel',
-          'prune',
-          'tailTurns',
-          'recallMemoryTimeoutMs',
-          'recallIngestLimit',
-          'recallChunkLimit',
-          'recallLimit',
-          'recallCycle1BatchSize',
-          'recallRowsPerSession',
-          'recallWindowSize',
-          'recallConcurrency',
-          'recallCycle1DeadlineMs',
-        ]) {
-          delete compaction[legacyKey];
-        }
-        if (enabled) delete compaction.auto;
-        if (Object.keys(compaction).length) agent.compaction = compaction;
-        else delete agent.compaction;
-      } else if (DESKTOP_FLAG_KEYS.has(key)) {
-        next.desktop = withFlag(record(next.desktop), key, enabled);
-      } else if (key === 'computerControl') {
-        const desktop = { ...record(next.desktop) };
-        // A pre-marker profile is considered installed while its control is
-        // on. Persist that grandfathered fact BEFORE turning it off so OFF
-        // never turns back into Install.
-        if (desktop.computerInstalled === true || desktop.computerControl === true) {
-          desktop.computerInstalled = true;
-        }
-        next.desktop = withFlag(desktop, 'computerControl', enabled);
-      } else if (key === 'browserControl') {
-        const desktop = { ...record(next.desktop) };
-        if (desktop.browserInstalled === true || desktop.browserControl === true) {
-          desktop.browserInstalled = true;
-        }
-        next.desktop = withFlag(desktop, 'browserControl', enabled);
-      }
-      next.agent = agent;
-      return next;
-    });
-    return desktopSettingsFromConfig(saved);
+    return (await this.port.invoke('updateSetting', [key, enabled])) as DesktopSettings;
   }
 
   async updateNotificationVolume(volume: number): Promise<DesktopSettings> {
     if (!isNotificationVolume(volume)) throw new TypeError('notification volume is invalid.');
-    const config = await this.loadConfig();
-    const saved = await config.updateConfigAsync((current) => {
-      const desktop = { ...record(current.desktop) };
-      // Storage holds only a value that differs from the code default.
-      if (volume === NOTIFICATION_VOLUME_DEFAULT) delete desktop.notificationVolume;
-      else desktop.notificationVolume = volume;
-      return { ...current, desktop };
-    });
-    return desktopSettingsFromConfig(saved);
+    return (await this.port.invoke('updateNotificationVolume', [volume])) as DesktopSettings;
   }
 
-  /** Settings → Browser: the site-permission defaults and exceptions; storage holds only what differs from the built-in defaults. */
+  /** Settings → Browser: the site-permission defaults and exceptions. */
   async updateBrowserPermissions(policy: BrowserPermissionPolicy): Promise<DesktopSettings> {
-    const config = await this.loadConfig();
-    const saved = await config.updateConfigAsync((current) => {
-      const desktop = { ...record(current.desktop) };
-      const next = normalizeBrowserPermissionPolicy(policy);
-      // Exceptions are never dropped silently: a list may only grow up to the limit
-      // (one already past it, from a hand edit, may still shrink).
-      const kept = normalizeBrowserPermissionPolicy(record(current.desktop).browserPermissions).sites.length;
-      if (next.sites.length > Math.max(BROWSER_PERMISSION_MAX_SITES, kept)) {
-        throw new RangeError(
-          `Site permissions hold at most ${BROWSER_PERMISSION_MAX_SITES} exceptions. Remove some sites first.`
-        );
-      }
-      const stored = storableBrowserPermissionPolicy(next);
-      if (stored) desktop.browserPermissions = stored;
-      else delete desktop.browserPermissions;
-      return { ...current, desktop };
-    });
-    return desktopSettingsFromConfig(saved);
+    return (await this.port.invoke('updateBrowserPermissions', [policy])) as DesktopSettings;
   }
 
   /** Settings → General → Sessions: one of the offered day choices (0 = never). */
   async updateSessionRetention(key: SessionRetentionSettingKey, days: number): Promise<DesktopSettings> {
     if (!isSessionRetentionSettingKey(key)) throw new TypeError('session retention setting is invalid.');
     if (!isSessionRetentionDays(key, days)) throw new TypeError('session retention days are invalid.');
-    const config = await this.loadConfig();
-    const saved = await config.updateConfigAsync((current) => {
-      const desktop = { ...record(current.desktop) };
-      // Storage holds only a value that differs from the code default.
-      if (days === SESSION_RETENTION_DEFAULTS[key]) delete desktop[key];
-      else desktop[key] = days;
-      return { ...current, desktop };
-    });
-    return desktopSettingsFromConfig(saved);
+    return (await this.port.invoke('updateSessionRetention', [key, days])) as DesktopSettings;
   }
 
   /** The policy the retention pass may act on, or null when a stored value is invalid. */
   async readSessionRetention(): Promise<ReturnType<typeof sessionRetentionFromConfig>> {
-    const config = await this.loadConfig();
-    return sessionRetentionFromConfig(config.readConfig());
-  }
-
-  /** Run once: back up the config, then drop `desktop` values that equal a
-   *  current or historical default plus dead keys. Returns whether it ran. */
-  async separateDefaults(dataDir: string, now: Date = new Date()): Promise<boolean> {
-    const config = await this.loadConfig();
-    const supported = (value: unknown) => typeof value === 'number' && value >= DEFAULTS_SEPARATION_VERSION;
-    if (supported(record(record(config.readConfig()).desktop)[DEFAULTS_SEPARATION_MARKER])) return false;
-    let ran = false;
-    await config.updateConfigAsync((current) => {
-      const desktop = { ...record(current.desktop) };
-      if (supported(desktop[DEFAULTS_SEPARATION_MARKER])) return current;
-      // Inside the config lock: back up the exact pre-image being migrated.
-      backupPreImage(dataDir, now, current);
-      ran = true;
-      for (const [key, value] of Object.entries(DESKTOP_FLAG_DEFAULTS)) {
-        if (desktop[key] === value) delete desktop[key];
-      }
-      delete desktop.zoomFactor;
-      delete desktop.git;
-      const pins = record(desktop.activityRailPins).pins;
-      if (Array.isArray(pins) && HISTORICAL_ACTIVITY_RAIL_PINS.some((list) => sameList(pins, list))) {
-        delete desktop.activityRailPins;
-      }
-      desktop[DEFAULTS_SEPARATION_MARKER] = DEFAULTS_SEPARATION_VERSION;
-      return { ...current, desktop };
-    });
-    return ran;
+    return sessionRetentionFromConfig(await this.readDesktopConfig());
   }
 
   async readZoom(): Promise<number> {

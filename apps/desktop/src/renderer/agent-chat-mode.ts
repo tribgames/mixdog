@@ -9,9 +9,9 @@ import { useSyncExternalStore } from 'react';
 import {
   agentIdOfHomeSession,
   isAgentHomeSessionId,
-} from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { loadArchivedBotIdentities } from './archived-bot-identity';
-import { roomIdOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { DesktopSessionSummary } from '../shared/contract';
 
 let flagged: ReadonlySet<string> = new Set();

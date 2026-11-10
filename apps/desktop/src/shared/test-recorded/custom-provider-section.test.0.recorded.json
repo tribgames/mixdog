@@ -1,0 +1,84 @@
+{
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/agent/orchestrator/providers/custom-provider-config.mjs",
+  "test": "apps/desktop/src/renderer/settings/custom-provider-section.test.mjs"
+ },
+ "constants": {
+  "CUSTOM_API_KEY_ENV_RE": {},
+  "CUSTOM_HEADER_LIMIT": 64,
+  "CUSTOM_MODEL_OVERRIDE_LIMIT": 500,
+  "CUSTOM_MODEL_REFUSED_HEADERS": {
+   "$set": [
+    "content-type",
+    "content-length",
+    "host",
+    "connection",
+    "transfer-encoding",
+    "proxy-authorization"
+   ]
+  },
+  "CUSTOM_PROTOCOL_WIRES": {
+   "openai-chat": "chat",
+   "openai-responses": "responses",
+   "anthropic": "messages"
+  },
+  "CUSTOM_PROVIDER_AUTH_MODES": [
+   "key",
+   "none"
+  ],
+  "CUSTOM_PROVIDER_PROTOCOLS": [
+   "openai-chat",
+   "openai-responses",
+   "anthropic"
+  ],
+  "CUSTOM_PROVIDER_SCHEMA_VERSION": 2,
+  "CUSTOM_PROVIDER_WIRES": [
+   "chat",
+   "responses",
+   "messages"
+  ],
+  "CUSTOM_REASONING_LEVELS": [
+   "none",
+   "minimal",
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ],
+  "CUSTOM_REASONING_WIRE_FORMATS": [
+   "standard",
+   "deepseek",
+   "together",
+   "vllm"
+  ],
+  "CUSTOM_REQUEST_BODY_MAX_CHARS": 16384,
+  "CUSTOM_RESERVED_BODY_KEYS": {
+   "$set": [
+    "model",
+    "messages",
+    "input",
+    "system",
+    "instructions",
+    "tools",
+    "tool_choice",
+    "parallel_tool_calls",
+    "stream",
+    "stream_options",
+    "previous_response_id",
+    "store",
+    "include",
+    "prompt_cache_key",
+    "max_tokens",
+    "max_output_tokens",
+    "max_completion_tokens"
+   ]
+  }
+ },
+ "calls": {},
+ "services": {},
+ "stubs": {},
+ "opaque": []
+}

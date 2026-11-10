@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { DESKTOP_IPC } from '../shared/contract.ts';
 import { DesktopStateBridge } from './ipc-state-bridge.ts';
-import { raiseDesktopNotice } from '../../../../src/runtime/shared/desktop-notice-host.mjs';
+import { raiseDesktopNotice } from '../shared/core-src/runtime/shared/desktop-notice-host.mjs';
 
 function bridge() {
   const sent = [];

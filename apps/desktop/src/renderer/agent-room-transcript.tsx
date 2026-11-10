@@ -4,7 +4,7 @@
 // the same for rows saved before); the overlay row names who is
 // speaking now. The user's own bubble only gains a "→ name" chip.
 import { useContext, useEffect, useState } from 'react';
-import { roomIdOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { TranscriptItem, TranscriptRoomRow } from './desktop-types';
 import { showDesktopToast } from './desktop-toasts';
 import { errorMessageText } from './ErrorNotice';

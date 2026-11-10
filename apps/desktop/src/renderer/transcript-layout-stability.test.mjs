@@ -11,8 +11,8 @@ import { turnReviewScope } from './renderer-logic.mjs';
 import { preloadMarkdownBody } from './markdown-body-loader';
 import { parseStreamingMarkdownAst } from './markdown-worker-client';
 import { useTranscriptRows } from './use-conversation-rows';
-import { roomRowMessage } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
-import { restoreTranscriptItems } from '../../../../src/runtime/agent/orchestrator/session/transcript-restore/restore.mjs';
+import { roomRowMessage } from '../shared/test-recorded/transcript-layout-stability.test.0.recorded.mjs';
+import { restoreTranscriptItems } from '../shared/test-recorded/transcript-layout-stability.test.1.recorded.mjs';
 
 function mount(t) {
   const { dom, root } = installTestDom(t, {

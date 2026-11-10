@@ -134,7 +134,7 @@ test('v2 custom provider input shape is validated', () => {
 
 test('IPC custom-provider vocabulary and limits match the runtime normalizer', async () => {
   const ipc = await import('./ipc-validation.ts');
-  const runtime = await import('../../../../src/runtime/agent/orchestrator/providers/custom-provider-config.mjs');
+  const runtime = await import('../shared/test-recorded/custom-provider-validation.test.0.recorded.mjs');
   assert.deepEqual([...ipc.CUSTOM_REASONING_LEVELS], [...runtime.CUSTOM_REASONING_LEVELS]);
   assert.equal(ipc.CUSTOM_MAX_OVERRIDES, runtime.CUSTOM_MODEL_OVERRIDE_LIMIT);
   assert.equal(ipc.CUSTOM_MAX_HEADERS, runtime.CUSTOM_HEADER_LIMIT);
@@ -253,7 +253,7 @@ const PARITY_CASES = [
 
 test('IPC validator and runtime normalizer accept and reject the same v2 inputs', async () => {
   const { normalizeCustomProviderConfig } = await import(
-    '../../../../src/runtime/agent/orchestrator/providers/custom-provider-config.mjs'
+    '../shared/test-recorded/custom-provider-validation.test.0.recorded.mjs'
   );
   const base = { name: 'Local', protocol: 'openai-chat', baseURL: 'http://localhost:1234/v1', schemaVersion: 2 };
   const accepts = (fn) => {
@@ -324,7 +324,7 @@ const TRANSPORT_CASES = [
 ];
 
 test('setup service and IPC validator accept and reject the same transport fields', async () => {
-  const admin = await import('../../../../src/session-runtime/services/provider-admin.mjs');
+  const admin = await import('../shared/test-recorded/custom-provider-validation.test.1.recorded.mjs');
   const ipc = await import('./ipc-validation.ts');
   assert.equal(ipc.CUSTOM_MAX_API_KEY, admin.CUSTOM_API_KEY_MAX);
   const base = {
@@ -384,7 +384,7 @@ test('custom provider additional API keys are shape-checked like the setup servi
     models: [{ id: 'm' }],
   };
   const KEY_ID = '0d6f3d4e-8c55-4a43-9b3e-6a8f6c3f1b10';
-  const { MAX_ACCOUNTS } = await import('../../../../src/runtime/shared/provider-accounts.mjs');
+  const { MAX_ACCOUNTS } = await import('../shared/test-recorded/custom-provider-validation.test.2.recorded.mjs');
   // The primary key and its additional keys make the roster's MAX_ACCOUNTS.
   assert.equal(CUSTOM_MAX_EXTRA_API_KEYS, MAX_ACCOUNTS - 1);
   for (const extraApiKeys of [

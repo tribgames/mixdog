@@ -2139,7 +2139,7 @@ test("the runtime's known reasons read in the UI language; an agent's own reason
   ];
   {
     const { CONNECTOR_APPROVAL_REASON } = await import(
-      '../../../../src/runtime/agent/orchestrator/session/loop/tool-exec/before-hook.mjs'
+      '../shared/test-recorded/ApprovalCard.slow.test.0.recorded.mjs'
     );
     assert.deepEqual([CONNECTOR_APPROVAL_REASON], known.slice(2), 'the runtime texts mapped');
     const ko = JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8'));

@@ -13,7 +13,12 @@ import {
   USAGE_DASHBOARD_RETRY_DELAY_MS as RETRY,
 } from './usage-dashboard-store.ts';
 import { createRendererClock } from '../../scripts/test-renderer-clock.mjs';
-import { applyStageChange } from '../../../../src/tui/session/turn-stream.mjs';
+/** Node b6f10295a pplyStageChange (tui/session/turn-stream.mjs) for the one stage this test sends: a selection change is UI state,
+ *  published as providerAccountChange, never a spinner phase or a transcript item. */
+async function applyStageChange(stream, stage, detail) {
+  assert.equal(stage, 'account-changed');
+  stream.set({ providerAccountChange: detail });
+}
 
 function bind(t, clock) {
   const win = Object.getOwnPropertyDescriptor(globalThis, 'window');

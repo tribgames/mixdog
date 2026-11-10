@@ -1,0 +1,242 @@
+{
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/shared/turn-snapshot.mjs",
+  "test": "apps/desktop/src/renderer/turn-preview-worker.test.mjs"
+ },
+ "constants": {},
+ "calls": {
+  "_resetTurnSnapshotForTest\u0000[]": [
+   {
+    "result": {
+     "$undef": 1
+    },
+    "async": false
+   },
+   {
+    "result": {
+     "$undef": 1
+    },
+    "async": false
+   }
+  ],
+  "beginTurnSnapshot\u0000[\"<temp-dir>\",\"desk-lead\",{\"checkpointId\":\"cp-1\"}]": [
+   {
+    "result": {
+     "generation": 1,
+     "checkpointId": "cp-1"
+    },
+    "async": true
+   },
+   {
+    "result": {
+     "generation": 1,
+     "checkpointId": "cp-1"
+    },
+    "async": true
+   }
+  ],
+  "beginAgentTurnReview\u0000[\"desk-lead\",\"desk-lead-worker\",{\"agent\":\"worker\"}]": [
+   {
+    "result": {
+     "id": "agent-review-1",
+     "ownerSessionId": "desk-lead",
+     "generation": 1,
+     "historyEpoch": 0,
+     "sessionId": "desk-lead-worker",
+     "agent": "worker",
+     "tag": null,
+     "completed": false
+    },
+    "async": false
+   },
+   {
+    "result": {
+     "id": "agent-review-1",
+     "ownerSessionId": "desk-lead",
+     "generation": 1,
+     "historyEpoch": 0,
+     "sessionId": "desk-lead-worker",
+     "agent": "worker",
+     "tag": null,
+     "completed": false
+    },
+    "async": false
+   }
+  ],
+  "completeTurnSnapshot\u0000[\"desk-lead\",{\"generation\":1,\"checkpointId\":\"cp-1\"}]": [
+   {
+    "result": true,
+    "async": true
+   },
+   {
+    "result": true,
+    "async": true
+   }
+  ],
+  "recordTurnDiffChanges\u0000[\"desk-lead-worker\",[{\"path\":\"<temp-dir>\\\\design\\\\mockups\\\\x\\\\index.html\",\"displayPath\":\"design/mockups/x/index.html\",\"before\":null,\"after\":\"<html>x</html>\\n\"}]]": [
+   {
+    "result": "diff --git a/design/mockups/x/index.html b/design/mockups/x/index.html\nnew file mode 100644\n--- /dev/null\n+++ b/design/mockups/x/index.html\n@@ -0,0 +1,1 @@\n+<html>x</html>\n",
+    "async": false
+   },
+   {
+    "result": "diff --git a/design/mockups/x/index.html b/design/mockups/x/index.html\nnew file mode 100644\n--- /dev/null\n+++ b/design/mockups/x/index.html\n@@ -0,0 +1,1 @@\n+<html>x</html>\n",
+    "async": false
+   }
+  ],
+  "recordTurnDiffChanges\u0000[\"desk-lead-worker\",[{\"path\":\"<temp-dir>\\\\src\\\\app.ts\",\"displayPath\":\"src/app.ts\",\"before\":null,\"after\":\"export {};\\n\"}]]": [
+   {
+    "result": "diff --git a/design/mockups/x/index.html b/design/mockups/x/index.html\nnew file mode 100644\n--- /dev/null\n+++ b/design/mockups/x/index.html\n@@ -0,0 +1,1 @@\n+<html>x</html>\ndiff --git a/src/app.ts b/src/app.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/app.ts\n@@ -0,0 +1,1 @@\n+export {};\n",
+    "async": false
+   },
+   {
+    "result": "diff --git a/design/mockups/x/index.html b/design/mockups/x/index.html\nnew file mode 100644\n--- /dev/null\n+++ b/design/mockups/x/index.html\n@@ -0,0 +1,1 @@\n+<html>x</html>\ndiff --git a/src/app.ts b/src/app.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/app.ts\n@@ -0,0 +1,1 @@\n+export {};\n",
+    "async": false
+   }
+  ],
+  "completeAgentTurnReview\u0000[{\"id\":\"agent-review-1\",\"ownerSessionId\":\"desk-lead\",\"generation\":1,\"historyEpoch\":0,\"sessionId\":\"desk-lead-worker\",\"agent\":\"worker\",\"tag\":null,\"completed\":false}]": [
+   {
+    "result": true,
+    "async": false
+   },
+   {
+    "result": true,
+    "async": false
+   }
+  ],
+  "beginTurnSnapshot\u0000[\"<temp-dir>\",\"desk-lead\",{\"checkpointId\":\"wake-1\"}]": [
+   {
+    "result": {
+     "generation": 2,
+     "checkpointId": "wake-1"
+    },
+    "async": true
+   },
+   {
+    "result": {
+     "generation": 2,
+     "checkpointId": "wake-1"
+    },
+    "async": true
+   }
+  ],
+  "completeTurnSnapshot\u0000[\"desk-lead\",{\"generation\":2,\"checkpointId\":\"wake-1\"}]": [
+   {
+    "result": true,
+    "async": true
+   },
+   {
+    "result": true,
+    "async": true
+   }
+  ],
+  "getTurnChanges\u0000[\"desk-lead\",{\"checkpointId\":\"wake-1\"}]": [
+   {
+    "result": {
+     "status": "ready",
+     "checkpointId": "wake-1",
+     "revision": 1,
+     "root": "D:\\mixdog-build\\tmp\\k1-desktop-route-tmp\\mixdog-test-scratch-ClkrGY\\mixdog-preview-worker-K6HJB6",
+     "files": [
+      {
+       "path": "design/mockups/x/index.html",
+       "status": "A",
+       "additions": 1,
+       "deletions": 0,
+       "state": "applied",
+       "revertable": true
+      },
+      {
+       "path": "src/app.ts",
+       "status": "A",
+       "additions": 1,
+       "deletions": 0,
+       "state": "applied",
+       "revertable": true
+      }
+     ],
+     "canUndo": true,
+     "canReapply": false
+    },
+    "async": true
+   },
+   {
+    "result": {
+     "status": "ready",
+     "checkpointId": "wake-1",
+     "revision": 2,
+     "root": "D:\\mixdog-build\\tmp\\k1-desktop-route-tmp\\mixdog-test-scratch-ClkrGY\\mixdog-preview-worker-Agdvmd",
+     "files": [
+      {
+       "path": "design/mockups/x/index.html",
+       "status": "A",
+       "additions": 1,
+       "deletions": 0,
+       "state": "applied",
+       "revertable": true
+      },
+      {
+       "path": "src/app.ts",
+       "status": "A",
+       "additions": 1,
+       "deletions": 0,
+       "state": "applied",
+       "revertable": true
+      }
+     ],
+     "canUndo": true,
+     "canReapply": false
+    },
+    "async": true
+   }
+  ]
+ },
+ "services": {},
+ "stubs": {},
+ "opaque": [],
+ "normalize": {
+  "beginAgentTurnReview": [
+   {
+    "placeholder": "<temp-dir>",
+    "flags": "g",
+    "pattern": "\\S*?mixdog-preview-worker-[A-Za-z0-9]+"
+   }
+  ],
+  "getTurnChanges": [
+   {
+    "placeholder": "<temp-dir>",
+    "flags": "g",
+    "pattern": "\\S*?mixdog-preview-worker-[A-Za-z0-9]+"
+   }
+  ],
+  "completeTurnSnapshot": [
+   {
+    "placeholder": "<temp-dir>",
+    "flags": "g",
+    "pattern": "\\S*?mixdog-preview-worker-[A-Za-z0-9]+"
+   }
+  ],
+  "completeAgentTurnReview": [
+   {
+    "placeholder": "<temp-dir>",
+    "flags": "g",
+    "pattern": "\\S*?mixdog-preview-worker-[A-Za-z0-9]+"
+   }
+  ],
+  "beginTurnSnapshot": [
+   {
+    "placeholder": "<temp-dir>",
+    "flags": "g",
+    "pattern": "\\S*?mixdog-preview-worker-[A-Za-z0-9]+"
+   }
+  ],
+  "recordTurnDiffChanges": [
+   {
+    "placeholder": "<temp-dir>",
+    "flags": "g",
+    "pattern": "\\S*?mixdog-preview-worker-[A-Za-z0-9]+"
+   }
+  ]
+ }
+}

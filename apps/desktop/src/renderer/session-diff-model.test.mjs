@@ -6,7 +6,7 @@ import {
   sessionDiffPatchTooLarge,
   utf8ByteLength,
 } from './session-diff-model.ts';
-import { boundReviewPatch } from '../../../../src/runtime/shared/review-diff.mjs';
+import { boundReviewPatch } from '../shared/test-recorded/session-diff-model.test.0.recorded.mjs';
 
 test('utf8ByteLength matches TextEncoder, surrogate pairs and lone surrogates included', () => {
   const encoder = new TextEncoder();

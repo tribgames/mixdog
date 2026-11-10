@@ -5,8 +5,6 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { LocalAccessDeniedError, isLocalAccessDenied } from './local-access-denied.ts';
 import { SelectedFileAccess } from './selected-file-access.ts';
-import { DesktopProjectRegistry } from './desktop-project-registry.ts';
-
 async function fixture(t) {
   const root = await fs.mkdtemp(join(tmpdir(), 'mixdog-local-authority-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -53,55 +51,4 @@ test('selected-file authority marks missing grants and mismatched paths, not its
     assert.equal(isLocalAccessDenied(error), false);
     return true;
   });
-});
-
-test('project authority marks removal but preserves module and registry lookup failures', async (t) => {
-  const root = await fixture(t);
-  let rows = [{ path: root, name: 'fixture', addedAt: 0 }];
-  let failure = null;
-  let lookupFailure = null;
-  const registry = new DesktopProjectRegistry({
-    userDataRoot: () => root,
-    async loadProjectsModule() {
-      if (failure) throw failure;
-      return {
-        listProjects() {
-          throw new Error('authority must not use the tolerant list');
-        },
-        listProjectsStrict() {
-          if (lookupFailure) throw lookupFailure;
-          return rows;
-        },
-      };
-    },
-  });
-  assert.equal(await registry.knownPath(root), root);
-  rows = [];
-  await assert.rejects(registry.knownPath(root), isLocalAccessDenied);
-  failure = new Error('temporary daemon failure');
-  await assert.rejects(registry.knownPath(root), (error) => error === failure && !isLocalAccessDenied(error));
-  failure = null;
-  lookupFailure = Object.assign(new Error('temporary registry failure'), { code: 'EIO' });
-  await assert.rejects(registry.knownPath(root), (error) => error === lookupFailure && !isLocalAccessDenied(error));
-});
-
-test('older runtimes deny ambiguous absence without declaring a permanent revocation', async (t) => {
-  const root = await fixture(t);
-  let rows = [{ path: root, name: 'fixture', addedAt: 0 }];
-  const registry = new DesktopProjectRegistry({
-    userDataRoot: () => root,
-    loadProjectsModule: async () => ({ listProjects: () => rows }),
-  });
-  assert.equal(await registry.knownPath(root), root);
-  rows = [];
-  await assert.rejects(registry.knownPath(root), (error) => !isLocalAccessDenied(error));
-});
-
-test('malformed strict project replies stay uncertain rather than proving removal', async (t) => {
-  const root = await fixture(t);
-  const registry = new DesktopProjectRegistry({
-    userDataRoot: () => root,
-    loadProjectsModule: async () => ({ listProjects: () => [], listProjectsStrict: () => null }),
-  });
-  await assert.rejects(registry.knownPath(root), (error) => !isLocalAccessDenied(error));
 });

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mock, test } from 'node:test';
 
 import { waitUntil } from '../bounded-wait.mjs';
-import { createSessionOAuthFlowRegistry } from '../../../../../src/tui/session/oauth-flows.mjs';
+import { createSessionOAuthFlowRegistry } from '../../shared/test-recorded/ssh-ipc-server-logins.test.0.recorded.mjs';
 import { callbackPortOf, createServerLoginHandlers } from './ssh-ipc-server-logins.ts';
 
 const HOST = { id: 'h1', name: 'build-box', target: 'dev@build-box', lastConnectedAt: 1 };

@@ -1,0 +1,228 @@
+{
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/tui/session/quota-resume.mjs",
+  "test": "apps/desktop/src/renderer/quota-continue.test.mjs"
+ },
+ "constants": {
+  "RETRY_CONTINUE_INSTRUCTION": "Continue from where you left off."
+ },
+ "calls": {
+  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":\"<resetAt>\"}}]]": [
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   },
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2"
+    ],
+    "async": false
+   }
+  ],
+  "transcriptTurnKeys\u0000[[{\"kind\":\"user\",\"id\":\"u1\",\"text\":\"hi\"},{\"kind\":\"assistant\",\"id\":\"a1\",\"text\":\"hello\"},{\"kind\":\"turndone\",\"id\":\"d1\",\"status\":\"done\"},{\"kind\":\"user\",\"id\":\"u2\",\"text\":\"do it\"},{\"kind\":\"turndone\",\"id\":\"d2\",\"status\":\"failed\",\"quota\":{\"provider\":\"anthropic-oauth\",\"model\":\"claude-opus\",\"resetAt\":\"<resetAt>\"}},{\"kind\":\"user\",\"id\":\"u3\",\"text\":\"next\"}]]": [
+   {
+    "result": [
+     "turn:u1",
+     "turn:u1",
+     "turn:u1",
+     "turn:u2",
+     "turn:u2",
+     "turn:u3"
+    ],
+    "async": false
+   }
+  ]
+ },
+ "services": {},
+ "stubs": {},
+ "opaque": [],
+ "normalize": {
+  "transcriptTurnKeys": [
+   {
+    "field": "resetAt"
+   }
+  ]
+ }
+}

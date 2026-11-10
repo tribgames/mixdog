@@ -1,0 +1,35 @@
+// Node b6f10295a2f698afc85332467192de28500bd146 (tree 332679f9c46ead536c500ab57a7580c0fb28d550) src/runtime/shared/provider-accounts.mjs, recorded from apps/desktop/src/main/custom-provider-validation.test.mjs of that commit run against an exact export of it (record/record.mjs).
+import { readFileSync } from 'node:fs';
+import { replay } from './replay.mjs';
+
+const table = JSON.parse(readFileSync(new URL('./custom-provider-validation.test.2.recorded.json', import.meta.url), 'utf8'));
+export const ACCOUNT_PROVIDERS = replay(table, "ACCOUNT_PROVIDERS");
+export const MAX_ACCOUNTS = replay(table, "MAX_ACCOUNTS");
+export const accountScopedSessionId = replay(table, "accountScopedSessionId");
+export const accountScopedSessionIdsOf = replay(table, "accountScopedSessionIdsOf");
+export const blockProviderAccount = replay(table, "blockProviderAccount");
+export const changeProviderAccounts = replay(table, "changeProviderAccounts");
+export const chooseProviderAccount = replay(table, "chooseProviderAccount");
+export const clearProviderAccountQuotaState = replay(table, "clearProviderAccountQuotaState");
+export const customProviderKeyIds = replay(table, "customProviderKeyIds");
+export const isCustomKeyProvider = replay(table, "isCustomKeyProvider");
+export const newProviderAccountId = replay(table, "newProviderAccountId");
+export const noteAccountScopedSessionId = replay(table, "noteAccountScopedSessionId");
+export const providerAccountBlockedUntil = replay(table, "providerAccountBlockedUntil");
+export const providerAccountExhausted = replay(table, "providerAccountExhausted");
+export const providerAccountExhaustedForModelOnly = replay(table, "providerAccountExhaustedForModelOnly");
+export const providerAccountLimit = replay(table, "providerAccountLimit");
+export const providerAccountPath = replay(table, "providerAccountPath");
+export const providerAccountPolicy = replay(table, "providerAccountPolicy");
+export const providerAccountWithBlocks = replay(table, "providerAccountWithBlocks");
+export const providerAccountsPath = replay(table, "providerAccountsPath");
+export const providerAccountsResetAt = replay(table, "providerAccountsResetAt");
+export const quotaReadingFresh = replay(table, "quotaReadingFresh");
+export const quotaWindowAppliesToModel = replay(table, "quotaWindowAppliesToModel");
+export const readProviderAccountPool = replay(table, "readProviderAccountPool");
+export const recordProviderAccountUsage = replay(table, "recordProviderAccountUsage");
+export const registerProviderAccount = replay(table, "registerProviderAccount");
+export const removeProviderAccount = replay(table, "removeProviderAccount");
+export const selectProviderAccountIf = replay(table, "selectProviderAccountIf");
+export const setCustomProviderKeyIds = replay(table, "setCustomProviderKeyIds");
+export const staleQuotaWindows = replay(table, "staleQuotaWindows");

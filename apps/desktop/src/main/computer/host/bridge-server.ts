@@ -5,7 +5,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
-import { listenOnFetchSafePort } from '../../../../../../src/runtime/shared/fetch-safe-listen.mjs';
+import { listenOnFetchSafePort } from '../../../shared/core-src/runtime/shared/fetch-safe-listen.mjs';
 import { createBridgeDiscovery } from '../../bridge/discovery-file';
 import { CHROME_SETUP_SESSION_ID } from '../shared/common';
 import { computerUseCoordinator } from '../session/coordinator';

@@ -5,8 +5,8 @@ import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { CommandSurface } from './CommandSurface.tsx';
 import { t } from './i18n.ts';
-import { UsageLedger, makeUsageRecord } from '../../../../src/runtime/shared/llm/usage-ledger.mjs';
-import { createUsageStatsApi } from '../../../../src/session-runtime/usage-stats-api.mjs';
+import { UsageLedger, makeUsageRecord } from '../shared/test-recorded/usage-request-log.test.0.recorded.mjs';
+import { createUsageStatsApi } from '../shared/test-recorded/usage-request-log.test.1.recorded.mjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 

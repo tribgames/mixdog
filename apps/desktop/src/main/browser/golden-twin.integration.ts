@@ -21,7 +21,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { app, BrowserWindow, webContents } from 'electron';
-import { BROWSER_ACTIONS } from '../../../../../src/runtime/browser-bridge/browser-action-contract.mjs';
+import { BROWSER_ACTIONS } from '../../shared/core-src/runtime/browser-bridge/browser-action-contract.mjs';
 import { createPolling } from '../host-harness-poll';
 import { createBrowserCommandHost } from '../host/browser-command';
 import { readyBrowserFrame } from './harness-frame';

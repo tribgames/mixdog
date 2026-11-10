@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { normalizeAgentAvatar } from '../../../../src/runtime/shared/agent-avatar.mjs';
+import { normalizeAgentAvatar } from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 import type { MascotAvatarValue } from './agent-avatar';
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 

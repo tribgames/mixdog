@@ -7,7 +7,7 @@ import {
   AGENT_AVATAR_STATES,
   type AgentAvatarState,
   type AgentAvatarValue,
-} from '../../../../src/runtime/shared/agent-avatar.mjs';
+} from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 import {
   AgentAvatarPicker,
   AgentImageAvatar,

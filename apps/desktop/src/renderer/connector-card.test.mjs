@@ -38,7 +38,7 @@ window.mixdogDesktop = {
 
 const { connectCatalogConnector, OPEN_CONNECTORS_EVENT, startConnectorLogin } = await import('./connector-connect.ts');
 const { ConnectorChatCard } = await import('./connector-card.tsx');
-const { connectorById } = await import('../../../../src/runtime/shared/connector-catalog.mjs');
+const { connectorById } = await import('../shared/core-src/runtime/shared/connector-catalog.mjs');
 
 const started = () =>
   calls.filter(([capability]) => ['addMcpServer', 'beginMcpOAuthLogin'].includes(capability)).length;

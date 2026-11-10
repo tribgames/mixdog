@@ -1,0 +1,215 @@
+{
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "module": "src/runtime/agent/orchestrator/session/transcript-restore/user-text.mjs",
+  "test": "apps/desktop/src/renderer/attachment-bubbles.test.mjs"
+ },
+ "constants": {},
+ "calls": {
+  "restoredUserImageRefs\u0000[[{\"type\":\"image\",\"mimeType\":\"image/png\",\"attachmentRef\":\"d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e\",\"sizeBytes\":9}]]": [
+   {
+    "result": [
+     {
+      "line": "[Image: image/png]",
+      "ref": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e"
+     }
+    ],
+    "async": false
+   }
+  ],
+  "restoredUserText\u0000[[{\"type\":\"image\",\"mimeType\":\"image/png\",\"attachmentRef\":\"d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e\",\"sizeBytes\":9}]]": [
+   {
+    "result": "[Image: image/png]",
+    "async": false
+   }
+  ],
+  "restoredUserImageRefs\u0000[[{\"type\":\"image\",\"mimeType\":\"image/jpeg\",\"attachmentRef\":\"d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e\",\"sizeBytes\":9}]]": [
+   {
+    "result": [
+     {
+      "line": "[Image: image/jpeg]",
+      "ref": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e"
+     }
+    ],
+    "async": false
+   }
+  ],
+  "restoredUserText\u0000[[{\"type\":\"image\",\"mimeType\":\"image/jpeg\",\"attachmentRef\":\"d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e\",\"sizeBytes\":9}]]": [
+   {
+    "result": "[Image: image/jpeg]",
+    "async": false
+   }
+  ],
+  "restoredUserImageRefs\u0000[[{\"type\":\"image\",\"mimeType\":\"image/png\",\"attachmentRef\":\"d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e\",\"sizeBytes\":9},{\"type\":\"image\",\"mimeType\":\"image/png\",\"attachmentRef\":\"d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e\",\"sizeBytes\":9},{\"type\":\"image\",\"mimeType\":\"image/png\",\"attachmentRef\":\"d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e\",\"sizeBytes\":9}]]": [
+   {
+    "result": [
+     {
+      "line": "[Image: image/png]",
+      "ref": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e"
+     },
+     {
+      "line": "[Image: image/png]",
+      "ref": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e"
+     },
+     {
+      "line": "[Image: image/png]",
+      "ref": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e"
+     }
+    ],
+    "async": false
+   }
+  ],
+  "restoredUserText\u0000[[{\"type\":\"image\",\"mimeType\":\"image/png\",\"attachmentRef\":\"d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e\",\"sizeBytes\":9},{\"type\":\"image\",\"mimeType\":\"image/png\",\"attachmentRef\":\"d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e\",\"sizeBytes\":9},{\"type\":\"image\",\"mimeType\":\"image/png\",\"attachmentRef\":\"d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e\",\"sizeBytes\":9}]]": [
+   {
+    "result": "[Image: image/png]\n[Image: image/png]\n[Image: image/png]",
+    "async": false
+   }
+  ],
+  "restoredUserImageRefs\u0000[[{\"type\":\"text\",\"text\":\"[PDF #1: report.pdf]\"},{\"type\":\"file\",\"mimeType\":\"application/pdf\",\"filename\":\"report.pdf\",\"attachmentRef\":\"93235c621c3fc9a5c671f1da655b09f009e1eeb43e168d49de478cccc4d51368\",\"sizeBytes\":18}]]": [
+   {
+    "result": [],
+    "async": false
+   }
+  ],
+  "restoredUserText\u0000[[{\"type\":\"text\",\"text\":\"[PDF #1: report.pdf]\"},{\"type\":\"file\",\"mimeType\":\"application/pdf\",\"filename\":\"report.pdf\",\"attachmentRef\":\"93235c621c3fc9a5c671f1da655b09f009e1eeb43e168d49de478cccc4d51368\",\"sizeBytes\":18}]]": [
+   {
+    "result": "[PDF #1: report.pdf]",
+    "async": false
+   }
+  ],
+  "restoredUserImageRefs\u0000[[{\"type\":\"text\",\"text\":\"[File #1: plan.docx]\"},{\"type\":\"file\",\"mimeType\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"filename\":\"plan.docx\",\"attachmentRef\":\"a202f7d251ddbbc8cd1a44b4a0dad4f91552b11fb8d86e5420ddcbdac9b8bf46\",\"sizeBytes\":13}]]": [
+   {
+    "result": [],
+    "async": false
+   }
+  ],
+  "restoredUserText\u0000[[{\"type\":\"text\",\"text\":\"[File #1: plan.docx]\"},{\"type\":\"file\",\"mimeType\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"filename\":\"plan.docx\",\"attachmentRef\":\"a202f7d251ddbbc8cd1a44b4a0dad4f91552b11fb8d86e5420ddcbdac9b8bf46\",\"sizeBytes\":13}]]": [
+   {
+    "result": "[File #1: plan.docx]",
+    "async": false
+   }
+  ],
+  "restoredUserImageRefs\u0000[[{\"type\":\"text\",\"attachmentRef\":\"a2098bd92b10bf8b816d24b7556b1ce8c49a879d130489065ef1051c17e042f6\",\"sizeBytes\":26,\"textKind\":\"file\",\"filename\":\"main.ts\",\"mimeType\":\"text/plain\"}]]": [
+   {
+    "result": [],
+    "async": false
+   }
+  ],
+  "restoredUserText\u0000[[{\"type\":\"text\",\"attachmentRef\":\"a2098bd92b10bf8b816d24b7556b1ce8c49a879d130489065ef1051c17e042f6\",\"sizeBytes\":26,\"textKind\":\"file\",\"filename\":\"main.ts\",\"mimeType\":\"text/plain\"}]]": [
+   {
+    "result": "[File #1: main.ts]",
+    "async": false
+   }
+  ],
+  "restoredUserImageRefs\u0000[[{\"type\":\"text\",\"attachmentRef\":\"4302e5f84ef4c41a0009f92d0bc4d82ca60d49576017bdfcadaccf6d3357889b\",\"sizeBytes\":230,\"textKind\":\"paste\",\"filename\":\"Pasted text · 30 lines\",\"mimeType\":\"text/plain\"}]]": [
+   {
+    "result": [],
+    "async": false
+   }
+  ],
+  "restoredUserText\u0000[[{\"type\":\"text\",\"attachmentRef\":\"4302e5f84ef4c41a0009f92d0bc4d82ca60d49576017bdfcadaccf6d3357889b\",\"sizeBytes\":230,\"textKind\":\"paste\",\"filename\":\"Pasted text · 30 lines\",\"mimeType\":\"text/plain\"}]]": [
+   {
+    "result": "[Pasted text #1 +30 lines]",
+    "async": false
+   }
+  ],
+  "restoredUserImageRefs\u0000[\"C:\\\\clips\\\\demo.mp4\"]": [
+   {
+    "result": [],
+    "async": false
+   }
+  ],
+  "restoredUserText\u0000[\"C:\\\\clips\\\\demo.mp4\"]": [
+   {
+    "result": "C:\\clips\\demo.mp4",
+    "async": false
+   }
+  ],
+  "restoredUserImageRefs\u0000[\"C:\\\\audio\\\\memo.m4a\"]": [
+   {
+    "result": [],
+    "async": false
+   }
+  ],
+  "restoredUserText\u0000[\"C:\\\\audio\\\\memo.m4a\"]": [
+   {
+    "result": "C:\\audio\\memo.m4a",
+    "async": false
+   }
+  ],
+  "restoredUserImageRefs\u0000[\"C:\\\\Project\\\\app\"]": [
+   {
+    "result": [],
+    "async": false
+   }
+  ],
+  "restoredUserText\u0000[\"C:\\\\Project\\\\app\"]": [
+   {
+    "result": "C:\\Project\\app",
+    "async": false
+   }
+  ],
+  "restoredUserImageRefs\u0000[\"회의 내용을 요약하세요\"]": [
+   {
+    "result": [],
+    "async": false
+   }
+  ],
+  "restoredUserText\u0000[\"회의 내용을 요약하세요\"]": [
+   {
+    "result": "회의 내용을 요약하세요",
+    "async": false
+   }
+  ],
+  "restoredUserImageRefs\u0000[[{\"type\":\"text\",\"text\":\"[PDF #2: report.pdf]\\n[File #3: plan.docx]\\n\"},{\"type\":\"text\",\"attachmentRef\":\"a2098bd92b10bf8b816d24b7556b1ce8c49a879d130489065ef1051c17e042f6\",\"sizeBytes\":26,\"textKind\":\"file\",\"filename\":\"main.ts\",\"mimeType\":\"text/plain\"},{\"type\":\"text\",\"text\":\"\\n\"},{\"type\":\"text\",\"attachmentRef\":\"4302e5f84ef4c41a0009f92d0bc4d82ca60d49576017bdfcadaccf6d3357889b\",\"sizeBytes\":230,\"textKind\":\"paste\",\"filename\":\"Pasted text · 30 lines\",\"mimeType\":\"text/plain\"},{\"type\":\"image\",\"mimeType\":\"image/png\",\"attachmentRef\":\"d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e\",\"sizeBytes\":9},{\"type\":\"file\",\"mimeType\":\"application/pdf\",\"filename\":\"report.pdf\",\"attachmentRef\":\"93235c621c3fc9a5c671f1da655b09f009e1eeb43e168d49de478cccc4d51368\",\"sizeBytes\":18},{\"type\":\"file\",\"mimeType\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"filename\":\"plan.docx\",\"attachmentRef\":\"a202f7d251ddbbc8cd1a44b4a0dad4f91552b11fb8d86e5420ddcbdac9b8bf46\",\"sizeBytes\":13}]]": [
+   {
+    "result": [
+     {
+      "line": "[Image: image/png]",
+      "ref": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e"
+     }
+    ],
+    "async": false
+   }
+  ],
+  "restoredUserText\u0000[[{\"type\":\"text\",\"text\":\"[PDF #2: report.pdf]\\n[File #3: plan.docx]\\n\"},{\"type\":\"text\",\"attachmentRef\":\"a2098bd92b10bf8b816d24b7556b1ce8c49a879d130489065ef1051c17e042f6\",\"sizeBytes\":26,\"textKind\":\"file\",\"filename\":\"main.ts\",\"mimeType\":\"text/plain\"},{\"type\":\"text\",\"text\":\"\\n\"},{\"type\":\"text\",\"attachmentRef\":\"4302e5f84ef4c41a0009f92d0bc4d82ca60d49576017bdfcadaccf6d3357889b\",\"sizeBytes\":230,\"textKind\":\"paste\",\"filename\":\"Pasted text · 30 lines\",\"mimeType\":\"text/plain\"},{\"type\":\"image\",\"mimeType\":\"image/png\",\"attachmentRef\":\"d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e\",\"sizeBytes\":9},{\"type\":\"file\",\"mimeType\":\"application/pdf\",\"filename\":\"report.pdf\",\"attachmentRef\":\"93235c621c3fc9a5c671f1da655b09f009e1eeb43e168d49de478cccc4d51368\",\"sizeBytes\":18},{\"type\":\"file\",\"mimeType\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"filename\":\"plan.docx\",\"attachmentRef\":\"a202f7d251ddbbc8cd1a44b4a0dad4f91552b11fb8d86e5420ddcbdac9b8bf46\",\"sizeBytes\":13}]]": [
+   {
+    "result": "[PDF #2: report.pdf]\n[File #3: plan.docx]\n\n[File #1: main.ts]\n\n\n[Pasted text #2 +30 lines]\n[Image: image/png]",
+    "async": false
+   }
+  ],
+  "restoredUserImageRefs\u0000[[{\"type\":\"text\",\"text\":\"what is this?\"},{\"type\":\"image\",\"mimeType\":\"image/png\",\"attachmentRef\":\"d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e\",\"sizeBytes\":9}]]": [
+   {
+    "result": [
+     {
+      "line": "[Image: image/png]",
+      "ref": "d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e"
+     }
+    ],
+    "async": false
+   }
+  ],
+  "restoredUserText\u0000[[{\"type\":\"text\",\"text\":\"what is this?\"},{\"type\":\"image\",\"mimeType\":\"image/png\",\"attachmentRef\":\"d013614dc14a37ee20fe92005737ab7d3427e7e93580ad56ef8a42205e7f7a4e\",\"sizeBytes\":9}]]": [
+   {
+    "result": "what is this?\n[Image: image/png]",
+    "async": false
+   }
+  ],
+  "restoredUserImageRefs\u0000[[{\"type\":\"text\",\"text\":\"review these\\n[PDF #1: report.pdf]\\n\"},{\"type\":\"text\",\"attachmentRef\":\"a2098bd92b10bf8b816d24b7556b1ce8c49a879d130489065ef1051c17e042f6\",\"sizeBytes\":26,\"textKind\":\"file\",\"filename\":\"main.ts\",\"mimeType\":\"text/plain\"},{\"type\":\"file\",\"mimeType\":\"application/pdf\",\"filename\":\"report.pdf\",\"attachmentRef\":\"93235c621c3fc9a5c671f1da655b09f009e1eeb43e168d49de478cccc4d51368\",\"sizeBytes\":18}]]": [
+   {
+    "result": [],
+    "async": false
+   }
+  ],
+  "restoredUserText\u0000[[{\"type\":\"text\",\"text\":\"review these\\n[PDF #1: report.pdf]\\n\"},{\"type\":\"text\",\"attachmentRef\":\"a2098bd92b10bf8b816d24b7556b1ce8c49a879d130489065ef1051c17e042f6\",\"sizeBytes\":26,\"textKind\":\"file\",\"filename\":\"main.ts\",\"mimeType\":\"text/plain\"},{\"type\":\"file\",\"mimeType\":\"application/pdf\",\"filename\":\"report.pdf\",\"attachmentRef\":\"93235c621c3fc9a5c671f1da655b09f009e1eeb43e168d49de478cccc4d51368\",\"sizeBytes\":18}]]": [
+   {
+    "result": "review these\n[PDF #1: report.pdf]\n\n[File #1: main.ts]",
+    "async": false
+   }
+  ]
+ },
+ "services": {},
+ "stubs": {},
+ "opaque": []
+}

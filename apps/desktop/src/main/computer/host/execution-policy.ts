@@ -5,7 +5,7 @@ import { isComputerLifecycleControl } from './action-sets';
 import {
   COMPUTER_POLICY_ACTIONS,
   computerActionPolicy,
-} from '../../../../../../src/runtime/computer-bridge/actions.mjs';
+} from '../../../shared/core-src/runtime/computer-bridge/actions.mjs';
 
 const ACTIONS = new Set(COMPUTER_POLICY_ACTIONS);
 const FIELDS = new Set(['version', 'actions', 'windows', 'launchTargets', 'allowElevatedInput', 'expiresAt']);

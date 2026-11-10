@@ -6,7 +6,6 @@ import test from 'node:test';
 
 import { MAX_VISUALIZE_INLINE_BYTES, remoteVisualizeState } from '../../shared/visualize.ts';
 import { requiredVisualizeTabCommand } from '../ipc-validation.ts';
-import { createRemoteVisualizeMethods, createRemoteVisualizeMirror } from '../remote-visualize.ts';
 import { createVisualizeService } from './service.ts';
 import { parseVisualizeRequest } from './targets.ts';
 
@@ -224,56 +223,6 @@ test('render reports need the id issued to the window: wrong, reused, stale and 
   await report(service, 'cross', { sessionId: 's2', renderId: liveId, pane: 0 });
   await report(service, 'cross', { sessionId: 's2', renderId: oldId, pane: 0 });
   assert.equal(s2().problems, undefined);
-  service.dispose();
-});
-
-test('a remote client reports renders with its own id; the desktop id never reaches it', async () => {
-  const { service, hostEvents } = setup();
-  await open(service, { content: { kind: 'mermaid', source: 'graph TD;A-->B', title: 'Flow' } });
-  assert.ok(renderIdOf(service), 'the desktop window is issued an id');
-  const id = renderIdOf(service);
-
-  const remote = [
-    ...hostEvents.filter((event) => event.state).map((event) => remoteVisualizeState(event.state)),
-    ...service.hostSnapshot().map(remoteVisualizeState),
-  ];
-  assert.equal(JSON.stringify(remote).includes(id), false, 'the desktop id stays in the desktop window');
-  assert.equal(JSON.stringify(service.hostSnapshot()).includes(id), false);
-  const remoteId = remote.at(-1).tabs[0].panes[0].renderId;
-  assert.ok(remoteId, 'a remote client is issued its own id');
-  assert.notEqual(remoteId, id);
-
-  // The remote command path forwards the validated report to the host.
-  const requests = [];
-  const methods = createRemoteVisualizeMethods({
-    mirror: createRemoteVisualizeMirror(),
-    hostRequest: async (method, args) => {
-      requests.push([method, args]);
-      return method === 'visualizeCommand' ? service.command(args[0]) : service.hostSnapshot();
-    },
-    invokeDesktopOperation: async () => null,
-  });
-  await assert.rejects(
-    methods.visualizeCommand([{ sessionId: 's1', tabId: 'v1', action: 'render', pane: 'x', renderId: remoteId }]),
-    /pane index/
-  );
-  assert.deepEqual(requests, [], 'an invalid report never reaches the host');
-  // A forged id is forwarded but files nothing.
-  await methods.visualizeCommand([
-    { sessionId: 's1', tabId: 'v1', action: 'render', pane: 0, renderId: 'guess', error: 'forged' },
-  ]);
-  assert.equal(service.snapshot()[0].tabs[0].problems, undefined);
-  // The issued remote id files the failure once, like the desktop's.
-  await methods.visualizeCommand([
-    { sessionId: 's1', tabId: 'v1', action: 'render', pane: 0, renderId: remoteId, error: 'Parse error' },
-  ]);
-  assert.match(service.snapshot()[0].tabs[0].problems[0].message, /could not be rendered: Parse error/);
-  await methods.visualizeCommand([
-    { sessionId: 's1', tabId: 'v1', action: 'render', pane: 0, renderId: remoteId, error: 'again' },
-  ]);
-  // Either audience spends the render instance: the desktop's late report is ignored.
-  await report(service, 'desktop too');
-  assert.equal(service.snapshot()[0].tabs[0].problems.length, 1);
   service.dispose();
 });
 

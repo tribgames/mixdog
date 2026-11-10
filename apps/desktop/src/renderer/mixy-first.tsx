@@ -5,8 +5,8 @@
 // 대표 에이전트 mode when asked (the empty state's button, "+", the automation
 // picker); the starter guide's last step completes when Mixy is created.
 import { useEffect, useState } from 'react';
-import { MIXY_AGENT_ID } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
-import { MIXY_AVATAR } from '../../../../src/runtime/shared/agent-avatar.mjs';
+import { MIXY_AGENT_ID } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { MIXY_AVATAR } from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 import type { DesktopApi, DesktopCapability } from '../shared/contract';
 import { t } from './i18n';
 import {

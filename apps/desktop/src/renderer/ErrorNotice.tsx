@@ -1,7 +1,7 @@
 import { AlertCircle, ChevronDown, ExternalLink, RotateCcw, X } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 // @ts-expect-error Shared runtime module is plain ESM.
-import { describeError, safeErrorDetails } from '../../../../src/runtime/shared/error-presentation.mjs';
+import { describeError, safeErrorDetails } from '../../../../packages/protocol-client/src/rows/error-presentation.mjs';
 import { displayErrorMessage, withoutErrorTrailer } from '../shared/coded-error';
 import { t } from './i18n';
 import { localizeErrorCopy, localizeErrorRecovery, localizeToolSurfaceError } from './error-notice-copy';

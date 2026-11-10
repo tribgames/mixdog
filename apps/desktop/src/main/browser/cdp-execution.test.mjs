@@ -4,7 +4,7 @@ import test from 'node:test';
 import { createBrowserGuestCdp } from './cdp.ts';
 import { BrowserGuestStateStore } from './guest-state.ts';
 import { CDP_REQUEST_TIMEOUT_MS } from './command.ts';
-import { waitUntil } from '../../../../../src/runtime/shared/wait-until.test-support.mjs';
+import { waitUntil } from '../../shared/core-src/runtime/shared/wait-until.test-support.mjs';
 
 function fixture(send) {
   const state = new BrowserGuestStateStore();
