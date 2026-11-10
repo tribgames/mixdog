@@ -502,4 +502,5 @@ impl PgCluster {
 }
 
 #[cfg(test)]
+#[path = "cluster_tests.rs"]
 mod tests;
