@@ -41,9 +41,9 @@ where
     let summaries = RoomSummaries::new(thread_list, sections, directory);
     let republish: Republish = {
         let summaries = summaries.clone();
-        Arc::new(move || {
+        Arc::new(move |publish| {
             let summaries = summaries.clone();
-            Box::pin(async move { summaries.republish_catalog().await.map_err(|error| RoomError::Port(format!("{error:?}"))) })
+            Box::pin(async move { summaries.republish_catalog(publish).await.map_err(|error| RoomError::Port(format!("{error:?}"))) })
         })
     };
     let sessions = Arc::new(RenameLists { sessions, summaries: summaries.clone() });
@@ -101,6 +101,7 @@ mod tests {
 
     use async_trait::async_trait;
     use mixdog_core_api::FeedSource;
+    use mixdog_core_api::ReplyQueued;
     use mixdog_core_api::domain::mock::MockOwnership;
     use mixdog_core_api::ids::ConnectionId;
     use mixdog_core_api::mock::MockConnection;
@@ -136,12 +137,10 @@ mod tests {
         lookup_fails: std::sync::atomic::AtomicBool,
         /// Each agent's id and name.
         roster: Vec<(String, String)>,
-        /// Run, once, where the next members' names are read: where a room update makes its answer (`room_summary`).
-        answering: std::sync::Mutex<Option<std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>>>,
     }
     impl Agents {
         fn new(roster: Vec<(String, String)>) -> Self {
-            Self { lookup_fails: false.into(), roster, answering: std::sync::Mutex::new(None) }
+            Self { lookup_fails: false.into(), roster }
         }
     }
     impl Default for Agents {
@@ -183,10 +182,6 @@ mod tests {
     #[async_trait]
     impl MemberNames for Agents {
         async fn names(&self) -> HashMap<String, String> {
-            let probe = self.answering.lock().unwrap().take();
-            if let Some(probe) = probe {
-                probe.await;
-            }
             self.roster.iter().cloned().collect()
         }
     }
@@ -239,6 +234,60 @@ mod tests {
         }
     }
 
+    /// The room sessions, with a stop in front of a deletion where a test arms one: the next deletion stops there, says it
+    /// arrived, and goes on when the test opens it.
+    struct Deletes {
+        inner: Arc<dyn SessionOps>,
+        armed: std::sync::Mutex<Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>>,
+    }
+    impl Deletes {
+        /// The opener and the arrival signal of the next deletion.
+        fn arm(&self) -> (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) {
+            let (open, held) = tokio::sync::oneshot::channel();
+            let (reached, arrived) = tokio::sync::oneshot::channel();
+            *self.armed.lock().unwrap() = Some((reached, held));
+            (open, arrived)
+        }
+    }
+    #[async_trait]
+    impl SessionOps for Deletes {
+        async fn route(&self, session_id: &str) -> Result<Option<Value>, RoomError> {
+            self.inner.route(session_id).await
+        }
+        async fn create(&self, session_id: &str, params: &Value) -> Result<(), RoomError> {
+            self.inner.create(session_id, params).await
+        }
+        async fn set_route(&self, session_id: &str, route: &Value) -> Result<(), RoomError> {
+            self.inner.set_route(session_id, route).await
+        }
+        async fn set_archived(&self, session_id: &str, archived: bool) -> Result<(), RoomError> {
+            self.inner.set_archived(session_id, archived).await
+        }
+        async fn is_retired(&self, session_id: &str) -> Result<bool, RoomError> {
+            self.inner.is_retired(session_id).await
+        }
+        async fn set_retired(&self, session_id: &str, retired: bool) -> Result<(), RoomError> {
+            self.inner.set_retired(session_id, retired).await
+        }
+        async fn rename(&self, session_id: &str, title: &str) -> Result<(), RoomError> {
+            self.inner.rename(session_id, title).await
+        }
+        async fn set_retired_title(&self, session_id: &str, name: &str) -> Result<(), RoomError> {
+            self.inner.set_retired_title(session_id, name).await
+        }
+        async fn clear(&self, session_id: &str, archive_as: &str) -> Result<(), RoomError> {
+            self.inner.clear(session_id, archive_as).await
+        }
+        async fn delete(&self, session_id: &str) -> Result<(), RoomError> {
+            let armed = self.armed.lock().unwrap().take();
+            if let Some((reached, held)) = armed {
+                let _ = reached.send(());
+                let _ = held.await;
+            }
+            self.inner.delete(session_id).await
+        }
+    }
+
     /// How long a step may take before the test calls it hung (a failure bound, not a wait the test relies on).
     const DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -253,6 +302,7 @@ mod tests {
         agents: Arc<Agents>,
         app: MockConnection,
         gate: Arc<Gate>,
+        deletes: Arc<Deletes>,
         summaries: Arc<RoomSummaries>,
         _held: (Rig, mixdog_core_session::session::testing::DataDir),
     }
@@ -263,13 +313,43 @@ mod tests {
             tokio::spawn(async move { value(&*service, request("room/create", with_op(json!({ "input": { "name": "Release", "members": ["gh", "rel"] } }), 1), Some(1))).await })
         }
 
-        /// One room call through the service, its `input` as given; its answer or its error's text.
+        /// One room call through the service, its `input` as given, as the server dispatches it: once it has answered, its reply is
+        /// queued and then the reply's mark set (`AppServer` `on_message`). Its answer or its error's text.
         async fn call(&self, method: &'static str, input: Value, op: u64) -> Result<Value, String> {
-            let service = self.service.clone();
-            let answer = tokio::time::timeout(DEADLINE, async move { value(&*service, request(method, with_op(json!({ "input": input }), op), Some(op))).await })
+            let (answer, replied) = self.call_held(method, input, op).await;
+            replied.mark();
+            answer
+        }
+
+        /// [`Self::call`] up to its answer, the reply's mark not yet set: the moment between the call's answer and its reply queued.
+        async fn call_held(&self, method: &'static str, input: Value, op: u64) -> (Result<Value, String>, ReplyQueued) {
+            let (answering, replied) = self.spawn_held(method, input, op);
+            let answer = tokio::time::timeout(DEADLINE, answering)
                 .await
-                .unwrap_or_else(|_| panic!("{method} answered within the deadline"));
-            answer.map_err(|error| format!("{error:?}"))
+                .unwrap_or_else(|_| panic!("{method} answered within the deadline"))
+                .expect("the call's task");
+            (answer.map_err(|error| format!("{error:?}")), replied)
+        }
+
+        /// The room call running, and the mark of its reply, not yet set.
+        fn spawn_held(&self, method: &'static str, input: Value, op: u64) -> (tokio::task::JoinHandle<Result<Value, mixdog_core_api::CoreError>>, ReplyQueued) {
+            let service = self.service.clone();
+            let req = request(method, with_op(json!({ "input": input }), op), Some(op));
+            // The server's copy: the reply's mark is the test's to set, not the dropped request's.
+            let replied = req.ctx.reply_queued.clone();
+            (tokio::spawn(async move { value(&*service, req).await }), replied)
+        }
+
+        /// A room of every agent, made while every listing fails, its creation's background listing ended: the catalog is not loaded.
+        async fn unloaded_room(&self) -> Value {
+            self.agents.lookup_fails.store(true, std::sync::atomic::Ordering::SeqCst);
+            let members: Vec<&str> = self.agents.roster.iter().map(|(id, _)| id.as_str()).collect();
+            let created = self.call("room/create", json!({ "name": "Release", "members": members }), 1).await.expect("room/create");
+            tokio::time::timeout(DEADLINE, self.summaries.background_ended()).await.expect("the creation's background listing never ended");
+            self.agents.lookup_fails.store(false, std::sync::atomic::Ordering::SeqCst);
+            assert!(!self.list.catalog_loaded(), "the failed listings left the catalog unloaded");
+            drop(self.app.drain_text());
+            created
         }
 
         /// A listing, as a window's first list loads Node's catalog.
@@ -316,44 +396,61 @@ mod tests {
     }
 
     /// Node's room update before any listing answers before its background listing publishes: `deps.republishCatalog()` starts
-    /// `publishCatalogs` (`session-host.ts:355`), whose rows wait for the daemon's `session.list` reply (`session-host.ts:797`), while
-    /// `update` makes its answer in the same tick (`agent-rooms.ts:312-319`); recorded as `not-loaded-large / update-rounds`. Held
-    /// where the update makes its answer (its members' names) and given a turn of the runtime there, the core's background listing
-    /// has not reached its first step (the gate); once the update has answered it does, and its rows come after the answer. The
-    /// test runs as a task of the runtime's one worker, so the turn runs the tasks that are ready there (the session store's
-    /// blocking reads need a multi-threaded runtime).
+    /// `publishCatalogs` (`session-host.ts:355`), whose rows wait for the daemon's `session.list` reply (`session-host.ts:797`), and
+    /// `update` awaits no I/O before its answer (`agent-rooms.ts:312-319`, `deleteSessions([])` loops over nothing); recorded as
+    /// `not-loaded-large / update-rounds`. The core's listing starts inside the call and reads at once. Forced to have its rows in
+    /// hand after the update has answered and before the server has queued the reply, it sends none until the reply's mark is set,
+    /// and then the room's row. The test runs as a task of the runtime's one worker: the listing, told it has its rows in hand,
+    /// runs on until it awaits something before the test sees anything (the session store's blocking reads need a multi-threaded
+    /// runtime).
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn before_any_listing_a_room_update_answers_before_its_background_listing_begins() {
+    async fn before_any_listing_a_room_update_answers_before_its_background_listing_publishes() {
         tokio::spawn(update_before_any_listing()).await.expect("the test task");
     }
 
     async fn update_before_any_listing() {
         let world = composed().await;
-        world.agents.lookup_fails.store(true, std::sync::atomic::Ordering::SeqCst);
-        let created = world.call("room/create", json!({ "name": "Release", "members": ["gh", "rel"] }), 1).await.expect("room/create");
-        tokio::time::timeout(DEADLINE, world.summaries.background_ended()).await.expect("the creation's background listing ended");
-        world.agents.lookup_fails.store(false, std::sync::atomic::Ordering::SeqCst);
-        assert!(!world.list.catalog_loaded(), "the failed listings left the catalog unloaded");
-        drop(world.app.drain_text());
-
-        let (open, mut arrived) = world.gate.arm();
-        let (told, answering) = tokio::sync::oneshot::channel();
-        *world.agents.answering.lock().unwrap() = Some(Box::pin(async move {
-            tokio::task::yield_now().await;
-            let began = arrived.try_recv().is_ok();
-            told.send((began, arrived)).ok().expect("the test waits for the answer");
-        }));
-        let answer = world.call("room/update", json!({ "roomId": created["roomId"], "maxRounds": 4 }), 2).await.expect("room/update");
+        let created = world.unloaded_room().await;
+        let (answer, replied) = world.call_held("room/update", json!({ "roomId": created["roomId"], "maxRounds": 4 }), 2).await;
+        let answer = answer.expect("room/update");
         assert_eq!(answer["maxRounds"], json!(4), "{answer}");
-        let (began, arrived) = answering.await.expect("the update made its answer with the members' names");
-        assert!(!began, "the background listing began before the update answered");
-        assert!(world.sent("thread/summary/updated").is_empty(), "rows were sent before the update answered");
+        tokio::time::timeout(DEADLINE, world.summaries.listing_in_hand()).await.expect("the update's background listing never had its rows in hand");
+        assert!(world.sent("thread/summary/updated").is_empty(), "the background listing sent rows before the update's reply was queued");
 
-        tokio::time::timeout(DEADLINE, arrived).await.expect("the background listing never began").expect("gate");
-        open.send(()).expect("the listing waits at the gate");
-        tokio::time::timeout(DEADLINE, world.summaries.background_ended()).await.expect("the background listing ended");
+        replied.mark();
+        tokio::time::timeout(DEADLINE, world.summaries.background_ended()).await.expect("the update's background listing never ended");
         assert!(world.list.catalog_loaded(), "the background listing loaded the catalog");
-        assert!(world.sent("thread/summary/updated").contains(&log_of(&created)), "the background listing sent the room's row after the answer");
+        assert!(world.sent("thread/summary/updated").contains(&log_of(&created)), "the background listing sent the room's row after the reply");
+    }
+
+    /// Node's room update that removes a member, before any listing, starts the background listing and then deletes the member's
+    /// session (`agent-rooms.ts:312-315`); the deletion first awaits `listSessions()` (`session-host-lifecycle.ts:527`), which joins
+    /// the listing in flight (`session-host.ts:789-790`), so the listing reads before the deletion and publishes before it, before
+    /// the answer. The core's update lets go of the listing there and waits for its end: stopped as the deletion begins, the room's
+    /// row has been sent, the update has not answered and its reply is not queued.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn before_any_listing_a_room_update_removing_a_member_publishes_its_listing_before_the_deletion() {
+        let roster = [("gh", "GH"), ("rel", "Rel"), ("qa", "QA")].map(|(id, name)| (id.to_owned(), name.to_owned())).to_vec();
+        let world = composed_with(Agents::new(roster)).await;
+        let created = world.unloaded_room().await;
+        let (open, arrived) = world.deletes.arm();
+        let (mut updating, replied) = world.spawn_held("room/update", json!({ "roomId": created["roomId"], "members": ["gh", "rel"] }), 2);
+        tokio::time::timeout(DEADLINE, async {
+            tokio::select! {
+                reached = arrived => reached.expect("stop"),
+                answered = &mut updating => panic!("the update answered without deleting the removed member's session: {answered:?}"),
+            }
+        })
+        .await
+        .expect("the update never deleted the removed member's session");
+        assert!(world.sent("thread/summary/updated").contains(&log_of(&created)), "the listing had not sent the room's row when the deletion began");
+        assert!(!updating.is_finished(), "the update answered before its deletion went on");
+
+        open.send(()).expect("the deletion waits at the stop");
+        let answer = tokio::time::timeout(DEADLINE, updating).await.expect("the update never answered").expect("task").expect("room/update");
+        assert_eq!(answer["members"], json!(["gh", "rel"]), "{answer}");
+        replied.mark();
+        assert!(world.list.catalog_loaded(), "the joined listing loaded the catalog");
     }
 
     fn recorded(scenario: &str) -> Value {
@@ -525,24 +622,25 @@ mod tests {
                     }
                     created += 1;
                     let room_id = room.as_ref().map(|r| r["roomId"].clone()).unwrap_or(Value::Null);
-                    // A background listing the call starts runs after its answer; held until what the call sent by then is read.
-                    let release = world.summaries.hold_background();
-                    let answer = match call {
-                        "create" => world.call("room/create", json!({ "name": "Room One", "members": bots }), created).await,
-                        "update" => world.call("room/update", json!({ "roomId": room_id, "name": "Room Renamed" }), created).await,
-                        "update-rounds" => world.call("room/update", json!({ "roomId": room_id, "maxRounds": 4 }), created).await,
-                        "reset" => world.call("room/reset", json!({ "roomId": room_id }), created).await,
-                        "remove" => world.call("room/remove", json!({ "roomId": room_id }), created).await,
+                    let (answer, replied) = match call {
+                        "create" => world.call_held("room/create", json!({ "name": "Room One", "members": bots }), created).await,
+                        "update" => world.call_held("room/update", json!({ "roomId": room_id, "name": "Room Renamed" }), created).await,
+                        "update-rounds" => world.call_held("room/update", json!({ "roomId": room_id, "maxRounds": 4 }), created).await,
+                        "reset" => world.call_held("room/reset", json!({ "roomId": room_id }), created).await,
+                        "remove" => world.call_held("room/remove", json!({ "roomId": room_id }), created).await,
+                        // No client call: nothing waits for a reply (`agent-rooms.ts:339-350`).
                         "forget-member" => {
                             let forget = world.homes.forget_room_member(&bots[2]);
-                            tokio::time::timeout(DEADLINE, forget).await.expect("forget_room_member answered").map(|()| Value::Null).map_err(|error| format!("{error:?}"))
+                            let answer = tokio::time::timeout(DEADLINE, forget).await.expect("forget_room_member answered");
+                            (answer.map(|()| Value::Null).map_err(|error| format!("{error:?}")), ReplyQueued::new())
                         }
                         other => panic!("{what}: a call this replay does not know: {other}"),
                     };
+                    // What the client was sent before the reply: the server queues the reply and then sets its mark.
                     let sent = frames(&world.app);
+                    replied.mark();
                     // Node's recorder awaits the call's background listing to its end before the next step sets its listing fault; so
                     // does the replay, for the core's.
-                    drop(release);
                     tokio::time::timeout(DEADLINE, world.summaries.background_ended())
                         .await
                         .unwrap_or_else(|_| panic!("{what}: the core's background listing did not end"));
@@ -706,7 +804,11 @@ mod tests {
         let gate = Arc::new(Gate { armed: std::sync::Mutex::new(None), agents: agents.clone() });
         let list = Arc::new(ThreadListService::new(Arc::new(index.clone()), Arc::new(Quiet), room_rows, gate.clone()));
         list.fence(store);
-        let sessions = Arc::new(DirectorySessions::new(directory.clone(), Arc::new(SessionThreads::new(directory.clone()))));
+        let deletes = Arc::new(Deletes {
+            inner: Arc::new(DirectorySessions::new(directory.clone(), Arc::new(SessionThreads::new(directory.clone())))),
+            armed: std::sync::Mutex::new(None),
+        });
+        let sessions: Arc<dyn SessionOps> = deletes.clone();
         let deletions = mixdog_core_session::session::thread_edges::ThreadDeletions::new(sections.clone());
         let publication = wire(list.clone(), sections, deletions, agents.clone(), &index, directory, sessions.clone()).expect("wired");
         let ops = data.state(mixdog_core_base::support::testing::op_state(data.path()));
@@ -714,6 +816,6 @@ mod tests {
         // The agent deletion's room ports, as `compose_flip.rs` composes them.
         let homes = SessionHomePorts::new(agents.clone(), sessions, rooms.clone(), publication.host.clone(), Arc::new(Idle));
         let service = Arc::new(RoomService::new(rooms.clone(), publication.host, Arc::new(Idle), scopes, agents.clone()));
-        Composed { service, list, homes, agents, app, gate, summaries: publication.summaries, _held: (rig, data) }
+        Composed { service, list, homes, agents, app, gate, deletes, summaries: publication.summaries, _held: (rig, data) }
     }
 }

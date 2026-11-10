@@ -40,6 +40,9 @@ pub struct CallContext {
     /// Cancelled when the caller's connection closes (RL §4.4): queued lane jobs of the request
     /// are dropped at dequeue; admitted mutations still complete (they carry an op id).
     pub cancel: CancellationToken,
+    /// When the reply has been queued to the caller: what the call starts that must not reach a
+    /// client before its reply waits on [`ReplyQueued::hold`].
+    pub reply_queued: ReplyQueued,
 }
 
 impl CallContext {
@@ -48,6 +51,7 @@ impl CallContext {
             caller: Caller::Connection(id),
             origin,
             cancel,
+            reply_queued: ReplyQueued::new(),
         }
     }
 
@@ -58,7 +62,50 @@ impl CallContext {
             caller: Caller::Internal(name),
             origin: Origin::Local,
             cancel: CancellationToken::new(),
+            reply_queued: ReplyQueued::new(),
         }
+    }
+}
+
+/// Marked by the server right after it has queued the response of the request on the caller's
+/// connection (`AppServer` `on_message`); a frame queued on the connection after that is written
+/// after the response. A caller that queues no reply has none to wait for: the last copy of the
+/// context dropped marks it.
+#[derive(Clone)]
+pub struct ReplyQueued {
+    queued: CancellationToken,
+    _last: Arc<tokio_util::sync::DropGuard>,
+}
+
+impl ReplyQueued {
+    pub fn new() -> Self {
+        let queued = CancellationToken::new();
+        Self {
+            _last: Arc::new(queued.clone().drop_guard()),
+            queued,
+        }
+    }
+
+    /// The reply has been queued.
+    pub fn mark(&self) {
+        self.queued.cancel();
+    }
+
+    /// Cancelled once the reply has been queued, or earlier by its holder.
+    pub fn hold(&self) -> CancellationToken {
+        self.queued.child_token()
+    }
+}
+
+impl Default for ReplyQueued {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for ReplyQueued {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("ReplyQueued").field(&self.queued.is_cancelled()).finish()
     }
 }
 
