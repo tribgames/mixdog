@@ -67,17 +67,17 @@ const canonical = (value) => JSON.stringify(value, (_key, item) => (item && type
 let unanswered = [];
 let where = '';
 // What the replay alone can measure, per answered request in the order the windows asked: how many review frames the connection of
-// the asking window had folded when it asked.
+// the asking window had folded when the pane invoked the read (not when the read was answered).
 let toldAtRead = [];
 // The device (the Electron windows share the desktop's connection; a phone page has its own) each session's pane belongs to.
 const deviceOf = new Map();
 const counts = new Map();
-const windows = new ReviewWindows(kit, async ({ session, request }) => {
+const windows = new ReviewWindows(kit, async ({ session, request, told }) => {
   const at = unanswered.findIndex((recorded) => recorded.client === session && canonical(recorded.request) === canonical(request));
   if (at < 0) throw new Error(`the window of ${session} asked ${canonical(request)}, which the recording never saw at this point (${where}; recorded for this operation: ${unanswered.map((r) => r.client + ' ' + canonical(r.request.args)).join(' | ')})`);
-  toldAtRead.push(counts.get(deviceOf.get(session)) ?? 0);
+  toldAtRead.push(told);
   return unanswered.splice(at, 1)[0].answer;
-});
+}, (session) => counts.get(deviceOf.get(session)) ?? 0);
 
 /** A count that can be waited on: `reach(n)` settles once `bump` has made it at least `n`. */
 const counter = () => {
@@ -193,7 +193,7 @@ const connectPhone = async (name, snapshot) => {
     random: () => options.jitterUnit,
   });
   const phone = { net, socket: await within(`the phone ${name} dialing the core`, net.accept()), seq: snapshot.feed.seq, live: true, folds: counter(), client: null };
-  // A phone page subscribes to the app feed itself once it is connected (phone-view.ts ttach), unlike the desktop connection.
+  // A phone page subscribes to the app feed itself once it is connected (phone-view.ts `attach`), unlike the desktop connection.
   await handshake(phone.socket, true);
   phone.client = await within(`the phone ${name} syncing with the core`, connecting);
   const subscribed = phone.client.subscribeApp();

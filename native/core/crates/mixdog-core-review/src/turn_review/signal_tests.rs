@@ -96,22 +96,56 @@ impl ThreadWorktrees for NoHeaders {
 struct World {
     review: TurnReview,
     shadow: Arc<ShadowRepos>,
-    /// The app feed as a client that subscribed before anything happened sees it: the snapshot, then every frame.
-    app: Arc<MockFeed>,
-    tap: FeedTap,
-    /// One entry per delivery: the app feed's last sequence number once the delivery's listeners had all run.
-    deliveries: Arc<Mutex<Vec<u64>>>,
+    scm: Arc<mixdog_scm::engine::Scm>,
+    /// Every core this scenario ran against, oldest first (a restarted core is a new one: its own app feed, with an epoch of its own),
+    /// each with the app feed as a client that subscribed before anything happened sees it: the snapshot, then every frame.
+    eras: Vec<(Arc<MockFeed>, FeedTap)>,
+    /// The running core's era and app feed, for the delivery recorder.
+    current: Arc<Mutex<(usize, Arc<MockFeed>)>>,
+    /// One entry per delivery: the era of the core that made it, and that core's app feed position once the delivery's listeners
+    /// had all run.
+    deliveries: Arc<Mutex<Vec<(usize, u64)>>>,
     /// The workspace each window pane's session works in.
     panes: Vec<(String, String)>,
     state: Arc<ReadState>,
     processes: Arc<mixdog_spawn::LocalProcessManager>,
-    // Keeps the service (and so its listener) alive for the scenario.
-    _service: Arc<ScmService>,
+    // The running core's scm service (and so its listener) and the delivery recorder's registration.
+    service: Option<Arc<ScmService>>,
+    stop_recording: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
 }
 
 impl World {
     fn delivered(&self) -> usize {
         self.deliveries.lock().unwrap().len()
+    }
+
+    /// The running core's app feed.
+    fn app(&self) -> &Arc<MockFeed> {
+        &self.eras.last().expect("a core is running").0
+    }
+
+    /// Starts a core: the first one, or a restarted one when another ran before (that one is gone with its listener, and the new
+    /// one numbers its feed from the start under an epoch of its own).
+    fn start_core(&mut self) {
+        if let Some(stop) = self.stop_recording.take() {
+            stop();
+        }
+        self.service = None;
+        let era = self.eras.len();
+        let (id, at) = (FeedId::from("app"), epoch(1 + era as u128));
+        let app = Arc::new(MockFeed::new(id.clone(), at.clone(), empty_view(&id, &at), MockLimits::default()));
+        let runtime = StateRuntime::new(app.clone());
+        self.service = Some(ScmService::new(self.scm.clone(), Arc::new(MockScopedFeeds::new(MockLimits::default())), runtime.publisher.clone(), Arc::new(Open), Arc::new(self.review.clone()), Arc::new(NoHeaders)));
+        let scoped: Arc<dyn ScopedFeed> = app.clone();
+        let tap = FeedTap::attach(&scoped);
+        *self.current.lock().unwrap() = (era, app.clone());
+        // A listener of the test's own, registered after the service's: it runs in the same delivery, once the service has published.
+        let (current, ends) = (self.current.clone(), self.deliveries.clone());
+        self.stop_recording = Some(self.shadow.on_review_changed(Arc::new(move || {
+            let (era, feed) = current.lock().unwrap().clone();
+            ends.lock().unwrap().push((era, feed.position().seq));
+        })));
+        self.eras.push((app, tap));
     }
 }
 
@@ -123,22 +157,27 @@ fn world(data: &Path) -> World {
     let git: Arc<dyn ReviewGit> = Arc::new(ScmGit::new(scm.clone()));
     let shadow = Arc::new(ShadowRepos::new(data.join("turn-worktree-snapshots-v1"), git.clone(), disk.clone()));
     let review = TurnReview::new(Config::default(), tokens.cpu_interactive, data, disk, git, Arc::new(ScmWorktrees::new(shadow.clone())), Arc::new(CapturedBases::new()));
-    let (id, at) = (FeedId::from("app"), epoch(1));
-    let app = Arc::new(MockFeed::new(id.clone(), at.clone(), empty_view(&id, &at), MockLimits::default()));
-    let runtime = StateRuntime::new(app.clone());
-    let service = ScmService::new(scm, Arc::new(MockScopedFeeds::new(MockLimits::default())), runtime.publisher.clone(), Arc::new(Open), Arc::new(review.clone()), Arc::new(NoHeaders));
-    let scoped: Arc<dyn ScopedFeed> = app.clone();
-    let tap = FeedTap::attach(&scoped);
-    // A listener of the test's own, registered after the service's: it runs in the same delivery, once the service has published.
-    let deliveries: Arc<Mutex<Vec<u64>>> = Arc::default();
-    let (feed, ends) = (app.clone(), deliveries.clone());
-    shadow.on_review_changed(Arc::new(move || ends.lock().unwrap().push(feed.position().seq)));
     // The composition root's wiring of the tools' read state to the review.
     let state = Arc::new(ReadState::new(None));
     follow_read_state(Arc::new(review.clone()), &state);
-    World { review, shadow, app, tap, deliveries, panes: Vec::new(), state, processes, _service: service }
+    let (id, at) = (FeedId::from("app"), epoch(0));
+    let placeholder = Arc::new(MockFeed::new(id.clone(), at.clone(), empty_view(&id, &at), MockLimits::default()));
+    let mut world = World {
+        review,
+        shadow,
+        scm,
+        eras: Vec::new(),
+        current: Arc::new(Mutex::new((0, placeholder))),
+        deliveries: Arc::default(),
+        panes: Vec::new(),
+        state,
+        processes,
+        service: None,
+        stop_recording: None,
+    };
+    world.start_core();
+    world
 }
-
 fn plain(path: &Path) -> String {
     let text = path.to_string_lossy().into_owned();
     text.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(text)
@@ -236,6 +275,10 @@ async fn replay(scenario: &Value) {
         let ws_text = op.get("ws").and_then(Value::as_str).map(|ws| plain(&roots[ws])).unwrap_or_default();
         let label = format!("{name}: op {index} {op}");
         let kind = op["op"].as_str().unwrap();
+        // A core that restarts while the desktop's link to it is down: the one the operation runs against is a new process.
+        if op["coreRestart"] == true {
+            world.start_core();
+        }
         match kind {
             "git" => {
                 let status = std::process::Command::new("git").args(["init", "-q"]).current_dir(&roots[op["ws"].as_str().unwrap()]).status().unwrap();
@@ -302,7 +345,7 @@ async fn replay(scenario: &Value) {
         // (the feed's own encoding), which the replay hands to that client.
         let dials = kind == "coreReconnect" || op["coreLinkDown"] == true || (kind == "client" && op["kind"] == "phone") || (kind == "phoneLink" && op["state"] == "up");
         if dials {
-            let feed: Arc<dyn ScopedFeed> = world.app.clone();
+            let feed: Arc<dyn ScopedFeed> = world.app().clone();
             let tap = FeedTap::attach_as(&feed, 2 + index as u64);
             let seen = within("the app feed's snapshot for a new subscriber", tap.notifications_until(|seen| !seen.is_empty())).await;
             snapshots.insert(index, seen[0].clone());
@@ -328,18 +371,25 @@ async fn replay(scenario: &Value) {
 
     // What the core published on the app feed, as a client that subscribed first received it: the snapshot, then the frames,
     // split into the deliveries by the feed position each delivery ended at.
-    let published = world.app.position().seq;
-    let seen = within(&format!("the snapshot and {published} frames of the app feed"), world.tap.notifications_until(|seen| seen.len() as u64 > published)).await;
-    let (snapshot, frames) = seen.split_first().expect("the feed's snapshot comes first");
-    assert_eq!(snapshot["method"], "app/snapshot");
-    assert!(frames.iter().all(|frame| frame["method"] == "review/diff/updated"), "{name}: the app feed carried something but the tell");
-    let mut delivery_frames: Vec<Vec<Value>> = Vec::new();
-    let mut from = 0;
-    for upto in world.deliveries.lock().unwrap().iter() {
-        delivery_frames.push(frames[from..*upto as usize].to_vec());
-        from = *upto as usize;
+    let mut frames_of_era: Vec<Vec<Value>> = Vec::new();
+    let mut snapshot = Value::Null;
+    for (era, (app, tap)) in world.eras.iter().enumerate() {
+        let published = app.position().seq;
+        let seen = within(&format!("the snapshot and {published} frames of the app feed of core {era}"), tap.notifications_until(|seen| seen.len() as u64 > published)).await;
+        let (first, frames) = seen.split_first().expect("the feed's snapshot comes first");
+        assert_eq!(first["method"], "app/snapshot");
+        assert!(frames.iter().all(|frame| frame["method"] == "review/diff/updated"), "{name}: the app feed carried something but the tell");
+        if era == 0 {
+            snapshot = first.clone();
+        }
+        frames_of_era.push(frames.to_vec());
     }
-    let rust: Vec<Value> = made
+    let mut delivery_frames: Vec<Vec<Value>> = Vec::new();
+    let mut from = vec![0usize; frames_of_era.len()];
+    for (era, upto) in world.deliveries.lock().unwrap().iter() {
+        delivery_frames.push(frames_of_era[*era][from[*era]..*upto as usize].to_vec());
+        from[*era] = *upto as usize;
+    }    let rust: Vec<Value> = made
         .iter()
         .enumerate()
         .map(|(index, (start, before, after_answer))| {

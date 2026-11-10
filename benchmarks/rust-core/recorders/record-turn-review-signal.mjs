@@ -370,6 +370,31 @@ const scenarios = [
     ],
   },
   {
+    name: 'a desktop whose link to the core is down when the review changes, and a core that restarts',
+    // Its own session name, as for the scenarios above. Node's runtime is in the desktop's own process: it has no link to lose and no
+    // core to restart, so `coreLinkDown`, `coreRestart` and `coreReconnect` change nothing here, and every change of the review is
+    // told to the windows when it is made. The Rust replay has the desktop's connection down during an operation flagged
+    // `coreLinkDown` (the desktop dials again with the core's snapshot at its end), and runs an operation flagged `coreRestart`
+    // against a new core process: a feed of its own, numbered from the start, under another epoch.
+    ops: [
+      { op: 'git', ws: 'w1' },
+      { op: 'file', ws: 'w1', path: 'a.txt', content: T(lines('x', 'y')) },
+      { op: 'client', session: 'k1', ws: 'w1', checkpoint: 'cp1', window: 'K' },
+      { op: 'begin', ws: 'w1', session: 'k1', checkpoint: 'cp1' },
+      // The window attached before any review change, and the first change is made while its link is down.
+      { op: 'edit', ws: 'w1', session: 'k1', path: 'a.txt', old: 'y', new: 'Y', coreLinkDown: true },
+      { op: 'edit', ws: 'w1', session: 'k1', path: 'a.txt', old: 'Y', new: 'Z' },
+      // The core restarts: its first tell has a lower revision than the one the window holds ...
+      { op: 'edit', ws: 'w1', session: 'k1', path: 'a.txt', old: 'x', new: 'X', coreLinkDown: true, coreRestart: true },
+      // ... and an equal one.
+      { op: 'edit', ws: 'w1', session: 'k1', path: 'a.txt', old: 'X', new: 'W', coreLinkDown: true, coreRestart: true },
+      // A restart with no change at all, then a reconnect to the same core with none: nothing to read.
+      { op: 'coreReconnect', coreRestart: true },
+      { op: 'coreReconnect' },
+      { op: 'edit', ws: 'w1', session: 'k1', path: 'a.txt', old: 'Z', new: 'Q' },
+    ],
+  },
+  {
     name: 'a phone page beside a desktop window: its leg down and back, and a phone that attaches late',
     // Its own session names, as for the scenarios above.
     ops: [
