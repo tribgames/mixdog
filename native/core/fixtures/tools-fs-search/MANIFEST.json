@@ -4,8 +4,33 @@
     "what each scenario process left running at its exit (Node's resident search server) is ended with its job and not recorded",
     "the answers of a scenario's warmup calls (they start the search server; the replay runs them too and ignores them)"
   ],
-  "fileCount": 7,
+  "fileCount": 12,
   "files": [
+    {
+      "bytes": 1704,
+      "path": "code-graph-hit-cap-fraction.json",
+      "sha256": "a935a6cbc37124f9d2e34bd74bedbed8df38ae8b9410783132281d8fb9349c79"
+    },
+    {
+      "bytes": 1701,
+      "path": "code-graph-hit-cap-hex.json",
+      "sha256": "e3517126127784b6298eeb994d2c0c01a034292a690c121296037f66117de029"
+    },
+    {
+      "bytes": 1761,
+      "path": "code-graph-hit-cap-nan.json",
+      "sha256": "02b25b949038cfc5f30f6a251dd41d88380d0cd78c47ee5b8ef61f731cf0932f"
+    },
+    {
+      "bytes": 1703,
+      "path": "code-graph-hit-cap-negative.json",
+      "sha256": "efe5bf5bb09aa041355648d8ab563eae03be4361a0f4afeedc7dc997856b5965"
+    },
+    {
+      "bytes": 1759,
+      "path": "code-graph-hit-cap-zero.json",
+      "sha256": "6722b73ab22733c41ee2ee7daa6973d3e61c8b3e33ee260948547c6df2d709a6"
+    },
     {
       "bytes": 74808,
       "path": "code-graph-refs-casing.json",
@@ -79,16 +104,21 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools-fs-search.mjs",
-  "recorderSha256": "3c4b7206551dc975f03e1387eea6cfb2c7622ed4df9d351a6bc3a9a907d6deb9",
+  "recorderSha256": "f91b394baa484e999ca45c8357ff4c6031ee97522019384ae14473f192ad9e0a",
   "scenarios": [
     "read-modes",
     "not-found-hints",
     "code-graph-refs-casing",
+    "code-graph-hit-cap-fraction",
+    "code-graph-hit-cap-hex",
+    "code-graph-hit-cap-negative",
+    "code-graph-hit-cap-zero",
+    "code-graph-hit-cap-nan",
     "read-ipynb",
     "grep-multi-pattern",
     "glob-absolute",
     "list-glob-path"
   ],
   "set": "tools-fs-search",
-  "totalBytes": 112795
+  "totalBytes": 121423
 }
