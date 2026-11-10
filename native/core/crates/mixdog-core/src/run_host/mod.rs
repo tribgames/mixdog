@@ -113,6 +113,7 @@ pub mod title_completion;
 pub mod thread_todos;
 pub mod directory_sessions;
 pub mod room_list;
+pub mod room_publication;
 #[cfg(test)]
 mod roster_rows_tests;
 pub mod room_approvals;

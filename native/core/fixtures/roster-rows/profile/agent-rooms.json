@@ -1,6 +1,6 @@
 {
   "rooms": {
-    "loywcfpca9cf1847": {
+    "loywcexka9cf1847": {
       "name": "Release check",
       "members": [
         "gh",
@@ -9,12 +9,12 @@
       "maxRounds": 3,
       "maxMessages": 8,
       "shareTools": false,
-      "id": "loywcfpca9cf1847",
-      "createdAt": 1700000401000,
+      "id": "loywcexka9cf1847",
+      "createdAt": 1700000400000,
       "cursors": {},
       "running": null
     },
-    "loywch8w7094caab": {
+    "loywcgh47094caab": {
       "name": "Gone log",
       "members": [
         "rel",
@@ -23,8 +23,8 @@
       "maxRounds": 3,
       "maxMessages": 8,
       "shareTools": false,
-      "id": "loywch8w7094caab",
-      "createdAt": 1700000403000,
+      "id": "loywcgh47094caab",
+      "createdAt": 1700000402000,
       "cursors": {},
       "running": null
     }

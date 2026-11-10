@@ -1,19 +1,18 @@
 {
   "version": 2,
   "titles": {
-    "sess_4242_1700000000008_1700000027000_30e79a81dad8db6ca8206547703a9dc0": "Old sidebar title",
     "sess_home_kestrel": "Kestrel"
   },
   "names": {
     "sess_4242_1700000000001_1700000003000_15564abbf59b4dd1ed3fda0fab4c34a5": "My task",
-    "sess_room_loywcfpca9cf1847": "Release check",
-    "sess_room_loywch8w7094caab": "Gone log"
+    "sess_room_loywcexka9cf1847": "Release check",
+    "sess_room_loywcgh47094caab": "Gone log"
   },
   "archived": {
-    "sess_4242_1700000000005_1700000021000_d04fb1bb0c27a1e963bdecaf8465d744": 1700000033000
+    "sess_4242_1700000000005_1700000021000_d04fb1bb0c27a1e963bdecaf8465d744": 1700000032000
   },
   "favorites": {
-    "sess_4242_1700000000006_1700000023000_169270d6ab6489d0cbf2f2a3a88e55ae": 1700000033000
+    "sess_4242_1700000000006_1700000023000_169270d6ab6489d0cbf2f2a3a88e55ae": 1700000032000
   },
   "reads": {
     "sess_4242_1700000000007_1700000025000_723a9bf4be8bbc57c37df6646c7b6f87": {
@@ -28,6 +27,6 @@
     }
   },
   "retired": {
-    "sess_home_kestrel": 1700000399000
+    "sess_home_kestrel": 1700000398000
   }
 }

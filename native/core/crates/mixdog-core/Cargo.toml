@@ -63,6 +63,7 @@ count-work = ["mixdog-ai/count-work", "mixdog-core-config/count-work", "mixdog-c
 
 [dev-dependencies]
 mixdog-core = { path = ".", features = ["count-work"] }
+bytes = { workspace = true }
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-migrate = { workspace = true }
 mixdog-core-review = { workspace = true, features = ["test-support"] }

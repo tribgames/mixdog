@@ -177,16 +177,37 @@ pub struct ThreadListService {
     task_workspace: Arc<dyn TaskWorkspace>,
     /// Told of every row this service shows (see [`CatalogObserver`]).
     observer: OnceLock<Arc<dyn CatalogObserver>>,
+    /// The index writes still queued behind the barriers already acknowledged (see [`ListFence`]).
+    fence: OnceLock<Arc<dyn ListFence>>,
+}
+
+/// What makes a list no older than the writes whose reply or notification has been sent: Node's list is built from live state
+/// synchronously with its writes, and the index here is written behind the acknowledged barrier.
+pub trait ListFence: Send + Sync {
+    /// `None` when no projection is pending (the idle list pays one atomic load); otherwise the wait until the index holds
+    /// every projection already queued.
+    fn pending(&self) -> Option<futures::future::BoxFuture<'static, ()>>;
 }
 
 impl ThreadListService {
     pub fn new(store: Arc<SqliteStore>, overlay: Arc<dyn ListOverlay>, rooms: Arc<dyn ListRooms>, task_workspace: Arc<dyn TaskWorkspace>) -> Self {
-        Self { store, overlay, rooms, task_workspace, observer: OnceLock::new() }
+        Self { store, overlay, rooms, task_workspace, observer: OnceLock::new(), fence: OnceLock::new() }
     }
 
     /// Connects the observer of the published catalog. Set once.
     pub fn observe(&self, observer: Arc<dyn CatalogObserver>) {
         let _ = self.observer.set(observer);
+    }
+
+    /// Connects the fence of the index writes. Set once.
+    pub fn fence(&self, fence: Arc<dyn ListFence>) {
+        let _ = self.fence.set(fence);
+    }
+
+    async fn caught_up(&self) {
+        if let Some(wait) = self.fence.get().and_then(|fence| fence.pending()) {
+            wait.await;
+        }
     }
 
     fn published(&self, ids: &[&str]) {
@@ -209,6 +230,7 @@ impl ThreadListService {
     /// The row `thread/list` shows for `id`; `None` when the listing has none.
     pub async fn summary(&self, id: &ThreadId) -> Result<Option<ThreadSummary>, CoreError> {
         let workspace = self.workspace().await?;
+        self.caught_up().await;
         let listed = self.store.lead_row(id.as_str()).await.map_err(|error| failed(DOMAIN, error.to_string()))?;
         let Some(listed) = listed else { return Ok(None) };
         self.summary_of(id, &listed, &workspace).await
@@ -248,6 +270,7 @@ impl ThreadListService {
         // Node's catalog is whole: the rooms it makes up rows for lead it, so they belong to the unfiltered first page.
         let whole = after.is_none() && params.archived.is_none() && params.cwd.is_none();
         let filter = LeadFilter { archived: params.archived, cwd: params.cwd };
+        self.caught_up().await;
         let page = self.store.lead_page(after, filter, limit).await.map_err(|error| failed(DOMAIN, error.to_string()))?;
         let next_cursor = if page.more { page.rows.last().map(|row| encode_catalog_cursor(&row.row)) } else { None };
         let rows = page
@@ -303,10 +326,15 @@ impl RoomSummaries {
 
     /// `deps.republishCatalog` (`session-host.ts:357-360`) as a room call waits for it: the writes acked so far are in the
     /// index, the announcements they caused are published, then every room's row is.
-    pub async fn republish_settled(&self) {
-        self.directory.indexed().await;
-        self.edges.settled().await;
-        self.publish().await;
+    ///
+    /// Node's publish throws into the room call (`agent-rooms.ts:289`), which then rejects with the room already saved; so does
+    /// this: the error is the rooms that could not be read, a room log whose projection failed, a row announcement that could
+    /// not be built, or a row that could not be published.
+    pub async fn republish_settled(&self) -> Result<(), CoreError> {
+        let rooms = self.list.rooms.room_threads().await.map_err(|error| failed(DOMAIN, error))?;
+        self.directory.indexed(&rooms).await?;
+        self.edges.settled().await.map_err(|error| failed(DOMAIN, error))?;
+        self.publish_rooms().await
     }
 
     /// The room service's republish input (`SessionRoomHost::new(.., republish)`): starts a pass,
@@ -352,22 +380,28 @@ impl RoomSummaries {
 
     /// One pass: every room's log row, published.
     pub async fn publish(&self) {
+        if let Err(error) = self.publish_rooms().await {
+            tracing::warn!(?error, "room summaries: not published");
+        }
+    }
+
+    /// The pass; the rooms that could not be read, or else the first row that could not be, is the error (after the other rows went out).
+    async fn publish_rooms(&self) -> Result<(), CoreError> {
         let _pass = self.pass.acquire().await;
-        let threads = match self.list.rooms.room_threads().await {
-            Ok(threads) => threads,
-            Err(error) => {
-                tracing::warn!(%error, "room summaries: the rooms could not be read");
-                return;
-            }
-        };
+        let threads = self.list.rooms.room_threads().await.map_err(|error| failed(DOMAIN, error))?;
+        let mut first = None;
         for id in threads {
             match self.list.summary(&id).await {
                 Ok(Some(thread)) => self.app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread }),
                 // A log thread with no listed row (not stored yet, or deleted) has nothing to show.
                 Ok(None) => {}
-                Err(error) => tracing::warn!(?error, thread = id.as_str(), "room summaries: the row could not be read"),
+                Err(error) => {
+                    tracing::warn!(?error, thread = id.as_str(), "room summaries: the row could not be read");
+                    first.get_or_insert(error);
+                }
             }
         }
+        first.map_or(Ok(()), Err)
     }
 }
 
@@ -451,6 +485,49 @@ mod tests {
         }
     }
 
+    /// The fence of a projection held at a gate: it opens once the write has been committed behind it.
+    struct Gate(std::sync::Mutex<Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>>);
+    impl ListFence for Gate {
+        fn pending(&self) -> Option<futures::future::BoxFuture<'static, ()>> {
+            let (reached, held) = self.0.lock().unwrap().take()?;
+            Some(Box::pin(async move {
+                drop(reached.send(()));
+                drop(held.await);
+            }))
+        }
+    }
+
+    /// A list issued while a committed write is still behind the projector answers with that write once the projector has applied
+    /// it, never with the row from before (Node builds its list from live state, so a list after a reply cannot be older than it).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_list_waits_for_the_projection_pending_behind_a_committed_write() {
+        let golden = golden();
+        let data = tempfile::tempdir().expect("data dir");
+        let service = Arc::new(service(data.path(), &golden).await);
+        let (open, held) = tokio::sync::oneshot::channel();
+        let (reached, waiting) = tokio::sync::oneshot::channel();
+        service.fence(Arc::new(Gate(std::sync::Mutex::new(Some((reached, held))))));
+        let entry = &golden["sessions"][0];
+        let id = entry["record"]["id"].as_str().expect("id").to_owned();
+        let listing = {
+            let service = service.clone();
+            tokio::spawn(async move { value(&*service, request(LIST, json!({ "limit": 100 }), None)).await.expect("thread/list") })
+        };
+        // The list has to be at the gate before the projector applies the write, or it could read either row.
+        tokio::time::timeout(std::time::Duration::from_secs(10), waiting)
+            .await
+            .expect("the list never waited for the pending projection")
+            .expect("gate");
+        // The projector applies the write, then lets the waiting list go.
+        let mut header = entry["record"].as_object().expect("record").clone();
+        header.shift_remove("messages");
+        header.insert("title".into(), json!("after-the-write"));
+        service.store.upsert(CatalogHead { session: id.clone(), log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.expect("upsert");
+        open.send(()).expect("the list is waiting at the gate");
+        let listed = listing.await.expect("list task");
+        let row = listed["data"].as_array().expect("data").iter().find(|row| row["id"] == id.as_str()).expect("the row is listed");
+        assert!(row.to_string().contains("after-the-write"), "{row}");
+    }
     /// Every page `listStoredSessionSummaryPage` answered over Node's crafted records (the limit
     /// rules, the order, `nextCursor`), and the rows of those pages as Node's `_sessionSummary` built
     /// them. A limit the protocol cannot carry (negative, fractional) is refused by the wire type

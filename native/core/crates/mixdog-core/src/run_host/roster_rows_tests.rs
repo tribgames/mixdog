@@ -188,8 +188,17 @@ async fn the_roster_over_stored_sessions_and_rooms_is_nodes_roster_row_for_row()
     assert!(want.iter().any(|row| row["id"] == answers["ids"]["listedRoom"]), "the recording holds a room whose log is listed");
     let ids = |rows: &[Value]| rows.iter().map(|row| row["id"].clone()).collect::<Vec<_>>();
     assert_eq!(ids(&got), ids(&want), "the same sessions in the same order");
+    // Node lists a legacy json session straight off its file, which leaves the row without `compactCount` (its compaction record
+    // is not decoded there: `store-summary-catalog.mjs:272`); the migrated session is a log whose row carries its record's own.
+    let legacy = answers["ids"]["old"].as_str().expect("legacy id");
+    let record: Value = serde_json::from_slice(&std::fs::read(fixture().join(format!(".mixdog/data/sessions/{legacy}.json"))).expect("the legacy file")).expect("json");
     for (got, want) in got.iter().zip(&want) {
-        assert_eq!(got, want, "row of {}", want["id"]);
+        let mut want = want.clone();
+        if want["id"] == legacy {
+            assert!(want.get("compactCount").is_none(), "Node's row of the legacy file carries no compactCount");
+            want["compactCount"] = record["compaction"]["compactCount"].clone();
+        }
+        assert_eq!(got, &want, "row of {}", want["id"]);
     }
 }
 

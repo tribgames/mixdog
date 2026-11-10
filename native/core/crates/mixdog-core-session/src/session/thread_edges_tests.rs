@@ -115,6 +115,8 @@ async fn the_notifications_are_the_changes_of_nodes_roster_for_every_trigger() {
     let source: Arc<dyn FeedSource> = feed.clone();
     let attached = mixdog_core_api::feed::subscribe(&source, "app".into(), mixdog_core_api::feed::Window::Fixed, None, &app).unwrap();
     mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
+    // What the subscription itself sent is not part of what the writes announce.
+    drop(app.drain_text());
     let section = Arc::new(mixdog_core_base::state::SectionFeedState::new(feed));
 
     let mut published = 0;
@@ -141,7 +143,6 @@ async fn the_notifications_are_the_changes_of_nodes_roster_for_every_trigger() {
             let sent: Vec<(String, Value)> = app
                 .drain_text()
                 .into_iter()
-                .filter(|text| text.contains("thread/"))
                 .map(|text| serde_json::from_str::<Value>(&text[text.find('{').expect("json body")..]).unwrap_or_else(|error| panic!("{error}: {text}")))
                 .map(|frame| (frame["method"].as_str().unwrap_or_default().to_owned(), frame["params"].clone()))
                 .collect();
@@ -196,13 +197,15 @@ fn the_roster_gate_keeps_the_rows_node_kept() {
     }
 }
 
-/// A room call waits for `settled`: the edges written before it are published when it returns (Node publishes the catalog before
-/// `createAgentRoom` answers). The recorded first write of the `schedule` trigger announces its row as `thread/started`.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn settled_returns_after_the_written_rows_are_announced() {
-    let golden = golden();
-    let step = &golden["triggers"].as_array().unwrap().iter().find(|t| t["name"] == "schedule").expect("trigger")["steps"][0];
-    assert!(step["published"] == true && step["lookup"]["ok"] == true);
+/// The index, the feed and the edge publisher over one store, with the task workspace lookup answering `workspace` (`None`: it fails).
+struct Wired {
+    store: Arc<SqliteStore>,
+    edges: Arc<super::thread_edges::ThreadEdges>,
+    app: MockConnection,
+    _data: tempfile::TempDir,
+}
+
+async fn wired(workspace: Option<String>) -> Wired {
     let data = tempfile::tempdir().expect("data dir");
     let tokens = mixdog_rt::testing::tokens();
     let root = data.path().to_path_buf();
@@ -221,17 +224,62 @@ async fn settled_returns_after_the_written_rows_are_announced() {
     let source: Arc<dyn FeedSource> = feed.clone();
     let attached = mixdog_core_api::feed::subscribe(&source, "app".into(), mixdog_core_api::feed::Window::Fixed, None, &app).unwrap();
     mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
-    let workspace = Arc::new(Workspace(Mutex::new(Some(step["lookup"]["path"].as_str().expect("path").to_owned()))));
+    // What the subscription itself sent is not part of what the writes announce.
+    drop(app.drain_text());
+    let workspace = Arc::new(Workspace(Mutex::new(workspace)));
     let list = Arc::new(ThreadListService::new(store.clone(), Arc::new(Idle), Arc::new(NoRooms), workspace.clone()));
     let edges = super::thread_edges::ThreadEdges::start(ThreadEdgePublisher::new(list, Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)), workspace));
     store.observe_rows(edges.clone()).expect("sink");
+    Wired { store, edges, app, _data: data }
+}
 
+/// How long a fence may take before the test calls it hung (a failure bound, not a wait the test relies on).
+const DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The first write of Node's `schedule` trigger, written through the real index.
+async fn write_first_schedule_row(wired: &Wired, step: &Value) -> String {
     let mut header = step["record"].as_object().expect("record").clone();
     header.shift_remove("messages");
     let id = header["id"].as_str().expect("id").to_owned();
-    store.upsert(CatalogHead { session: id.clone(), log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.expect("upsert");
-    edges.settled().await;
-    let started: Vec<String> = app.drain_text().into_iter().filter(|text| text.contains("thread/started")).collect();
-    assert_eq!(started.len(), 1, "{started:?}");
-    assert!(started[0].contains(&format!(r#""id":"{id}""#)), "{}", started[0]);
+    wired.store.upsert(CatalogHead { session: id.clone(), log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.expect("upsert");
+    id
+}
+
+fn schedule_step(golden: &Value) -> Value {
+    golden["triggers"].as_array().unwrap().iter().find(|t| t["name"] == "schedule").expect("trigger")["steps"][0].clone()
+}
+
+/// A room call waits for `settled`: the edges written before it are published when it returns (Node publishes the catalog before
+/// `createAgentRoom` answers). What the feed has been sent by then is the whole of Node's recorded notifications for the write
+/// (`changes` of the recorded roster), compared whole.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn settled_returns_after_the_written_rows_are_announced() {
+    let golden = golden();
+    let step = schedule_step(&golden);
+    assert!(step["published"] == true && step["lookup"]["ok"] == true);
+    let wired = wired(Some(step["lookup"]["path"].as_str().expect("path").to_owned())).await;
+    write_first_schedule_row(&wired, &step).await;
+    tokio::time::timeout(DEADLINE, wired.edges.settled()).await.expect("settled answered within the deadline").expect("the rows were announced");
+    let sent: Vec<(String, Value)> = wired
+        .app
+        .drain_text()
+        .into_iter()
+        .map(|text| serde_json::from_str::<Value>(&text[text.find('{').expect("json body")..]).unwrap_or_else(|error| panic!("{error}: {text}")))
+        .map(|frame| (frame["method"].as_str().unwrap_or_default().to_owned(), frame["params"].clone()))
+        .collect();
+    let want = changes(&[], step["roster"].as_array().expect("roster"));
+    assert!(!want.is_empty());
+    assert_eq!(sent, want, "the feed at the moment settled answered");
+}
+
+/// A write whose task workspace lookup fails is held back (Node's refresh rejects and publishes nothing): `settled` says so instead
+/// of reporting the rows announced.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn settled_says_when_the_written_rows_are_held_back() {
+    let golden = golden();
+    let wired = wired(None).await;
+    write_first_schedule_row(&wired, &schedule_step(&golden)).await;
+    let error = tokio::time::timeout(DEADLINE, wired.edges.settled()).await.expect("settled answered within the deadline").expect_err("the rows are held back");
+    assert!(error.contains("held back"), "{error}");
+    assert!(wired.app.drain_text().is_empty(), "nothing is announced while the lookup fails");
 }
