@@ -30,8 +30,6 @@ use mixdog_core_api::domain::repo::ObjectId;
 use mixdog_core_api::domain::repo::RepoEvidence;
 use mixdog_core_api::domain::repo::RepoInspector;
 use mixdog_core_api::domain::repo::RepoRef;
-use mixdog_core_api::domain::repo::ReviewRequest;
-use mixdog_core_api::domain::repo::ReviewScope;
 use mixdog_core_api::feed::ScopedFeeds;
 use mixdog_core_api::feed::Window;
 use mixdog_core_api::ids::ConnectionId;
@@ -41,6 +39,7 @@ use mixdog_core_api::state::SectionChange;
 use mixdog_core_api::turn_review::ChangesRead;
 use mixdog_core_api::turn_review::ReviewError;
 use mixdog_core_api::turn_review::ReviewRead;
+use mixdog_core_api::turn_review::ReviewUnsubscribe;
 use mixdog_core_api::turn_review::TurnReviewApi;
 use mixdog_core_api::DomainService;
 use mixdog_protocol::FeedId;
@@ -87,6 +86,9 @@ pub trait ThreadWorktrees: Send + Sync {
 
 /// `hostState` key of the global git identity (`{name, email, defaultBranch}`), published after each write.
 pub const GIT_CONFIG_KEY: &str = "gitConfig";
+/// The body of the `reviewDiff` publication, the app-wide tell to read the review again: Node's `turn-review-changed` carries no
+/// data, and the windows read nothing from it.
+pub const REVIEW_REREAD: &[u8] = b"{}";
 const GATE_OFF: &str = "Enable Git & GitHub in Extensions → Plugin before using GitHub actions.";
 
 struct GitWatch {
@@ -125,6 +127,14 @@ pub struct ScmService {
     flows: Mutex<HashMap<LoginFlowId, Arc<Flow>>>,
     flow_seq: AtomicU64,
     watches: Mutex<HashMap<String, Arc<GitWatch>>>,
+    /// The review listener's unsubscribe: the service's `stopTurnReviewPush`.
+    stop_review_push: ReviewUnsubscribe,
+}
+
+impl Drop for ScmService {
+    fn drop(&mut self) {
+        let _ = (self.stop_review_push)();
+    }
 }
 
 fn invalid(error: serde_json::Error) -> CoreError {
@@ -217,6 +227,13 @@ impl ScmService {
         reviews: Arc<dyn TurnReviewApi>,
         worktrees: Arc<dyn ThreadWorktrees>,
     ) -> Arc<Self> {
+        // Node's one `onTurnReviewChanged` consumer forwards the signal as the data-less global `turn-review-changed` event
+        // (`desktop-service.ts:1058`), which every window answers by rereading the review of each session it shows
+        // (`use-turn-review-reads.ts`). The same tell is one app-wide `reviewDiff` revision, whatever the windows show.
+        let review_publisher = Arc::clone(&publisher);
+        let stop_review_push = reviews.on_review_changed(Arc::new(move || {
+            review_publisher.publish(SectionName::ReviewDiff, None, SectionChange::Set(Bytes::from_static(REVIEW_REREAD)));
+        }));
         Arc::new(Self {
             login: scm.github_login(),
             scm,
@@ -228,6 +245,7 @@ impl ScmService {
             flows: Mutex::new(HashMap::new()),
             flow_seq: AtomicU64::new(0),
             watches: Mutex::new(HashMap::new()),
+            stop_review_push,
         })
     }
 
@@ -427,42 +445,6 @@ impl ScmService {
             }
             _ => crate::phone_review::git_review(git, self.scm.lane, cancel, &dir, checked.text(1)).await,
         }
-    }
-    /// Computes the review of `thread` and publishes its summary (the `reviewDiff` section);
-    /// called after a run ends and after repository evidence, so clients never poll.
-    pub async fn publish_review(
-        self: &Arc<Self>,
-        thread: &ThreadId,
-        cwd: PathBuf,
-        base: ObjectId,
-        cancel: &CancellationToken,
-    ) -> Result<(), ScmFailure> {
-        let repo = self.scm.open(&cwd, cancel).await?;
-        let summary = self
-            .scm
-            .inspector
-            .review_summary(
-                self.scm.lane,
-                ReviewRequest {
-                    repo: repo.repo_ref()?,
-                    scope: ReviewScope::Session { thread_id: thread.clone() },
-                    base,
-                },
-            )
-            .await
-            .map_err(crate::mutate::scm_error)?;
-        let files: Vec<Value> = summary
-            .files
-            .iter()
-            .map(|f| json!({ "path": f.path, "status": kind_letter(f.status), "adds": f.adds, "dels": f.dels }))
-            .collect();
-        let value = json!({ "key": key_text(&summary.key), "summary": { "files": files } });
-        self.publisher.publish(
-            SectionName::ReviewDiff,
-            Some(thread.as_str().to_owned()),
-            SectionChange::Set(Bytes::from(serde_json::to_vec(&value).unwrap_or_default())),
-        );
-        Ok(())
     }
 
     /// `githubRequest`, its directory and request already checked (`input::node_args`), as Node's host checked them before its
