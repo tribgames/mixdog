@@ -86,6 +86,8 @@ function recordScenario(scenario) {
         windowsHide: true,
         maxBuffer: 64 * 1024 * 1024,
       });
+      // A leg that did not finish in time is ended here (it starts no process of its own) and is no crash at a gate.
+      if (child.error) throw new Error(`${scenario.name}: the leg did not finish within 120 s: ${child.error.message}`);
       for (const line of child.stdout.split('\n').filter((text) => text.startsWith('{'))) {
         const done = JSON.parse(line);
         steps[done.index] = { step: scenario.steps[done.index], reply: done.reply, daemonCalls: done.daemonCalls, ...pickState(done) };
