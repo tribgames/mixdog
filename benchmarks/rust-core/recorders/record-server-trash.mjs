@@ -79,14 +79,25 @@ mkdirSync(join(root, 'locked'));
 writeFileSync(join(root, 'locked', 'child.txt'), 'held');
 const holder = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
   `$f=[IO.File]::Open('${join(root, 'locked', 'child.txt')}','Open','Read','None'); 'held'; [Console]::In.ReadLine() | Out-Null; $f.Close()`], { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true });
-await new Promise((resolve, reject) => {
-  const timer = setTimeout(() => reject(new Error('the holder did not open the child within 60000 ms')), 60_000);
-  holder.stdout.setEncoding('utf8').on('data', (text) => text.includes('held') && (clearTimeout(timer), resolve()));
-  holder.once('exit', (code) => (clearTimeout(timer), reject(new Error(`the holder exited (${code}) before it held the child`))));
-});
-steps.push({ op: 'delete', held: 'locked/child.txt', rel: 'locked', answer: await run([root, 'locked', true]) });
-holder.stdin.end('\n');
-await new Promise((resolve) => holder.once('exit', resolve));
+const holderExit = new Promise((resolve) => holder.once('exit', resolve));
+try {
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('the holder did not open the child within 60000 ms')), 60_000);
+    holder.stdout.setEncoding('utf8').on('data', (text) => text.includes('held') && (clearTimeout(timer), resolve()));
+    holder.once('exit', (code) => (clearTimeout(timer), reject(new Error(`the holder exited (${code}) before it held the child`))));
+  });
+  steps.push({ op: 'delete', held: 'locked/child.txt', rel: 'locked', answer: await run([root, 'locked', true]) });
+} finally {
+  // Ended on every path: asked to close its file, and killed if it has not exited within 30000 ms.
+  holder.stdin.end('\n');
+  let timer;
+  const ended = await Promise.race([holderExit.then(() => true), new Promise((resolve) => (timer = setTimeout(() => resolve(false), 30_000)))]);
+  clearTimeout(timer);
+  if (!ended) {
+    holder.kill();
+    throw new Error('the holder did not exit within 30000 ms of being told to close its file; it was killed');
+  }
+}
 
 const out = stageSet(FIXTURES);
 writeJson(join(out, 'golden.json'), {

@@ -1,36 +1,65 @@
 // How a replayed phone-terminal trace is compared with Node's recordings (apps/mobile/fixtures/phone-terminal/runs.json: every run the
-// recorder made, none dropped). Each of the two ordered lists (`order`, `claims.order`) is compared whole:
-//   1. its entries that are not output (answers, pushes, fires, lane switches, clock steps, screen checkpoints), position by position
-//      with each of Node's runs: where the runs agree on an entry it must be theirs exactly, where they recorded different values (a
-//      replay's bytes) that one entry is left out and named;
-//   2. per tab and per slot (the stretch after one of those entries), the output frames the phone got there: their place and their
-//      boundaries, exactly where the runs agree; and per slot, which tab's frame came after which, where the runs agree;
-//   3. per tab, the whole output stream where the runs agree, and its exit line with the recorded code whenever the tab exits.
-// The one variation Node recorded in the entries themselves: a disposed tab's shell, ending, may report one more command, a `running`
-// then a `null` activity after the dispose answer and before the exit line (four of the five claim tabs did, in some of five runs; the
-// five are disposed by the same calls at the same moment, so that variation is accepted for each of them, once, at that place, and
-// nothing else is). The replay window's boundary cases (`trace.replayWindow`) are compared by mixdog-spawn tests/terminal.rs
-// `the_replay_window_is_nodes_at_its_boundary`.
+// recorder made, none dropped). Every field of a run is compared: its three ordered lists `order`, `claims.order` and `immediate.order`.
+// (golden.json's `replayWindow` is compared by mixdog-spawn tests/terminal.rs `the_replay_window_is_nodes_at_its_boundary` and
+// remote-protocol-terminal-replay.test.mjs.) Values are compared by strict deep equality (null is not undefined, no field is ignored).
+//
+// One rule for each list, in its one global order:
+//   - Output: consecutive output frames of one tab (all their fields but `data` equal) are one run, compared as one entry whose data is
+//     the frames' bytes joined: where the frames are cut is the relay's 16 ms timing, which neither side decides here and which is proved
+//     exactly by the scripted framing recording (apps/mobile/fixtures/relay-framing, mixdog-spawn service::relay_buffer
+//     `the_frames_are_nodes_for_the_recorded_script`).
+//   - Every other entry (answers, pushes of every tab, fires, lane switches, clock steps, checkpoints) is compared at its position.
+//   - Where Node's runs all agree, the trace must be theirs exactly: output's position among all entries and its bytes included.
+//     Where they disagree, only the smallest disagreeing unit is left out and named in `leftOut`: one entry's value, or one tab's output
+//     bytes in one stretch between two non-output entries (and then the order of the runs in that stretch). Each tab's whole output is
+//     compared besides, wherever the runs agree on it.
+//   - A tab that exits in every run ends its output with `[process exited with code N]\r\n`, N the recorded code (a code the runs
+//     disagree on is named; the line is required all the same).
+//
+// The one variation in the entries themselves: a disposed PowerShell tab may report one `running` then one `null` activity after its
+// dispose answer and before its exit line. The mechanism (Node, b6f10295a): Mixdog's PowerShell integration wraps PSConsoleHostReadLine
+// and writes the `C` marker when the read returns (terminal-shell-integration.ts:38-41); a tab disposed while it waits at its prompt has
+// its console closed (terminal-manager.ts:543), the read returns, and whether that `C` reaches the PTY before the console is gone is a race.
+// When it does, the marker starts a command (terminal-activity.ts `marker`: running) and the exit then ends it
+// (terminal-manager.ts:378-383: activity.exit(), null, then the exit line). Every tab below is PowerShell with that integration, disposed
+// at its prompt, so the mechanism covers each of them alike; nothing else is accepted, and each pair taken out is named in `leftOut`.
 import assert from 'node:assert/strict';
+import { isDeepStrictEqual } from 'node:util';
+
+const PARTS = ['order', 'claims.order', 'immediate.order'];
+const POWERSHELL_AT_PROMPT = new Set(['term_ph2a', 'term_ph2_l1', 'term_ph2_l2', 'term_ph2_l4', 'term_ph2_l5', 'term_ph2_l6', 'term_ph2_i1', 'term_ph2_i2']);
+const EXIT_AT_END = /\[process exited with code (-?\d+)\]\r\n$/;
+const EXIT_ANYWHERE = /\[process exited with code -?\d+\]\r\n/;
 
 const isData = (entry) => entry.push === 'termData';
-const pick = (trace, part) => part.split('.').reduce((value, key) => value[key], trace);
-const key = (value) => JSON.stringify(value ?? null);
-const EXIT_LINE = /\[process exited with code -?\d+\]/;
+const pick = (trace, part) => part.split('.').reduce((value, key) => value?.[key], trace);
+const show = (value) => JSON.stringify(value === undefined ? '<absent>' : value)?.slice(0, 600);
+const withoutData = (entry) => ({ ...entry, event: { ...entry.event, data: undefined } });
 
-/** The list without the variation Node recorded: a `running` activity of a tab after its dispose answer, and the `null` that must follow
- *  it before the tab's exit line, are taken out (once per disposal); every other entry stays and is compared. */
-function withoutDisposalActivity(list, part) {
-  // tab -> 'disposed' | 'running' (the extra pair is open) | 'done' (it was taken once)
+/** The list without the PowerShell disposal pairs (named in `leftOut`); anything else around a disposal stays and is compared. */
+function withoutDisposalPairs(list, part, leftOut) {
   const state = new Map();
+  const text = new Map();
   const kept = [];
   for (const entry of list) {
-    if (entry.call === 'termEnsure') state.delete(entry.params[0]);
+    if (entry.call === 'termEnsure') {
+      state.delete(entry.params[0]);
+      text.delete(entry.params[0]);
+    }
     if (entry.call === 'termDispose' && !('error' in entry)) state.set(entry.params[0], 'disposed');
-    if (entry.push === 'activity') {
+    if (isData(entry)) {
+      const id = entry.event.id;
+      text.set(id, (text.get(id) ?? '') + entry.event.data);
+      if (EXIT_ANYWHERE.test(text.get(id))) {
+        assert.notEqual(state.get(id), 'running', `${part}: ${id} exited while running after its dispose answer (the exit's null was missing)`);
+        if (state.has(id)) state.set(id, 'exited');
+      }
+    }
+    if (entry.push === 'activity' && POWERSHELL_AT_PROMPT.has(entry.event.id)) {
       const { id, state: activity } = entry.event;
       if (activity === 'running' && state.get(id) === 'disposed') {
         state.set(id, 'running');
+        leftOut.push(`${part}: ${id}'s running/null pair after its dispose answer`);
         continue;
       }
       if (activity === null && state.get(id) === 'running') {
@@ -38,71 +67,85 @@ function withoutDisposalActivity(list, part) {
         continue;
       }
     }
-    if (isData(entry) && EXIT_LINE.test(entry.event.data)) {
-      assert.ok(state.get(entry.event.id) !== 'running', `${part}: ${entry.event.id} exited while running after its dispose answer; Node: a running after the dispose ends (null) before the exit line`);
-    }
     kept.push(entry);
   }
-  for (const [id, at] of state) assert.ok(at !== 'running', `${part}: ${id}'s running after its dispose answer never ended`);
+  for (const [id, at] of state) assert.notEqual(at, 'running', `${part}: ${id}'s running after its dispose answer never ended`);
   return kept;
 }
 
-/** Whether a non-output entry belongs to `tab`'s own stream: its pushes, its calls, its screen checkpoints. */
-const ownEntry = (entry, tab) =>
-  entry.event?.id === tab || (entry.call !== undefined && entry.params?.[0] === tab) || entry.screen === tab || (entry.snap !== undefined && tab in (entry.screens ?? {}));
-
-/** `tab`'s output per gap of its own stream: own entry index (among all non-output entries; -1 before the first) -> the frames between
- *  it and the tab's next own entry. Every own entry has its gap, empty when no frame came there. */
-function framesByGap(list, tab) {
-  const gaps = new Map([[-1, []]]);
-  let index = -1;
-  let gap = gaps.get(-1);
+/** Consecutive frames of one tab with the same fields but `data` are one run, its data the frames' joined. */
+function runsOf(list) {
+  const out = [];
   for (const entry of list) {
-    if (isData(entry)) {
-      if (entry.event.id === tab) gap.push(entry.event.data);
-      continue;
+    const last = out.at(-1);
+    if (isData(entry) && last && isData(last) && isDeepStrictEqual(withoutData(last), withoutData(entry))) {
+      out[out.length - 1] = { ...last, event: { ...last.event, data: last.event.data + entry.event.data } };
+    } else {
+      out.push(entry);
     }
-    index += 1;
-    if (!ownEntry(entry, tab)) continue;
-    gaps.set(index, (gap = []));
   }
-  return gaps;
+  return out;
+}
+
+/** Stretch k (after the k-th non-output entry; -1 before the first) -> its output runs in order. */
+function stretches(list) {
+  const out = new Map([[-1, []]]);
+  let k = -1;
+  for (const entry of list) {
+    if (isData(entry)) out.get(k).push(entry);
+    else out.set(++k, []);
+  }
+  return out;
 }
 
 const streamOf = (list, tab) => list.filter((entry) => isData(entry) && entry.event.id === tab).map((entry) => entry.event.data).join('');
 
-/** Returns what was left out (each place Node's runs recorded different values); throws on the first difference. */
+/** Returns what was left out (each place Node's runs disagree, each disposal pair taken out); throws on the first difference. */
 export function compareTraces(got, runs) {
   const leftOut = [];
+  /** `value` must be Node's where all runs agree; a disagreement is named and left out. */
   const agreed = (value, recorded, what) => {
-    const values = [...new Set(recorded.map(key))];
-    if (values.length > 1) {
+    if (recorded.some((other) => !isDeepStrictEqual(other, recorded[0]))) {
       leftOut.push(what);
       return;
     }
-    if (key(value) !== values[0]) assert.fail(`${what}\n  got:  ${key(value)}\n  Node: ${values[0]}`);
+    if (!isDeepStrictEqual(value, recorded[0])) assert.fail(`${what}\n  got:  ${show(value)}\n  Node: ${show(recorded[0])}`);
   };
-  for (const part of ['order', 'claims.order']) {
-    const mine = withoutDisposalActivity(pick(got, part), part);
-    const all = runs.map((run) => withoutDisposalActivity(pick(run, part), `Node's ${part}`));
+  const extra = Object.keys(got).filter((key) => !['order', 'claims', 'immediate', 'replayWindow'].includes(key));
+  assert.deepEqual(extra, [], 'the trace has fields the comparison does not know');
+  for (const part of PARTS) {
+    const mine = runsOf(withoutDisposalPairs(pick(got, part) ?? [], part, leftOut));
+    const nodeLeft = [];
+    const all = runs.map((run) => runsOf(withoutDisposalPairs(pick(run, part) ?? [], `Node's ${part}`, nodeLeft)));
     const entries = (list) => list.filter((entry) => !isData(entry));
     const lengths = all.map((list) => entries(list).length);
-    assert.equal(new Set(lengths).size, 1, `Node's runs differ in ${part} beyond the recorded variation (${lengths.join(', ')} entries)`);
+    assert.equal(new Set(lengths).size, 1, `Node's runs differ in ${part} beyond the recorded variation (${lengths.join(', ')} entries besides output)`);
     assert.equal(entries(mine).length, lengths[0], `${part}: ${entries(mine).length} entries besides output; Node: ${lengths[0]}`);
     entries(mine).forEach((entry, i) => agreed(entry, all.map((list) => entries(list)[i]), `${part} entry ${i}`));
+    const [mineAt, nodeAt] = [stretches(mine), all.map(stretches)];
+    for (const k of nodeAt[0].keys()) {
+      const where = k < 0 ? 'before the first entry' : `after entry ${k}`;
+      const nodeRuns = nodeAt.map((at) => at.get(k));
+      if (nodeRuns.every((runs) => isDeepStrictEqual(runs, nodeRuns[0]))) {
+        agreed(mineAt.get(k), nodeRuns, `${part}: the output ${where}`);
+        continue;
+      }
+      // Node's runs disagree in this stretch: each tab's bytes here where they agree on them, the order of the runs named.
+      const tabs = [...new Set([mineAt.get(k), ...nodeRuns].flat().map((entry) => entry.event.id))].sort();
+      for (const tab of tabs) {
+        const bytes = (runs) => runs.filter((entry) => entry.event.id === tab).map((entry) => entry.event.data).join('');
+        agreed(bytes(mineAt.get(k)), nodeRuns.map(bytes), `${part}: ${tab}'s output ${where}`);
+      }
+      leftOut.push(`${part}: the order of the output runs ${where}`);
+    }
     const tabs = [...new Set([mine, ...all].flatMap((list) => list.filter(isData).map((entry) => entry.event.id)))].sort();
     for (const tab of tabs) {
-      // Where the tab's output sits among its own entries, and how it is cut: gap by gap, exactly where Node's runs agree on that gap.
-      const [mineGaps, nodeGaps] = [framesByGap(mine, tab), all.map((list) => framesByGap(list, tab))];
-      for (const at of nodeGaps[0].keys()) {
-        const where = at < 0 ? 'before its first entry' : `after entry ${at}`;
-        agreed(mineGaps.get(at), nodeGaps.map((gaps) => gaps.get(at)), `${part}: the output frames of ${tab} ${where}`);
-      }
       agreed(streamOf(mine, tab), all.map((list) => streamOf(list, tab)), `${part}: the whole output of ${tab}`);
-      const exits = [...new Set(all.map((list) => streamOf(list, tab).match(EXIT_LINE)?.[0] ?? null))];
-      if (exits.length === 1 && exits[0] !== null) {
-        const stream = streamOf(mine, tab);
-        assert.ok(stream.trimEnd().endsWith(exits[0]), `${part}: ${tab}'s output does not end with its exit line ${exits[0]}: ${key(stream.slice(-200))}`);
+      const codes = all.map((list) => EXIT_AT_END.exec(streamOf(list, tab))?.[1]);
+      if (codes.every((code) => code !== undefined)) {
+        const code = EXIT_AT_END.exec(streamOf(mine, tab))?.[1];
+        assert.notEqual(code, undefined, `${part}: ${tab}'s output does not end with its exit line: ${show(streamOf(mine, tab).slice(-200))}`);
+        agreed(code, codes, `${part}: ${tab}'s exit code`);
       }
     }
   }

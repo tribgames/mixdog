@@ -10,7 +10,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { REPO_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
-import { callEntry, play, record, sizeClaimScript, terminalScript } from './lib/phone-terminal-script.mjs';
+import { callEntry, immediateScript, play, record, sizeClaimScript, terminalScript } from './lib/phone-terminal-script.mjs';
 import { varianceReport } from './lib/trace-variance.mjs';
 import { assertNoPowerShellProfile, isolatedProfile } from './lib/shell-isolation.mjs';
 
@@ -114,7 +114,8 @@ if (!args.has('child')) {
   for (let run = 1; run <= runs; run += 1) traces.push(await recordOnce());
   const trace = traces[0];
   const variance = { runs, ...varianceReport(traces) };
-  const finalOut =join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-terminal');
+  // `--out` writes the set elsewhere (a probe of Node's variance over more runs than the fixture keeps).
+  const finalOut = args.get('out') ?? join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-terminal');
   const out = stageSet(finalOut);
   writeJson(join(out, 'golden.json'), {
     note: 'Node terminal and folder-watch calls and pushes as a phone sees them: one ordered list of each call\'s answer or error text and each push its listeners got. Terminal text is compared as the screen at each checkpoint: Node\'s own bytes differ from run to run (see lib/phone-terminal-script.mjs).',
@@ -122,7 +123,7 @@ if (!args.has('child')) {
     trace,
   });
   writeJson(join(out, 'variance.json'), variance);
-  writeJson(join(out, 'runs.json'), traces.map((run) => ({ order: run.order, claims: { order: run.claims.order } })));
+  writeJson(join(out, 'runs.json'), traces.map((run) => ({ order: run.order, claims: { order: run.claims.order }, immediate: { order: run.immediate.order } })));
   writeSetManifest(out, {
     set: 'phone-terminal',
     recorder: 'benchmarks/rust-core/recorders/record-phone-terminal.mjs',
@@ -339,6 +340,10 @@ const claimScript = sizeClaimScript(ROOT);
 const claimTrace = await play(claimScript, driver);
 virtual.on = false;
 trace.claims = JSON.parse(JSON.stringify(claimTrace));
+// The immediate sequences, on tabs of their own.
+for (const list of Object.values(events)) if (Array.isArray(list)) list.length = 0;
+events.output = {};
+trace.immediate = JSON.parse(JSON.stringify(await play(immediateScript(ROOT), driver)));
 // The replay window a late reader gets (TerminalReplayBuffer, 200,000 UTF-16 units), at its boundary: exactly full, one unit over, a
 // non-BMP character whose first unit is the one dropped, the same when it arrives in its own chunk, and two-byte characters (units, not bytes).
 const { TerminalReplayBuffer } = await importFrom(tree, 'apps/desktop/src/main/terminal-manager.ts');

@@ -2,9 +2,9 @@
   "runs": 5,
   "order": {
     "entries": [
+      112,
       113,
-      113,
-      114,
+      112,
       113,
       113
     ],
@@ -50,11 +50,13 @@
     ],
     "perTab": {
       "term_ph2a": {
-        "slotsWithData": 7,
+        "slotsWithData": 8,
         "slotsWhereDataPresenceDiffers": [
+          31,
+          42,
           43
         ],
-        "slotsWhereBytesDiffer": 2,
+        "slotsWhereBytesDiffer": 5,
         "concatenatedBytesDistinct": 2,
         "bytesBeforeDisposeDistinct": 1
       },
@@ -76,20 +78,20 @@
   },
   "claims.order": {
     "entries": [
-      213,
+      202,
+      202,
       201,
-      207,
-      204,
-      200
+      198,
+      204
     ],
     "entriesWithoutData": [
       148,
       148,
-      152,
-      150,
+      148,
+      148,
       148
     ],
-    "distinctSequencesWithoutData": 5,
+    "distinctSequencesWithoutData": 3,
     "afterLastDispose": [
       [
         "lane terminal false"
@@ -98,15 +100,9 @@
         "lane terminal false"
       ],
       [
-        "term_ph2_l1 running",
-        "term_ph2_l5 running",
-        "term_ph2_l1 null",
-        "term_ph2_l5 null",
         "lane terminal false"
       ],
       [
-        "term_ph2_l1 running",
-        "term_ph2_l1 null",
         "lane terminal false"
       ],
       [
@@ -115,63 +111,43 @@
     ],
     "perTab": {
       "term_ph2_l1": {
-        "slotsWithData": 9,
-        "slotsWhereDataPresenceDiffers": [
-          148,
-          149
-        ],
-        "slotsWhereBytesDiffer": 6,
-        "concatenatedBytesDistinct": 2,
-        "bytesBeforeDisposeDistinct": 2
+        "slotsWithData": 7,
+        "slotsWhereDataPresenceDiffers": [],
+        "slotsWhereBytesDiffer": 2,
+        "concatenatedBytesDistinct": 1,
+        "bytesBeforeDisposeDistinct": 1
       },
       "term_ph2_l2": {
-        "slotsWithData": 11,
+        "slotsWithData": 8,
         "slotsWhereDataPresenceDiffers": [
-          51,
-          52,
-          146,
-          147,
-          149
+          52
         ],
-        "slotsWhereBytesDiffer": 9,
-        "concatenatedBytesDistinct": 3,
-        "bytesBeforeDisposeDistinct": 3
-      },
-      "term_ph2_l4": {
-        "slotsWithData": 9,
-        "slotsWhereDataPresenceDiffers": [
-          146,
-          147,
-          149
-        ],
-        "slotsWhereBytesDiffer": 6,
+        "slotsWhereBytesDiffer": 5,
         "concatenatedBytesDistinct": 2,
         "bytesBeforeDisposeDistinct": 2
       },
+      "term_ph2_l4": {
+        "slotsWithData": 7,
+        "slotsWhereDataPresenceDiffers": [],
+        "slotsWhereBytesDiffer": 2,
+        "concatenatedBytesDistinct": 1,
+        "bytesBeforeDisposeDistinct": 1
+      },
       "term_ph2_l5": {
-        "slotsWithData": 13,
+        "slotsWithData": 10,
         "slotsWhereDataPresenceDiffers": [
-          134,
-          146,
-          147,
-          148,
-          150
+          134
         ],
-        "slotsWhereBytesDiffer": 10,
-        "concatenatedBytesDistinct": 3,
-        "bytesBeforeDisposeDistinct": 3
+        "slotsWhereBytesDiffer": 2,
+        "concatenatedBytesDistinct": 1,
+        "bytesBeforeDisposeDistinct": 1
       },
       "term_ph2_l6": {
-        "slotsWithData": 11,
+        "slotsWithData": 8,
         "slotsWhereDataPresenceDiffers": [
-          43,
-          44,
-          146,
-          147,
-          148,
-          150
+          43
         ],
-        "slotsWhereBytesDiffer": 8,
+        "slotsWhereBytesDiffer": 4,
         "concatenatedBytesDistinct": 2,
         "bytesBeforeDisposeDistinct": 2
       }
