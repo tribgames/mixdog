@@ -71,7 +71,6 @@ struct Attachments {
     /// (conversation, id) -> (name, type) of the rows that name it.
     named: Mutex<std::collections::HashMap<(String, String), (String, String)>>,
     stored: Mutex<std::collections::HashMap<String, Vec<u8>>>,
-    staging: PathBuf,
 }
 
 #[async_trait::async_trait]
@@ -103,9 +102,10 @@ impl TransferSource for Attachments {
             _ => "",
         };
         let name = if name.rfind('.').is_some_and(|at| at > 0) { name } else { format!("{name}{extension}") };
-        let path = self.staging.join(format!("mixdog-download-{}", new_id()));
-        std::fs::write(&path, &bytes)?;
-        Ok(SourceFile { file: File::open(&path)?, name, mime_type: mime, cleanup: Some(path) })
+        let (folder, mut out) = crate::transfer::staged_payload()?;
+        std::io::Write::write_all(&mut out, &bytes)?;
+        drop(out);
+        Ok(SourceFile { file: File::open(folder.join(crate::transfer::STAGED_PAYLOAD))?, name, mime_type: mime, cleanup: Some(folder) })
     }
 }
 
@@ -203,9 +203,8 @@ fn frame_of(method: &str, outcome: Result<Reply, CoreError>) -> Value {
     match outcome {
         Ok(Reply::Value(value)) => json!({ "ok": true, "value": if method == "fileDownloadAbort" { value["ended"].clone() } else { value } }),
         Ok(Reply::Subscribe(_)) => panic!("{method}: a subscription"),
-        Err(CoreError::DomainError { code: Some(code), message, .. }) if code.starts_with("file-download:") => {
-            json!({ "ok": false, "error": message.as_deref(), "errorCode": code })
-        }
+        // Node's frame carries the error's `code` whatever it is: a download refusal's, or a system call's (`ENOENT`).
+        Err(CoreError::DomainError { code: Some(code), message, .. }) => json!({ "ok": false, "error": message.as_deref(), "errorCode": code }),
         Err(CoreError::DomainError { code: None, message, .. }) => json!({ "ok": false, "error": message.as_deref() }),
         Err(CoreError::InvalidParams { expected, .. }) => json!({ "ok": false, "error": expected.to_string() }),
         Err(other) => panic!("{method}: {other:?}"),
@@ -227,6 +226,19 @@ impl World {
             Value::String(text) => json!(text.replace("<dir>", &self.dir.to_string_lossy().replace('\\', "/"))),
             Value::Array(items) => Value::Array(items.iter().map(|item| self.swap_dir(item)).collect()),
             Value::Object(fields) => Value::Object(fields.iter().map(|(key, item)| (key.clone(), self.swap_dir(item))).collect()),
+            other => other.clone(),
+        }
+    }
+
+    /// An answer in the recording's terms, as the recorder wrote Node's: a text naming the world's folder names `<dir>`, with forward slashes.
+    fn unswap_dir(&self, value: &Value) -> Value {
+        let native = self.dir.to_string_lossy().into_owned();
+        let forward = native.replace('\\', "/");
+        match value {
+            Value::String(text) if text.contains(&native) => json!(text.replace(&native, "<dir>").replace('\\', "/")),
+            Value::String(text) if text.contains(&forward) => json!(text.replace(&forward, "<dir>")),
+            Value::Array(items) => Value::Array(items.iter().map(|item| self.unswap_dir(item)).collect()),
+            Value::Object(fields) => Value::Object(fields.iter().map(|(key, item)| (key.clone(), self.unswap_dir(item))).collect()),
             other => other.clone(),
         }
     }
@@ -349,8 +361,7 @@ async fn build(base: PathBuf, start: i64) -> (World, tokio::task::JoinHandle<()>
     let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &base.join("state/core.sqlite")).unwrap();
     let manual = Manual::starting_at(start);
     let transfers = Arc::new(Transfers::with_clock(manual.clone(), UPLOAD_IDLE));
-    std::fs::create_dir_all(base.join("staging")).unwrap();
-    let attachments = Arc::new(Attachments { staging: base.join("staging"), ..Attachments::default() });
+    let attachments = Arc::new(Attachments::default());
     let service = WorkspaceService::new_with_transfers(
         Deps {
             lanes: crate::lanes::Lanes {
@@ -410,7 +421,7 @@ async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_
         assert_eq!(recorded, *next_id.get_or_insert(recorded), "{label}: the recorded call ids are not consecutive");
         next_id = Some(recorded + 1);
     };
-    let (mut compared, mut by_adapter, mut counted, mut held_calls) = (0usize, 0usize, 0usize, 0usize);
+    let (mut compared, mut by_adapter, mut counted, mut held_calls, mut staged_counts) = (0usize, 0usize, 0usize, 0usize, 0usize);
     let mut replayed_calls = 0usize;
     let mut not_run: Vec<&str> = Vec::new();
     for scenario in all {
@@ -429,6 +440,7 @@ async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_
         let compare = |world: &mut World, recorded: &Value, got: Value, label: &str| {
             let mut recorded = recorded.clone();
             recorded.as_object_mut().unwrap().remove("id");
+            let got = world.unswap_dir(&got);
             world.tokens.same(&recorded, &got, label);
         };
         while at < steps.len() {
@@ -471,6 +483,10 @@ async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_
                     assert_eq!(world.transfers.held_downloads() as u64, step["open"].as_u64().unwrap(), "{label}");
                     counted += 1;
                 }
+                "staged" => {
+                    assert_eq!(world.transfers.staged_files() as u64, step["count"].as_u64().unwrap(), "{label}: staged downloads on disk");
+                    staged_counts += 1;
+                }
                 "call" => {
                     take_id(&step["frame"]["id"], &label);
                     replayed_calls += 1;
@@ -492,6 +508,7 @@ async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_
                         "read" => "read.read",
                         "stat" => "begin.verify",
                         "afterResolve" => "authorize.resolved",
+                        "zipOpen" => "zip.open",
                         other => panic!("{other}"),
                     };
                     let (sent, event, release, answer) = (&steps[at], &steps[at + 1], &steps[at + 2], &steps[at + 3]);
@@ -552,6 +569,7 @@ async fn every_recorded_download_scenario_is_answered_and_held_as_nodes_service_
     assert_eq!(compared + by_adapter, of("call") + of("answer"));
     assert_eq!(replayed_calls, of("call") + of("send"));
     assert_eq!(counted, of("handles"));
+    assert_eq!(staged_counts, of("staged"));
     assert!(held_calls >= 5 && counted >= 25, "{held_calls} {counted}");
     // Where a scenario was recorded for this system, none is left out; elsewhere exactly the Windows-only ones are.
     let expected: &[&str] = if cfg!(windows) { &[] } else { &WINDOWS_ONLY };

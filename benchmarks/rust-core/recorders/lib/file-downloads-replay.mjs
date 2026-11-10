@@ -35,7 +35,7 @@ const WORLD_GAPS = {
     'a conversation that names an attachment needs a stored user turn carrying it, which a core without a signed-in model cannot make (owner: phone-download-grant)',
 };
 /** The point of the core's download call each of Node's test gates is held at. */
-const POINTS = { read: 'read.read', stat: 'begin.verify', afterResolve: 'authorize.resolved' };
+const POINTS = { read: 'read.read', stat: 'begin.verify', afterResolve: 'authorize.resolved', zipOpen: 'zip.open' };
 
 /** A wait on something the replay needs to happen: it ends, after `ms` of real time, in an error naming what did not happen. */
 const within = (promise, what, ms = 60_000) =>
@@ -246,7 +246,7 @@ export async function replayDownloads({ exe, recording, only = null, failSetup =
   let core = null;
   const clients = [];
   const problems = [];
-  const accounted = { calls: 0, held: 0, handles: 0, direct: 0 };
+  const accounted = { calls: 0, held: 0, handles: 0, staged: 0, direct: 0 };
   /** The scenarios recorded for another system: not run here, and said so. */
   const notRun = [];
   try {
@@ -378,6 +378,17 @@ export async function replayDownloads({ exe, recording, only = null, failSetup =
         routers.set(device, createProtocolRouter([adapter], { host, started: async () => {}, synced: async () => {}, probe() {}, silentSince: () => false }));
       }
       const unexpected = [...gaps];
+      /** An answer in the recording's terms, as the recorder wrote Node's: a text naming the world's folder names `<dir>`, with forward slashes. */
+      const unswapDir = (node) =>
+        typeof node === 'string'
+          ? node.includes(world)
+            ? node.replaceAll(world, '<dir>').replaceAll('\\', '/')
+            : node.replaceAll(forward(world), '<dir>')
+          : Array.isArray(node)
+            ? node.map(unswapDir)
+            : node && typeof node === 'object'
+              ? Object.fromEntries(Object.entries(node).map(([k, v]) => [k, unswapDir(v)]))
+              : node;
       const swapDir = (node) => (typeof node === 'string' ? node.replaceAll('<dir>', forward(world)) : Array.isArray(node) ? node.map(swapDir) : node && typeof node === 'object' ? Object.fromEntries(Object.entries(node).map(([k, v]) => [k, swapDir(v)])) : node);
       const sendFrame = (device, method, params) => {
         const sent = within(routers.get(device).call(method, sessionOf(swapDir(tokens.resolve(params)))), `the answer to ${method}`);
@@ -401,7 +412,7 @@ export async function replayDownloads({ exe, recording, only = null, failSetup =
       };
       const compare = (step, recorded, got, at) => {
         const { id: _id, ...node } = recorded;
-        const found = tokens.differences(node, got);
+        const found = tokens.differences(node, unswapDir(got));
         accounted.calls += 1;
         if (found.length) unexpected.push(`#${at + 1} ${step.device} ${step.method}: ${found.join('; ')}`);
       };
@@ -500,6 +511,12 @@ export async function replayDownloads({ exe, recording, only = null, failSetup =
               if (open !== step.open) unexpected.push(`#${index} handles: Node held ${step.open} files open, the core holds ${open}`);
               break;
             }
+            case 'staged': {
+              const count = Number(talk.read('staged'));
+              accounted.staged += 1;
+              if (count !== step.count) unexpected.push(`#${index} staged: Node had ${step.count} staged downloads on disk, the core has ${count}`);
+              break;
+            }
             case 'call': {
               if (!routers.has(step.device)) {
                 unexpected.push(`#${index} ${step.method}: no connection for ${step.device}`);
@@ -594,6 +611,6 @@ export async function replayDownloads({ exe, recording, only = null, failSetup =
     if (failures.length) throw new AggregateError(failures, `cleanup of the replay failed: ${failures.map((error) => error.message).join('; ')}`);
   }
   if (only && left.length === recording.scenarios.length - notRun.length) problems.push(`--only ${only}: no scenario of that name`);
-  console.log(`file-downloads replay over ${exe}: ${accounted.calls} calls compared, ${accounted.held} held calls, ${accounted.handles} handle counts, ${accounted.direct} asset ids sent past the adapter, ${problems.length} unexpected, not run on this system: ${JSON.stringify(notRun)}${only ? `, left out by --only: ${left.length}` : ''}`);
+  console.log(`file-downloads replay over ${exe}: ${accounted.calls} calls compared, ${accounted.held} held calls, ${accounted.handles} handle counts, ${accounted.staged} staged counts, ${accounted.direct} asset ids sent past the adapter, ${problems.length} unexpected, not run on this system: ${JSON.stringify(notRun)}${only ? `, left out by --only: ${left.length}` : ''}`);
   return { code: problems.length ? 1 : 0, notRun, left };
 }

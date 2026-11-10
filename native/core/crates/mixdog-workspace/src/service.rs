@@ -1097,7 +1097,8 @@ impl WorkspaceService {
                             .await
                             .map_err(crate::transfer::phone_folder_refusal)?;
                         left_out = Some(crate::transfer::LeftOut { ignored: scan.ignored, secret: 0 });
-                        run_fallible(self.lanes.cpu_bulk, &cancel, move || crate::transfer::staged_folder_zip(&folder, &scan.files)).await?
+                        let t = self.transfers.clone();
+                        run_fallible(self.lanes.cpu_bulk, &cancel, move || crate::transfer::staged_folder_zip(&folder, &scan.files, &|point| t.point(point))).await?
                     }
                 };
                 let t = self.transfers.clone();
