@@ -487,6 +487,11 @@ impl ScmService {
                 scm.open(&cwd(&$p.cwd)?, cancel).await?
             };
         }
+        macro_rules! open_in_place {
+            ($p:expr) => {
+                scm.open_or_in_place(&cwd(&$p.cwd)?, cancel).await?
+            };
+        }
         let value: Value = match method {
             "git/status" => { let p: p::GitStatusParams = decode(req)?; scm.git_status_counting(&cwd(&p.cwd)?, cancel, p.skip_line_stats != Some(true), p.reuse_line_stats == Some(true)).await? }
             "git/branches" => { let p: p::GitBranchesParams = decode(req)?; scm.git_branches(&cwd(&p.cwd)?, cancel).await? }
@@ -512,12 +517,12 @@ impl ScmService {
                 json!(open!(p).commit_paths(&p.input.message, &p.input.paths).await?)
             }
             "git/amend" => { let p: p::GitAmendParams = decode(req)?; json!(open!(p).amend(p.message.as_deref().unwrap_or("")).await?) }
-            "git/undoLastCommit" => { let p: p::GitUndoLastCommitParams = decode(req)?; json!(open!(p).undo_last_commit().await?) }
+            "git/undoLastCommit" => { let p: p::GitUndoLastCommitParams = decode(req)?; json!(open_in_place!(p).undo_last_commit().await?) }
             "git/push" => { let p: p::GitPushParams = decode(req)?; json!(open!(p).push().await?) }
             "git/pull" => { let p: p::GitPullParams = decode(req)?; json!(open!(p).pull().await?) }
-            "git/fetch" => { let p: p::GitFetchParams = decode(req)?; json!(open!(p).fetch().await?) }
+            "git/fetch" => { let p: p::GitFetchParams = decode(req)?; json!(open_in_place!(p).fetch().await?) }
             "git/sync" => { let p: p::GitSyncParams = decode(req)?; json!(open!(p).sync().await?) }
-            "git/stash" => { let p: p::GitStashParams = decode(req)?; json!(open!(p).stash(p.message.as_deref().unwrap_or("")).await?) }
+            "git/stash" => { let p: p::GitStashParams = decode(req)?; json!(open_in_place!(p).stash(p.message.as_deref().unwrap_or("")).await?) }
             "git/stashPop" => { let p: p::GitStashPopParams = decode(req)?; json!(open!(p).stash_pop().await?) }
             "git/stashApply" => { let p: p::GitStashApplyParams = decode(req)?; json!(open!(p).stash_apply(&string_field(&req.params, "ref")?).await?) }
             "git/stashDrop" => { let p: p::GitStashDropParams = decode(req)?; json!(open!(p).stash_drop(&string_field(&req.params, "ref")?).await?) }

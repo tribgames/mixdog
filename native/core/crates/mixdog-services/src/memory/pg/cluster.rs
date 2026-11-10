@@ -178,7 +178,9 @@ async fn healthcheck(port: u16) -> bool {
 async fn free_port(preferred: u16) -> Result<u16> {
     let last = preferred.saturating_add(PORT_SPAN);
     for port in preferred..=last {
-        if tokio::net::TcpListener::bind(("127.0.0.1", port)).await.is_ok() {
+        // A postmaster on Windows listens with SO_REUSEADDR, so a second bind to its port succeeds: a free port is one nothing answers on too.
+        let held = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok();
+        if !held && tokio::net::TcpListener::bind(("127.0.0.1", port)).await.is_ok() {
             return Ok(port);
         }
     }

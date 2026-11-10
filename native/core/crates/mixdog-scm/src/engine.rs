@@ -133,6 +133,23 @@ impl Scm {
         })
     }
 
+    /// The repository containing `cwd`, or `cwd` itself outside one: Node runs the call's git command in the folder it was given and
+    /// the caller reads git's own failure, so a call that is a single git command must start that command (its process is observable).
+    pub async fn open_or_in_place(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken) -> Result<Repo, ScmFailure> {
+        match self.open(cwd, cancel).await {
+            Err(ScmFailure::NotARepository) => {
+                let place = cwd.to_path_buf();
+                Ok(Repo {
+                    scm: self.clone(),
+                    cwd: place.clone(),
+                    identity: RepoIdentity { work_tree: Some(place.clone()), git_dir: place.clone(), common_dir: place },
+                    cancel: cancel.clone(),
+                })
+            }
+            other => other,
+        }
+    }
+
     /// What `gitResetToCommit` / `gitCherryPickCommit` answer in a folder that is no repository: Node checks the reset mode, then
     /// asks git to resolve the commit (`checkedCommit`, git-mutations.ts), so the caller is told which commit could not be found,
     /// not that there is no repository. `mode` is `None` for a call that has none.

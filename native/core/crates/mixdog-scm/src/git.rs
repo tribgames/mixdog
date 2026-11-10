@@ -237,6 +237,10 @@ pub const AUTH_REQUIRED_TEXT: &str =
     "Git authentication is required. Sign in with your Git credential helper and retry.";
 /// Node's `readableRemoteError`: a failure whose text says authentication failed reads as one sentence, anything else keeps its text.
 pub fn readable_remote_error(failure: ScmFailure) -> ScmFailure {
+    // `new Error(message)` keeps the text and drops the system code the spawn failure carried.
+    if let ScmFailure::Unavailable { capability } = &failure {
+        return ScmFailure::git(format!("spawn {capability} ENOENT"));
+    }
     let message = failure.to_string().to_lowercase();
     let asks_for_credentials = ["authentication failed", "could not read username", "terminal prompts disabled", "permission denied", "publickey"]
         .iter()

@@ -49,13 +49,14 @@ pub async fn branches(
     cancel: &CancellationToken,
     cwd: &Path,
 ) -> Result<Vec<GitBranchEntry>, ScmFailure> {
-    let raw = git
-        .read(
-            cancel,
-            cwd,
-            &["for-each-ref", BRANCH_FORMAT, "refs/heads", "refs/remotes"],
-        )
-        .await?;
+    // git-branches.ts:66-71: any failure of the ahead/behind listing is answered by the listing without it.
+    let raw = match git.run(cancel, cwd, &["for-each-ref", BRANCH_FORMAT, "refs/heads", "refs/remotes"]).await {
+        Ok(raw) => raw,
+        Err(_) => {
+            let plain = BRANCH_FORMAT.strip_suffix("%00%(ahead-behind:HEAD)").unwrap_or(BRANCH_FORMAT);
+            git.run(cancel, cwd, &["for-each-ref", plain, "refs/heads", "refs/remotes"]).await?
+        }
+    };
     let mut rows: Vec<GitBranchEntry> = raw
         .lines()
         .filter_map(|line| {
