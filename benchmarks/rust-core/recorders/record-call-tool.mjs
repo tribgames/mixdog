@@ -131,14 +131,21 @@ if (!RAW_OUT && !ONLY) {
   const tree = resolveTree(args);
   const identity = exactProductIdentity(tree, NODE_COMMIT);
   const runs = [];
-  for (const n of [1, 2]) {
-    const out = join(SANDBOX_ROOT, `raw-${n}.json`);
+  const raws = [1, 2].map((n) => join(SANDBOX_ROOT, `raw-${n}.json`));
+  let evidence;
+  // The raw recordings are the run's own: they go whatever happens; a run's sandbox goes with that run (its janitor).
+  try {
+  for (const [index, out] of raws.entries()) {
+    const n = index + 1;
     // One recording takes a few minutes; a run that is not over in 20 is the failure, and its janitor (the pipe's end) ends its sandbox.
     const run = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--tree', tree, '--raw', out], { stdio: 'inherit', timeout: 20 * 60_000, windowsHide: true });
     if (run.error || run.status !== 0) throw new Error(`raw run ${n} failed (${run.error?.message ?? `exit ${run.status}`}); what it left is under ${SANDBOX_ROOT}`);
     runs.push(JSON.parse(readFileSync(out, 'utf8')));
   }
-  const evidence = compareRuns(runs[0], runs[1]);
+  evidence = compareRuns(runs[0], runs[1]);
+  } finally {
+    for (const raw of raws) rmSync(raw, { force: true });
+  }
   const [{ golden, sandbox }] = runs;
   const finalDir = join(FIXTURES_ROOT, 'call-tool');
   const stage = stageSet(finalDir);
@@ -154,8 +161,17 @@ if (!RAW_OUT && !ONLY) {
       nodeRuntime: process.version,
       ...runs[0].described,
       normalisations: {
+        // Each rule covers one class of value; a key of the class need not differ in every pair of runs (a duration of a few ms can
+        // come out the same twice), the rule must.
+        classes: {
+          sandboxPath: 'where the run lives: the per-run sandbox folder',
+          clockValues: 'when the run happened: wall-clock instants and measured durations, in ms',
+          batchIds: 'what the run generated: ids a run draws fresh',
+        },
         sandboxPath: `the recorder's sandbox folder (and its forward-slash form), in every string, becomes ${SANDBOX_PLACEHOLDER}`,
         clockValues: `numbers under these keys become 0: ${[...CLOCK_KEYS].join(', ')}`,
+        // The same keys as data, so a replay applies the very rule to what it compares.
+        clockKeys: [...CLOCK_KEYS],
         batchIds: "generated ids: the batch_id of a trace row (and inside a tool row's payload.batch) becomes <BATCH-n>, and a stored row's meta.transcript.messageId becomes <MESSAGE-n>, n by first appearance of each kind within the scenario",
         keptWhole: 'everything else: system messages, stored and requested messages, events, cards, hooks, executed calls, the timeline, the human gate\'s audit records and every trace row of the session',
       },
@@ -682,10 +698,10 @@ async function runScenario(scenario, twin = false) {
       track(
         (async () => {
           if (name === 'load_tool') return renderToolSearch(args, sessionRef, 'lead', {});
-          if (name === 'goal') return goalRuntime.executeTool(name, args ?? {}, { callerSessionId: sessionRef.id });
           executed.push({ name, args: clone(args) });
           note({ ev: 'ran', name, args: clone(args) });
           await step('tool', name, args);
+          if (name === 'goal') return goalRuntime.executeTool(name, args ?? {}, { callerSessionId: sessionRef.id });
           if (args?.fail) throw new Error(`${name} failed`);
           return `ran ${name} ${JSON.stringify(args)}`;
         })()
@@ -924,7 +940,8 @@ for (const [index, scenario] of SCENARIOS.entries()) {
 
 const golden = {
   note: 'a real askSession turn over a bridge session (call_tool / load_tool, deferred probe tools, one connected MCP server) at b6f10295a',
-  tools: PROBE_TOOLS,
+  // The definitions of the tools the scenarios register: the probes, and the product's `goal` for the `live` ones.
+  tools: [...PROBE_TOOLS, ...GOAL_TOOL_DEFS],
   scenarios,
 };
 const described = {
@@ -945,12 +962,14 @@ const described = {
 if (RAW_OUT) {
   writeFileSync(RAW_OUT, JSON.stringify({ sandbox, golden, described }));
 } else {
-  // `--only`: the scenarios recorded now take their places in golden.json; the others and the manifest stay as they were.
-  const goldenPath = join(FIXTURES_ROOT, 'call-tool', 'golden.json');
-  const kept = new Map(JSON.parse(readFileSync(goldenPath, 'utf8')).scenarios.map((s) => [s.name, s]));
-  const fresh = new Map(normalised(golden, sandbox).scenarios.map((s) => [s.name, s]));
-  const merged = SCENARIOS.map((s) => fresh.get(s.name) ?? kept.get(s.name)).filter(Boolean);
-  writeJson(goldenPath, { ...golden, scenarios: merged });
+  // `--only`: the scenarios recorded now are printed and compared with golden.json's; nothing is written (a whole recording writes).
+  const kept = new Map(JSON.parse(readFileSync(join(FIXTURES_ROOT, 'call-tool', 'golden.json'), 'utf8')).scenarios.map((s) => [s.name, s]));
+  for (const fresh of normalised(golden, sandbox).scenarios) {
+    console.log(JSON.stringify(fresh));
+    const old = kept.get(fresh.name);
+    const verdict = !old ? 'not in golden.json' : JSON.stringify(old) === JSON.stringify(fresh) ? 'the same as golden.json' : 'DIFFERS from golden.json';
+    console.log(`${fresh.name}: ${verdict}`);
+  }
 }
 console.log(`scenarios=${scenarios.length}`);
 } catch (error) {

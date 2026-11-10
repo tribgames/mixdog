@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // A built mixdogd driven for real against Node's recording (`native/core/fixtures/call-tool/golden.json`): a scripted OpenAI-chat
 // endpoint is the model (so the session is a bridge session) and plays a recorded scenario's script. It FAILS (exit 1) unless what a
-// client of the core can observe equals the recording, exactly: what the model was sent (every message but the system prompt; see
-// LEFT_OUT), the turn's answer, the approval cards, and the turn's completion. Every wait is on an event (the discovery file appearing,
+// client of the core can observe equals the recording, exactly: what the model was sent (every message whole, the system prompt
+// included, less NOT_ON_THE_WIRE) and the tools it was offered, the turn's answer, the approval cards, and the turn's completion. Every wait is on an event (the discovery file appearing,
 // a thread notification, the core's exit, an answer) under one deadline that names what did not happen.
 //   node benchmarks/rust-core/recorders/replay-call-tool-live.mjs <mixdogd.exe> [--only <scenario name fragment>]
 // It runs the recording's `live` scenarios: the ones that call a tool a built core has (the product's `goal`); the other scenarios
@@ -31,12 +31,29 @@ if (!exe || !scenarios.length) {
   console.error('usage: replay-call-tool-live.mjs <mixdogd.exe> [--only <name fragment of a live scenario>]');
   process.exit(2);
 }
-// What of the recording a client of the core cannot observe, or observes elsewhere:
-//   - the system messages of a request: the prompt the host assembles from its own profile, which is not the recorder's session
-//     (the in-process replay feeds the recorded prompt to the loop and compares that it is passed on untouched);
-//   - `createdAt`, `toolKind`, `toolTiming`, `cacheTier` of a request message: the wire the model sees has none of them;
-//   - the stored rows, events, callbacks, hooks, timeline, audit and trace: in-process (`bridge_calls.rs` `NOT_COMPARED`).
-const LEFT_OUT = 'system messages; createdAt, toolKind, toolTiming, cacheTier';
+// What the model is sent is compared by subtraction, as `bridge_calls.rs` compares: each recorded request message whole, less these
+// fields, equals the message the core put on the wire, converted field by field (a wire field the conversion does not know fails).
+// None of them is on the OpenAI-chat wire the model reads; each is compared in-process (`bridge_calls.rs` `NOT_COMPARED`, where the
+// stored rows, events, callbacks, hooks, timeline, audit and trace of these scenarios are compared too).
+const NOT_ON_THE_WIRE = ['createdAt', 'toolKind', 'toolTiming', 'cacheTier', 'meta.transcript'];
+// The tools each request carried, as Node's `onUsageDelta` `sendTools` lists them, less what a request's definition has no place for
+// (a registry document's `title`, `annotations`, `trigger`).
+const NOT_IN_A_DEFINITION = ['title', 'annotations', 'trigger'];
+
+// The record less the listed paths (`a.b` reaches into a field); an object the removal empties goes with it.
+const without = (record, paths) => {
+  const kept = { ...record };
+  for (const path of paths) {
+    const [key, ...rest] = path.split('.');
+    if (!(key in kept)) continue;
+    if (!rest.length) delete kept[key];
+    else {
+      kept[key] = without(kept[key], [rest.join('.')]);
+      if (!Object.keys(kept[key]).length) delete kept[key];
+    }
+  }
+  return kept;
+};
 
 const ROOT = join(process.env.MIXDOG_RECORDER_SCRATCH ?? tmpdir(), 'call-tool-live');
 rmSync(ROOT, { recursive: true, force: true });
@@ -51,15 +68,36 @@ const withDeadline = (promise, label, ms) => {
   return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
 };
 
-// A model message as Node's request shows it (`requests[][]`), from the OpenAI-chat message the core sent.
+// The OpenAI-chat message the core sent, in the recording's names, every field converted; a field it does not know is kept under its
+// wire name, so that it fails the comparison.
+const WIRE_FIELDS = new Set(['role', 'content', 'tool_calls', 'tool_call_id']);
 const asRecorded = (m) => ({
+  ...Object.fromEntries(Object.entries(m).filter(([key]) => !WIRE_FIELDS.has(key))),
   role: m.role,
   content: m.content ?? '',
   ...(m.tool_calls?.length ? { toolCalls: m.tool_calls.map((c) => ({ id: c.id, name: c.function.name, arguments: JSON.parse(c.function.arguments) })) } : {}),
   ...(m.tool_call_id ? { toolCallId: m.tool_call_id } : {}),
 });
-const recordedRequest = (messages) =>
-  messages.filter((m) => m.role !== 'system').map(({ role, content, toolCalls, toolCallId }) => ({ role, content, ...(toolCalls ? { toolCalls } : {}), ...(toolCallId ? { toolCallId } : {}) }));
+// A tool definition the core sent, in the names of Node's `sendTools`.
+const asSendTool = (tool) => {
+  const { name, description, parameters, ...rest } = tool.function;
+  return { ...(tool.type === 'function' ? {} : { type: tool.type }), ...rest, name, description, inputSchema: parameters };
+};
+// Where two values first differ, as a path and the two leaves.
+const firstDifference = (node, core, path) => {
+  if (Array.isArray(node) && Array.isArray(core)) {
+    for (let i = 0; i < Math.min(node.length, core.length); i++) if (!isDeepStrictEqual(node[i], core[i])) return firstDifference(node[i], core[i], `${path}[${i}]`);
+    return `${path}: node has ${node.length} item(s), core has ${core.length}`;
+  }
+  if (node && core && typeof node === 'object' && typeof core === 'object') {
+    for (const key of new Set([...Object.keys(node), ...Object.keys(core)])) {
+      if (!(key in core)) return `${path}.${key}: node has ${JSON.stringify(node[key]).slice(0, 300)}, core has none`;
+      if (!(key in node)) return `${path}.${key}: core has ${JSON.stringify(core[key]).slice(0, 300)}, node has none`;
+      if (!isDeepStrictEqual(node[key], core[key])) return firstDifference(node[key], core[key], `${path}.${key}`);
+    }
+  }
+  return `${path}: node ${JSON.stringify(node).slice(0, 600)}, core ${JSON.stringify(core).slice(0, 600)}`;
+};
 
 const allFailures = [];
 for (const scenario of scenarios) {
@@ -161,10 +199,14 @@ try {
       res.end(chunk({ role: 'assistant', tool_calls }, null) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n');
     });
   });
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
-  });
+  await withDeadline(
+    new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    }),
+    'the scripted model endpoint listening',
+    30_000
+  );
   const baseURL = `http://127.0.0.1:${server.address().port}/v1`;
 
   // ---- the core ----
@@ -261,10 +303,14 @@ try {
       return threadNotes.find((n) => n.method === 'turn/completed' && n.params?.threadId === threadId) ?? null;
     }
   );
-  // ---- what the model was sent, request by request, whole but for LEFT_OUT ----
-  const sent = requests.map((request) => recordedRequest(request.messages.map(asRecorded)));
-  const want = recorded.requests.map(recordedRequest);
-  if (!isDeepStrictEqual(sent, want)) failures.push(`what the model was sent differs from the recording (left out: ${LEFT_OUT})\n  node: ${JSON.stringify(want)}\n  core: ${JSON.stringify(sent)}`);
+  // ---- what the model was sent, request by request: every message whole (the system prompt included) less NOT_ON_THE_WIRE ----
+  const sent = requests.map((request) => request.messages.map(asRecorded).map((m) => without(m, NOT_ON_THE_WIRE)));
+  const want = recorded.requests.map((messages) => messages.map((m) => without(m, NOT_ON_THE_WIRE)));
+  if (!isDeepStrictEqual(sent, want)) failures.push(`what the model was sent differs from the recording: ${firstDifference(want, sent, 'requests')}`);
+  // ---- the tools each request carried: Node's `sendTools` of the request's `onUsageDelta`, less NOT_IN_A_DEFINITION ----
+  const sentTools = requests.map((request) => (request.tools ?? []).map(asSendTool));
+  const wantTools = recorded.callbacks.filter((c) => c.ev === 'onUsageDelta').map((c) => c.args[0].sendTools.map((tool) => without(tool, NOT_IN_A_DEFINITION)));
+  if (!isDeepStrictEqual(sentTools, wantTools)) failures.push(`the tools the model was offered differ from the recording: ${firstDifference(wantTools, sentTools, 'tools')}`);
   // ---- the answer: the turn's last assistant message, as the client's feed completes it ----
   const messages = threadNotes.filter((n) => n.method === 'item/completed' && n.params?.item?.type === 'agentMessage').map((n) => n.params.item);
   const answer = messages.at(-1)?.text ?? null;
@@ -278,7 +324,7 @@ try {
   const coreVerb = messages.at(-1)?.meta?.ext?.completionVerb ?? null;
   if (coreVerb !== verb) failures.push(`the answer's completion verb is ${JSON.stringify(coreVerb)}, Node's ${JSON.stringify(verb)}`);
   if (completed.params.turn?.status !== 'completed') failures.push(`the turn ended ${JSON.stringify(completed.params.turn?.status)}, not completed`);
-  console.log(`${recorded.name}: ${sent.length} request(s), answer, cards and completion verb as Node recorded them`);
+  if (!failures.length) console.log(`${recorded.name}: ${sent.length} request(s) with their tools, answer, cards and completion as Node recorded them`);
 } catch (error) {
   failures.push(`${error.message}${seen ? ` (model endpoint hit by: ${hits.join(", ")}; last seen: ${seen})` : ''}${stderr ? `\nmixdogd stderr:\n${stderr.slice(-2000)}` : ''}`);
 } finally {
