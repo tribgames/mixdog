@@ -27,6 +27,22 @@ pub fn user_facts(body: &mut Value, blobs: &dyn Blobs) -> RowFacts {
 pub struct AttachmentStore(pub PathBuf);
 
 impl AttachmentStore {
+    /// `saveBuffer(bytes)` (`attachments/store.mjs:189`): keeps `bytes` at their content address and answers the reference. An
+    /// existing blob of that address is left as it is.
+    #[allow(clippy::disallowed_methods, reason = "runs inside an interactive-io lane job (lane proof argument)")]
+    pub fn write_blob(&self, _lane: &InLane<InteractiveIo>, bytes: &[u8]) -> Result<String, BlobError> {
+        use sha2::Digest;
+        let reference = format!("{:x}", sha2::Sha256::digest(bytes));
+        let path = self.0.join("prompt-attachments/sha256").join(&reference[..2]).join(&reference);
+        if path.is_file() {
+            return Ok(reference);
+        }
+        let dir = path.parent().expect("a blob path has a directory");
+        std::fs::create_dir_all(dir).map_err(|e| BlobError::Transient(e.to_string()))?;
+        std::fs::write(&path, bytes).map_err(|e| BlobError::Transient(e.to_string()))?;
+        Ok(reference)
+    }
+
     /// [`user_facts`] of `body`, reading the store on `lane`.
     pub fn facts(&self, lane: &InLane<InteractiveIo>, body: &mut Value) -> RowFacts {
         user_facts(body, &LaneBlobs { root: &self.0, _lane: lane })

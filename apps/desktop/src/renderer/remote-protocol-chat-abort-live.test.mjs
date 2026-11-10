@@ -6,6 +6,7 @@
 //   the thread's list row   Node's `listSessions` row against the core's `thread/list` row through the phone's projection
 // Without MIXDOGD_EXE / REAL_TURN_HARNESS naming real files this file fails: there is no replay fallback.
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { mergeToolRows, rowOf } from '../../../../packages/protocol-client/src/rows.ts';
@@ -27,6 +28,7 @@ const shape = (value, key = '') => {
   if (Array.isArray(value)) return value.map((v) => shape(v));
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, shape(v, k)]));
   if (RUN_FIELDS.has(key)) return `<${typeof value}>`;
+  if (key === 'finalAssistantId' && typeof value === 'string') return '<id>';
   if (key === 'id' && typeof value === 'string' && !value.startsWith('sub-')) return '<id>';
   if (key === 'checkpointId') return typeof value === 'string' && value.startsWith('sub-') ? value : '<id>';
   return folders(value);
@@ -64,9 +66,21 @@ for (const nodeCase of node.cases) {
   test(`${nodeCase.name}: the Stop's reply, the stored transcript and the list row are Node's`, async () => {
     const replies = [core.core.reply, core.core.again?.reply].filter((r) => r !== undefined);
     const { api, sent } = adapterFor(replies);
-    assert.deepEqual(await api.abortSession(core.stop.threadId, nodeCase.stop), nodeCase.node.reply);
+    const handedBack = await api.abortSession(core.stop.threadId, nodeCase.stop);
+    assert.deepEqual(handedBack, nodeCase.node.reply);
+    // A handed-back pasted text is readable by the phone: its text is the one sent, and its reference names exactly those bytes (the store is content-addressed).
+    for (const [key, entry] of Object.entries(handedBack.pastedTexts ?? {})) {
+      assert.equal(entry.text, core.start.input.options.pastedTexts[key].text);
+      assert.equal(entry.attachmentRef, createHash('sha256').update(entry.text, 'utf8').digest('hex'));
+    }
     if (nodeCase.node.second) assert.deepEqual(await api.abortSession(core.stop.threadId, nodeCase.again), nodeCase.node.second);
     assert.deepEqual(sent[0].params, core.stop);
+    // A turn end names its answer by an id each side mints (`it_…` in Node, `itm_…` in the core): it must be the id of a row of the same transcript.
+    for (const [side, rows] of [['core', plain(foldRows(core.core.items))], ['node', nodeCase.node.items]]) {
+      for (const end of rows.filter((r) => r.finalAssistantId !== undefined)) {
+        assert.ok(rows.some((r) => r.kind === 'assistant' && r.id === end.finalAssistantId), `${side}: the turn end names a row of its transcript`);
+      }
+    }
     assert.deepEqual(shape(plain(foldRows(core.core.items))), shape(nodeCase.node.items), 'stored transcript');
     assert.deepEqual(shape(plain(summariesOfThreadRows([core.core.row])[0])), shape(nodeCase.node.row), 'list row');
   });

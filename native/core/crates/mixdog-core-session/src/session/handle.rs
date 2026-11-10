@@ -737,15 +737,22 @@ impl ThreadHandle for SessionHandle {
             let queued = Queued { qid: String::new(), entry: facts.entry.clone(), display: Value::Null };
             let raw = super::actor::restored_reply(&[super::actor::Taken::of(&queued)], None);
             let store = self.deps.attachments.clone();
-            let read = on_lane(self.deps.lanes.io, &mixdog_rt::CancellationToken::new(), move |lane| super::restore_hydrate::hydrate(&store, lane, raw)).await;
+            let read = on_lane(self.deps.lanes.io, &mixdog_rt::CancellationToken::new(), move |lane| {
+                let mut raw = raw;
+                if let Some(texts) = raw.get_mut("pastedTexts") {
+                    super::restore_hydrate::materialize_texts(&store, lane, texts)?;
+                }
+                super::restore_hydrate::hydrate(&store, lane, raw)
+            })
+            .await;
             match read {
                 Ok(Ok(hydrated)) => restored = Some(hydrated),
                 Ok(Err(error)) | Err(error) => unreadable = Some(error.to_string()),
             }
         }
-        let decision = stop::decide(&facts, restore_prompt, &canceller, steering, unreadable.is_some());
-        // The hand-back is recorded first: the actor reads it when the turn ends, which this abort may bring at once.
-        run.prompt.record(decision.reclaim.clone());
+        // Decided against the prompt's facts as they are now and recorded in the same hold, so an output commit cannot land between
+        // the two; the actor reads the hand-back when the turn ends, which this abort may bring at once.
+        let decision = run.prompt.decide_and_record(restore_prompt, &canceller, steering, unreadable.is_some());
         let name = match decision.reason {
             stop::Reason::Interrupt => "interrupt",
             stop::Reason::KeepPrompt => "user-cancel-keep-prompt",

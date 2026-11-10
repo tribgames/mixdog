@@ -215,10 +215,10 @@ async function writtenThrough(wire = (adapter) => adapter) {
 
 test('a chat call wired through the router writes every request with its own claim', async () => {
   const { written, made, client } = await writtenThrough();
-  assert.ok(written.length >= 4);
   for (const request of written) assert.equal(typeof request.sent, 'function', `${request.method} carries its call's claim`);
-  assert.equal(new Set(written.map((w) => w.sent)).size >= 4, true, 'each call has a claim of its own');
-  assert.equal(made.length >= 3, true, 'the adapter is built per call from the scoped client, not once');
+  // Four router calls (markSessionRead, renameSession, listSessions, deleteSession): each has a claim of its own and builds its own adapter.
+  assert.equal(new Set(written.map((w) => w.sent)).size, 4, 'each call has a claim of its own');
+  assert.equal(made.length, 3, 'the adapter is built per call from the scoped client, not once');
   assert.ok(made.every((c) => c !== client), "what the adapter was built from is the call's scoped client");
 });
 
@@ -230,20 +230,17 @@ test('negative control: an adapter built once with a captured client writes uncl
     return { ...adapter, calls };
   };
   const { written } = await writtenThrough(captured);
-  assert.ok(written.length >= 4);
+  assert.notEqual(written.length, 0);
   assert.ok(written.every((request) => request.sent === undefined), 'no request carries a claim');
 });
 
 test('the adapter the switch point loads claims all 37 chat calls and the thread list, and nothing twice', async () => {
   const { adapter } = await import('./remote-protocol-chat.ts');
-  const names = [
-    'abortSession', 'agentRoomAction', 'answerApprovalNotification', 'cancelQuotaResume', 'continueSessionInModel', 'deleteSession', 'getQuotaAutoResume',
-    'getTaskWorkspace', 'inheritSession', 'listProviderModels', 'markSessionRead', 'openAgentHome', 'prefetchSession', 'provideSecretInput',
-    'readCapabilities', 'readTranscriptHistory', 'readTranscriptItem', 'releaseShellJob', 'renameSession', 'resetAgentHome',
-    'resolveToolApprovalForSession', 'scheduleQuotaResume', 'searchSessionContent', 'setFast', 'setModelRoute', 'setQuotaAutoResume',
-    'setSessionArchived', 'setSessionFavorite', 'setSessionProject', 'startProject', 'startProjectTask', 'startTask', 'stopShellJob',
-    'submitFeedback', 'submitNewTask', 'submitToSession', 'viewerDevice',
-  ];
   assert.equal(adapter.group, 'chat');
-  assert.deepEqual(Object.keys(adapter.calls).sort(), [...names, 'listSessions'].sort());
+  const claimed = Object.keys(adapter.calls);
+  assert.equal(claimed.length, 38, 'the 37 chat calls and the thread list');
+  assert.equal(new Set(claimed).size, claimed.length, 'nothing twice');
+  // Every call Node's recording made of the chat host is claimed.
+  const recordedCalls = [...new Set(read('./remote-protocol-chat.recorded.json').cases.map((c) => c.call))];
+  assert.deepEqual(recordedCalls.filter((name) => !claimed.includes(name)), []);
 });

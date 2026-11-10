@@ -83,6 +83,17 @@ impl PromptState {
         facts.reclaim = reclaim;
     }
 
+    /// [`decide`] over the prompt's facts as they are at this instant and the hand-back recorded in the same hold of the lock: an
+    /// output commit lands wholly before it (nothing is handed back) or wholly after it (the stop already took the prompt), as Node's
+    /// `abort` reads, decides and records with no await between (`abort.mjs:131-205`).
+    pub fn decide_and_record(&self, restore_prompt: Option<bool>, canceller: &str, steering: bool, unreadable: bool) -> Decision {
+        let mut facts = self.facts();
+        let decision = decide(&facts, restore_prompt, canceller, steering, unreadable);
+        facts.restorable = false;
+        facts.reclaim = decision.reclaim.clone();
+        decision
+    }
+
     pub fn take_reclaim(&self) -> Option<Reclaim> {
         self.facts().reclaim.take()
     }
@@ -209,5 +220,45 @@ mod tests {
             replayed += 1;
         }
         assert!(replayed >= 14, "replayed only {replayed} busy cases");
+    }
+
+    /// An output commit racing a stop lands on one side of it, never between its read and its record. Both orders over every case Node
+    /// recorded: the output first (the recorded case with output: nothing is handed back) or the stop first (the case's stop is the one
+    /// Node recorded without the output, and the output that lands after it changes nothing of what was decided).
+    #[test]
+    fn a_commit_racing_the_stop_lands_on_one_side_of_it() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/phone-chat-core/phone-chat-core.json");
+        let recorded: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let mut both = 0;
+        for case in recorded["cases"].as_array().unwrap().iter().filter(|case| case["kind"] == "abort" && case["options"].get("reason").is_none()) {
+            let name = case["name"].as_str().unwrap();
+            let submit = &case["submit"];
+            let output = case["output"]["text"].as_str().is_some_and(|output| !output.trim().is_empty());
+            let state = PromptState::new(Facts {
+                text: case["prompt"].as_str().unwrap().trim().to_owned(),
+                ids: vec![submit["id"].as_str().unwrap().to_owned()],
+                device: submit["transcriptMeta"]["device"].as_str().unwrap_or_default().to_owned(),
+                restorable: submit["kickoff"] != true,
+                committed: false,
+                entry: json!({ "options": { "pastedImages": submit["pastedImages"], "pastedTexts": submit["pastedTexts"] } }),
+                reclaim: None,
+            });
+            let options = &case["options"];
+            let stop = |state: &PromptState| state.decide_and_record(options.get("restorePrompt").and_then(Value::as_bool), options["device"].as_str().unwrap_or_default(), !case["steering"].is_null(), false);
+            if output {
+                state.commit();
+                let decision = stop(&state);
+                assert_eq!(json!(decision.restore_text), case["result"]["restoreText"], "{name}: output first");
+                assert_eq!(state.snapshot().reclaim, None, "{name}: nothing was handed back after the output");
+            } else {
+                let decision = stop(&state);
+                assert_eq!(json!(decision.restore_text), case["result"]["restoreText"], "{name}: stop first");
+                let handed = state.snapshot().reclaim;
+                state.commit();
+                assert_eq!(state.snapshot().reclaim, handed, "{name}: an output after the stop does not take the hand-back back");
+                both += 1;
+            }
+        }
+        assert!(both >= 8, "stop-first replayed only {both} cases");
     }
 }

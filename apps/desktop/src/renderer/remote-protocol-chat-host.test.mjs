@@ -161,17 +161,9 @@ const requestedPage = (request) => ({
   limit: request.limit,
   ...(request.byteBudget ? { byteBudget: request.byteBudget } : {}),
 });
-// 'stored-unsupported-reader': a Node daemon older than the phone, with no historical-position reader, answers an empty page with `reset: true`
-// (the phone returns to the live tail). Every mixdogd serves `thread/items/list` (it is in the method inventory a core is built from), so no
-// core state is a daemon without the reader: the case has no counterpart to replay, and the inventory is what is asserted.
-const READERLESS = 'stored-unsupported-reader';
-test(`${READERLESS}: Node's answer is the reset page, and every core has the reader`, () => {
-  const c = recorded.cases.find((x) => x.name === READERLESS);
-  assert.deepEqual(c.node.result, { sessionId: S, items: [], hasOlder: false, hasNewer: false, reset: true });
-  const methods = readFileSync(new URL('../../../../native/core/crates/mixdog-app-protocol/schema/client_methods.json', import.meta.url), 'utf8');
-  assert.match(methods, /"thread\/items\/list"/);
-});
-for (const c of recorded.cases.filter((x) => x.group === 'history' && x.name !== READERLESS)) {
+// 'stored-unsupported-reader' is a Node daemon older than the phone (no historical-position reader) answering an empty page with `reset: true`. No core
+// is without the reader, but the core answers the same page through cursorInvalidated (a cursor the thread no longer holds), which is what is replayed.
+for (const c of recorded.cases.filter((x) => x.group === 'history')) {
   test(`${c.name}: the page and its flags are Node's`, async () => {
     // The phone's page is the wire answer without its sessionId (session-host-transport.ts readTranscriptHistory keeps items, flags, positions, reset).
     const { sessionId: _wire, ...answer } = c.node.result;
