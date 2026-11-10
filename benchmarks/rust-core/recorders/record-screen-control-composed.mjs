@@ -86,6 +86,24 @@ const SCENARIOS = [
       { op: 'await', call: 'stop' },
     ],
   },
+  ...['succeeds', 'fails'].map((outcome) => ({
+    name: `disposed while the helper’s handshake runs, which then ${outcome}: the connection is ended at once and nothing more reaches the helper`,
+    world: { installState: 'installed', holdHandshake: true },
+    steps: [
+      { op: 'start', as: 'start' },
+      { op: 'await', call: 'start' },
+      { op: 'hostDesktop', local: UAC },
+      settle,
+      { op: 'stop', as: 'stop' },
+      { op: 'await', call: 'stop' },
+      { op: 'dispose' },
+      settle,
+      { op: 'handshake', outcome },
+      settle,
+      { op: 'peerClose' },
+      settle,
+    ],
+  })),
 ];
 
 // ---------------------------------------------------------------------------
@@ -101,8 +119,15 @@ async function play(scenario) {
     const handlers = { data: [], error: [], close: [] };
     const parser = new FrameParser();
     let authenticated = false;
+    let heldAuth = null;
     const deliver = (message) => queueMicrotask(() => handlers.data.forEach((handler) => handler(encodeControl(message))));
-    peer = { send: deliver };
+    // `holdHandshake`: the helper answers the client's hello only when the script says, with its proof or a refusal.
+    peer = {
+      send: deliver,
+      handshake: (outcome) =>
+        deliver(outcome === 'succeeds' ? heldAuth : { type: 'error', code: 'unauthorized', message: 'the client is not allowed' }),
+      close: () => handlers.close.forEach((handler) => handler()),
+    };
     note('pipe', 'open');
     return {
       on(event, handler) {
@@ -115,7 +140,8 @@ async function play(scenario) {
           if (!authenticated) {
             if (message.type === 'client-hello') {
               const mac = serverAuthTag(SECRET, decodeNonce(message.clientNonce), decodeNonce(SERVER_NONCE));
-              deliver({ type: 'server-auth', protocol: 4, serverNonce: SERVER_NONCE, mac });
+              heldAuth = { type: 'server-auth', protocol: 4, serverNonce: SERVER_NONCE, mac };
+              if (!world.holdHandshake) deliver(heldAuth);
             } else if (message.type === 'client-auth') {
               authenticated = true;
               deliver(HELLO);
@@ -249,6 +275,16 @@ async function play(scenario) {
           break;
         case 'stop':
           start(step.as, source.stop('user'));
+          break;
+        case 'dispose':
+          lease.dispose();
+          helper.dispose();
+          break;
+        case 'handshake':
+          peer.handshake(step.outcome);
+          break;
+        case 'peerClose':
+          peer.close();
           break;
         case 'settle':
           await checkpoint();

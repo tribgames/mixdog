@@ -23,14 +23,14 @@
       "sha256": "303b7510dcc108923580d7e181bca54ec88351cce4342f5b7a751123136e4655"
     },
     {
-      "bytes": 1888,
+      "bytes": 2173,
       "path": "composed/MANIFEST.json",
-      "sha256": "97c884a962ade40de2ea7fbdbab098ddb5022bd161ae89a9e1d1f4fa3565cd70"
+      "sha256": "4813ea4556b9b22adb2ab43941d6b835fc4e5216a01dff87b5db50aaeaa44cc1"
     },
     {
-      "bytes": 19184,
+      "bytes": 28164,
       "path": "composed/scenarios.json",
-      "sha256": "b25a2fd03ddb35847b5c444e18f92178febfde3235767efff7327625a177524f"
+      "sha256": "47c5e993a488d063889eed3276fee4d56f29f62d6cb1674a4789a13f9d38ab91"
     },
     {
       "bytes": 3710,
@@ -122,5 +122,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-screen-control-lib.mjs",
   "set": "screen-control",
-  "totalBytes": 767578
+  "totalBytes": 776843
 }

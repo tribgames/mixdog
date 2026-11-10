@@ -70,12 +70,20 @@ pub(super) trait PipeEvents: Send + Sync {
     fn closed(&self);
 }
 
+/// A connect under way: the authenticated pipe and the helper's hello once it is made, and how to give it up before
+/// (Node's `connection.end()` during the handshake: no proof is revealed after it, and a connection made anyway is
+/// ended at once).
+pub(super) struct Dialing {
+    pub done: BoxFuture<Result<(Arc<dyn HelperPipe>, ClientSession), String>>,
+    pub abort: Box<dyn FnOnce() + Send>,
+}
+
 /// Dials the installed helper and authenticates.
 pub(super) trait HelperConnector: Send + Sync {
     /// The install state (its secret and pipe name) is readable: the helper is installed.
     fn available(&self) -> bool;
-    /// The authenticated pipe and the helper's hello; the pipe reports to `events`.
-    fn connect(&self, events: Arc<dyn PipeEvents>) -> BoxFuture<Result<(Arc<dyn HelperPipe>, ClientSession), String>>;
+    /// Dials; the pipe reports to `events`.
+    fn connect(&self, events: Arc<dyn PipeEvents>) -> Dialing;
 }
 
 type Settle = Arc<Mutex<Option<(oneshot::Sender<Result<(), String>>, Option<TimerHandle>)>>>;
@@ -83,6 +91,9 @@ type Settle = Arc<Mutex<Option<(oneshot::Sender<Result<(), String>>, Option<Time
 struct State {
     /// Set from the start of a connect until the connection ends.
     connecting: bool,
+    /// The connect under way (its number and how to give it up), until it is made, fails or is closed.
+    dialing: Option<(u64, Box<dyn FnOnce() + Send>)>,
+    dials: u64,
     pipe: Option<Arc<dyn HelperPipe>>,
     session: Option<ClientSession>,
     /// Bounded sends still waiting for their write, in the order they were made.
@@ -232,7 +243,7 @@ impl HelperClient {
             connector,
             timers,
             deadline_ms: FRAME_DEADLINE_MS,
-            state: Mutex::new(State { connecting: false, pipe: None, session: None, pending: Vec::new(), sends: 0 }),
+            state: Mutex::new(State { connecting: false, dialing: None, dials: 0, pipe: None, session: None, pending: Vec::new(), sends: 0 }),
             desktop_changed: ListenerSet::new(),
             closed: ListenerSet::new(),
             challenges: ListenerSet::new(),
@@ -271,25 +282,39 @@ impl HelperService for HelperClient {
         if !self.inner.connector.available() {
             return Box::pin(async { Err(NOT_INSTALLED.to_string()) });
         }
-        {
+        let dial = {
             let mut state = self.inner.state();
             if state.connecting {
                 return Box::pin(async { Err(ALREADY_CONNECTED.to_string()) });
             }
             state.connecting = true;
-        }
-        let dialed = self.inner.connector.connect(self.inner.clone());
+            state.dials += 1;
+            state.dials
+        };
+        let Dialing { done, abort } = self.inner.connector.connect(self.inner.clone());
+        self.inner.state().dialing = Some((dial, abort));
         let inner = self.inner.clone();
         Box::pin(async move {
-            match dialed.await {
+            let outcome = done.await;
+            let mut state = inner.state();
+            if !state.dialing.as_ref().is_some_and(|(current, _)| *current == dial) {
+                // Closed during its handshake: a connection made anyway is ended at once, and the connect fails
+                // as Node's does when that connection closes.
+                drop(state);
+                if let Ok((pipe, _)) = outcome {
+                    pipe.end();
+                }
+                return Err(CONNECTION_CLOSED.to_string());
+            }
+            state.dialing = None;
+            match outcome {
                 Ok((pipe, hello)) => {
-                    let mut state = inner.state();
                     state.pipe = Some(pipe);
                     state.session = Some(hello);
                     Ok(())
                 }
                 Err(error) => {
-                    inner.state().connecting = false;
+                    state.connecting = false;
                     Err(error)
                 }
             }
@@ -325,7 +350,19 @@ impl HelperService for HelperClient {
     }
 
     fn close(&self) {
-        let Some(pipe) = self.inner.state().pipe.clone() else {
+        let pipe = {
+            let mut state = self.inner.state();
+            if let Some((_, abort)) = state.dialing.take() {
+                // Still in its handshake: given up, with nothing written (Node ends the connection; nothing but
+                // the handshake may precede authentication).
+                state.connecting = false;
+                drop(state);
+                abort();
+                return;
+            }
+            state.pipe.clone()
+        };
+        let Some(pipe) = pipe else {
             return;
         };
         self.set_active(false);
@@ -354,8 +391,71 @@ impl HelperService for HelperClient {
 
 /// The installed helper's pipe: [`mixdog_secure_desktop::client::Link`] driven by one owner thread (its handle is
 /// synchronous, so a blocked read would hold up a write from another thread). Writes reach the thread in order; what
-/// the helper sends reaches the client in order on the runtime that connected.
-pub(super) struct LinkConnector;
+/// the helper sends reaches the client in order, as tasks of the screen control's runtime. The owner thread ends,
+/// and the pipe handle with it, when the pipe is ended, when the client is gone, or when the connect was given up.
+pub(super) struct LinkConnector {
+    available: Arc<dyn Fn() -> bool + Send + Sync>,
+    dial: Arc<dyn Fn() -> Result<(Box<dyn LinkIo>, ClientSession), String> + Send + Sync>,
+    timers: Arc<dyn Timers>,
+}
+
+/// An authenticated link as the owner thread drives it; made on that thread and never leaving it (the pipe handle is
+/// not `Send`).
+pub(super) trait LinkIo {
+    fn write(&mut self, message: Message) -> std::io::Result<()>;
+    /// The next event, or `None` when nothing arrived within `wait`; an error once the pipe closed.
+    fn next(&mut self, wait: Duration) -> std::io::Result<Option<mixdog_secure_desktop::client::Event>>;
+}
+
+impl LinkIo for mixdog_secure_desktop::client::Link {
+    fn write(&mut self, message: Message) -> std::io::Result<()> {
+        match message {
+            Message::Control { active } => self.set_active(active),
+            Message::VideoRun { epoch } => self.set_video_run(epoch),
+            Message::Grant { challenge, epoch, signature } => self.grant(challenge, epoch, signature),
+            Message::Input { event } => self.send_input(event),
+            Message::Sas => self.send_sas(),
+            other => Err(std::io::Error::other(format!("the client does not send {other:?}"))),
+        }
+    }
+
+    fn next(&mut self, wait: Duration) -> std::io::Result<Option<mixdog_secure_desktop::client::Event>> {
+        mixdog_secure_desktop::client::Link::next(self, wait)
+    }
+}
+
+impl LinkConnector {
+    /// The installed helper, dialled and authenticated by [`mixdog_secure_desktop::client::Link::connect`].
+    pub(super) fn installed(timers: Arc<dyn Timers>) -> Self {
+        Self {
+            available: Arc::new(|| {
+                std::fs::read_to_string(mixdog_secure_desktop::paths::state_file())
+                    .ok()
+                    .and_then(|text| mixdog_secure_desktop::security::InstallState::from_json(&text).ok())
+                    .is_some()
+            }),
+            dial: Arc::new(|| {
+                let link = mixdog_secure_desktop::client::Link::connect()?;
+                let hello = link.hello().clone();
+                let session = ClientSession {
+                    protocol: hello.protocol,
+                    version: hello.version,
+                    session: hello.session,
+                    desktop: hello.desktop,
+                    locked: hello.locked,
+                };
+                Ok((Box::new(link) as Box<dyn LinkIo>, session))
+            }),
+            timers,
+        }
+    }
+
+    /// Test only: a connector over `dial`, which runs on the owner thread as the real handshake does.
+    #[cfg(test)]
+    pub(super) fn with(dial: Arc<dyn Fn() -> Result<(Box<dyn LinkIo>, ClientSession), String> + Send + Sync>, timers: Arc<dyn Timers>) -> Self {
+        Self { available: Arc::new(|| true), dial, timers }
+    }
+}
 
 enum PipeCommand {
     Write(Message, Box<dyn FnOnce(Result<(), String>) + Send>),
@@ -390,27 +490,12 @@ enum PipeEvent {
 /// How long the owner thread waits for the helper before it looks for writes again.
 const OWNER_WAIT: Duration = Duration::from_millis(5);
 
-fn write_message(link: &mut mixdog_secure_desktop::client::Link, message: Message) -> std::io::Result<()> {
-    match message {
-        Message::Control { active } => link.set_active(active),
-        Message::VideoRun { epoch } => link.set_video_run(epoch),
-        Message::Grant { challenge, epoch, signature } => link.grant(challenge, epoch, signature),
-        Message::Input { event } => link.send_input(event),
-        Message::Sas => link.send_sas(),
-        other => Err(std::io::Error::other(format!("the client does not send {other:?}"))),
-    }
-}
-
-fn own_link(
-    mut link: mixdog_secure_desktop::client::Link,
-    commands: std::sync::mpsc::Receiver<PipeCommand>,
-    events: tokio::sync::mpsc::UnboundedSender<PipeEvent>,
-) {
+fn own_link(mut link: Box<dyn LinkIo>, commands: std::sync::mpsc::Receiver<PipeCommand>, events: tokio::sync::mpsc::UnboundedSender<PipeEvent>) {
     use mixdog_secure_desktop::client::Event;
     loop {
         loop {
             match commands.try_recv() {
-                Ok(PipeCommand::Write(message, done)) => done(write_message(&mut link, message).map_err(|error| error.to_string())),
+                Ok(PipeCommand::Write(message, done)) => done(link.write(message).map_err(|error| error.to_string())),
                 Ok(PipeCommand::End) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     drop(link);
                     let _ = events.send(PipeEvent::Closed);
@@ -438,16 +523,13 @@ fn own_link(
 
 impl HelperConnector for LinkConnector {
     fn available(&self) -> bool {
-        std::fs::read_to_string(mixdog_secure_desktop::paths::state_file())
-            .ok()
-            .and_then(|text| mixdog_secure_desktop::security::InstallState::from_json(&text).ok())
-            .is_some()
+        (self.available)()
     }
 
-    fn connect(&self, events: Arc<dyn PipeEvents>) -> BoxFuture<Result<(Arc<dyn HelperPipe>, ClientSession), String>> {
+    fn connect(&self, events: Arc<dyn PipeEvents>) -> Dialing {
         let (connected, answer) = oneshot::channel();
         let (event_sender, mut event_receiver) = tokio::sync::mpsc::unbounded_channel();
-        drop(tokio::spawn(async move {
+        self.timers.spawn(Box::pin(async move {
             while let Some(event) = event_receiver.recv().await {
                 match event {
                     PipeEvent::DesktopChanged(desktop, session, locked) => events.desktop_changed(desktop, session, locked),
@@ -461,26 +543,28 @@ impl HelperConnector for LinkConnector {
                 }
             }
         }));
-        std::thread::spawn(move || match mixdog_secure_desktop::client::Link::connect() {
+        let given_up = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let abort = given_up.clone();
+        let dial = self.dial.clone();
+        std::thread::spawn(move || match dial() {
             Err(error) => {
                 let _ = connected.send(Err(error));
             }
-            Ok(link) => {
-                let hello = link.hello().clone();
+            // Given up while it was being made: the link is dropped here, which closes the pipe.
+            Ok(_) if given_up.load(std::sync::atomic::Ordering::SeqCst) => {
+                let _ = connected.send(Err(CONNECTION_CLOSED.to_string()));
+            }
+            Ok((link, session)) => {
                 let (commands, receiver) = std::sync::mpsc::channel();
                 let pipe: Arc<dyn HelperPipe> = Arc::new(LinkPipe { commands: Mutex::new(commands) });
-                let session = ClientSession {
-                    protocol: hello.protocol,
-                    version: hello.version,
-                    session: hello.session,
-                    desktop: hello.desktop,
-                    locked: hello.locked,
-                };
                 if connected.send(Ok((pipe, session))).is_ok() {
                     own_link(link, receiver, event_sender);
                 }
             }
         });
-        Box::pin(async move { answer.await.unwrap_or_else(|_| Err("the helper connection ended before its handshake".to_string())) })
+        Dialing {
+            done: Box::pin(async move { answer.await.unwrap_or_else(|_| Err("the helper connection ended before its handshake".to_string())) }),
+            abort: Box::new(move || abort.store(true, std::sync::atomic::Ordering::SeqCst)),
+        }
     }
 }

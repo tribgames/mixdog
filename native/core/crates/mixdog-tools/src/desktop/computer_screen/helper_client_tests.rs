@@ -15,16 +15,23 @@ use serde_json::json;
 
 use super::adapter::HelperService;
 use super::adapter::HelperSession;
+use super::adapter::SecureDesktopAdapter;
+use super::installer::Timers;
 use super::helper_client::ClientSession;
+use super::helper_client::Dialing;
 use super::helper_client::HelperClient;
 use super::helper_client::HelperConnector;
 use super::helper_client::HelperPipe;
+use super::helper_client::LinkConnector;
+use super::helper_client::LinkIo;
 use super::helper_client::PipeEvents;
 use super::lease::Challenge;
 use super::lease::Grant;
 use super::router::BoxFuture;
+use super::testing::DEADLINE;
 use super::testing::Log;
 use super::testing::Replay;
+use super::testing::ThreadedTimers;
 use super::testing::VirtualTimers;
 use super::testing::log_new;
 use super::testing::log_push;
@@ -65,13 +72,16 @@ impl HelperConnector for Connector {
     fn available(&self) -> bool {
         true
     }
-    fn connect(&self, _events: Arc<dyn PipeEvents>) -> BoxFuture<Result<(Arc<dyn HelperPipe>, ClientSession), String>> {
+    fn connect(&self, _events: Arc<dyn PipeEvents>) -> Dialing {
         let pipe: Arc<dyn HelperPipe> = self.pipe.clone();
         let hello = ClientSession { protocol: 4, version: "1.4.5".to_string(), session: 1, desktop: "Winlogon".to_string(), locked: Some(false) };
-        Box::pin(async move {
-            next_turn().await;
-            Ok((pipe, hello))
-        })
+        Dialing {
+            done: Box::pin(async move {
+                next_turn().await;
+                Ok((pipe, hello))
+            }),
+            abort: Box::new(|| panic!("no client scenario closes during the handshake")),
+        }
     }
 }
 
@@ -193,4 +203,113 @@ fn every_recorded_client_scenario_replays_to_nodes_whole_trace() {
         }
     }
     assert!(failures.is_empty(), "{} of {} scenarios differ from Node:\n{}", failures.len(), scenarios.len(), failures.join("\n"));
+}
+
+// A connect given up during its handshake (Node: `client.ts` close() ends the connection while it authenticates, and
+// the adapter closes a connection made after its dispose, `secure-desktop-adapter.ts:201-204,297`). The real
+// connector and its owner thread, on a multi-threaded runtime; the handshake is a stand-in held until the test
+// answers it, after the adapter was disposed and released. The owner thread must end, the pipe handle with it, and
+// every task the connect started (the pipe's event task, the adapter's reaction) must end.
+
+#[derive(Debug, PartialEq)]
+enum Seen {
+    HandshakeBegan,
+    Wrote,
+    HandleReleased,
+    OwnerEnded,
+}
+
+/// Lives in the owner thread's local storage: dropped when that thread ends.
+struct OwnerAlive(std::sync::mpsc::Sender<Seen>);
+
+impl Drop for OwnerAlive {
+    fn drop(&mut self) {
+        drop(self.0.send(Seen::OwnerEnded));
+    }
+}
+
+thread_local! {
+    static OWNER: std::cell::RefCell<Option<OwnerAlive>> = const { std::cell::RefCell::new(None) };
+}
+
+/// An authenticated link from which the helper sends nothing.
+struct QuietLink {
+    seen: std::sync::mpsc::Sender<Seen>,
+    /// Never sent on: `next` waits its time on it as the real link waits for the helper.
+    silence: std::sync::mpsc::Receiver<()>,
+    _open: std::sync::mpsc::Sender<()>,
+}
+
+impl LinkIo for QuietLink {
+    fn write(&mut self, _message: Message) -> std::io::Result<()> {
+        drop(self.seen.send(Seen::Wrote));
+        Ok(())
+    }
+
+    fn next(&mut self, wait: std::time::Duration) -> std::io::Result<Option<mixdog_secure_desktop::client::Event>> {
+        drop(self.silence.recv_timeout(wait));
+        Ok(None)
+    }
+}
+
+impl Drop for QuietLink {
+    fn drop(&mut self) {
+        drop(self.seen.send(Seen::HandleReleased));
+    }
+}
+
+fn give_up_during_the_handshake(succeeds: bool) -> Vec<Seen> {
+    let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("a multi-threaded runtime");
+    let timers = ThreadedTimers::new(runtime.handle().clone());
+    let (tell, seen) = std::sync::mpsc::channel::<Seen>();
+    let (answer, answered) = std::sync::mpsc::channel::<bool>();
+    let answered = Arc::new(Mutex::new(Some(answered)));
+    let dial_tell = tell.clone();
+    let dial: Arc<dyn Fn() -> Result<(Box<dyn LinkIo>, ClientSession), String> + Send + Sync> = Arc::new(move || {
+        OWNER.with(|owner| *owner.borrow_mut() = Some(OwnerAlive(dial_tell.clone())));
+        drop(dial_tell.send(Seen::HandshakeBegan));
+        let answered = lock(&answered).take().expect("one dial");
+        if !answered.recv_timeout(DEADLINE).unwrap_or_else(|_| panic!("the test did not answer the handshake within {DEADLINE:?}")) {
+            return Err("unauthorized: the client is not allowed".to_string());
+        }
+        let (open, silence) = std::sync::mpsc::channel();
+        let link = QuietLink { seen: dial_tell.clone(), silence, _open: open };
+        let hello = ClientSession { protocol: 4, version: "1.4.5".to_string(), session: 1, desktop: "Winlogon".to_string(), locked: Some(false) };
+        Ok((Box::new(link) as Box<dyn LinkIo>, hello))
+    });
+    let shared: Arc<dyn Timers> = Arc::new(timers.clone());
+    let connector = Arc::new(LinkConnector::with(dial, shared.clone()));
+    let turn = timers.turn.clone();
+    let adapter = turn.enter(|| SecureDesktopAdapter::create(Arc::new(HelperClient::new(connector, shared.clone())), shared.clone()));
+    turn.enter(|| shared.spawn(adapter.set_active(true)));
+    let mut observed = Vec::new();
+    let next = |what: &str| seen.recv_timeout(DEADLINE).unwrap_or_else(|_| panic!("waiting for {what}: nothing came within {DEADLINE:?}"));
+    observed.push(next("the handshake to begin"));
+    turn.enter(|| adapter.dispose());
+    drop(adapter);
+    answer.send(succeeds).expect("the handshake waits for its answer");
+    loop {
+        let event = next("the owner thread to end");
+        let ended = event == Seen::OwnerEnded;
+        observed.push(event);
+        if ended {
+            break;
+        }
+    }
+    timers.settle();
+    observed
+}
+
+#[test]
+fn a_connect_given_up_during_its_handshake_ends_its_owner_thread_and_releases_the_pipe() {
+    assert_eq!(
+        give_up_during_the_handshake(true),
+        [Seen::HandshakeBegan, Seen::HandleReleased, Seen::OwnerEnded],
+        "the handshake then succeeds: the link is dropped unused and its thread ends"
+    );
+    assert_eq!(
+        give_up_during_the_handshake(false),
+        [Seen::HandshakeBegan, Seen::OwnerEnded],
+        "the handshake then fails: its thread ends"
+    );
 }
