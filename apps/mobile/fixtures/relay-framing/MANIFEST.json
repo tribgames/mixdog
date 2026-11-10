@@ -3,12 +3,12 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 10267,
+      "bytes": 14919,
       "path": "golden.json",
-      "sha256": "5b716a0b2fbdf0bff301ae64d24ac87f84eb180efcc07e781a5437ae5fdb74bd"
+      "sha256": "785600ccaf7df6607839e79c2dfe095d6a5e2e6595524acdab9c5bba9ed4a71e"
     }
   ],
-  "frames": 18,
+  "frames": 34,
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -28,5 +28,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-relay-framing.mjs",
   "set": "relay-framing",
-  "totalBytes": 10267
+  "totalBytes": 14919
 }

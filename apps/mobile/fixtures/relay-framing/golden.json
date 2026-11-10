@@ -204,6 +204,102 @@
           "text": "😀b"
         }
       ]
+    },
+    {
+      "at": 300,
+      "tab": "E",
+      "bytes": [
+        {
+          "text": "e0"
+        }
+      ]
+    },
+    {
+      "at": 305,
+      "tab": "E",
+      "bytes": [
+        {
+          "text": "e1"
+        }
+      ],
+      "activity": "running"
+    },
+    {
+      "at": 310,
+      "tab": "E",
+      "activity": "finished"
+    },
+    {
+      "at": 300,
+      "tab": "F",
+      "bytes": [
+        {
+          "text": "f0"
+        }
+      ],
+      "activity": "running"
+    },
+    {
+      "at": 340,
+      "tab": "F",
+      "activity": "finished"
+    },
+    {
+      "at": 400,
+      "tab": "G15",
+      "bytes": [
+        {
+          "text": "render"
+        }
+      ]
+    },
+    {
+      "at": 415,
+      "tab": "G15",
+      "bytes": [
+        {
+          "text": "echo"
+        }
+      ],
+      "activity": "running"
+    },
+    {
+      "at": 400,
+      "tab": "G16",
+      "bytes": [
+        {
+          "text": "render"
+        }
+      ]
+    },
+    {
+      "at": 416,
+      "tab": "G16",
+      "bytes": [
+        {
+          "text": "echo"
+        }
+      ],
+      "activity": "running"
+    },
+    {
+      "at": 400,
+      "tab": "G17",
+      "bytes": [
+        {
+          "text": "render"
+        }
+      ]
+    },
+    {
+      "at": 417,
+      "tab": "G17",
+      "bytes": [
+        {
+          "text": "echo"
+        }
+      ],
+      "activity": "running"
     }
   ],
   "frames": [
@@ -782,6 +878,257 @@
         ]
       ],
       "tail": null
+    },
+    {
+      "at": 300,
+      "tab": "E",
+      "lead": null,
+      "runs": [
+        [
+          "e",
+          1
+        ],
+        [
+          "0",
+          1
+        ]
+      ],
+      "tail": null
+    },
+    {
+      "at": 300,
+      "tab": "F",
+      "lead": null,
+      "runs": [
+        [
+          "f",
+          1
+        ],
+        [
+          "0",
+          1
+        ]
+      ],
+      "tail": null
+    },
+    {
+      "at": 300,
+      "tab": "F",
+      "activity": "running"
+    },
+    {
+      "at": 305,
+      "tab": "E",
+      "activity": "running"
+    },
+    {
+      "at": 310,
+      "tab": "E",
+      "activity": "finished"
+    },
+    {
+      "at": 316,
+      "tab": "E",
+      "lead": null,
+      "runs": [
+        [
+          "e",
+          1
+        ],
+        [
+          "1",
+          1
+        ]
+      ],
+      "tail": null
+    },
+    {
+      "at": 340,
+      "tab": "F",
+      "activity": "finished"
+    },
+    {
+      "at": 400,
+      "tab": "G15",
+      "lead": null,
+      "runs": [
+        [
+          "r",
+          1
+        ],
+        [
+          "e",
+          1
+        ],
+        [
+          "n",
+          1
+        ],
+        [
+          "d",
+          1
+        ],
+        [
+          "e",
+          1
+        ],
+        [
+          "r",
+          1
+        ]
+      ],
+      "tail": null
+    },
+    {
+      "at": 400,
+      "tab": "G16",
+      "lead": null,
+      "runs": [
+        [
+          "r",
+          1
+        ],
+        [
+          "e",
+          1
+        ],
+        [
+          "n",
+          1
+        ],
+        [
+          "d",
+          1
+        ],
+        [
+          "e",
+          1
+        ],
+        [
+          "r",
+          1
+        ]
+      ],
+      "tail": null
+    },
+    {
+      "at": 400,
+      "tab": "G17",
+      "lead": null,
+      "runs": [
+        [
+          "r",
+          1
+        ],
+        [
+          "e",
+          1
+        ],
+        [
+          "n",
+          1
+        ],
+        [
+          "d",
+          1
+        ],
+        [
+          "e",
+          1
+        ],
+        [
+          "r",
+          1
+        ]
+      ],
+      "tail": null
+    },
+    {
+      "at": 415,
+      "tab": "G15",
+      "activity": "running"
+    },
+    {
+      "at": 416,
+      "tab": "G15",
+      "lead": null,
+      "runs": [
+        [
+          "e",
+          1
+        ],
+        [
+          "c",
+          1
+        ],
+        [
+          "h",
+          1
+        ],
+        [
+          "o",
+          1
+        ]
+      ],
+      "tail": null
+    },
+    {
+      "at": 416,
+      "tab": "G16",
+      "lead": null,
+      "runs": [
+        [
+          "e",
+          1
+        ],
+        [
+          "c",
+          1
+        ],
+        [
+          "h",
+          1
+        ],
+        [
+          "o",
+          1
+        ]
+      ],
+      "tail": null
+    },
+    {
+      "at": 416,
+      "tab": "G16",
+      "activity": "running"
+    },
+    {
+      "at": 417,
+      "tab": "G17",
+      "lead": null,
+      "runs": [
+        [
+          "e",
+          1
+        ],
+        [
+          "c",
+          1
+        ],
+        [
+          "h",
+          1
+        ],
+        [
+          "o",
+          1
+        ]
+      ],
+      "tail": null
+    },
+    {
+      "at": 417,
+      "tab": "G17",
+      "activity": "running"
     }
   ]
 }

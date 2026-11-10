@@ -6,6 +6,11 @@
 // and 17 ms after a frame, a chunk over the 256 Ki-unit frame cap (cut between characters and inside a surrogate pair), a character split
 // across chunks (sent apart and joined), two tabs interleaved, and an exit line and a disposal in between (the lane sees only the exit
 // line: it never releases a tab). mixdog-spawn `service::relay_buffer` replays the same steps on its passed-in clock.
+// A tab's activity changes reach the same lane as desktop events (`terminal-activity`), sent at once (remote-relay-push-lanes.ts:148-150);
+// a step with both output and an activity change is one PTY chunk carrying text and a marker, which Node's PTY handler emitted first and
+// applied after (terminal-manager.ts:366-371). Each change the lane sends is recorded among the tab's frames, with its time: a change inside
+// an open window, one after a quiet window, and the write after a re-render (the typed command's echo with its start marker) 15, 16 and
+// 17 ms after the re-render's frame.
 //
 //   node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs \
 //     benchmarks/rust-core/recorders/record-relay-framing.mjs --tree <git archive of b6f10295a with node_modules>
@@ -40,6 +45,7 @@ const runTimers = (until) => {
 };
 
 const { createRelayPushLanes } = await importFrom(tree, 'apps/desktop/src/main/remote-relay-push-lanes.ts');
+const { TERMINAL_ACTIVITY_EVENT } = await importFrom(tree, 'apps/desktop/src/shared/terminal-activity.ts');
 
 // A segment is `{ text, times }` (the text repeated) or `{ hex }` (raw bytes: half a character).
 const CAP = 256 * 1024;
@@ -75,6 +81,20 @@ const steps = [
   // Over the cap with a non-BMP character on the cut: Node's frame ends with its high surrogate and the next starts with the low one.
   { at: 200, tab: 'D', bytes: [{ text: 'd' }] },
   { at: 201, tab: 'D', bytes: [{ text: 'a', times: CAP - 1 }, { text: '😀b' }] },
+  // An activity change inside an open window: the output waits until 16 ms after E's frame at 300, the change goes at once.
+  { at: 300, tab: 'E', bytes: [{ text: 'e0' }] },
+  { at: 305, tab: 'E', bytes: [{ text: 'e1' }], activity: 'running' },
+  { at: 310, tab: 'E', activity: 'finished' },
+  // An activity change after a quiet window: the chunk's frame goes at once, then the change.
+  { at: 300, tab: 'F', bytes: [{ text: 'f0' }], activity: 'running' },
+  { at: 340, tab: 'F', activity: 'finished' },
+  // The write after a re-render: the re-render's frame, then the echo with its start marker 15, 16 and 17 ms later.
+  { at: 400, tab: 'G15', bytes: [{ text: 'render' }] },
+  { at: 415, tab: 'G15', bytes: [{ text: 'echo' }], activity: 'running' },
+  { at: 400, tab: 'G16', bytes: [{ text: 'render' }] },
+  { at: 416, tab: 'G16', bytes: [{ text: 'echo' }], activity: 'running' },
+  { at: 400, tab: 'G17', bytes: [{ text: 'render' }] },
+  { at: 417, tab: 'G17', bytes: [{ text: 'echo' }], activity: 'running' },
 ];
 const bytesOf = (segments) =>
   Buffer.concat(segments.map((segment) => (segment.hex !== undefined ? Buffer.from(segment.hex, 'hex') : Buffer.from(segment.text.repeat(segment.times ?? 1), 'utf8'))));
@@ -97,23 +117,32 @@ function frameOf(data) {
 
 const frames = [];
 let listener = null;
+let desktopListener = null;
 const lanes = createRelayPushLanes({
   clients: new Map([['phone', { lanes: new Set(['terminal']), channel: {} }]]),
   broadcastEncrypted: (payload) => {
     if (payload?.event === 'termData') frames.push({ at: clock, tab: payload.payload.id, ...frameOf(payload.payload.data) });
+    if (payload?.event === 'termActivity') frames.push({ at: clock, tab: payload.payload.id, activity: payload.payload.state });
   },
   subscribeTerminalData: (fn) => {
     listener = fn;
     return () => (listener = null);
   },
+  subscribeDesktopEvents: (fn) => {
+    desktopListener = fn;
+    return () => (desktopListener = null);
+  },
 });
 const decoders = new Map();
-for (const step of steps) {
+// Steps run in time order (the script lists them by scenario); equal times keep their listed order.
+for (const step of [...steps].sort((a, b) => a.at - b.at)) {
   runTimers(step.at);
-  if (!step.bytes) continue;
-  if (!decoders.has(step.tab)) decoders.set(step.tab, new StringDecoder('utf8'));
-  const data = decoders.get(step.tab).write(bytesOf(step.bytes));
-  if (data) listener({ id: step.tab, data });
+  if (step.bytes) {
+    if (!decoders.has(step.tab)) decoders.set(step.tab, new StringDecoder('utf8'));
+    const data = decoders.get(step.tab).write(bytesOf(step.bytes));
+    if (data) listener({ id: step.tab, data });
+  }
+  if (step.activity) desktopListener({ name: TERMINAL_ACTIVITY_EVENT, value: { id: step.tab, state: step.activity } });
 }
 runTimers(Number.MAX_SAFE_INTEGER);
 lanes.dispose();
