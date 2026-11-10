@@ -3,8 +3,8 @@
 //! the initial response, decided on the status alone before a stream exists:
 //! one credential refresh after a 401/403. A body is compressed exactly when
 //! Node compresses it (official messages URL, at least 8 KiB), waiting for
-//! lane room rather than ever skipping it; a rejected gzip body is the
-//! provider's error. The adapter also lists the route's models
+//! lane room rather than ever skipping it; a gzip body refused with 400/415 is
+//! sent once more plain, as Node's `sendWithCompression` does. The adapter also lists the route's models
 //! ([`ModelListing`]): one GET, no retry, no cache, no fallback list.
 //!
 //! The HTTP exchange is the shared [`HttpSend`] seam of `transport::http`.
@@ -14,6 +14,8 @@ use crate::transport::deadlines::ANTHROPIC_MODELS;
 use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use flate2::Compression;
@@ -45,6 +47,8 @@ use tokio_util::sync::CancellationToken;
 use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 use crate::transport::http::HttpSend;
+use crate::transport::preconnect::Preconnect;
+use crate::transport::preconnect::Setting;
 
 use crate::warmer::send::{Post, WarmContext, send_cache_warm};
 use crate::warmer::stream::{WarmFailure, WarmUsage};
@@ -82,6 +86,10 @@ fn gzip_failure(cause: &dyn std::fmt::Display) -> ProviderError {
 
 /// Request bodies at least this large are sent gzip-encoded.
 const GZIP_MIN_BYTES: usize = 8 * 1024;
+
+/// `anthropicGzipLatch` (`request-compression.mjs:29`): set once a compressed body refused with 400/415 was accepted
+/// plain; from then on no Anthropic body of this process is compressed.
+static GZIP_LATCHED: AtomicBool = AtomicBool::new(false);
 
 // ---------------------------------------------------------------------------
 // Credentials
@@ -130,7 +138,8 @@ impl Credentials {
     fn header(&self, secret: &Secret) -> (String, String) {
         match self {
             Self::ApiKey(_) => ("x-api-key".to_owned(), secret.0.clone()),
-            Self::OAuth(_) => ("authorization".to_owned(), format!("Bearer {}", secret.0)),
+            // `postMessages` (`gzip-post.mjs:19`): the first header, spelled `Authorization`.
+            Self::OAuth(_) => ("Authorization".to_owned(), format!("Bearer {}", secret.0)),
         }
     }
 
@@ -156,9 +165,24 @@ pub struct AnthropicAdapter {
     http: Arc<dyn HttpSend>,
     credentials: Credentials,
     gzip_lane: CpuBulk,
+    /// The subscription route's socket warm-up (`preconnect('https://api.anthropic.com')`).
+    preconnect: Option<Preconnect>,
+    /// The process settings the request reads (Node's `process.env`).
+    settings: Setting,
 }
 
+/// The origin the subscription route warms (`anthropic-oauth.mjs:352`, `:535`), whatever its base URL.
+const ANTHROPIC_ORIGIN: &str = "https://api.anthropic.com";
+
 impl AnthropicAdapter {
+    /// Warms the messages API now, as the subscription provider's constructor does (`anthropic-oauth.mjs:352`), and
+    /// again before each send (`_sendOnce`, `anthropic-oauth.mjs:535`).
+    pub fn with_preconnect(mut self, preconnect: Preconnect) -> Self {
+        preconnect.warm(ANTHROPIC_ORIGIN);
+        self.preconnect = Some(preconnect);
+        self
+    }
+
     pub fn api_key(
         config: AnthropicConfig,
         http: Arc<dyn HttpSend>,
@@ -198,7 +222,15 @@ impl AnthropicAdapter {
             http,
             credentials,
             gzip_lane,
+            preconnect: None,
+            settings: Arc::new(|name| std::env::var(name).ok()),
         }
+    }
+
+    /// The process settings read from `settings` instead of the process environment.
+    pub fn with_settings(mut self, settings: Setting) -> Self {
+        self.settings = settings;
+        self
     }
 
     fn request_with(&self, wire: &WireRequest, secret: &Secret) -> WireRequest {
@@ -206,7 +238,10 @@ impl AnthropicAdapter {
         // A configured extra header of the credential's name already replaced it.
         let (name, value) = self.credentials.header(secret);
         if !request.headers.iter().any(|h| h.0.eq_ignore_ascii_case(&name)) {
-            request.headers.push((name, value));
+            match self.credentials {
+                Credentials::OAuth(_) => request.headers.insert(0, (name, value)),
+                Credentials::ApiKey(_) => request.headers.push((name, value)),
+            }
         }
         request
     }
@@ -232,16 +267,43 @@ impl AnthropicAdapter {
             .map_err(|e| gzip_failure(&e))
     }
 
-    /// One POST. Node gzips exactly the official-URL bodies of at least
-    /// `GZIP_MIN_BYTES`; a rejected gzip body is the provider's error, never
-    /// resent plain.
+    /// One POST, compressed as `sendWithCompression` compresses it (`request-compression.mjs:75-82`): official-URL
+    /// bodies of at least `GZIP_MIN_BYTES` that carry no `content-encoding`, unless the process latch or
+    /// `MIXDOG_ANTHROPIC_REQ_GZIP=0` turned compression off; a compression failure sends the body plain. A 400/415 to
+    /// the compressed body is drained and the same request sent once plain; when that plain send succeeds,
+    /// compression is off for the rest of the process.
     async fn post(&self, wire: &WireRequest, secret: &Secret) -> Result<HttpResponse, ProviderError> {
-        let mut request = self.request_with(wire, secret);
-        if self.codec.config().is_official_messages_url() && wire.body.len() >= GZIP_MIN_BYTES {
-            request.body = self.gzip(&wire.body).await?;
-            request.headers.push(("content-encoding".to_owned(), "gzip".to_owned()));
+        let request = self.request_with(wire, secret);
+        let eligible = self.codec.config().is_official_messages_url()
+            && wire.body.len() >= GZIP_MIN_BYTES
+            && !GZIP_LATCHED.load(Ordering::SeqCst)
+            && (self.settings)("MIXDOG_ANTHROPIC_REQ_GZIP").as_deref() != Some("0")
+            && !request.headers.iter().any(|h| h.0.eq_ignore_ascii_case("content-encoding"));
+        if !eligible {
+            return self.http.send(request, MODEL_STREAM).await;
         }
-        self.http.send(request, MODEL_STREAM).await
+        let Ok(packed) = self.gzip(&wire.body).await else {
+            return self.http.send(request, MODEL_STREAM).await;
+        };
+        let mut compressed = request.clone();
+        compressed.body = packed;
+        // `withContentEncoding` appends it after the request's own headers, spelled `Content-Encoding`
+        // (`request-compression.mjs:46`).
+        compressed.headers.push(("Content-Encoding".to_owned(), "gzip".to_owned()));
+        let response = self.http.send(compressed, MODEL_STREAM).await?;
+        if !matches!(response.status, 400 | 415) {
+            return Ok(response);
+        }
+        // Drained best-effort before the plain resend (`resendIfEncodingRejected`), which goes out on the same turn of
+        // Node's event loop and so finds the refusal's socket still busy.
+        let held = response.read_all_held().await.ok();
+        let retry = self.http.send(request, MODEL_STREAM).await;
+        drop(held);
+        let retry = retry?;
+        if retry.is_success() {
+            GZIP_LATCHED.store(true, Ordering::SeqCst);
+        }
+        Ok(retry)
     }
 
     /// The body to replay at standard speed after `rejected` refused the fast request `body`, when
@@ -419,6 +481,9 @@ impl ProviderAdapter for AnthropicAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        if let Some(preconnect) = &self.preconnect {
+            preconnect.warm(ANTHROPIC_ORIGIN);
+        }
         let mut plain = self.codec.encode_plain(&request)?;
         let mut secret = self.credentials.current().await?;
         let mut refreshed = false;

@@ -278,7 +278,9 @@ impl AnthropicCodec {
             ));
             headers.push(("x-app".to_owned(), "cli".to_owned()));
         }
-        headers.push(("content-type".to_owned(), "application/json".to_owned()));
+        // The subscription route spells it as `postMessages` does (`gzip-post.mjs:25`), which undici keeps on the wire.
+        let content_type = if self.flavor == Flavor::OAuth { "Content-Type" } else { "content-type" };
+        headers.push((content_type.to_owned(), "application/json".to_owned()));
         if self.flavor == Flavor::ApiKey {
             layer_extra_headers(&mut headers, &self.config.extra_headers);
         }
