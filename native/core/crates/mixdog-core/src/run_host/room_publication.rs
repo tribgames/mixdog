@@ -28,6 +28,7 @@ pub struct RoomPublication {
 pub fn wire<A>(
     thread_list: Arc<ThreadListService>,
     sections: Arc<SectionFeedState>,
+    deletions: Arc<mixdog_core_session::session::thread_edges::ThreadDeletions>,
     agents: Arc<A>,
     index: &mixdog_store::sqlite::SqliteStore,
     directory: Arc<SessionDirectory>,
@@ -36,7 +37,7 @@ pub fn wire<A>(
 where
     A: TaskWorkspace + AgentCatalog + 'static,
 {
-    index.observe_rows(ThreadEdges::start(ThreadEdgePublisher::new(thread_list.clone(), sections.clone(), agents.clone())))?;
+    index.observe_rows(ThreadEdges::start(ThreadEdgePublisher::new(thread_list.clone(), sections.clone(), deletions, agents.clone())))?;
     let summaries = RoomSummaries::new(thread_list, sections, directory);
     let republish: Republish = {
         let summaries = summaries.clone();
@@ -583,6 +584,9 @@ mod tests {
         fn session_closed(&self, session_id: &str, reason: &str, header: &mixdog_store::schema::record::Header, closed_at_ms: i64) {
             self.inner.session_closed(session_id, reason, header, closed_at_ms);
         }
+        fn tombstoned(&self, thread: &ThreadId) {
+            self.inner.tombstoned(thread);
+        }
         fn release_mcp_scope(&self, session_id: &str) {
             self.inner.release_mcp_scope(session_id);
         }
@@ -642,7 +646,8 @@ mod tests {
         let list = Arc::new(ThreadListService::new(Arc::new(index.clone()), Arc::new(Quiet), room_rows, gate.clone()));
         list.fence(store);
         let sessions = Arc::new(DirectorySessions::new(directory.clone(), Arc::new(SessionThreads::new(directory.clone()))));
-        let publication = wire(list.clone(), sections, agents.clone(), &index, directory, sessions.clone()).expect("wired");
+        let deletions = mixdog_core_session::session::thread_edges::ThreadDeletions::new(sections.clone());
+        let publication = wire(list.clone(), sections, deletions, agents.clone(), &index, directory, sessions.clone()).expect("wired");
         let ops = data.state(mixdog_core_base::support::testing::op_state(data.path()));
         let scopes = mixdog_core_base::support::testing::scopes_over(ops, "room").await;
         // The agent deletion's room ports, as `compose_flip.rs` composes them.

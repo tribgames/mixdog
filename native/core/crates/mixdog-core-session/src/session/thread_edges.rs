@@ -167,10 +167,45 @@ pub(super) fn on_roster(mut thread: mixdog_protocol::ThreadSummary, row: &serde_
     thread
 }
 
+/// The one way `thread/deleted` leaves for the app feed: the explicit delete (`purge.rs`) and a row that stopped being listed (below) both
+/// publish through it. What must end with a conversation's presence in the catalog (a paired phone's downloads, Node's `retainSessions`
+/// from `onSessions`, `remote-relay.ts:450`) is told in the same step, before the notification leaves, so no publication of a removal
+/// exists without it.
+pub struct ThreadDeletions {
+    app: Arc<SectionFeedState>,
+    gone: std::sync::OnceLock<Arc<dyn Fn(&str) + Send + Sync>>,
+}
+
+impl ThreadDeletions {
+    pub fn new(app: Arc<SectionFeedState>) -> Arc<Self> {
+        Arc::new(Self { app, gone: std::sync::OnceLock::new() })
+    }
+
+    /// Connects what is told a conversation that left the catalog. Set once; `Err` when it was set already.
+    pub fn on_gone(&self, hook: Arc<dyn Fn(&str) + Send + Sync>) -> Result<(), ()> {
+        self.gone.set(hook).map_err(|_| ())
+    }
+
+    /// The conversation left the catalog, before its `thread/deleted` is published: an explicit delete tells it the moment its
+    /// tombstone lands (a list no longer shows it from then on), ahead of the purge. Telling it again is harmless.
+    pub fn tell(&self, thread: &ThreadId) {
+        if let Some(gone) = self.gone.get() {
+            gone(thread.as_str());
+        }
+    }
+
+    /// The conversation left the catalog: told, then `thread/deleted`.
+    pub fn publish(&self, thread: &ThreadId) {
+        self.tell(thread);
+        self.app.notify(DELETED, &ThreadIdParams { thread_id: thread.clone() });
+    }
+}
+
 /// Decides and publishes what one row write means to the app feed.
 pub struct ThreadEdgePublisher {
     list: Arc<ThreadListService>,
     app: Arc<SectionFeedState>,
+    deleted: Arc<ThreadDeletions>,
     task_workspace: Arc<dyn TaskWorkspace>,
     /// The writes of refreshes whose task workspace lookup failed, one per session (the first `before`, the last `after`): the
     /// next refresh that can look the workspace up publishes what changed since the last roster it published.
@@ -178,8 +213,8 @@ pub struct ThreadEdgePublisher {
 }
 
 impl ThreadEdgePublisher {
-    pub fn new(list: Arc<ThreadListService>, app: Arc<SectionFeedState>, task_workspace: Arc<dyn TaskWorkspace>) -> Self {
-        Self { list, app, task_workspace, held: std::sync::Mutex::new(Vec::new()) }
+    pub fn new(list: Arc<ThreadListService>, app: Arc<SectionFeedState>, deleted: Arc<ThreadDeletions>, task_workspace: Arc<dyn TaskWorkspace>) -> Self {
+        Self { list, app, deleted, task_workspace, held: std::sync::Mutex::new(Vec::new()) }
     }
 
     /// One catalog refresh (`publishCatalogs`, `session-host-catalog.ts:217-244`): it asks the host for the task workspace first
@@ -234,7 +269,7 @@ impl ThreadEdgePublisher {
                 }
             }
             // A delete is announced by the delete (`purge.rs`); a row that stopped being listed otherwise is gone from the roster.
-            (Some(_), None) if !edge.after.deleted => self.app.notify(DELETED, &ThreadIdParams { thread_id: id }),
+            (Some(_), None) if !edge.after.deleted => self.deleted.publish(&id),
             (Some(_), None) | (None, None) => {}
         }
     }

@@ -8007,6 +8007,60 @@
     },
     {
       "class": "C1",
+      "method": "transfer/authorizeRead",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "relay"
+      ],
+      "params": "TransferAuthorizeReadParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "transfer/redeemGrant",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "relay"
+      ],
+      "params": "TransferRedeemGrantParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "transfer/finishRead",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "relay"
+      ],
+      "params": "TransferFinishReadParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
       "method": "transfer/endRead",
       "mutation": {
         "kind": "none"

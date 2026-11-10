@@ -3223,6 +3223,33 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local, Ssh, Relay],
     },
+    /// A paired phone's download, first stage: opens the file and answers a grant that expires.
+    TransferAuthorizeRead => "transfer/authorizeRead" {
+        params: TransferAuthorizeReadParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Relay],
+    },
+    /// A paired phone's download, second stage: consumes the grant once into a transfer.
+    TransferRedeemGrant => "transfer/redeemGrant" {
+        params: TransferRedeemGrantParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Relay],
+    },
+    /// A paired phone's download is done: the file must still be the leased version; the transfer ends either way.
+    TransferFinishRead => "transfer/finishRead" {
+        params: TransferFinishReadParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Relay],
+    },
     /// Close a read (finish or abort).
     TransferEndRead => "transfer/endRead" {
         params: TransferEndReadParams,

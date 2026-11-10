@@ -2589,7 +2589,8 @@ async fn a_delete_closes_the_running_turn_and_purges_in_nodes_order() {
     };
     let s = id.as_str();
     // The close metric follows the acknowledged delete mark, so it comes after the work release.
-    let mut expected = vec![format!("releaseSessionWork:{s}:desktop-session-delete"), format!("sessionClosed:{s}:desktop-session-delete")];
+    // The conversation leaves the catalog when the mark lands, ahead of the purge (a phone's downloads end there, not at `thread/deleted`).
+    let mut expected = vec![format!("releaseSessionWork:{s}:desktop-session-delete"), format!("tombstoned:{s}"), format!("sessionClosed:{s}:desktop-session-delete")];
     let unrecorded = ["turnReview", "usageMetrics", "browserSession", "compactionCapture"];
     // The store unlinks the session's log before Node's hooks run, so the export's removal is first.
     let hooks = golden.iter().map(|path| name(path)).filter(|hook| !unrecorded.contains(hook));
@@ -2646,6 +2647,53 @@ async fn a_delete_whose_mark_fails_logs_no_close() {
     assert!(matches!(reply, Reply::Value(Value::Bool(true))), "{reply:?}");
     assert_eq!(closes(&rig), 1);
     assert_eq!(*lock(&rig.deletes.2), [other.id.as_str().to_owned()]);
+}
+
+/// D-downloads-1, held at the purge: while an explicit delete's purge is held at its first hook, the store's list row is already gone
+/// (`summary`, which the phone grants' catalog reads, `CatalogSessions::has/row`) and the delete has told `tombstoned`, whose production
+/// seam ends the conversation's phone downloads (`purge.rs` `tombstoned` -> `ThreadDeletions::tell` -> `WorkspaceService::session_removed`,
+/// `compose_flip.rs` `on_gone`); `thread/deleted` waits for the purge.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_explicit_delete_ends_downloads_at_its_tombstone_before_the_purge_finishes() {
+    use mixdog_core_api::domain::mock::MockOwnership;
+    use mixdog_store::sqlite::SqliteStore;
+    let data = tempfile::tempdir().expect("data dir");
+    let tokens = mixdog_rt::testing::tokens();
+    let root = data.path().to_path_buf();
+    let index = mixdog_rt::LaneToken::submit(tokens.maintenance_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+        SqliteStore::open(lane, tokens.sqlite_writer_thread, tokens.interactive_io, &root)
+    })
+    .expect("lane")
+    .await
+    .expect("job ran")
+    .expect("index");
+    let list = index.clone();
+    let store: Arc<dyn super::ThreadStore> =
+        Arc::new(super::StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps_on(store));
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hello", "op-1").await;
+    let id = handle.id.clone();
+    eventually_on!(&[&handle.cell.stepped, &rig.store.committed], || {
+        futures::executor::block_on(list.summary(id.as_str())).expect("summary").map(|_| ())
+    })
+    .await;
+    let (reached, (release, held)) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
+    *lock(&rig.deletes.6) = Some((reached.clone(), held));
+    let delete = {
+        let (handle, id) = (handle.clone(), id.clone());
+        tokio::spawn(async move { handle.request(request("thread/delete", json!({ "threadId": id, "opId": "op-del" }), "op-del")).await.expect("thread/delete") })
+    };
+    crate::session::testing::awaiting(|| "the purge's first hook".to_owned(), reached.notified()).await;
+    let s = id.as_str();
+    let steps = lock(&rig.deletes.0).clone();
+    assert!(steps.contains(&format!("tombstoned:{s}")), "the downloads were told before the purge: {steps:?}");
+    assert!(!steps.contains(&format!("thread/deleted:{s}")), "{steps:?}");
+    assert_eq!(list.summary(s).await.expect("summary"), None, "the list row is gone while the purge is held");
+    release.send(()).unwrap();
+    assert!(matches!(delete.await.unwrap(), Reply::Value(Value::Bool(true))));
+    assert!(lock(&rig.deletes.0).contains(&format!("thread/deleted:{s}")));
 }
 
 /// The fork carries the source's conversation as `inheritFrom` does (a copy, not a shared lineage), so it still opens with
@@ -2755,8 +2803,9 @@ async fn an_idle_delete_refuses_as_node_does_and_deletes_an_idle_archived_sessio
     eventually_on!(&[&handle.cell.stepped, &rig.deletes.1], || lock(&rig.deletes.0).contains(&worktree).then_some(())).await;
     let steps = lock(&rig.deletes.0).clone();
     // The tombstone's close metric (`markSessionClosed`), logged at the mark's ack, precedes the purge hooks.
-    assert_eq!(steps[0], format!("sessionClosed:{s}:desktop-auto-delete"));
-    assert_eq!(steps[1], format!("transcriptExport:{s}:/ws"), "the purge hooks run next");
+    assert_eq!(steps[0], format!("tombstoned:{s}"), "the conversation leaves the catalog when the mark lands");
+    assert_eq!(steps[1], format!("sessionClosed:{s}:desktop-auto-delete"));
+    assert_eq!(steps[2], format!("transcriptExport:{s}:/ws"), "the purge hooks run next");
     let tail: Vec<&str> = steps[steps.len() - 4..].iter().map(String::as_str).collect();
     assert_eq!(
         tail,
