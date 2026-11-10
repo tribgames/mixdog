@@ -35,7 +35,7 @@ const WORLD_GAPS = {
     'a conversation that names an attachment needs a stored user turn carrying it, which a core without a signed-in model cannot make (owner: phone-download-grant)',
 };
 /** The point of the core's download call each of Node's test gates is held at. */
-const POINTS = { read: 'read.read', stat: 'begin.verify', afterResolve: 'authorize.resolved', zipOpen: 'zip.open' };
+const POINTS = { read: 'read.read', stat: 'begin.verify', afterResolve: 'authorize.resolved', zipOpen: 'zip.open', stageWrite: 'stage.write' };
 
 /** A wait on something the replay needs to happen: it ends, after `ms` of real time, in an error naming what did not happen. */
 const within = (promise, what, ms = 60_000) =>
@@ -56,7 +56,7 @@ const killTree = (child) => {
 /** The core, started on a data dir of its own with the relay it dials and the folder it talks to this replay through; up when it has
  *  written its discovery file and the controls' first answer (a core built without them never writes one). */
 async function startCore(exe, root, relayPort, talk) {
-  for (const dir of ['runtime', 'data', 'home', 'config']) mkdirSync(join(root, dir), { recursive: true });
+  for (const dir of ['runtime', 'data', 'home', 'config', 'temp']) mkdirSync(join(root, dir), { recursive: true });
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith('MIXDOG_')) delete env[key];
   Object.assign(env, {
@@ -66,6 +66,10 @@ async function startCore(exe, root, relayPort, talk) {
     MIXDOG_CONFIG_DIR: join(root, 'config'),
     MIXDOG_DOWNLOAD_REPLAY_DIR: talk.dir,
     MIXDOG_RELAY_URL: `ws://127.0.0.1:${relayPort}`,
+    // The core's staged downloads go in a folder of this replay, so an answer naming one is read back as the recording's `<staged>`.
+    TEMP: join(root, 'temp'),
+    TMP: join(root, 'temp'),
+    TMPDIR: join(root, 'temp'),
   });
   writeFileSync(join(root, 'data', 'remote-activated.json'), '{"activatedAt":1}');
   const manifest = join(exe, '..', 'js-runtime.json');
@@ -379,9 +383,12 @@ export async function replayDownloads({ exe, recording, only = null, failSetup =
       }
       const unexpected = [...gaps];
       /** An answer in the recording's terms, as the recorder wrote Node's: a text naming the world's folder names `<dir>`, with forward slashes. */
+      const stagedPrefix = join(WORLDS, 'core', 'temp', 'mixdog-download-');
       const unswapDir = (node) =>
         typeof node === 'string'
-          ? node.includes(world)
+          ? node.includes(stagedPrefix)
+            ? node.replace(new RegExp(`${stagedPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[0-9a-zA-Z]+(.*)$`, 's'), (_, rest) => `<staged>${rest.replaceAll('\\', '/')}`)
+            : node.includes(world)
             ? node.replaceAll(world, '<dir>').replaceAll('\\', '/')
             : node.replaceAll(forward(world), '<dir>')
           : Array.isArray(node)
@@ -504,6 +511,14 @@ export async function replayDownloads({ exe, recording, only = null, failSetup =
               break;
             case 'sessions':
               await publish(step.ids);
+              break;
+            // The core's own archive and project removal, as the desktop asks them.
+            case 'archive':
+              await ask('thread/archive', { threadId: conversations[step.id], opId: opId() });
+              await ask('thread/list', {});
+              break;
+            case 'removeProject':
+              await ask('project/delete', { opId: opId(), path: join(world, 'project') });
               break;
             case 'handles': {
               const open = await held();
