@@ -523,7 +523,12 @@ impl ReqwestLink {
         let Exchange { redirect, surface, writer, .. } = exchange;
         for _ in 0..=MAX_REDIRECTS {
             let raw = match &self.clients {
-                Clients::Node(node) => node.send(&request, writer, surface).await?,
+                Clients::Node(node) => {
+                    if let Some(refused) = restricted_port(&request.url, surface) {
+                        return Err(refused);
+                    }
+                    node.send(&request, writer, surface).await?
+                }
                 _ => {
                     let builder = self.builder(&request, surface).await?.body(request.body.clone());
                     let sent = builder
