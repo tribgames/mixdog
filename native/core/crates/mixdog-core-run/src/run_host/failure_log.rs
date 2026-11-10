@@ -38,12 +38,25 @@ static WRITERS: OnceLock<Mutex<HashMap<PathBuf, Arc<FailureWriter>>>> = OnceLock
 #[derive(Default)]
 struct Turn {
     running: bool,
+    /// A lane job of the running flush is queued or writing.
+    job_live: bool,
+    /// The running flush's task was cancelled while its lane job lived: the job's end gives the turn up.
+    orphaned: bool,
     /// The flushes asked for while one runs: one more flush, started after they asked, writes what they queued.
     waiting: Vec<tokio::sync::oneshot::Sender<()>>,
 }
 
-/// The running flush's hold on the turn. Dropped before it finished (its task was cancelled), it gives the turn up and lets go
-/// of the flushes that waited on it, which then take the turn themselves.
+impl Turn {
+    /// Gives the turn up and lets go of the flushes that waited on it, which then take the turn themselves.
+    fn give_up(&mut self) {
+        self.running = false;
+        self.orphaned = false;
+        self.waiting.clear();
+    }
+}
+
+/// The running flush's hold on the turn. Dropped before it finished (its task was cancelled), it gives the turn up, but not
+/// before its lane job ended: a job the lane already has still writes its chunk, and the next flush must not overtake it.
 struct Running<'a> {
     writer: &'a FailureWriter,
     served: Vec<tokio::sync::oneshot::Sender<()>>,
@@ -54,8 +67,24 @@ impl Drop for Running<'_> {
     fn drop(&mut self) {
         if !self.finished {
             let mut turn = self.writer.turn.lock().unwrap_or_else(PoisonError::into_inner);
-            turn.running = false;
-            turn.waiting.clear();
+            if turn.job_live {
+                turn.orphaned = true;
+            } else {
+                turn.give_up();
+            }
+        }
+    }
+}
+
+/// The end of a flush's lane job, whether the lane ran it or dropped it unrun.
+struct JobEnd(Arc<Mutex<Turn>>);
+
+impl Drop for JobEnd {
+    fn drop(&mut self) {
+        let mut turn = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        turn.job_live = false;
+        if turn.orphaned {
+            turn.give_up();
         }
     }
 }
@@ -69,7 +98,7 @@ pub struct FailureWriter {
     armed: AtomicBool,
     /// One flush on the lane at a time, in the order they were asked for: the rows of a later chunk never overtake an earlier one,
     /// and a flush asked for meanwhile waits here, never on a lane worker.
-    turn: Mutex<Turn>,
+    turn: Arc<Mutex<Turn>>,
     /// Test-only: lane jobs submitted, and what a test does on the lane right after a job wrote its chunk.
     #[cfg(test)]
     submitted: std::sync::atomic::AtomicUsize,
@@ -123,7 +152,7 @@ impl FailureWriter {
             io,
             clock,
             armed: AtomicBool::new(false),
-            turn: Mutex::default(),
+            turn: Arc::default(),
             #[cfg(test)]
             submitted: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
@@ -276,10 +305,15 @@ impl FailureWriter {
             self.submitted.fetch_add(1, Ordering::AcqRel);
             self.on_lane.lock().unwrap_or_else(PoisonError::into_inner).clone()
         };
+        let end = {
+            self.turn.lock().unwrap_or_else(PoisonError::into_inner).job_live = true;
+            JobEnd(Arc::clone(&self.turn))
+        };
         let Ok(job) = self
             .io
             .durability
             .submit_wait(&CancellationToken::new(), move |_lane| {
+                let _end = end;
                 let warnings = trace.flush(now);
                 #[cfg(test)]
                 if let Some(on_lane) = on_lane {
