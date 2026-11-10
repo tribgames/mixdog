@@ -3,6 +3,7 @@
 // first connection) still hears the first snapshot.
 import type { ClientEvent, ProtocolClient, SessionFold } from '../../../packages/protocol-client/src/index.ts';
 import {
+  EVENT_SECTIONS,
   SECTION_NAMES,
   type DesktopProtocolStatus,
   type DesktopSectionsApi,
@@ -43,7 +44,10 @@ export function createPhoneSections(boot: { start(): Promise<{ client: Client }>
         listener((event.notification.params ?? {}) as Record<string, unknown>);
       }
     });
-  const entriesOf = (client: Client): DesktopSectionEntry[] => SECTION_NAMES.flatMap((name) => [...client.store.sections(name)]);
+  // A tell is not state: a phone whose leg was down is not told what was pushed meanwhile (the relay does not replay it), so the
+  // state it hands out holds none; its page reads again on its own reconnect.
+  const entriesOf = (client: Client): DesktopSectionEntry[] =>
+    SECTION_NAMES.filter((name) => !EVENT_SECTIONS.includes(name)).flatMap((name) => [...client.store.sections(name)]);
   // The last state of each sign-in flow's feed, and the flows whose feed was lost.
   const flows = new Map<string, unknown>();
   const lostFlows = new Set<string>();
