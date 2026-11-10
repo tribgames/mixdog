@@ -24,6 +24,10 @@ export function buildWorld() {
   mkdirSync(PROJECT, { recursive: true });
   writeFileSync(join(PROJECT, NOTES), NOTES_BEFORE);
   writeFileSync(join(PROJECT, REPLACED), 'a\ufffdb\n');
+  // Files whose names hold a real U+FFFD: what a name holding a lone surrogate opens once converted to UTF-8.
+  writeFileSync(join(PROJECT, 'l\ufffd.txt'), 'hi\n');
+  writeFileSync(join(PROJECT, 'p\ufffd.png'), 'png!');
+  for (const name of ['l\ufffd.txt', 'p\ufffd.png']) utimesSync(join(PROJECT, name), NOTES_MTIME_S, NOTES_MTIME_S);
   // A read answers the file's mtime: pinned, so it is the same in every run and on both sides.
   utimesSync(join(PROJECT, NOTES), NOTES_MTIME_S, NOTES_MTIME_S);
 }
@@ -63,9 +67,26 @@ export const STEPS = [
     params: [P, [{ relPath: NOTES, content: 'b\ufffd\n', expectedContent: NOTES_BEFORE }, { relPath: `n${LOW}.txt`, content: 'c', expectedContent: '' }]],
   },
   { name: 'batch-real-replacement', call: 'lspApplyWorkspaceEdit', params: [P, [{ relPath: NOTES, content: 'b\ufffd\n', expectedContent: NOTES_BEFORE }]] },
-  // ── a search for a lone surrogate, and for a real U+FFFD, in text that holds a real U+FFFD ──
+  // ── a file name holding a lone surrogate on the phone's file lanes (Node's authorized open refuses it,
+  //    opened-file-authorization.ts:77; a stat is no authorized open), beside the same file named with a real U+FFFD ──
+  { name: 'read-lone-name', call: 'readProjectFile', params: [P, `l${HIGH}.txt`] },
+  { name: 'read-missing-lone-name', call: 'readProjectFile', params: [P, `m${HIGH}.txt`] },
+  { name: 'read-real-replacement-name', call: 'readProjectFile', params: [P, 'l\ufffd.txt'] },
+  { name: 'stat-lone-name', call: 'statProjectFile', params: [P, `l${LOW}.txt`] },
+  { name: 'write-lone-name', call: 'writeProjectFile', params: [P, `l${HIGH}.txt`, 'z', 'hi\n'] },
+  { name: 'preview-lone-name', call: 'previewProjectFile', params: [P, `p${HIGH}.png`] },
+  { name: 'preview-range-lone-name', call: 'previewProjectFileRange', params: [P, `p${LOW}.png`, null, 0, 4] },
+  { name: 'preview-range-real-replacement-name', call: 'previewProjectFileRange', params: [P, 'p\ufffd.png', null, 0, 4] },
+  // ── a search for a lone surrogate, and for a real U+FFFD, in text that holds a real U+FFFD; a replace with a lone query ──
   { name: 'search-lone-query', call: 'searchWorkspaceText', params: [P, { query: HIGH }] },
   { name: 'search-real-replacement', call: 'searchWorkspaceText', params: [P, { query: '\ufffd' }] },
+  { name: 'replace-lone-query', call: 'replaceWorkspaceText', params: [P, { query: `b${HIGH}` }, 'x'] },
+  {
+    name: 'search-regex-lone-query',
+    call: 'searchWorkspaceText',
+    params: [P, { query: `a${LOW}`, regex: true }],
+    accepted: 'decisions.md "frame-lone-surrogate": a regex query holding a lone surrogate reads it as U+FFFD',
+  },
   // ── in a key ──
   { name: 'key-lone', call: 'searchWorkspaceText', params: [P, { query: 'x', [HIGH]: true }] },
   // ── invalid UTF-8 and a BOM inside the sealed frame (Node decodes with a non-fatal TextDecoder, remote-e2ee.ts:9, :692) ──
