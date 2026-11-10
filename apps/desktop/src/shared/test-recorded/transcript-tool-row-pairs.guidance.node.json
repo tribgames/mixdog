@@ -1,0 +1,41 @@
+{
+ "source": {
+  "commit": "b6f10295a2f698afc85332467192de28500bd146",
+  "tree": "332679f9c46ead536c500ab57a7580c0fb28d550",
+  "modules": [
+   "src/runtime/agent/orchestrator/tools/lib/shell-run-background/promotion-results.mjs",
+   "src/runtime/agent/orchestrator/tools/builtin/bash-tool/backgrounded-result.mjs",
+   "src/runtime/agent/orchestrator/tools/shell-command.mjs",
+   "src/runtime/agent/orchestrator/tools/builtin/task-tool.mjs",
+   "src/runtime/shared/background-tasks.mjs"
+  ],
+  "command": "node apps/desktop/src/shared/test-recorded/record/record-runtime-guidance.mjs"
+ },
+ "guidance": "Its result is delivered automatically when it finishes; use task wait only if you need it now.",
+ "promotedHold": "moved to background after the 60s hold",
+ "promotedTimeout": "moved to background at timeout after 120s",
+ "promotedInput": "moved to background on new user input after 3s",
+ "started": "started in the background",
+ "noJob": "; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.",
+ "fallback": "moved to background; still running. Its result is delivered automatically when it finishes.",
+ "queuedTail": "Completion arrives automatically; call task wait (not task read polling) when the result is due.",
+ "waitCues": [
+  "Wait ended by new user input; task still running in the background. Handle the new message first.",
+  "Wait ceiling reached; task still running and its result is delivered automatically. If periodic reports were requested, write the user-facing report now; otherwise continue independent work or end the turn."
+ ],
+ "notified": [
+  "Wait ended because a notification arrived",
+  "; it is delivered to you now. This task (",
+  ") is still running in the background."
+ ],
+ "notifiedTaskIdSuffix": true,
+ "again": [
+  "Wait ceiling reached again (",
+  " times); task still running. Check whether it is progressing (task read output:tail, or the log file) and cancel it if it is stuck; otherwise continue other work — its result is delivered automatically."
+ ],
+ "notifiedHold": [
+  "moved to background after",
+  "s because a notification arrived (delivered to you now)"
+ ],
+ "placeholder": "(no result body — use read for full output)"
+}

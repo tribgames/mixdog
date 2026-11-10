@@ -74,7 +74,8 @@ test('every shipped skill script is an entry: the packages it loads become roots
   assert.deepEqual([...deriveRemoteRoots({ packageRootDir: root }).roots.keys()].sort(), ['@scope/sdk', 'alpha', 'undici']);
   const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
   const real = [...deriveRemoteRoots({ packageRootDir: repo }).roots.keys()];
-  for (const needed of ['undici', '@modelcontextprotocol/sdk', '@anthropic-ai/sdk']) assert.ok(real.includes(needed), needed);
+  // yaml reaches the bundle only through a shipped skill script (skill-creator's validator), not the extension host.
+  for (const needed of ['yaml', 'pptxgenjs', 'puppeteer-core']) assert.ok(real.includes(needed), needed);
 });
 
 test('a reached dependency missing from the lockfile or the install fails; only inapplicable ones may be absent', () => {
