@@ -31,6 +31,9 @@ use super::turn_settings::TurnSettings;
 #[async_trait]
 pub trait PendingRoute: Send + Sync + 'static {
     async fn apply(&self, thread: &ThreadId) -> Result<(), String>;
+
+    /// Whether a pick is held in memory for the thread's next turn (one held in its header is the header's).
+    fn holds(&self, thread: &ThreadId) -> bool;
 }
 
 #[async_trait]
@@ -38,6 +41,10 @@ impl PendingRoute for SessionRoutes {
     async fn apply(&self, thread: &ThreadId) -> Result<(), String> {
         // The recorded boundary is the TUI's `onModelSwitch` notice; the conversation carries it already.
         self.apply_pending(thread).await.map(|_| ()).map_err(port)
+    }
+
+    fn holds(&self, thread: &ThreadId) -> bool {
+        self.holds_pending(thread)
     }
 }
 
@@ -59,6 +66,10 @@ impl PendingRoute for LatePendingRoute {
             Some(route) => route.apply(thread).await,
             None => Err("the pending route is not bound yet".to_owned()),
         }
+    }
+
+    fn holds(&self, thread: &ThreadId) -> bool {
+        self.0.get().is_some_and(|route| route.holds(thread))
     }
 }
 
@@ -155,6 +166,15 @@ impl TurnSettings for TurnStart {
     async fn migrate_exposure(&self, thread: &ThreadId, rows: &[serde_json::Value]) -> Result<Option<Header>, String> {
         self.settings.migrate_exposure(thread, rows).await
     }
+
+    /// The route pick and the switches a turn start applies first are choices the request depends on: a thread
+    /// that holds one is refused rather than shown a request its next turn would not send.
+    async fn projected(&self, thread: &ThreadId, conversation: bool, rows: &[serde_json::Value]) -> Result<Header, String> {
+        if self.route.holds(thread) {
+            return Err("the thread holds a model pick for its next turn: its request is decided when the turn starts".to_owned());
+        }
+        self.settings.projected(thread, conversation, rows).await
+    }
 }
 
 #[cfg(test)]
@@ -170,6 +190,10 @@ mod tests {
         async fn apply(&self, _: &ThreadId) -> Result<(), String> {
             self.0.lock().unwrap().push("route");
             self.1.clone()
+        }
+
+        fn holds(&self, _: &ThreadId) -> bool {
+            false
         }
     }
 
