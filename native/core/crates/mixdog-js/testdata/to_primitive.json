@@ -1,0 +1,1406 @@
+[
+ [
+  "null",
+  {
+   "ok": "null"
+  },
+  {
+   "ok": "0000000000000000"
+  }
+ ],
+ [
+  "true",
+  {
+   "ok": "true"
+  },
+  {
+   "ok": "3ff0000000000000"
+  }
+ ],
+ [
+  "false",
+  {
+   "ok": "false"
+  },
+  {
+   "ok": "0000000000000000"
+  }
+ ],
+ [
+  "0",
+  {
+   "ok": "0"
+  },
+  {
+   "ok": "0000000000000000"
+  }
+ ],
+ [
+  "-0",
+  {
+   "ok": "0"
+  },
+  {
+   "ok": "8000000000000000"
+  }
+ ],
+ [
+  "1.5",
+  {
+   "ok": "1.5"
+  },
+  {
+   "ok": "3ff8000000000000"
+  }
+ ],
+ [
+  "\"7\"",
+  {
+   "ok": "7"
+  },
+  {
+   "ok": "401c000000000000"
+  }
+ ],
+ [
+  "\" 0x10 \"",
+  {
+   "ok": " 0x10 "
+  },
+  {
+   "ok": "4030000000000000"
+  }
+ ],
+ [
+  "{}",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[]",
+  {
+   "ok": ""
+  },
+  {
+   "ok": "0000000000000000"
+  }
+ ],
+ [
+  "[null]",
+  {
+   "ok": ""
+  },
+  {
+   "ok": "0000000000000000"
+  }
+ ],
+ [
+  "[[]]",
+  {
+   "ok": ""
+  },
+  {
+   "ok": "0000000000000000"
+  }
+ ],
+ [
+  "[{}]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[1,[2,null],{}]",
+  {
+   "ok": "1,2,,[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[\"1\"]",
+  {
+   "ok": "1"
+  },
+  {
+   "ok": "3ff0000000000000"
+  }
+ ],
+ [
+  "[[3]]",
+  {
+   "ok": "3"
+  },
+  {
+   "ok": "4008000000000000"
+  }
+ ],
+ [
+  "{\"toString\":null}",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "{\"toString\":\"x\"}",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "{\"toString\":\"7\"}",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "{\"toString\":{}}",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "{\"toString\":[]}",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "{\"toString\":7}",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "{\"toString\":true}",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "{\"toString\":{\"toString\":null}}",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "{\"valueOf\":null}",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "{\"valueOf\":\"x\"}",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "{\"valueOf\":\"7\"}",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "{\"valueOf\":{}}",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "{\"valueOf\":[]}",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "{\"valueOf\":7}",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "{\"valueOf\":true}",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "{\"valueOf\":{\"toString\":null}}",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "{\"toString\":null,\"valueOf\":null}",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "{\"valueOf\":null,\"toString\":null}",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "{\"toString\":\"x\",\"valueOf\":\"7\"}",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "{\"valueOf\":\"7\",\"toString\":\"x\"}",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "{\"toString\":{},\"valueOf\":{}}",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "{\"valueOf\":{},\"toString\":{}}",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "{\"toString\":\"7\",\"valueOf\":null}",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "{\"valueOf\":null,\"toString\":\"7\"}",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "{\"a\":{\"toString\":null}}",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "{\"tostring\":null}",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "{\"__proto__\":{\"toString\":null}}",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "{\"toString\":null,\"x\":1}",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[{\"toString\":null}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[{\"toString\":\"x\"}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[{\"toString\":\"7\"}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[{\"toString\":{}}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[{\"toString\":[]}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[{\"toString\":7}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[{\"toString\":true}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[{\"toString\":{\"toString\":null}}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[{\"valueOf\":null}]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[{\"valueOf\":\"x\"}]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[{\"valueOf\":\"7\"}]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[{\"valueOf\":{}}]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[{\"valueOf\":[]}]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[{\"valueOf\":7}]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[{\"valueOf\":true}]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[{\"valueOf\":{\"toString\":null}}]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[{\"toString\":null,\"valueOf\":null}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[{\"valueOf\":null,\"toString\":null}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[{\"toString\":\"x\",\"valueOf\":\"7\"}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[{\"valueOf\":\"7\",\"toString\":\"x\"}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[{\"toString\":{},\"valueOf\":{}}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[{\"valueOf\":{},\"toString\":{}}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[{\"toString\":\"7\",\"valueOf\":null}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[{\"valueOf\":null,\"toString\":\"7\"}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[{\"a\":{\"toString\":null}}]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[{\"tostring\":null}]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[{\"__proto__\":{\"toString\":null}}]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[{\"toString\":null,\"x\":1}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[[{\"toString\":null}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[[{\"toString\":\"x\"}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[[{\"toString\":\"7\"}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[[{\"toString\":{}}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[[{\"toString\":[]}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[[{\"toString\":7}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[[{\"toString\":true}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[[{\"toString\":{\"toString\":null}}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[[{\"valueOf\":null}]]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[[{\"valueOf\":\"x\"}]]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[[{\"valueOf\":\"7\"}]]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[[{\"valueOf\":{}}]]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[[{\"valueOf\":[]}]]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[[{\"valueOf\":7}]]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[[{\"valueOf\":true}]]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[[{\"valueOf\":{\"toString\":null}}]]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[[{\"toString\":null,\"valueOf\":null}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[[{\"valueOf\":null,\"toString\":null}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[[{\"toString\":\"x\",\"valueOf\":\"7\"}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[[{\"valueOf\":\"7\",\"toString\":\"x\"}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[[{\"toString\":{},\"valueOf\":{}}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[[{\"valueOf\":{},\"toString\":{}}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[[{\"toString\":\"7\",\"valueOf\":null}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[[{\"valueOf\":null,\"toString\":\"7\"}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[[{\"a\":{\"toString\":null}}]]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[[{\"tostring\":null}]]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[[{\"__proto__\":{\"toString\":null}}]]",
+  {
+   "ok": "[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[[{\"toString\":null,\"x\":1}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[1,[2,{\"toString\":null}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[1,[2,{\"toString\":\"x\"}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[1,[2,{\"toString\":\"7\"}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[1,[2,{\"toString\":{}}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[1,[2,{\"toString\":[]}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[1,[2,{\"toString\":7}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[1,[2,{\"toString\":true}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[1,[2,{\"toString\":{\"toString\":null}}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[1,[2,{\"valueOf\":null}]]",
+  {
+   "ok": "1,2,[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[1,[2,{\"valueOf\":\"x\"}]]",
+  {
+   "ok": "1,2,[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[1,[2,{\"valueOf\":\"7\"}]]",
+  {
+   "ok": "1,2,[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[1,[2,{\"valueOf\":{}}]]",
+  {
+   "ok": "1,2,[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[1,[2,{\"valueOf\":[]}]]",
+  {
+   "ok": "1,2,[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[1,[2,{\"valueOf\":7}]]",
+  {
+   "ok": "1,2,[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[1,[2,{\"valueOf\":true}]]",
+  {
+   "ok": "1,2,[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[1,[2,{\"valueOf\":{\"toString\":null}}]]",
+  {
+   "ok": "1,2,[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[1,[2,{\"toString\":null,\"valueOf\":null}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[1,[2,{\"valueOf\":null,\"toString\":null}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[1,[2,{\"toString\":\"x\",\"valueOf\":\"7\"}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[1,[2,{\"valueOf\":\"7\",\"toString\":\"x\"}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[1,[2,{\"toString\":{},\"valueOf\":{}}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[1,[2,{\"valueOf\":{},\"toString\":{}}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[1,[2,{\"toString\":\"7\",\"valueOf\":null}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[1,[2,{\"valueOf\":null,\"toString\":\"7\"}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[1,[2,{\"a\":{\"toString\":null}}]]",
+  {
+   "ok": "1,2,[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[1,[2,{\"tostring\":null}]]",
+  {
+   "ok": "1,2,[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[1,[2,{\"__proto__\":{\"toString\":null}}]]",
+  {
+   "ok": "1,2,[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[1,[2,{\"toString\":null,\"x\":1}]]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[null,{\"toString\":null}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[null,{\"toString\":\"x\"}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[null,{\"toString\":\"7\"}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[null,{\"toString\":{}}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[null,{\"toString\":[]}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[null,{\"toString\":7}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[null,{\"toString\":true}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[null,{\"toString\":{\"toString\":null}}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[null,{\"valueOf\":null}]",
+  {
+   "ok": ",[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[null,{\"valueOf\":\"x\"}]",
+  {
+   "ok": ",[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[null,{\"valueOf\":\"7\"}]",
+  {
+   "ok": ",[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[null,{\"valueOf\":{}}]",
+  {
+   "ok": ",[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[null,{\"valueOf\":[]}]",
+  {
+   "ok": ",[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[null,{\"valueOf\":7}]",
+  {
+   "ok": ",[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[null,{\"valueOf\":true}]",
+  {
+   "ok": ",[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[null,{\"valueOf\":{\"toString\":null}}]",
+  {
+   "ok": ",[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[null,{\"toString\":null,\"valueOf\":null}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[null,{\"valueOf\":null,\"toString\":null}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[null,{\"toString\":\"x\",\"valueOf\":\"7\"}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[null,{\"valueOf\":\"7\",\"toString\":\"x\"}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[null,{\"toString\":{},\"valueOf\":{}}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[null,{\"valueOf\":{},\"toString\":{}}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[null,{\"toString\":\"7\",\"valueOf\":null}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[null,{\"valueOf\":null,\"toString\":\"7\"}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ],
+ [
+  "[null,{\"a\":{\"toString\":null}}]",
+  {
+   "ok": ",[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[null,{\"tostring\":null}]",
+  {
+   "ok": ",[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[null,{\"__proto__\":{\"toString\":null}}]",
+  {
+   "ok": ",[object Object]"
+  },
+  {
+   "ok": "nan"
+  }
+ ],
+ [
+  "[null,{\"toString\":null,\"x\":1}]",
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  },
+  {
+   "err": "TypeError: Cannot convert object to primitive value"
+  }
+ ]
+]

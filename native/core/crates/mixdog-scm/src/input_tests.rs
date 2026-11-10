@@ -246,13 +246,27 @@ async fn compare(pick: impl Fn(&str) -> bool) -> (usize, usize, usize) {
             let operation = ops[0]["name"].as_str().expect("operation");
             let node = carried(operation, ops[0]["args"].as_array().expect("args"));
             match checked {
-                Ok(core) => assert_eq!((core.operation, core.args), (operation, node), "{name}: what the call acts on"),
+                // As JavaScript values: `1.0` and `1`, `-0` and `0` are one number, and one past 2^53 is the double it reads as.
+                Ok(core) => assert_eq!((core.operation, js_values(&core.args)), (operation, js_values(&node)), "{name}: what the call acts on"),
                 Err(failure) => panic!("{name}: the core refuses ({failure:?}) where Node acted on {node:?}"),
             }
             acted += 1;
         }
     }
     (refused, acted, picked)
+}
+
+/// JSON values as the JavaScript values they read as: every number is the double it parses to, written as `JSON.stringify` writes it.
+fn js_values(values: &[Value]) -> Vec<Value> {
+    fn js(value: &Value) -> Value {
+        match value {
+            Value::Number(number) => mixdog_js::json_number(number.as_f64().unwrap_or(f64::NAN)),
+            Value::Array(items) => Value::Array(items.iter().map(js).collect()),
+            Value::Object(fields) => Value::Object(fields.iter().map(|(key, item)| (key.clone(), js(item))).collect()),
+            other => other.clone(),
+        }
+    }
+    values.iter().map(js).collect()
 }
 
 /// A group of cases: each one compared, some refused and some acted on as the recording has them.
@@ -322,6 +336,15 @@ fn a_repository_request_is_keyed_by_the_directory_node_acted_on() {
     assert!(keyed > 0 && unkeyed > 0, "{keyed} keyed and {unkeyed} refused for their directory");
 }
 
+/// `String(x)` and `Number(x)` of an object whose own `toString` shadows the inherited one throw V8's TypeError, alone and inside
+/// lists, at every argument Node's host reads through a coercion before it acts (the GitHub request's action and sha, the history
+/// page): the core refuses with that text and starts nothing.
+#[tokio::test]
+async fn a_coercion_that_throws_refuses_with_nodes_text() {
+    let (refused, _) = compare_group(&["coerced-throw-"]).await;
+    assert!(refused > 0, "no coercion refused");
+}
+
 /// The global config key is one of three exact strings, checked after the value, with Node's text.
 #[tokio::test]
 async fn a_global_config_key_is_refused_with_nodes_text() {
@@ -383,16 +406,27 @@ fn a_coerced_argument_reaches_github_as_node_sent_it() {
                 assert_eq!((command.args, command.input), (argv(rest), rest["stdin"].as_str().map(str::to_owned)), "{name}");
             }
             "ghPrMerge" => match (crate::gh::pr::merge_args(&args[1], &args[2]), op["error"]["message"].as_str()) {
-                // `String(7)` and `String(true)` are no method's name: Node refused before running gh.
-                (Err(error), Some(refused)) => assert_eq!(error, ScmFailure::git(refused), "{name}"),
+                // `String(7)` and `String(true)` are no method's name, and `String({toString: null})` throws: Node refused before
+                // running gh.
+                (Err(error), Some(refused)) => {
+                    assert_eq!(error, ScmFailure::git(refused), "{name}");
+                    assert!(gh.is_empty(), "{name}: Node ran gh for a refused merge");
+                }
                 (Ok(args), None) => assert_eq!(args, argv(sent(&["pr", "merge"])), "{name}"),
                 (core, node) => panic!("{name}: the core {core:?}, Node {node:?}"),
             },
-            operation @ ("ghPrView" | "ghPrDiff" | "ghPrCheckout") => {
-                let number = crate::gh::pr::required_number(&args[1]).unwrap_or_else(|error| panic!("{name}: {error:?}"));
-                let verb = &operation[4..].to_lowercase();
-                assert_eq!(number.to_string(), argv(sent(&["pr", verb]))[2], "{name}");
-            }
+            operation @ ("ghPrView" | "ghPrDiff" | "ghPrCheckout") => match (crate::gh::pr::required_number(&args[1]), op["error"]["message"].as_str()) {
+                // `Number({toString: null})` throws, `Number({})` is NaN: Node refused before running gh.
+                (Err(error), Some(refused)) => {
+                    assert_eq!(error, ScmFailure::git(refused), "{name}");
+                    assert!(gh.is_empty(), "{name}: Node ran gh for a refused number");
+                }
+                (Ok(number), _) => {
+                    let verb = &operation[4..].to_lowercase();
+                    assert_eq!(number.to_string(), argv(sent(&["pr", verb]))[2], "{name}");
+                }
+                (core, node) => panic!("{name}: the core {core:?}, Node {node:?}"),
+            },
             other => panic!("{name}: {other} is not a GitHub operation"),
         }
         checked += 1;

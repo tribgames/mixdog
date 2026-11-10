@@ -9,7 +9,7 @@
 //! the order Node's call evaluated them, so the first one that fails is the one whose text answers.
 
 use mixdog_js::js_trim;
-use mixdog_js::to_number_of;
+use mixdog_js::try_to_number_of;
 use mixdog_js::utf16_len;
 use serde_json::Value;
 use serde_json::json;
@@ -151,7 +151,8 @@ fn whole_number(value: Arg<'_>, default: u32, range: std::ops::RangeInclusive<u3
     if matches!(value, None | Some(Value::Null)) {
         return Ok(default);
     }
-    let number = to_number_of(value);
+    // `Number(value)` throws V8's TypeError for an object whose own `toString` shadows the inherited one.
+    let number = try_to_number_of(value).map_err(|error| refused(&error.to_string()))?;
     // Every integer in range is a safe integer; `-0` is one too, and is 0.
     if number.fract() != 0.0 || !(f64::from(*range.start())..=f64::from(*range.end())).contains(&number) {
         return Err(refused(text));
