@@ -82,6 +82,12 @@ impl ApprovalIds for StoreApprovalIds {
 /// Implemented by the server, which knows every connection it routes a response from.
 pub trait Devices: Send + Sync + 'static {
     fn describe(&self, connection: ConnectionId) -> DeviceInfo;
+
+    /// Whether the connection is known now. One that is not (a relay peer unpaired before its answer was decided) is described
+    /// with a local kind, so a rule for remote devices asks this as well and treats an unknown connection as remote.
+    fn knows(&self, _connection: ConnectionId) -> bool {
+        true
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

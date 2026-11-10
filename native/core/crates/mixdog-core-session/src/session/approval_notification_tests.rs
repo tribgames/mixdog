@@ -157,10 +157,24 @@ struct RelayedPhones;
 
 impl mixdog_core_base::approvals::Devices for RelayedPhones {
     fn describe(&self, connection: ConnectionId) -> mixdog_core_base::approvals::DeviceInfo {
+        if connection == UNPAIRED {
+            // `RegistryDevices::describe` of a connection the registry does not know.
+            return mixdog_core_base::approvals::DeviceInfo {
+                device: mixdog_core_base::approvals::devices::UNKNOWN_DEVICE.into(),
+                kind: mixdog_protocol::ConnectionKind::Cli,
+            };
+        }
         let kind = if [7, 8].contains(&connection.0) { mixdog_protocol::ConnectionKind::Phone } else { mixdog_protocol::ConnectionKind::Desktop };
         mixdog_core_base::approvals::DeviceInfo { device: format!("desktop-{connection}"), kind }
     }
+
+    fn knows(&self, connection: ConnectionId) -> bool {
+        connection != UNPAIRED
+    }
 }
+
+/// A phone whose pairing ended before its answer was decided: the registry no longer knows its connection.
+const UNPAIRED: ConnectionId = ConnectionId(9);
 
 impl Waiting {
     /// The PC answering `{approved: true}` as a client's server-request response does (`on_response` → `RunControl::decide`).
@@ -328,6 +342,34 @@ async fn a_phones_bare_allow_answering_the_request_itself_is_refused_where_nodes
         assert_eq!(waiting.took(name).await, json!([taken["decided"][0]]), "{name}: the decision the session took");
     }
     assert_eq!(replayed, ["outbound-payment", "outbound-delete", "office-rollback", "connector", "shell, a bare allow"], "the cases replayed");
+}
+
+/// The recorded payment case with the bare Allow sent by a phone unpaired before the session decided it: the registry describes
+/// that connection with a local kind, and the Allow is refused all the same, so the card's recorded Allow after it is the one taken.
+#[tokio::test(flavor = "current_thread")]
+async fn an_unpaired_phones_bare_allow_is_refused_as_a_paired_ones() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/phone-pushes/golden.json")).expect("golden.json");
+    let requests = golden["scenarios"]["approval-answers"]["cases"].as_array().expect("cases");
+    let case = golden["scenarios"]["approval-cards"]["cases"].as_array().expect("cases").iter().find(|case| case["name"] == "outbound-payment").expect("the payment case");
+    let steps = case["answers"].as_array().unwrap();
+    assert_eq!((&steps[0]["card"], &steps[0]["outcome"]), (&json!({ "approved": true }), &json!({ "value": false })), "Node refused the bare Allow");
+    let input = &requests.iter().find(|request| request["name"] == case["request"]).expect("the recorded request")["input"];
+    let waiting = waiting_on(input).await;
+    let Waiting { directory, handle, thread, id, .. } = &waiting;
+    mixdog_core_api::thread::RunControl::decide(
+        &**handle,
+        mixdog_core_api::thread::Decision {
+            request: mixdog_core_api::ids::ServerRequestId(id.clone()),
+            connection: UNPAIRED,
+            device: mixdog_core_base::approvals::devices::UNKNOWN_DEVICE.into(),
+            connection_kind: mixdog_protocol::ConnectionKind::Cli,
+            result: steps[0]["card"].clone(),
+        },
+    )
+    .expect("the response is handed to the session");
+    let next = &steps[1];
+    assert_eq!(card_from(directory, PHONE, thread, id, &next["card"]).await, next["outcome"], "the card's answer after the refused Allow");
+    assert_eq!(waiting.took("outbound-payment").await, json!([next["decided"][0]]), "the decision the session took");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

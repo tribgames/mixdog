@@ -125,9 +125,10 @@ fn bare_allow(result: &Value) -> bool {
 /// Node's remote `resolveToolApprovalForSession` (remote-session-methods.ts:168-183): a bare Allow (`approved` with no `response`) from a
 /// device over the relay, for the approval the thread shows now where only a click on its card may allow it (push-notifier.ts
 /// `approvalPointerOnly`), is not taken. Checked where every answer is decided (the actor's `Ctl::Decide`), whichever route it came
-/// by; this PC's own windows answer unchecked, as Node's IPC path.
-pub(super) fn refuses_remote_allow(kind: ConnectionKind, shown: Option<&ApprovalRequest>, request: &ServerRequestId, result: &Value) -> bool {
-    matches!(kind, ConnectionKind::Phone | ConnectionKind::RemoteDesktop)
+/// by; this PC's own windows answer unchecked, as Node's IPC path. A connection the registry no longer knows (`known` false: a
+/// phone unpaired before its answer was decided, described with a local kind) is not one of this PC's windows.
+pub(super) fn refuses_remote_allow(kind: ConnectionKind, known: bool, shown: Option<&ApprovalRequest>, request: &ServerRequestId, result: &Value) -> bool {
+    (!known || matches!(kind, ConnectionKind::Phone | ConnectionKind::RemoteDesktop))
         && bare_allow(result)
         && shown.is_some_and(|shown| shown.id.0.to_string() == request.0 && record(Some(&tool_approval(shown))).is_some_and(pointer_only))
 }
