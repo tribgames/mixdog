@@ -1,0 +1,5127 @@
+{
+  "facts": [
+    {
+      "offer": "none",
+      "outcome": null,
+      "detail": null,
+      "issue": null
+    },
+    {
+      "offer": "update",
+      "outcome": "failed",
+      "detail": "why",
+      "issue": "grant_expired",
+      "accountIsAdmin": false
+    }
+  ],
+  "cases": [
+    {
+      "decision": 0,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 0,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 0,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 0,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 0,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "missing",
+        "control": true,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 0,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "missing",
+        "control": true,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 0,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "missing",
+        "control": true,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 0,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "missing",
+        "control": true,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 1,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 1,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 1,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 1,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 1,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "starting",
+        "control": true,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 1,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "starting",
+        "control": true,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 1,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "starting",
+        "control": true,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 1,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "starting",
+        "control": true,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 2,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 2,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 2,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 2,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 2,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "in-use",
+        "control": true,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 2,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "in-use",
+        "control": true,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 2,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "in-use",
+        "control": true,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 2,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "in-use",
+        "control": true,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 3,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 3,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 3,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 3,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 3,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "failed",
+        "control": true,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 3,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "failed",
+        "control": true,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 3,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "failed",
+        "control": true,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 3,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "failed",
+        "control": true,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 4,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 4,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 4,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 4,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 4,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "active",
+        "control": true,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 4,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "active",
+        "control": true,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 4,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "live",
+        "helper": "active",
+        "control": true,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 4,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "live",
+        "helper": "active",
+        "control": true,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 5,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 5,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 5,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 5,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 5,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 5,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 5,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 5,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 6,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 6,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 6,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 6,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 6,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 6,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 6,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 6,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 7,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 7,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 7,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 7,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 7,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 7,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 7,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 7,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 8,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 8,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 8,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 8,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 8,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 8,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 8,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 8,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 9,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 9,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 9,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 9,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 9,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 9,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 9,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 9,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 10,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 10,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 10,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 10,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 10,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 10,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 10,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 10,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 11,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 11,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 11,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 11,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 11,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 11,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 11,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 11,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 12,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 12,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 12,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 12,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 12,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 12,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 12,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 12,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 13,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 13,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 13,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 13,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 13,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 13,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 13,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 13,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 14,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 14,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 14,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 14,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 14,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 14,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 14,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 14,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 15,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 15,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 15,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 15,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 15,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 15,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 15,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "active",
+        "control": true,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 15,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "secure",
+        "helper": "active",
+        "control": true,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": null
+        }
+      }
+    },
+    {
+      "decision": 16,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 16,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 16,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 16,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 16,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 16,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 16,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "active",
+        "control": true,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 16,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "lock",
+        "helper": "active",
+        "control": true,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 17,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 17,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 17,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 17,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 17,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 17,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 17,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 17,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 18,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 18,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 18,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 18,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 18,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 18,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 18,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 18,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 19,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 19,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 19,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 19,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 19,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 19,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 19,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 19,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 20,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 20,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 20,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 20,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 20,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 20,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 20,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 20,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 21,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 21,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 21,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 21,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 21,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 21,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 21,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 21,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 22,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 22,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 22,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 22,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 22,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 22,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 22,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "active",
+        "control": true,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 22,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "secure-desktop",
+        "reason": "uac",
+        "helper": "active",
+        "control": true,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 23,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 23,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 23,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 23,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 23,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 23,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 23,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 23,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 24,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 24,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 24,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 24,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 24,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 24,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 24,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 24,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 25,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 25,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 25,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 25,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 25,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 25,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 25,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 25,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 26,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 26,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 26,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 26,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 26,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 26,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 26,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 26,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 27,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 27,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 27,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 27,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 27,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "active",
+        "control": true,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 27,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "active",
+        "control": true,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 27,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "active",
+        "control": true,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 27,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "lock",
+        "helper": "active",
+        "control": true,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "lock"
+        }
+      }
+    },
+    {
+      "decision": 28,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 28,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 28,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 28,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 28,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 28,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 28,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 28,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "missing",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 29,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 29,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 29,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 29,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 29,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 29,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 29,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 29,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "starting",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 30,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 30,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 30,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 30,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 30,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 30,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 30,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 30,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "in-use",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 31,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 31,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 31,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 31,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 31,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 31,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 31,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 31,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "failed",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 32,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 32,
+      "controlGranted": false,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 32,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 32,
+      "controlGranted": false,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "active",
+        "control": false,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 32,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "active",
+        "control": true,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 32,
+      "controlGranted": true,
+      "helperVideo": false,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "active",
+        "control": true,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 32,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 0,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "active",
+        "control": true,
+        "helperInfo": {
+          "offer": "none",
+          "outcome": null,
+          "detail": null,
+          "issue": null,
+          "secure": "uac"
+        }
+      }
+    },
+    {
+      "decision": 32,
+      "controlGranted": true,
+      "helperVideo": true,
+      "facts": 1,
+      "status": {
+        "state": "elevation-prompt",
+        "reason": "uac",
+        "helper": "active",
+        "control": true,
+        "helperInfo": {
+          "offer": "update",
+          "outcome": "failed",
+          "detail": "why",
+          "issue": "grant_expired",
+          "accountIsAdmin": false,
+          "secure": "uac"
+        }
+      }
+    }
+  ]
+}

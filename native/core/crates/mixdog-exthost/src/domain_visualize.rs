@@ -57,7 +57,7 @@ fn required_string(value: Option<&Value>, name: &str, maximum: usize) -> Checked
     Ok(text.to_owned())
 }
 
-fn required_session_id(value: Option<&Value>) -> Checked<String> {
+pub(crate) fn required_session_id(value: Option<&Value>) -> Checked<String> {
     let Some(Value::String(text)) = value else {
         return Err("session id must be a string.".to_owned());
     };

@@ -1295,6 +1295,9 @@ async fn lead_request(pool: &[Arc<dyn Tool>], mcp: &[Arc<dyn Tool>], case: &Valu
     if input["schemaAllowedTools"].is_array() {
         header.insert("schemaAllowedTools".into(), input["schemaAllowedTools"].clone());
     }
+    if input["toolProfile"] != "interactive" {
+        header.insert("toolProfile".into(), input["toolProfile"].clone());
+    }
     header.insert("cwd".into(), json!("/work"));
     header.insert("provider".into(), provider);
     header.insert("model".into(), model);

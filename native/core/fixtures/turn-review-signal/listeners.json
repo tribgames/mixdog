@@ -1,0 +1,552 @@
+[
+ {
+  "name": "subscribe, signal bursts, unsubscribe and a second unsubscribe",
+  "fns": {
+   "a": {
+    "does": []
+   },
+   "b": {
+    "does": []
+   }
+  },
+  "ops": [
+   {
+    "op": "signal"
+   },
+   {
+    "op": "drain"
+   },
+   {
+    "op": "subscribe",
+    "fn": "a",
+    "handle": "ha"
+   },
+   {
+    "op": "subscribe",
+    "fn": "b",
+    "handle": "hb"
+   },
+   {
+    "op": "signal"
+   },
+   {
+    "op": "signal"
+   },
+   {
+    "op": "drain"
+   },
+   {
+    "op": "unsubscribe",
+    "handle": "ha"
+   },
+   {
+    "op": "unsubscribe",
+    "handle": "ha"
+   },
+   {
+    "op": "signal"
+   },
+   {
+    "op": "drain"
+   },
+   {
+    "op": "subscribe",
+    "fn": "a",
+    "handle": "ha"
+   },
+   {
+    "op": "signal"
+   },
+   {
+    "op": "unsubscribe",
+    "handle": "hb"
+   },
+   {
+    "op": "drain"
+   }
+  ],
+  "results": [
+   {
+    "op": 0,
+    "calls": []
+   },
+   {
+    "op": 1,
+    "calls": []
+   },
+   {
+    "op": 2,
+    "calls": []
+   },
+   {
+    "op": 3,
+    "calls": []
+   },
+   {
+    "op": 4,
+    "calls": []
+   },
+   {
+    "op": 5,
+    "calls": []
+   },
+   {
+    "op": 6,
+    "calls": [
+     "a",
+     "b"
+    ]
+   },
+   {
+    "op": 7,
+    "calls": [],
+    "answered": true
+   },
+   {
+    "op": 8,
+    "calls": [],
+    "answered": false
+   },
+   {
+    "op": 9,
+    "calls": []
+   },
+   {
+    "op": 10,
+    "calls": [
+     "b"
+    ]
+   },
+   {
+    "op": 11,
+    "calls": []
+   },
+   {
+    "op": 12,
+    "calls": []
+   },
+   {
+    "op": 13,
+    "calls": [],
+    "answered": true
+   },
+   {
+    "op": 14,
+    "calls": [
+     "a"
+    ]
+   }
+  ]
+ },
+ {
+  "name": "one function registered twice, and an old unsubscribe after it registered again",
+  "fns": {
+   "a": {
+    "does": []
+   },
+   "b": {
+    "does": []
+   }
+  },
+  "ops": [
+   {
+    "op": "subscribe",
+    "fn": "a",
+    "handle": "h1"
+   },
+   {
+    "op": "subscribe",
+    "fn": "a",
+    "handle": "h2"
+   },
+   {
+    "op": "subscribe",
+    "fn": "b",
+    "handle": "hb"
+   },
+   {
+    "op": "signal"
+   },
+   {
+    "op": "drain"
+   },
+   {
+    "op": "unsubscribe",
+    "handle": "h1"
+   },
+   {
+    "op": "signal"
+   },
+   {
+    "op": "drain"
+   },
+   {
+    "op": "unsubscribe",
+    "handle": "h2"
+   },
+   {
+    "op": "subscribe",
+    "fn": "a",
+    "handle": "h3"
+   },
+   {
+    "op": "unsubscribe",
+    "handle": "h1"
+   },
+   {
+    "op": "signal"
+   },
+   {
+    "op": "drain"
+   }
+  ],
+  "results": [
+   {
+    "op": 0,
+    "calls": []
+   },
+   {
+    "op": 1,
+    "calls": []
+   },
+   {
+    "op": 2,
+    "calls": []
+   },
+   {
+    "op": 3,
+    "calls": []
+   },
+   {
+    "op": 4,
+    "calls": [
+     "a",
+     "b"
+    ]
+   },
+   {
+    "op": 5,
+    "calls": [],
+    "answered": true
+   },
+   {
+    "op": 6,
+    "calls": []
+   },
+   {
+    "op": 7,
+    "calls": [
+     "b"
+    ]
+   },
+   {
+    "op": 8,
+    "calls": [],
+    "answered": false
+   },
+   {
+    "op": 9,
+    "calls": []
+   },
+   {
+    "op": 10,
+    "calls": [],
+    "answered": true
+   },
+   {
+    "op": 11,
+    "calls": []
+   },
+   {
+    "op": 12,
+    "calls": [
+     "b"
+    ]
+   }
+  ]
+ },
+ {
+  "name": "listeners removed, added and re-added during a delivery",
+  "fns": {
+   "first": {
+    "does": [
+     {
+      "do": "unsubscribe",
+      "handle": "second"
+     },
+     {
+      "do": "subscribe",
+      "fn": "added",
+      "handle": "added"
+     }
+    ]
+   },
+   "second": {
+    "does": []
+   },
+   "third": {
+    "does": [
+     {
+      "do": "unsubscribe",
+      "handle": "third"
+     }
+    ]
+   },
+   "added": {
+    "does": []
+   },
+   "x": {
+    "does": []
+   },
+   "mover": {
+    "does": [
+     {
+      "do": "unsubscribe",
+      "handle": "x"
+     },
+     {
+      "do": "subscribe",
+      "fn": "x",
+      "handle": "x"
+     },
+     {
+      "do": "unsubscribe",
+      "handle": "once"
+     }
+    ]
+   },
+   "once": {
+    "does": []
+   }
+  },
+  "ops": [
+   {
+    "op": "subscribe",
+    "fn": "first",
+    "handle": "first"
+   },
+   {
+    "op": "subscribe",
+    "fn": "second",
+    "handle": "second"
+   },
+   {
+    "op": "subscribe",
+    "fn": "third",
+    "handle": "third"
+   },
+   {
+    "op": "subscribe",
+    "fn": "x",
+    "handle": "x"
+   },
+   {
+    "op": "subscribe",
+    "fn": "mover",
+    "handle": "mover"
+   },
+   {
+    "op": "subscribe",
+    "fn": "once",
+    "handle": "once"
+   },
+   {
+    "op": "signal"
+   },
+   {
+    "op": "drain"
+   },
+   {
+    "op": "signal"
+   },
+   {
+    "op": "drain"
+   }
+  ],
+  "results": [
+   {
+    "op": 0,
+    "calls": []
+   },
+   {
+    "op": 1,
+    "calls": []
+   },
+   {
+    "op": 2,
+    "calls": []
+   },
+   {
+    "op": 3,
+    "calls": []
+   },
+   {
+    "op": 4,
+    "calls": []
+   },
+   {
+    "op": 5,
+    "calls": []
+   },
+   {
+    "op": 6,
+    "calls": []
+   },
+   {
+    "op": 7,
+    "calls": [
+     "first",
+     "third",
+     "x",
+     "mover",
+     "added",
+     "x"
+    ]
+   },
+   {
+    "op": 8,
+    "calls": []
+   },
+   {
+    "op": 9,
+    "calls": [
+     "first",
+     "mover",
+     "added",
+     "x"
+    ]
+   }
+  ]
+ },
+ {
+  "name": "a listener removed between the signal and its delivery, a late one, and a listener that throws or signals",
+  "fns": {
+   "a": {
+    "does": []
+   },
+   "boom": {
+    "does": [
+     {
+      "do": "throw"
+     }
+    ]
+   },
+   "echo": {
+    "does": [
+     {
+      "do": "unsubscribe",
+      "handle": "hecho"
+     },
+     {
+      "do": "signal"
+     }
+    ]
+   },
+   "late": {
+    "does": []
+   }
+  },
+  "ops": [
+   {
+    "op": "subscribe",
+    "fn": "a",
+    "handle": "ha"
+   },
+   {
+    "op": "subscribe",
+    "fn": "boom",
+    "handle": "hboom"
+   },
+   {
+    "op": "subscribe",
+    "fn": "echo",
+    "handle": "hecho"
+   },
+   {
+    "op": "signal"
+   },
+   {
+    "op": "unsubscribe",
+    "handle": "ha"
+   },
+   {
+    "op": "subscribe",
+    "fn": "late",
+    "handle": "hlate"
+   },
+   {
+    "op": "signal"
+   },
+   {
+    "op": "drain"
+   },
+   {
+    "op": "unsubscribe",
+    "handle": "hecho"
+   },
+   {
+    "op": "signal"
+   },
+   {
+    "op": "drain"
+   }
+  ],
+  "results": [
+   {
+    "op": 0,
+    "calls": []
+   },
+   {
+    "op": 1,
+    "calls": []
+   },
+   {
+    "op": 2,
+    "calls": []
+   },
+   {
+    "op": 3,
+    "calls": []
+   },
+   {
+    "op": 4,
+    "calls": [],
+    "answered": true
+   },
+   {
+    "op": 5,
+    "calls": []
+   },
+   {
+    "op": 6,
+    "calls": []
+   },
+   {
+    "op": 7,
+    "calls": [
+     "boom",
+     "echo",
+     "late",
+     "boom",
+     "late"
+    ]
+   },
+   {
+    "op": 8,
+    "calls": [],
+    "answered": false
+   },
+   {
+    "op": 9,
+    "calls": []
+   },
+   {
+    "op": 10,
+    "calls": [
+     "boom",
+     "late"
+    ]
+   }
+  ]
+ }
+]

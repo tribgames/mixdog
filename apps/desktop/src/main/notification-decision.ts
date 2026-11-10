@@ -12,6 +12,7 @@ import {
 } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { runOwnerOf } from '../../../../src/runtime/shared/held-request-host.mjs';
 import type { DesktopSessionSummary } from '../shared/contract';
+import { activeOverrides } from '../shared/notification-state';
 import type {
   ConversationNotificationOverride,
   NotificationDevicePreferences,
@@ -90,15 +91,7 @@ export function inQuietHours(quiet: NotificationQuietHours, now: number): boolea
   return false;
 }
 
-/** The overrides still in force: a mute whose end has passed is gone. */
-export function activeOverrides(
-  overrides: readonly ConversationNotificationOverride[],
-  now: number
-): ConversationNotificationOverride[] {
-  return overrides.filter(
-    (entry) => entry.setting.mode !== 'muted' || entry.setting.until === null || entry.setting.until > now
-  );
-}
+export { activeOverrides };
 
 /** The most specific override in force: the session, then its room, then its bot. */
 export function conversationOverride(

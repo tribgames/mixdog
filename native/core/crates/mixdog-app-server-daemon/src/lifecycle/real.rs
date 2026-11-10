@@ -106,9 +106,14 @@ pub struct CoreWiring {
     /// The core's runtime, to await the extension host's close from the release thread.
     pub runtime: tokio::runtime::Handle,
     pub cancel: Arc<CancelRegistry>,
+    /// Ends the new-task attempts in flight at a stop request (`SessionDirectory::cut_new_tasks`).
+    pub cut_new_tasks: Hook,
     pub final_barriers: Hook,
     /// The user's `release{pid}` decision on an undecidable prior owner (the verdict gate).
     pub release_decision: Arc<dyn Fn(u32) + Send + Sync>,
+    /// The core's stop steps (`ComposedCore::run_stop_steps`, wired in `serving.rs`). Product limit: the stopped core still holds `state/core.sqlite` and
+    /// `index/store.sqlite` open in this process (the parts holding them outlive the stop and the runtime); only the process exit that ends the
+    /// release (`ProcessExiter::exit`) closes them.
     pub close_data_handles: Hook,
     /// The release's Node-text reason (`CorePort::release_started`), kept for the stop steps.
     pub release_started: Arc<dyn Fn(&str) + Send + Sync>,
@@ -171,6 +176,10 @@ impl CorePort for RuntimeCore {
 
     fn cancel_running(&self, running: &[Running]) {
         self.wiring.cancel.cancel(running);
+    }
+
+    fn cut_new_tasks(&self) {
+        (self.wiring.cut_new_tasks)();
     }
 
     fn release_decision(&self, pid: u32) {

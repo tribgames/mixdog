@@ -18,6 +18,7 @@ test-support = []
 [dependencies]
 mixdog-rt = { workspace = true }
 mixdog-js = { workspace = true }
+mixdog-fsio = { workspace = true }
 mixdog-statefile = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-core-api = { workspace = true }
@@ -41,3 +42,11 @@ mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-app-protocol = { workspace = true, features = ["codegen"] }
+mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-store = { path = ".", features = ["crash-hook", "test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-protocol = { workspace = true, features = ["codegen"] }

@@ -1049,6 +1049,31 @@ pub trait SendTicket: Send + Sync {
     fn discard(self: Box<Self>);
 }
 
+/// One executed call that failed, as the fields of Node's `traceAgentToolFailure` call site
+/// (`session/tool-batch/finalize.mjs` `traceCompleted`): `result_text` is the text the transcript
+/// holds after the batch's offload and image compaction.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FailedCall {
+    pub iteration: u32,
+    pub tool_name: String,
+    /// `getToolKind(name)`: `skill`, `builtin`, `mcp` or `internal`.
+    pub tool_kind: &'static str,
+    /// Dispatch to settle, in ms (Node's `toolEndedAt - toolStartedAt`).
+    pub tool_ms: i64,
+    pub tool_args: serde_json::Value,
+    pub model: String,
+    pub result_text: String,
+}
+
+/// The host's failure log (`tool-failures.jsonl`). Called once per failed executed call, in call
+/// order, before the call's result is cached or committed. Never blocks and never fails the run.
+pub trait ToolFailureLog: Send + Sync {
+    fn failed(&self, call: FailedCall);
+    /// `recordAgentWatchdogAbort(ctx)`: the progress watchdog stopped the run's turn (`mixdog_trace::watchdog_abort_records`
+    /// has the fields of `ctx`); the `stall_abort` rows join the same log.
+    fn stall_abort(&self, ctx: serde_json::Map<String, serde_json::Value>);
+}
+
 /// Everything a run borrows from its host.
 #[derive(Clone)]
 pub struct RunEnv {
@@ -1076,6 +1101,8 @@ pub struct RunEnv {
     /// Where oversized tool results are stored (without one they stay inline).
     pub artifacts: Option<Arc<dyn crate::offload::ArtifactStore>>,
     pub images: Option<Arc<dyn crate::offload::ImageCompactor>>,
+    /// Where a failed call is recorded (without one nothing is).
+    pub failures: Option<Arc<dyn ToolFailureLog>>,
 }
 
 /// Awaits `fut`, or returns `None` when the run's token is cancelled first.

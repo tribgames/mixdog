@@ -1,91 +1,91 @@
 {
+  "recorder": "benchmarks/rust-core/recorders/record-listing-misc.mjs",
+  "provider": "mixdog-local",
   "cases": {
     "empty": {
       "expected": []
     },
     "installed": {
-      "expected": [
-        {
-          "contextWindow": 8192,
-          "display": "Registered a",
-          "family": "",
-          "id": "hf-aaaaaaaaaaaaaaaaaaaaaaaa",
-          "latest": true,
-          "maxContextWindow": 8192,
-          "mode": "chat",
-          "name": "Registered a",
-          "runtimeContextWindow": 8192,
-          "supportsFunctionCalling": null,
-          "supportsImages": false,
-          "supportsReasoning": null,
-          "supportsReasoningSettings": false
-        },
-        {
-          "contextWindow": 32768,
-          "display": "Registered d",
-          "family": "",
-          "id": "hf-dddddddddddddddddddddddd",
-          "latest": true,
-          "maxContextWindow": 65536,
-          "mode": "chat",
-          "name": "Registered d",
-          "runtimeContextWindow": 32768,
-          "supportsFunctionCalling": null,
-          "supportsImages": false,
-          "supportsReasoning": null,
-          "supportsReasoningSettings": false
-        }
-      ],
       "registered": [
         {
-          "contextWindow": 8192,
-          "estimatedVramBytes": 1073741824,
-          "filename": "hf-aaaaaaaaaaaaaaaaaaaaaaaa.gguf",
           "id": "hf-aaaaaaaaaaaaaaaaaaaaaaaa",
-          "minimumVramBytes": 1073741824,
-          "name": "Registered a",
+          "filename": "hf-aaaaaaaaaaaaaaaaaaaaaaaa.gguf",
           "remoteFilename": "model.gguf",
           "repository": "test/model",
           "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-          "size": 1024,
+          "name": "Registered a",
           "source": "https://huggingface.co/test/model",
-          "url": "https://huggingface.co/test/model/resolve/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/model.gguf"
+          "url": "https://huggingface.co/test/model/resolve/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/model.gguf",
+          "size": 1024,
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "contextWindow": 8192,
+          "estimatedVramBytes": 1073741824,
+          "minimumVramBytes": 1073741824
         },
         {
+          "id": "hf-dddddddddddddddddddddddd",
+          "filename": "hf-dddddddddddddddddddddddd.gguf",
+          "remoteFilename": "model.gguf",
+          "repository": "test/model",
+          "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "name": "Registered d",
+          "source": "https://huggingface.co/test/model",
+          "url": "https://huggingface.co/test/model/resolve/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/model.gguf",
+          "size": 1024,
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "contextWindow": 32768,
           "estimatedVramBytes": 1073741824,
-          "filename": "hf-dddddddddddddddddddddddd.gguf",
-          "id": "hf-dddddddddddddddddddddddd",
-          "maxContextWindow": 65536,
           "minimumVramBytes": 1073741824,
-          "name": "Registered d",
-          "remoteFilename": "model.gguf",
-          "repository": "test/model",
-          "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-          "size": 1024,
-          "source": "https://huggingface.co/test/model",
-          "url": "https://huggingface.co/test/model/resolve/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/model.gguf"
+          "maxContextWindow": 65536
         },
         {
-          "contextWindow": 8192,
-          "estimatedVramBytes": 1073741824,
-          "filename": "hf-eeeeeeeeeeeeeeeeeeeeeeee.gguf",
           "id": "hf-eeeeeeeeeeeeeeeeeeeeeeee",
-          "minimumVramBytes": 1073741824,
-          "name": "Registered e",
+          "filename": "hf-eeeeeeeeeeeeeeeeeeeeeeee.gguf",
           "remoteFilename": "model.gguf",
           "repository": "test/model",
           "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-          "size": 1024,
+          "name": "Registered e",
           "source": "https://huggingface.co/test/model",
-          "url": "https://huggingface.co/test/model/resolve/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/model.gguf"
+          "url": "https://huggingface.co/test/model/resolve/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/model.gguf",
+          "size": 1024,
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "contextWindow": 8192,
+          "estimatedVramBytes": 1073741824,
+          "minimumVramBytes": 1073741824
+        }
+      ],
+      "expected": [
+        {
+          "id": "hf-aaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "Registered a",
+          "display": "Registered a",
+          "contextWindow": 8192,
+          "maxContextWindow": 8192,
+          "runtimeContextWindow": 8192,
+          "supportsFunctionCalling": null,
+          "supportsReasoning": null,
+          "mode": "chat",
+          "family": "",
+          "supportsImages": false,
+          "supportsReasoningSettings": false,
+          "latest": true
+        },
+        {
+          "id": "hf-dddddddddddddddddddddddd",
+          "name": "Registered d",
+          "display": "Registered d",
+          "contextWindow": 32768,
+          "maxContextWindow": 65536,
+          "runtimeContextWindow": 32768,
+          "supportsFunctionCalling": null,
+          "supportsReasoning": null,
+          "mode": "chat",
+          "family": "",
+          "supportsImages": false,
+          "supportsReasoningSettings": false,
+          "latest": true
         }
       ]
     }
-  },
-  "provider": "mixdog-local",
-  "recorder": "benchmarks/rust-core/recorders/record-listing-misc.mjs"
+  }
 }

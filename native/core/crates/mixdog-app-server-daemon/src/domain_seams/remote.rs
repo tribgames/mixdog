@@ -282,26 +282,42 @@ pub struct PairedDeviceCleanup {
     /// Ends every phone download (the relay closed).
     pub end_downloads: Arc<dyn Fn() + Send + Sync>,
     pub config: mixdog_core_config::config::Config,
+    /// The live view, once built (it is composed after this cleanup is bound): an unpair ends the device's browser streams, the
+    /// relay's close every phone's.
+    pub live_view: Arc<std::sync::OnceLock<std::sync::Weak<crate::live_view::LiveViewService>>>,
+}
+
+impl PairedDeviceCleanup {
+    fn live_view(&self) -> Option<Arc<crate::live_view::LiveViewService>> {
+        self.live_view.get().and_then(std::sync::Weak::upgrade)
+    }
 }
 
 impl DeviceCleanup for PairedDeviceCleanup {
     fn unpaired(&self, credential_id: &str) {
         self.grants.revoke_device(credential_id);
+        let live_view = self.live_view();
         for connection in self.registry.connections_of(credential_id) {
             (self.end_transfers)(&connection.to_string());
+            if let Some(live_view) = &live_view {
+                live_view.unpaired(ConnectionId(connection));
+            }
         }
     }
 
     fn relay_closed(&self) {
         (self.end_downloads)();
         self.grants.relay_closed();
+        if let Some(live_view) = self.live_view() {
+            live_view.relay_closed();
+        }
     }
 
     fn forgotten<'a>(&'a self, credential_id: &'a str) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
         Box::pin(async move {
             // `removeDevice`: this PC's own entry stays, and a device with none stored has nothing to drop.
             let Some(Value::Object(mut devices)) = self.config.get("notifications.devices") else { return };
-            if credential_id == "pc" || devices.remove(credential_id).is_none() {
+            if credential_id == "pc" || devices.shift_remove(credential_id).is_none() {
                 return;
             }
             let _ = self.config.write("notifications.devices", Value::Object(devices), mixdog_protocol::ConfigWriteMode::Replace).await;
@@ -313,6 +329,11 @@ impl DeviceCleanup for PairedDeviceCleanup {
 /// while one was in force. It keeps its credential and everything but the screen (`screen-access-publisher.ts` `revoked`).
 pub fn screen_revoked(registry: Arc<DeviceRegistry>) -> Arc<dyn Fn(ConnectionId) -> bool + Send + Sync> {
     Arc::new(move |connection| registry.screen_revoked(connection.0))
+}
+
+/// Whether a connection is a relay peer still attached: Node's client registry still holds it (`sendEncryptedFrame` sends it frames).
+pub fn peer_attached(registry: Arc<DeviceRegistry>) -> Arc<dyn Fn(ConnectionId) -> bool + Send + Sync> {
+    Arc::new(move |connection| registry.peer_attached(connection.0))
 }
 
 /// Opens the core's relay once it serves (DS §7.2 "relay starts at core boot"; compose-seams §F

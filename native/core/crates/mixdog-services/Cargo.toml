@@ -24,6 +24,7 @@ mixdog-workspace = { workspace = true }
 mixdog-exthost = { workspace = true }
 mixdog-core-base = { workspace = true }
 mixdog-statefile = { workspace = true }
+mixdog-fsio = { workspace = true }
 mixdog-trace = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
@@ -70,5 +71,17 @@ tempfile = { workspace = true }
 # The relay fixture of the webhook tunnel tests: a WebSocket server that sees the leg's request.
 tokio-tungstenite = { workspace = true, features = ["connect", "handshake", "rustls-tls-native-roots"] }
 # The real process manager the tidy tests spawn under, as mixdog-scm's tests do.
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test"] }
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
+mixdog-app-protocol = { workspace = true, features = ["codegen"] }
+mixdog-core-base = { workspace = true, features = ["test-support"] }
+mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
+mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
+mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-protocol = { workspace = true, features = ["codegen"] }

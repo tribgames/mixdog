@@ -118,6 +118,14 @@ impl ToolSurfaceStatus for SessionToolStatus {
         Ok(surface_of_header(self.host.mode(Some(&header)), &header))
     }
 
+    async fn peek(&self, thread: Option<&ThreadId>) -> Result<StatusSurface, CoreError> {
+        let Some(thread) = thread else {
+            return self.host.preview().await;
+        };
+        let header = self.threads.header(thread).await.map_err(|_| CoreError::ThreadNotFound { thread_id: thread.clone() })?;
+        Ok(surface_of_header(self.host.mode(Some(&header)), &header))
+    }
+
     async fn request_snapshot(&self, thread: &ThreadId, user_message: Option<&str>) -> Result<Value, CoreError> {
         match &self.snapshots {
             Some(snapshots) => snapshots.snapshot(thread, user_message).await,
@@ -220,6 +228,53 @@ mod tests {
         assert!(matches!(without.request_snapshot(&ThreadId::from("t1"), None).await, Err(CoreError::InvalidParams { .. })));
         let with = SessionToolStatus::new(Arc::new(Headers(header)), host).with_snapshots(Arc::new(Snapshots));
         assert_eq!(with.request_snapshot(&ThreadId::from("t1"), None).await.unwrap(), json!({ "thread": "t1" }));
+    }
+
+    /// A host whose reconcile rewrites the stored header, as the real one brings an empty thread to the settings.
+    struct Rewriting(Arc<Mutex<Header>>);
+
+    #[async_trait]
+    impl ThreadState for Rewriting {
+        async fn header(&self, _: &ThreadId) -> Result<Header, PortError> {
+            Ok(self.0.lock().unwrap().clone())
+        }
+        async fn patch_header(&self, _: &ThreadId, _: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
+            Ok(())
+        }
+        async fn patch_header_if(&self, _: &ThreadId, _: Map<String, Value>, _: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+            Ok(None)
+        }
+        async fn publish(&self, _: &ThreadId, _: Section) -> Result<(), PortError> {
+            Ok(())
+        }
+    }
+
+    struct Reconciling(Arc<Mutex<Header>>);
+
+    #[async_trait]
+    impl SurfaceHost for Reconciling {
+        fn mode(&self, _: Option<&Header>) -> String {
+            "lead".into()
+        }
+        async fn preview(&self) -> Result<StatusSurface, CoreError> {
+            Ok(StatusSurface::default())
+        }
+        async fn reconcile_empty(&self, _: &ThreadId) -> Result<(), CoreError> {
+            self.0.lock().unwrap().insert("tools".into(), json!([{"name": "reconciled"}]));
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn peeking_leaves_the_stored_session_as_it_was_and_surface_reconciles_it() {
+        let stored = Arc::new(Mutex::new(json!({ "tools": [{"name": "stale"}] }).as_object().unwrap().clone()));
+        let status = SessionToolStatus::new(Arc::new(Rewriting(stored.clone())), Arc::new(Reconciling(stored.clone())));
+        let before = stored.lock().unwrap().clone();
+        let peeked = status.peek(Some(&ThreadId::from("t1"))).await.unwrap();
+        assert_eq!(*stored.lock().unwrap(), before, "a snapshot's read must not change the session");
+        assert_eq!(peeked.active, ["stale"]);
+        status.surface(Some(&ThreadId::from("t1"))).await.unwrap();
+        assert_ne!(*stored.lock().unwrap(), before, "the reconcile is what changes it");
     }
 
     #[test]

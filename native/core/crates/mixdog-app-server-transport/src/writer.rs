@@ -5,11 +5,34 @@
 //! each other. No method of [`ConnectionWriter`] or [`WriterLane`] waits: a full budget is
 //! answered by lag, a full control reserve by closing. The writer task ([`write_loop`]) is the
 //! only place that awaits a socket.
+//!
+//! **Write order** (Lead decision 2026-11-11, Node `b6f10295a`: one ordered outbound queue per
+//! phone, `remote-relay-delivery.ts:81-155`, `coordinator.ts:1083-1172`). Every text frame takes
+//! a connection-wide number when it is queued, and no text frame is written before a frame
+//! queued earlier on the connection. Three things are not held to that: a ping (and the close
+//! frame), which go first as Node's control domain does; the frames of a lane still waiting for
+//! the response that opens it, which follow that response; and a lagged lane's recovery
+//! snapshot, which is merged latest-wins state and may land after frames queued while it was
+//! being taken.
+//!
+//! **Ordered class.** Answers, server requests and the frames of ordered lanes (feeds whose
+//! events Node's phone path never drops, `remote-relay-push-lanes.ts:103-176`) are never dropped
+//! or merged. Answers and server requests hold the control reserve (`controlReserveBytes`), so
+//! they and pings (which hold nothing) still queue while events fill their own room. Ordered
+//! lanes' frames hold the ordered event room (`orderedQueueBytes`, 8 MiB): an empty room admits
+//! one frame of any size (no single event closes a connection; `lsp:` and `fs:` frames have no
+//! size bound in the core, nor in Node), and behind it frames queue while the held bytes stay
+//! within the room. This is Node's admission for a phone's leg (`admitFrame`,
+//! `relay-transport.mjs:301-314`: `queued > 0 && queued + size > budget` cuts the leg, budget
+//! 8 MiB, `:198`, `remote-transport.ts:90`). A frame that finds the room passed means the peer has
+//! not taken 8 MiB of events: the connection closes with 4000 `slowConsumer`, as Node ends the phone's
+//! session rather than drop one (`coordinator.ts:1181`, `remote-relay-delivery.ts:208`). An
+//! ordered lane may lag only before anything of it was written (its first snapshot is then taken
+//! again); after that a lag closes the connection.
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::VecDeque;
-use std::ops::Bound;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
@@ -47,6 +70,7 @@ use crate::socket::SocketWrite;
 pub(crate) struct WriterLimits {
     control_reserve: usize,
     event_budget: usize,
+    ordered_queue: usize,
     max_snapshot: usize,
     pub(crate) max_inbound: usize,
     pub(crate) max_media: u64,
@@ -57,6 +81,7 @@ impl WriterLimits {
         Self {
             control_reserve: limits.control_reserve_bytes as usize,
             event_budget: limits.event_budget_bytes as usize,
+            ordered_queue: limits.ordered_queue_bytes as usize,
             max_snapshot: limits.max_snapshot_bytes as usize,
             max_inbound: limits.max_inbound_frame_bytes as usize,
             max_media: limits.max_media_frame_bytes,
@@ -271,53 +296,116 @@ pub(crate) enum Closing {
     Peer,
 }
 
-enum Control {
-    Text {
-        frame: Bytes,
-        release: Option<SubscriptionId>,
-    },
-    Ping,
+/// A byte room of the ordered class, held by a frame from queueing until the socket has taken
+/// it: the control reserve (`controlReserveBytes`: answers, errors, server requests) or the
+/// ordered event room (`orderedQueueBytes`: ordered lanes' frames, which also admits one frame of
+/// any size while it holds nothing). An atomic, so a reservation dropped under the state lock
+/// never waits on it.
+struct OrderedReserve {
+    total: usize,
+    /// While nothing is held, one frame of any size is admitted (module docs).
+    admits_any_head: bool,
+    used: AtomicUsize,
+}
+
+impl OrderedReserve {
+    fn new(total: usize, admits_any_head: bool) -> Arc<Self> {
+        Arc::new(Self {
+            total,
+            admits_any_head,
+            used: AtomicUsize::new(0),
+        })
+    }
+
+    fn try_take(self: &Arc<Self>, bytes: usize) -> Option<Reservation> {
+        let (total, any_head) = (self.total, self.admits_any_head);
+        self.used
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+                (used + bytes <= total || (any_head && used == 0)).then_some(used + bytes)
+            })
+            .ok()?;
+        let budget: Arc<dyn ByteBudget> = self.clone();
+        Some(Reservation::new(bytes, budget))
+    }
+}
+
+impl ByteBudget for OrderedReserve {
+    fn release(&self, bytes: usize) {
+        self.used.fetch_sub(bytes, Ordering::AcqRel);
+    }
+}
+
+/// A queued control frame (an answer, error, server request or connection notification).
+struct Queued {
+    number: u64,
+    frame: Bytes,
+    release: Option<SubscriptionId>,
+    hold: Reservation,
 }
 
 struct LaneQueue {
     sub: SubscriptionId,
     released: bool,
     lagged: bool,
+    /// An ordered lane (module docs): its frames hold the ordered reserve.
+    ordered: bool,
+    /// Something of this lane reached the writer; an ordered lane may no longer lag.
+    written: bool,
     queue: VecDeque<Entry>,
     recovery: Arc<dyn LaneRecovery>,
     budget: Arc<LaneBudget>,
 }
 
-impl LaneQueue {
-    fn ready(&self) -> bool {
-        let head_ready = match self.queue.front() {
-            Some(Entry::Frame(..)) => true,
-            Some(Entry::Slot { frame, .. }) => frame.is_some(),
-            None => false,
-        };
-        self.released && !self.lagged && head_ready
-    }
-}
-
 enum Entry {
-    Frame(Bytes, Reservation),
+    Frame {
+        number: u64,
+        frame: Bytes,
+        reservation: Reservation,
+    },
     Slot {
         id: u64,
+        number: u64,
+        /// Pushed to end a lag: merged state that need not keep its place (module docs).
+        recovery: bool,
         frame: Option<Bytes>,
         reservation: Reservation,
     },
 }
 
+impl Entry {
+    fn number(&self) -> u64 {
+        match self {
+            Entry::Frame { number, .. } | Entry::Slot { number, .. } => *number,
+        }
+    }
+
+    fn bytes(&self) -> usize {
+        match self {
+            Entry::Frame { reservation, .. } | Entry::Slot { reservation, .. } => {
+                reservation.bytes()
+            }
+        }
+    }
+}
+
+/// What the writer writes next, in queue order.
+enum Pick {
+    Control,
+    Lane(u64),
+}
+
 #[derive(Default)]
 struct State {
     closing: Option<Closing>,
-    control: VecDeque<Control>,
-    control_used: usize,
-    /// Lanes in open order; the round robin walks serials.
+    control: VecDeque<Queued>,
+    /// Pings waiting to be written; they go before every text frame.
+    pings: usize,
+    /// The number the next queued text frame takes.
+    next_number: u64,
+    /// Lanes in open order.
     lanes: BTreeMap<u64, LaneQueue>,
     by_sub: HashMap<SubscriptionId, u64>,
     next_serial: u64,
-    last_written: Option<u64>,
     /// Lagged lanes, oldest lag first.
     lagged: VecDeque<u64>,
     recovering: Option<u64>,
@@ -329,14 +417,7 @@ impl State {
         let Some(lane) = self.lanes.get_mut(&serial) else {
             return 0;
         };
-        let released = lane
-            .queue
-            .drain(..)
-            .map(|entry| match entry {
-                Entry::Frame(_, reservation) => reservation.bytes(),
-                Entry::Slot { reservation, .. } => reservation.bytes(),
-            })
-            .sum();
+        let released = lane.queue.drain(..).map(|entry| entry.bytes()).sum();
         // Producer-held reservations are revoked too: their bytes return now and their push
         // is refused, so a lane's charge never outlives its lag.
         lane.budget.void();
@@ -366,17 +447,57 @@ impl State {
         Some(lane)
     }
 
-    /// The next lane after the last written one, in open order, that can write now.
-    fn next_writable(&self) -> Option<u64> {
-        let ready = |(serial, lane): (&u64, &LaneQueue)| lane.ready().then_some(*serial);
-        let tail = self
-            .last_written
-            .and_then(|last| {
-                self.lanes
-                    .range((Bound::Excluded(last), Bound::Unbounded))
-                    .find_map(ready)
-            });
-        tail.or_else(|| self.lanes.iter().find_map(ready))
+    fn number(&mut self) -> u64 {
+        let number = self.next_number;
+        self.next_number += 1;
+        number
+    }
+
+    /// The lowest-numbered text frame that can be written now, unless a frame queued before it
+    /// cannot be written yet (an unfilled snapshot): then nothing. Lanes waiting for their
+    /// response and lagged lanes take no part; a lagged lane's recovery snapshot holds nothing
+    /// back, the frames behind it do.
+    fn next_in_order(&self) -> Option<Pick> {
+        let mut best = self.control.front().map(|queued| (queued.number, Pick::Control));
+        let mut barrier = u64::MAX;
+        for (serial, lane) in &self.lanes {
+            if !lane.released || lane.lagged {
+                continue;
+            }
+            let mut entries = lane.queue.iter();
+            match entries.next() {
+                Some(
+                    Entry::Frame { number, .. }
+                    | Entry::Slot {
+                        number,
+                        frame: Some(_),
+                        ..
+                    },
+                ) => {
+                    if best.as_ref().is_none_or(|(lowest, _)| number < lowest) {
+                        best = Some((*number, Pick::Lane(*serial)));
+                    }
+                }
+                Some(Entry::Slot {
+                    number,
+                    recovery: false,
+                    frame: None,
+                    ..
+                }) => barrier = barrier.min(*number),
+                Some(Entry::Slot {
+                    recovery: true,
+                    frame: None,
+                    ..
+                }) => {
+                    if let Some(next) = entries.next() {
+                        barrier = barrier.min(next.number());
+                    }
+                }
+                None => {}
+            }
+        }
+        best.filter(|(number, _)| *number < barrier)
+            .map(|(_, pick)| pick)
     }
 
     fn lag_waiting(&self) -> bool {
@@ -393,6 +514,10 @@ pub(crate) struct Shared {
     narrowed: OnceLock<ConnectionOrigin>,
     pub(crate) limits: WriterLimits,
     budget: Arc<EventBudget>,
+    /// The control reserve: answers, errors and server requests.
+    reserve: Arc<OrderedReserve>,
+    /// The ordered event room: frames of ordered lanes.
+    ordered_room: Arc<OrderedReserve>,
     state: Mutex<State>,
     clock: Arc<AtomicU64>,
     last_rx: AtomicU64,
@@ -428,6 +553,8 @@ impl Shared {
                 wake: Notify::new(),
                 lag_waiting: AtomicBool::new(false),
             }),
+            reserve: OrderedReserve::new(limits.control_reserve, false),
+            ordered_room: OrderedReserve::new(limits.ordered_queue, true),
             state: Mutex::new(State::default()),
             clock,
             last_rx: AtomicU64::new(now),
@@ -557,7 +684,7 @@ impl Shared {
             state.closing = Some(closing);
             if !drain {
                 state.control.clear();
-                state.control_used = 0;
+                state.pings = 0;
             }
             state.lagged.clear();
             state.recovering = None;
@@ -577,27 +704,43 @@ impl Shared {
         true
     }
 
-    fn queue_control(&self, item: Control) -> Result<(), SinkClosed> {
-        let len = match &item {
-            Control::Text { frame, .. } => frame.len(),
-            Control::Ping => 0,
-        };
+    fn queue_control(&self, frame: Bytes, release: Option<SubscriptionId>) -> Result<(), SinkClosed> {
         {
             let mut state = self.lock();
             if state.closing.is_some() {
                 return Err(SinkClosed);
             }
-            if state.control_used + len <= self.limits.control_reserve {
-                state.control_used += len;
-                state.control.push_back(item);
+            if let Some(hold) = self.reserve.try_take(frame.len()) {
+                let number = state.number();
+                state.control.push_back(Queued {
+                    number,
+                    frame,
+                    release,
+                    hold,
+                });
                 drop(state);
                 self.wake();
                 return Ok(());
             }
         }
-        // The peer reads nothing, not even responses: close, dropping what is queued.
-        self.begin_close(Closing::Send(CloseCode::SlowConsumer), false);
+        self.slow_consumer();
         Err(SinkClosed)
+    }
+
+    /// The peer reads nothing, not even the ordered class: close, dropping what is queued.
+    fn slow_consumer(&self) {
+        self.begin_close(Closing::Send(CloseCode::SlowConsumer), false);
+    }
+
+    fn queue_ping(&self) -> bool {
+        let mut state = self.lock();
+        if state.closing.is_some() {
+            return false;
+        }
+        state.pings += 1;
+        drop(state);
+        self.wake();
+        true
     }
 
     /// One heartbeat tick `t` for this connection (P §4.7).
@@ -623,32 +766,25 @@ impl Shared {
             if ping + 2 <= t {
                 self.begin_close(Closing::Send(CloseCode::PeerUnresponsive), false);
             }
-        } else if last_rx + 1 < t && self.queue_control(Control::Ping).is_ok() {
+        } else if last_rx + 1 < t && self.queue_ping() {
             self.ping_since.store(t, Ordering::Release);
         }
     }
 
-    /// The next thing the writer task does. Control frames first, then recovery of the oldest
-    /// lagged lane once the budget holds a snapshot, then lanes round-robin, one frame each.
+    /// The next thing the writer task does. Pings first; once closing, the control frames still
+    /// queued and then the close frame; else recovery of the oldest lagged lane once the budget
+    /// holds a snapshot, then the next text frame in queue order ([`State::next_in_order`]).
     fn next_work(&self) -> Work {
         let mut state = self.lock();
-        if let Some(item) = state.control.pop_front() {
-            return match item {
-                Control::Ping => Work::Ping,
-                Control::Text { frame, release } => {
-                    // The reserve stays charged until the socket has taken the frame
-                    // ([`Shared::control_written`]), as event reservations are.
-                    if let Some(serial) = release.and_then(|sub| state.by_sub.get(&sub).copied())
-                        && let Some(lane) = state.lanes.get_mut(&serial)
-                    {
-                        lane.released = true;
-                    }
-                    Work::Control(frame)
-                }
-            };
+        if state.pings > 0 {
+            state.pings -= 1;
+            return Work::Ping;
         }
         if let Some(closing) = state.closing {
-            return Work::Close(closing);
+            return match state.control.pop_front() {
+                Some(queued) => Work::Text(queued.frame, queued.hold),
+                None => Work::Close(closing),
+            };
         }
         if state.recovering.is_none()
             && let Some(&serial) = state.lagged.front()
@@ -666,24 +802,44 @@ impl Shared {
                 };
             }
         }
-        let Some(serial) = state.next_writable() else {
-            return Work::Idle;
+        let serial = match state.next_in_order() {
+            None => return Work::Idle,
+            Some(Pick::Control) => {
+                let queued = state.control.pop_front().expect("the pick is the control head");
+                if let Some(serial) = queued
+                    .release
+                    .and_then(|sub| state.by_sub.get(&sub).copied())
+                    && let Some(lane) = state.lanes.get_mut(&serial)
+                {
+                    lane.released = true;
+                }
+                // The reserve stays charged until the socket has taken the frame.
+                return Work::Text(queued.frame, queued.hold);
+            }
+            Some(Pick::Lane(serial)) => serial,
         };
-        let lane = state.lanes.get_mut(&serial).expect("writable lane exists");
+        let lane = state.lanes.get_mut(&serial).expect("the picked lane exists");
+        lane.written = true;
+        let ordered = lane.ordered;
         let (frame, reservation, was_slot) = match lane.queue.pop_front() {
-            Some(Entry::Frame(frame, reservation)) => (frame, reservation, false),
+            Some(Entry::Frame {
+                frame, reservation, ..
+            }) => (frame, reservation, false),
             Some(Entry::Slot {
                 frame: Some(frame),
                 reservation,
                 ..
             }) => (frame, reservation, true),
-            _ => unreachable!("next_writable checked the head"),
+            _ => unreachable!("next_in_order checked the head"),
         };
         if was_slot && state.recovering == Some(serial) {
             state.recovering = None;
             self.sync_lag_flag(&state);
         }
-        state.last_written = Some(serial);
+        if ordered && !was_slot {
+            // An ordered frame holds the ordered reserve, which no lag can void.
+            return Work::Text(frame, reservation);
+        }
         // From here the frame belongs to the writer, not to the lane: a lag cannot take it
         // back, and it stays charged until the socket has taken it.
         let bytes = reservation.bytes();
@@ -693,13 +849,6 @@ impl Shared {
         }
         let budget: Arc<dyn ByteBudget> = self.budget.clone();
         Work::Text(frame, Reservation::new(bytes, budget))
-    }
-
-    /// The socket took (or failed on) a control frame: its bytes leave the reserve. Saturating
-    /// because a closing without drain already reset the count.
-    fn control_written(&self, len: usize) {
-        let mut state = self.lock();
-        state.control_used = state.control_used.saturating_sub(len);
     }
 
     /// After a recovery attach returned: a lane that is still lagged and still the recovering
@@ -719,8 +868,8 @@ impl Shared {
 }
 
 enum Work {
+    /// A text frame and the bytes it holds until the socket has taken it.
     Text(Bytes, Reservation),
-    Control(Bytes),
     Ping,
     Recover {
         recovery: Arc<dyn LaneRecovery>,
@@ -740,12 +889,6 @@ pub(crate) async fn write_loop<W: SocketWrite>(shared: Arc<Shared>, mut socket: 
                 let sent = guarded(&shared, socket.text(frame)).await;
                 // The bytes return to the budget when the socket has taken the frame.
                 drop(hold);
-                sent
-            }
-            Work::Control(frame) => {
-                let len = frame.len();
-                let sent = guarded(&shared, socket.text(frame)).await;
-                shared.control_written(len);
                 sent
             }
             Work::Ping => guarded(&shared, socket.ping()).await,
@@ -851,10 +994,7 @@ impl ConnectionSink for ConnectionWriter {
     }
 
     fn send_control(&self, frame: Bytes) -> Result<(), SinkClosed> {
-        self.shared.queue_control(Control::Text {
-            frame,
-            release: None,
-        })
+        self.shared.queue_control(frame, None)
     }
 
     fn send_control_release(&self, frame: Bytes, release: LaneRelease) -> Result<(), SinkClosed> {
@@ -863,16 +1003,33 @@ impl ConnectionSink for ConnectionWriter {
             self.shared.id,
             "lane release of another connection"
         );
-        self.shared.queue_control(Control::Text {
-            frame,
-            release: Some(release.sub().clone()),
-        })
+        self.shared
+            .queue_control(frame, Some(release.sub().clone()))
     }
 
     fn open_lane(
         &self,
         sub: SubscriptionId,
         recovery: Arc<dyn LaneRecovery>,
+    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
+        self.open(sub, recovery, false)
+    }
+
+    fn open_ordered_lane(
+        &self,
+        sub: SubscriptionId,
+        recovery: Arc<dyn LaneRecovery>,
+    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
+        self.open(sub, recovery, true)
+    }
+}
+
+impl ConnectionWriter {
+    fn open(
+        &self,
+        sub: SubscriptionId,
+        recovery: Arc<dyn LaneRecovery>,
+        ordered: bool,
     ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
         let shared = &self.shared;
         let replaced = {
@@ -894,6 +1051,8 @@ impl ConnectionSink for ConnectionWriter {
                     sub: sub.clone(),
                     released: false,
                     lagged: false,
+                    ordered,
+                    written: false,
                     queue: VecDeque::new(),
                     recovery,
                     budget: LaneBudget::new(Arc::clone(&shared.budget)),
@@ -904,6 +1063,7 @@ impl ConnectionSink for ConnectionWriter {
                 shared: Arc::clone(shared),
                 sub: sub.clone(),
                 serial,
+                ordered,
             };
             (replaced, lane)
         };
@@ -919,6 +1079,36 @@ pub struct WriterLane {
     shared: Arc<Shared>,
     sub: SubscriptionId,
     serial: u64,
+    /// An ordered lane (module docs).
+    ordered: bool,
+}
+
+impl WriterLane {
+    /// Queues a frame of an ordered lane, holding the ordered reserve.
+    fn push_ordered(&self, mut reservation: Reservation, frame: Bytes) {
+        reservation.shrink_to(frame.len());
+        let wake = {
+            let mut guard = self.shared.lock();
+            let state = &mut *guard;
+            let number = state.next_number;
+            match state.lanes.get_mut(&self.serial) {
+                Some(lane) if !lane.lagged => {
+                    lane.queue.push_back(Entry::Frame {
+                        number,
+                        frame,
+                        reservation,
+                    });
+                    state.next_number += 1;
+                    lane.released
+                }
+                // A lane lagged before anything of it was written: its next snapshot holds this.
+                _ => false,
+            }
+        };
+        if wake {
+            self.shared.wake();
+        }
+    }
 }
 
 impl Lane for WriterLane {
@@ -926,8 +1116,17 @@ impl Lane for WriterLane {
         self.sub.clone()
     }
 
-    /// Takes from the connection's event budget; see [`Shared::take_for`] for what is owed.
+    /// Takes from the connection's event budget (see [`Shared::take_for`] for what is owed), or
+    /// for an ordered lane from the ordered event room.
     fn try_reserve(&self, bytes: usize) -> Result<Reservation, BudgetFull> {
+        if self.ordered {
+            return self.shared.ordered_room.try_take(bytes).ok_or(BudgetFull);
+        }
+        self.try_reserve_snapshot(bytes)
+    }
+
+    /// Snapshots of every lane, ordered ones included, are merged state on the event budget.
+    fn try_reserve_snapshot(&self, bytes: usize) -> Result<Reservation, BudgetFull> {
         let reservation = {
             let mut state = self.shared.lock();
             self.shared.take_for(&mut state, self.serial, bytes)
@@ -942,16 +1141,27 @@ impl Lane for WriterLane {
             frame.len() <= reservation.bytes(),
             "frame exceeds its reservation"
         );
+        if self.ordered {
+            self.push_ordered(reservation, frame);
+            return;
+        }
         let wake = {
-            let mut state = self.shared.lock();
+            let mut guard = self.shared.lock();
+            let state = &mut *guard;
             let mut revoked = false;
-            let share = self.shared.share(&state);
+            let share = self.shared.share(state);
+            let number = state.next_number;
             let wake = match state.lanes.get_mut(&self.serial) {
                 Some(lane) if !lane.lagged => {
                     let len = frame.len();
                     match recharge(&lane.budget, reservation, len, share) {
                         Some(reservation) => {
-                            lane.queue.push_back(Entry::Frame(frame, reservation));
+                            lane.queue.push_back(Entry::Frame {
+                                number,
+                                frame,
+                                reservation,
+                            });
+                            state.next_number += 1;
                             lane.released
                         }
                         None => {
@@ -988,13 +1198,17 @@ impl Lane for WriterLane {
                 let bytes = reservation.bytes();
                 match recharge(&lane.budget, reservation, bytes, share) {
                     Some(reservation) => {
-                        state.lagged.retain(|s| *s != serial);
+                        let recovery = lane.lagged;
                         lane.lagged = false;
                         lane.queue.push_back(Entry::Slot {
                             id,
+                            number: state.next_number,
+                            recovery,
                             frame: None,
                             reservation,
                         });
+                        state.next_number += 1;
+                        state.lagged.retain(|s| *s != serial);
                     }
                     // Revoked while the snapshot was prepared: the lane stays lagged and takes
                     // another recovery turn; the slot returned below is inert.
@@ -1015,12 +1229,25 @@ impl Lane for WriterLane {
         }))
     }
 
+    /// An ordered lane that has written something closes the connection instead (module docs).
     fn lag(&self) -> usize {
         let released = {
             let mut state = self.shared.lock();
-            let released = state.lag(self.serial);
-            self.shared.sync_lag_flag(&state);
-            released
+            let live_ordered = state
+                .lanes
+                .get(&self.serial)
+                .is_some_and(|lane| lane.ordered && lane.written);
+            if live_ordered {
+                None
+            } else {
+                let released = state.lag(self.serial);
+                self.shared.sync_lag_flag(&state);
+                Some(released)
+            }
+        };
+        let Some(released) = released else {
+            self.shared.slow_consumer();
+            return 0;
         };
         self.shared.wake();
         released
@@ -1074,6 +1301,8 @@ impl WriterSlot {
             };
             let Some(Entry::Slot {
                 id,
+                number,
+                recovery,
                 mut frame,
                 mut reservation,
             }) = lane.queue.remove(index)
@@ -1087,6 +1316,8 @@ impl WriterSlot {
                     index,
                     Entry::Slot {
                         id,
+                        number,
+                        recovery,
                         frame,
                         reservation,
                     },

@@ -1,0 +1,522 @@
+{
+  "helperFrameIntervalMs": 66,
+  "issueCodes": [
+    {
+      "code": "grant_key_missing",
+      "issue": "grant_key_missing"
+    },
+    {
+      "code": "grant_expired",
+      "issue": "grant_expired"
+    },
+    {
+      "code": "input_failed",
+      "issue": "input_failed"
+    },
+    {
+      "code": "desktop_unavailable",
+      "issue": "desktop_unavailable"
+    },
+    {
+      "code": "sas_disabled_by_policy",
+      "issue": "sas_disabled_by_policy"
+    },
+    {
+      "code": "grant_required",
+      "issue": null
+    },
+    {
+      "code": "grant_bad_signature",
+      "issue": null
+    },
+    {
+      "code": "capture_failed",
+      "issue": null
+    },
+    {
+      "code": "protocol_mismatch",
+      "issue": null
+    },
+    {
+      "code": "",
+      "issue": null
+    }
+  ],
+  "issueAfterChange": [
+    {
+      "issue": null,
+      "connected": false,
+      "after": null
+    },
+    {
+      "issue": null,
+      "connected": true,
+      "after": null
+    },
+    {
+      "issue": "grant_key_missing",
+      "connected": false,
+      "after": null
+    },
+    {
+      "issue": "grant_key_missing",
+      "connected": true,
+      "after": "grant_key_missing"
+    },
+    {
+      "issue": "grant_expired",
+      "connected": false,
+      "after": null
+    },
+    {
+      "issue": "grant_expired",
+      "connected": true,
+      "after": null
+    },
+    {
+      "issue": "input_failed",
+      "connected": false,
+      "after": null
+    },
+    {
+      "issue": "input_failed",
+      "connected": true,
+      "after": null
+    },
+    {
+      "issue": "desktop_unavailable",
+      "connected": false,
+      "after": null
+    },
+    {
+      "issue": "desktop_unavailable",
+      "connected": true,
+      "after": null
+    },
+    {
+      "issue": "sas_disabled_by_policy",
+      "connected": false,
+      "after": null
+    },
+    {
+      "issue": "sas_disabled_by_policy",
+      "connected": true,
+      "after": null
+    }
+  ],
+  "usesHelper": [
+    {
+      "decision": 0,
+      "uses": false
+    },
+    {
+      "decision": 1,
+      "uses": false
+    },
+    {
+      "decision": 2,
+      "uses": false
+    },
+    {
+      "decision": 3,
+      "uses": false
+    },
+    {
+      "decision": 4,
+      "uses": false
+    },
+    {
+      "decision": 5,
+      "uses": false
+    },
+    {
+      "decision": 6,
+      "uses": false
+    },
+    {
+      "decision": 7,
+      "uses": false
+    },
+    {
+      "decision": 8,
+      "uses": false
+    },
+    {
+      "decision": 9,
+      "uses": false
+    },
+    {
+      "decision": 10,
+      "uses": false
+    },
+    {
+      "decision": 11,
+      "uses": false
+    },
+    {
+      "decision": 12,
+      "uses": false
+    },
+    {
+      "decision": 13,
+      "uses": false
+    },
+    {
+      "decision": 14,
+      "uses": false
+    },
+    {
+      "decision": 15,
+      "uses": true
+    },
+    {
+      "decision": 16,
+      "uses": true
+    },
+    {
+      "decision": 17,
+      "uses": false
+    },
+    {
+      "decision": 18,
+      "uses": false
+    },
+    {
+      "decision": 19,
+      "uses": false
+    },
+    {
+      "decision": 20,
+      "uses": false
+    },
+    {
+      "decision": 21,
+      "uses": false
+    },
+    {
+      "decision": 22,
+      "uses": true
+    },
+    {
+      "decision": 23,
+      "uses": false
+    },
+    {
+      "decision": 24,
+      "uses": false
+    },
+    {
+      "decision": 25,
+      "uses": false
+    },
+    {
+      "decision": 26,
+      "uses": false
+    },
+    {
+      "decision": 27,
+      "uses": false
+    },
+    {
+      "decision": 28,
+      "uses": false
+    },
+    {
+      "decision": 29,
+      "uses": false
+    },
+    {
+      "decision": 30,
+      "uses": false
+    },
+    {
+      "decision": 31,
+      "uses": false
+    },
+    {
+      "decision": 32,
+      "uses": false
+    }
+  ],
+  "identity": [
+    {
+      "connected": false,
+      "session": null,
+      "desktop": null,
+      "identity": null
+    },
+    {
+      "connected": false,
+      "session": null,
+      "desktop": "Default",
+      "identity": null
+    },
+    {
+      "connected": false,
+      "session": null,
+      "desktop": "Winlogon",
+      "identity": null
+    },
+    {
+      "connected": false,
+      "session": null,
+      "desktop": "WINLOGON",
+      "identity": null
+    },
+    {
+      "connected": false,
+      "session": 0,
+      "desktop": null,
+      "identity": null
+    },
+    {
+      "connected": false,
+      "session": 0,
+      "desktop": "Default",
+      "identity": null
+    },
+    {
+      "connected": false,
+      "session": 0,
+      "desktop": "Winlogon",
+      "identity": null
+    },
+    {
+      "connected": false,
+      "session": 0,
+      "desktop": "WINLOGON",
+      "identity": null
+    },
+    {
+      "connected": false,
+      "session": 2,
+      "desktop": null,
+      "identity": null
+    },
+    {
+      "connected": false,
+      "session": 2,
+      "desktop": "Default",
+      "identity": null
+    },
+    {
+      "connected": false,
+      "session": 2,
+      "desktop": "Winlogon",
+      "identity": null
+    },
+    {
+      "connected": false,
+      "session": 2,
+      "desktop": "WINLOGON",
+      "identity": null
+    },
+    {
+      "connected": true,
+      "session": null,
+      "desktop": null,
+      "identity": null
+    },
+    {
+      "connected": true,
+      "session": null,
+      "desktop": "Default",
+      "identity": null
+    },
+    {
+      "connected": true,
+      "session": null,
+      "desktop": "Winlogon",
+      "identity": null
+    },
+    {
+      "connected": true,
+      "session": null,
+      "desktop": "WINLOGON",
+      "identity": null
+    },
+    {
+      "connected": true,
+      "session": 0,
+      "desktop": null,
+      "identity": null
+    },
+    {
+      "connected": true,
+      "session": 0,
+      "desktop": "Default",
+      "identity": {
+        "session": 0,
+        "desktop": "default"
+      }
+    },
+    {
+      "connected": true,
+      "session": 0,
+      "desktop": "Winlogon",
+      "identity": {
+        "session": 0,
+        "desktop": "winlogon"
+      }
+    },
+    {
+      "connected": true,
+      "session": 0,
+      "desktop": "WINLOGON",
+      "identity": {
+        "session": 0,
+        "desktop": "winlogon"
+      }
+    },
+    {
+      "connected": true,
+      "session": 2,
+      "desktop": null,
+      "identity": null
+    },
+    {
+      "connected": true,
+      "session": 2,
+      "desktop": "Default",
+      "identity": {
+        "session": 2,
+        "desktop": "default"
+      }
+    },
+    {
+      "connected": true,
+      "session": 2,
+      "desktop": "Winlogon",
+      "identity": {
+        "session": 2,
+        "desktop": "winlogon"
+      }
+    },
+    {
+      "connected": true,
+      "session": 2,
+      "desktop": "WINLOGON",
+      "identity": {
+        "session": 2,
+        "desktop": "winlogon"
+      }
+    }
+  ],
+  "offers": [
+    {
+      "state": "not-installed",
+      "offer": "install"
+    },
+    {
+      "state": "outdated",
+      "offer": "update"
+    },
+    {
+      "state": "not-enrolled",
+      "offer": "update"
+    },
+    {
+      "state": "installed",
+      "offer": "none"
+    },
+    {
+      "state": "other-user",
+      "offer": "none"
+    },
+    {
+      "state": "unavailable",
+      "offer": "none"
+    }
+  ],
+  "stall": [
+    {
+      "intervals": [],
+      "stallMs": 216
+    },
+    {
+      "intervals": [
+        66
+      ],
+      "stallMs": 216
+    },
+    {
+      "intervals": [
+        66,
+        66
+      ],
+      "stallMs": 216
+    },
+    {
+      "intervals": [
+        100,
+        101
+      ],
+      "stallMs": 301.5
+    },
+    {
+      "intervals": [
+        10,
+        20,
+        30
+      ],
+      "stallMs": 170
+    },
+    {
+      "intervals": [
+        1000
+      ],
+      "stallMs": 3000
+    },
+    {
+      "intervals": [
+        66,
+        66,
+        66,
+        66
+      ],
+      "stallMs": 216
+    },
+    {
+      "intervals": [
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79
+      ],
+      "stallMs": 214.5
+    },
+    {
+      "intervals": [
+        0,
+        0
+      ],
+      "stallMs": 150
+    }
+  ]
+}

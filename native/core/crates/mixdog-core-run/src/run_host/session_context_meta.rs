@@ -43,7 +43,7 @@ pub fn guess_context_window(model: &str, provider: &str) -> f64 {
     if local_provider && local_family.iter().any(|family| m.contains(family)) {
         return 8192.0;
     }
-    let opus_class = ["opus", "sonnet", "fable"].iter().any(|kind| m.strip_prefix("claude-").is_some_and(|rest| rest.starts_with(kind)));
+    let opus_class = ["opus", "sonnet", "fable", "mythos"].iter().any(|kind| m.strip_prefix("claude-").is_some_and(|rest| rest.starts_with(kind)));
     if opus_class {
         return 1_000_000.0;
     }

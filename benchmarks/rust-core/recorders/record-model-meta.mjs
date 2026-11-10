@@ -6,7 +6,7 @@
 //   node benchmarks/rust-core/recorders/record-model-meta.mjs --tree <dir containing src/> --commit b6f10295a
 //   (the tree is `git archive b6f10295a src` of the Node product)
 //
-// Output: native/core/fixtures/providers/oracles/model-meta.json. Each scenario lists its providers and its ops;
+// Output: native/core/fixtures/providers/oracles/model-meta.json (or `--out <file>`; record-providers.mjs runs it so). Each scenario lists its providers and its ops;
 // every `lookup` / `load` op carries what Node answered (`expect`) and how many `listModels` calls had been made
 // (`listCalls`). The Rust replay builds the same providers and ops and must reproduce every answer.
 import { join, resolve } from 'node:path';
@@ -265,7 +265,7 @@ const scenarios = [];
 for (const scenario of SCENARIOS) scenarios.push(await runScenario(structuredClone(scenario)));
 
 const commit = args.get('commit') ?? 'unknown';
-writeJson(join(FIXTURES_ROOT, 'providers', 'oracles', 'model-meta.json'), {
+writeJson(resolve(args.get('out') ?? join(FIXTURES_ROOT, 'providers', 'oracles', 'model-meta.json')), {
   _doc:
     "Recorded from Node's REAL createModelMetaIndex (lookupModelMeta) and createCatalogLoader (remember) over scripted providers behind a fake registry. `providers[name]`: `list` = has listModels, `cached` = has getCachedModelInfo over these (mutable) rows, `listRows` = what listModels returns (default: `cached`), `throws`, `duringList` = an action taken inside listModels. `expect` is Node's answer; `listCalls` the listModels calls so far; `warmups` the scheduleProviderModelWarmup calls so far.",
   recorder: 'benchmarks/rust-core/recorders/record-model-meta.mjs',

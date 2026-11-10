@@ -514,6 +514,11 @@ impl OAuthSession {
         self.parts.stored().await
     }
 
+    /// Names the account: the credential file it signs in from.
+    pub fn account(&self) -> String {
+        self.parts.file.path().display().to_string()
+    }
+
     /// A usable access token, refreshing first when it is near expiry.
     pub async fn access_token(&self) -> Result<String, ProviderError> {
         let stored = self.stored().await?;

@@ -3,13 +3,16 @@
 //! `<file>.bak` when asked, then the temp is renamed over the target (or linked, for
 //! create-only) and the directory is flushed when asked.
 
-use std::fs;
+use std::fs::Metadata;
 use std::io;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use mixdog_fsio::ReadProof;
+use mixdog_fsio::Unlaned;
+use mixdog_fsio::WriteProof;
 use mixdog_rt::InLane;
 
 use crate::IoLane;
@@ -119,9 +122,9 @@ pub enum Step {
 
 /// `mkdirSync(dir, { recursive: true })`. Where a file sits in the way of a parent folder, Node
 /// fails `ENOTDIR`; `create_dir_all` reports the file's own name as already existing.
-fn make_dirs(dir: &Path) -> io::Result<()> {
-    match fs::create_dir_all(dir) {
-        Err(_) if !dir.is_dir() && dir.ancestors().skip(1).any(Path::is_file) => Err(io::ErrorKind::NotADirectory.into()),
+fn make_dirs(proof: &impl WriteProof, dir: &Path) -> io::Result<()> {
+    match mixdog_fsio::create_dir_all(proof, dir) {
+        Err(_) if !mixdog_fsio::is_dir(proof, dir) && dir.ancestors().skip(1).any(|ancestor| mixdog_fsio::is_file(proof, ancestor)) => Err(io::ErrorKind::NotADirectory.into()),
         other => other,
     }
 }
@@ -201,7 +204,7 @@ fn write_durable<L: WriteLane>(
     file.write_all(data).map_err(at(Step::Write))?;
     if opts.fsync {
         record("fsync", &[tmp]);
-        if let Err(error) = file.sync_all()
+        if let Err(error) = file.sync_all(lane)
             && !fsync_refused(&error, false)
         {
             return Err(PublishFailure { step: Step::Fsync, error });
@@ -247,8 +250,8 @@ fn permission_refused(error: &io::Error) -> bool {
 
 /// Windows answers a refusal both for a sharing violation (clears in moments) and for renaming
 /// over a read-only file (never clears); only the first is worth waiting for.
-fn is_read_only_file(path: &Path) -> bool {
-    let Ok(meta) = fs::metadata(path) else { return false };
+fn is_read_only_file(proof: &impl ReadProof, path: &Path) -> bool {
+    let Ok(meta) = mixdog_fsio::metadata(proof, path) else { return false };
     if !meta.is_file() {
         return false;
     }
@@ -265,11 +268,11 @@ fn is_read_only_file(path: &Path) -> bool {
 
 /// The wait before attempt `attempt + 1`, or `None` when this error or attempt count ends the
 /// loop (`nextRenameDelayMs`).
-pub(crate) fn next_rename_delay(error: &io::Error, attempt: usize, dst: &Path) -> Option<Duration> {
+pub(crate) fn next_rename_delay(proof: &impl ReadProof, error: &io::Error, attempt: usize, dst: &Path) -> Option<Duration> {
     if !rename_retryable(error) || attempt >= 23 {
         return None;
     }
-    if permission_refused(error) && is_read_only_file(dst) {
+    if permission_refused(error) && is_read_only_file(proof, dst) {
         return None;
     }
     let base = backoff_ms(attempt);
@@ -277,14 +280,14 @@ pub(crate) fn next_rename_delay(error: &io::Error, attempt: usize, dst: &Path) -
 }
 
 /// `renameWithRetrySync`.
-pub(crate) fn rename_with_retry(src: &Path, dst: &Path) -> io::Result<()> {
+pub(crate) fn rename_with_retry(proof: &impl WriteProof, src: &Path, dst: &Path) -> io::Result<()> {
     let mut attempt = 0;
     loop {
         record("rename", &[src, dst]);
-        match fs::rename(src, dst) {
+        match mixdog_fsio::rename(proof, src, dst) {
             Ok(()) => return Ok(()),
-            Err(error) => match next_rename_delay(&error, attempt, dst) {
-                Some(delay) => std::thread::sleep(delay),
+            Err(error) => match next_rename_delay(proof, &error, attempt, dst) {
+                Some(delay) => mixdog_fsio::sleep(proof, delay),
                 None => return Err(error),
             },
         }
@@ -292,18 +295,18 @@ pub(crate) fn rename_with_retry(src: &Path, dst: &Path) -> io::Result<()> {
     }
 }
 
-fn read_or_null(path: &Path) -> io::Result<Option<Vec<u8>>> {
+pub(crate) fn read_or_null(proof: &impl ReadProof, path: &Path) -> io::Result<Option<Vec<u8>>> {
     // On Windows a read racing another writer's rename-over fails with a sharing violation
     // (PermissionDenied) for a few milliseconds; Node's reader has the same window and no retry,
     // which an unlocked concurrent writer then loses at random.
     let mut attempt = 0;
     loop {
-        match fs::read(path) {
+        match mixdog_fsio::read(proof, path) {
             Ok(bytes) => return Ok(Some(bytes)),
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) if error.kind() == io::ErrorKind::PermissionDenied && attempt < 20 && !path.is_dir() => {
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied && attempt < 20 && !mixdog_fsio::is_dir(proof, path) => {
                 attempt += 1;
-                std::thread::sleep(std::time::Duration::from_millis(5));
+                mixdog_fsio::sleep(proof, Duration::from_millis(5));
             }
             Err(error) => return Err(error),
         }
@@ -312,47 +315,47 @@ fn read_or_null(path: &Path) -> io::Result<Option<Vec<u8>>> {
 
 /// The file's bytes, `None` when it is missing.
 pub fn read_content(path: &Path) -> io::Result<Option<Vec<u8>>> {
-    read_or_null(path)
+    read_or_null(&Unlaned, path)
 }
 
 /// `appendFileSync(path, bytes)`: the file is created when missing, after its directory (a
 /// failure to make the directory is left to the open to report).
-pub fn append_file<L: WriteLane>(_lane: &InLane<L>, path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub fn append_file<L: WriteLane>(lane: &InLane<L>, path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
+        let _ = mixdog_fsio::create_dir_all(lane, parent);
     }
-    fs::OpenOptions::new().create(true).append(true).open(path)?.write_all(bytes)
+    mixdog_fsio::OpenOptions::new().create(true).append(true).open(lane, path)?.write_all(bytes)
 }
 
 /// `statSync(path)`: the metadata of what `path` resolves to, every error (`NotFound` included)
 /// reported as it is.
-pub fn metadata<L: IoLane>(_lane: &InLane<L>, path: &Path) -> io::Result<fs::Metadata> {
-    fs::metadata(path)
+pub fn metadata<L: IoLane>(lane: &InLane<L>, path: &Path) -> io::Result<Metadata> {
+    mixdog_fsio::metadata(lane, path)
 }
 
 /// `lstatSync(path)`: the metadata of the entry itself, a link not followed.
-pub fn symlink_metadata<L: IoLane>(_lane: &InLane<L>, path: &Path) -> io::Result<fs::Metadata> {
-    fs::symlink_metadata(path)
+pub fn symlink_metadata<L: IoLane>(lane: &InLane<L>, path: &Path) -> io::Result<Metadata> {
+    mixdog_fsio::symlink_metadata(lane, path)
 }
 
 /// `rmSync(path, { recursive: true })`: the directory and what it holds; a missing path is an
 /// error.
-pub fn remove_dir_all<L: WriteLane>(_lane: &InLane<L>, path: &Path) -> io::Result<()> {
-    fs::remove_dir_all(path)
+pub fn remove_dir_all<L: WriteLane>(lane: &InLane<L>, path: &Path) -> io::Result<()> {
+    mixdog_fsio::remove_dir_all(lane, path)
 }
 
 /// `unlinkSync(path)`: a missing file is an error.
-pub fn remove_file<L: WriteLane>(_lane: &InLane<L>, path: &Path) -> io::Result<()> {
-    fs::remove_file(path)
+pub fn remove_file<L: WriteLane>(lane: &InLane<L>, path: &Path) -> io::Result<()> {
+    mixdog_fsio::remove_file(lane, path)
 }
 
 /// `chmodSync(path, ...)` as far as the read-only attribute goes: the file's permissions with
 /// read-only set or cleared (Windows' attribute; on Unix, the write bits). A missing file is an
 /// error.
-pub fn set_readonly<L: WriteLane>(_lane: &InLane<L>, path: &Path, readonly: bool) -> io::Result<()> {
-    let mut permissions = fs::metadata(path)?.permissions();
+pub fn set_readonly<L: WriteLane>(lane: &InLane<L>, path: &Path, readonly: bool) -> io::Result<()> {
+    let mut permissions = mixdog_fsio::metadata(lane, path)?.permissions();
     permissions.set_readonly(readonly);
-    fs::set_permissions(path, permissions)
+    mixdog_fsio::set_permissions(lane, path, permissions)
 }
 
 fn bak_path(path: &Path) -> PathBuf {
@@ -367,11 +370,11 @@ pub(crate) fn backup_path(path: &Path) -> PathBuf {
 
 /// `keepBackupSync`: the version being replaced, if it is worth keeping.
 fn keep_backup<L: WriteLane>(lane: &InLane<L>, path: &Path, opts: &Opts) -> Result<(), PublishFailure> {
-    let previous = match read_or_null(path) {
+    let previous = match read_or_null(lane, path) {
         Ok(Some(previous)) => previous,
         Ok(None) => return Ok(()),
         // Node reads a directory as `open` then a failing `read`.
-        Err(_) if path.is_dir() => {
+        Err(_) if mixdog_fsio::is_dir(lane, path) => {
             return Err(PublishFailure { step: Step::Read, error: io::ErrorKind::IsADirectory.into() });
         }
         Err(error) => return Err(PublishFailure { step: Step::Open(path.to_owned()), error }),
@@ -394,7 +397,7 @@ pub(crate) fn publish<L: WriteLane>(
     opts: &Opts,
 ) -> Result<Published, PublishFailure> {
     let dir = parent(path);
-    make_dirs(dir).map_err(at(Step::Mkdir(dir.to_owned())))?;
+    make_dirs(lane, dir).map_err(at(Step::Mkdir(dir.to_owned())))?;
     let tmp = temp_path(path);
     let result = (|| {
         write_durable(lane, &tmp, data, opts)?;
@@ -405,16 +408,16 @@ pub(crate) fn publish<L: WriteLane>(
             // Atomic create-if-absent: the link fails when the target exists at link time, so
             // a concurrent writer that created it first wins.
             record("link", &[&tmp, path]);
-            let linked = fs::hard_link(&tmp, path);
+            let linked = mixdog_fsio::hard_link(lane, &tmp, path);
             record("unlink", &[&tmp]);
-            let _ = fs::remove_file(&tmp);
+            let _ = mixdog_fsio::remove_file(lane, &tmp);
             match linked {
                 Ok(()) => {}
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => return Ok(Published::Exists),
                 Err(error) => return Err(PublishFailure { step: Step::Other, error }),
             }
         } else {
-            rename_with_retry(&tmp, path).map_err(at(Step::Rename(tmp.clone(), path.to_owned())))?;
+            rename_with_retry(lane, &tmp, path).map_err(at(Step::Rename(tmp.clone(), path.to_owned())))?;
         }
         if opts.fsync_dir {
             fsync_dir(lane, dir).map_err(at(Step::Other))?;
@@ -422,22 +425,22 @@ pub(crate) fn publish<L: WriteLane>(
         Ok(Published::Written)
     })();
     if result.is_err() {
-        let _ = fs::remove_file(&tmp);
+        let _ = mixdog_fsio::remove_file(lane, &tmp);
     }
     result
 }
 
 /// `readdirSync(path)`: the names in a directory, in the order the OS lists them.
-pub fn list_dir<L: IoLane>(_lane: &InLane<L>, path: &Path) -> io::Result<Vec<String>> {
-    fs::read_dir(path)?.map(|entry| entry.map(|e| e.file_name().to_string_lossy().into_owned())).collect()
+pub fn list_dir<L: IoLane>(lane: &InLane<L>, path: &Path) -> io::Result<Vec<String>> {
+    mixdog_fsio::read_dir(lane, path)?.map(|entry| entry.map(|e| e.file_name().to_string_lossy().into_owned())).collect()
 }
 
 /// `readSync` of up to `len` bytes starting at `offset`; shorter when the file ends first.
-pub fn read_range<L: IoLane>(_lane: &InLane<L>, path: &Path, offset: u64, len: usize) -> io::Result<Vec<u8>> {
+pub fn read_range<L: IoLane>(lane: &InLane<L>, path: &Path, offset: u64, len: usize) -> io::Result<Vec<u8>> {
     use std::io::Read;
     use std::io::Seek;
     use std::io::SeekFrom;
-    let mut file = fs::File::open(path)?;
+    let mut file = mixdog_fsio::File::open(lane, path)?;
     file.seek(SeekFrom::Start(offset))?;
     let mut buf = Vec::new();
     file.take(len as u64).read_to_end(&mut buf)?;

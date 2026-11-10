@@ -7,13 +7,14 @@ mod callback;
 pub mod device;
 mod flow;
 pub mod http;
+pub mod lease;
 pub mod loopback;
 pub mod pace;
 pub mod scrub;
 mod pkce;
 pub mod session;
 mod refresh;
-mod single_flight;
+pub(crate) mod single_flight;
 mod store;
 
 pub use device::Poll;

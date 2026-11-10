@@ -48,7 +48,15 @@ libc = { workspace = true }
 [dev-dependencies]
 mixdog-workspace = { path = ".", features = ["kill-points", "count-jobs", "replay-controls"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "process", "io-util", "test-util"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-app-protocol = { workspace = true, features = ["codegen"] }
+mixdog-js = { workspace = true, features = ["fixture-tools"] }
+mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-protocol = { workspace = true, features = ["codegen"] }
