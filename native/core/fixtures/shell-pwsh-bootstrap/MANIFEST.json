@@ -1,0 +1,42 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-shell-pwsh-bootstrap.mjs --tree <tree> --spawn-bin <mixdog-spawn.exe of b6f10295a>",
+  "exclusions": [
+    "MIXDOG_SHELL_WARM_STANDBY=0: every call is a fresh spawn; a parked standby runs the same bootstrap"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1743,
+      "path": "golden.json",
+      "sha256": "6eee7bb6c05c0b681355e3bc34349502af5cdd7404ba844c8a9c6917d92c23ee"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-shell-pwsh-bootstrap.mjs",
+  "recorderSha256": "6b8f0c23f674e224c9310d596c22de12324e5d490812612924ec896299dfc30b",
+  "set": "shell-pwsh-bootstrap",
+  "totalBytes": 1743
+}

@@ -445,6 +445,25 @@ mod tests {
         assert_eq!(gate.view(&rig.task("r3", tail).await, "task-s1"), want["cancelled"]["tail"].as_str().unwrap());
     }
 
+    /// Every PowerShell command runs under Node's pwsh startup script (`fixtures/shell-pwsh-bootstrap/golden.json`,
+    /// recorded from Node b6f10295a by `record-shell-pwsh-bootstrap.mjs`): a parse error reads `ParserError: <message>`
+    /// in UTF-8, non-ASCII stdout and stderr arrive intact, and an error record keeps pwsh's own view.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn powershell_commands_read_as_nodes_through_its_startup_script() {
+        let want: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/shell-pwsh-bootstrap/golden.json")).unwrap();
+        assert_eq!(want["standbyArgs"][4], mixdog_tools::exec::POWERSHELL_BOOTSTRAP);
+        let rig = rig().await;
+        let mut wrong = Vec::new();
+        for (i, case) in want["cases"].as_array().unwrap().iter().enumerate() {
+            let ran = rig.run(&format!("p{i}"), case["input"]["command"].as_str().unwrap()).await;
+            if ran != case["text"].as_str().unwrap() {
+                wrong.push(format!("{}: {ran:?}", case["name"]));
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
     /// A survivors task whose child ends on its own completes with Node's result body, and has nothing left to cancel.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_survivors_task_whose_child_ends_on_its_own_completes_as_nodes_does() {
