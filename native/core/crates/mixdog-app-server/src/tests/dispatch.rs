@@ -355,29 +355,32 @@ async fn requests_of_one_key_run_one_at_a_time_and_other_keys_run_beside_them() 
 /// What a call holds for its reply (`CallContext::reply_queued`, e.g. the rows of a room call's background catalog listing) is
 /// let go only once the server has queued the reply: as the response is queued, the call's hold stands; after, it has ended.
 /// A frame queued after it is written after the response (`ConnectionWriter::next_work` empties the control queue first).
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn a_calls_hold_on_its_reply_ends_only_after_the_reply_is_queued() {
+    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
     let rig = Rig::gated(&["terminal"]);
     let gate = Arc::clone(rig.gate("terminal"));
     let watched = Arc::clone(&gate);
-    let queued: Arc<Mutex<Vec<(Value, bool)>>> = Arc::default();
-    let seen = Arc::clone(&queued);
-    let client = rig.connect_watched(1, move |frame| {
-        let body: Value = serde_json::from_slice(frame).expect("json frame");
-        let ended = watched.held.lock().unwrap().iter().any(|hold| hold.is_cancelled());
-        seen.lock().unwrap().push((body["id"].clone(), ended));
-    });
+    // At each queued frame: whether any call's hold had ended by then.
+    let (client, mut arrivals) =
+        rig.connect_watched(1, move || watched.held.lock().unwrap().iter().any(|hold| hold.is_cancelled()));
     client.initialize(super::VERSION, json!({}));
-    client.drain();
+    let (initialized, _) = arrivals.next(DEADLINE, "the initialize response").await;
+    assert_eq!(initialized["id"], json!(0), "{initialized}");
     client.request(1, "terminal/focus", json!({ "tabId": "a", "focused": true }));
     gate.permits.add_permits(1);
-    let response = client.response(1).await;
+    let (response, ended) = arrivals.next(DEADLINE, "the response to the call").await;
+    assert_eq!(response["id"], json!(1), "{response}");
     assert_eq!(response["result"], json!({ "done": "terminal/focus:a" }), "{response}");
-    let at_response: Vec<bool> = queued.lock().unwrap().iter().filter(|(id, _)| *id == json!(1)).map(|(_, ended)| *ended).collect();
-    assert_eq!(at_response, [false], "the call's hold had ended when its response was queued");
-    let holds = gate.held.lock().unwrap();
-    assert_eq!(holds.len(), 1, "one call");
-    assert!(holds[0].is_cancelled(), "the call's hold stands after its response was queued");
+    assert!(!ended, "the call's hold had ended when its response was queued");
+    let hold = {
+        let holds = gate.held.lock().unwrap();
+        assert_eq!(holds.len(), 1, "one call");
+        holds[0].clone()
+    };
+    tokio::time::timeout(DEADLINE, hold.cancelled())
+        .await
+        .expect("the call's hold never ended after its response was queued");
 }
 
 #[tokio::test(start_paused = true)]

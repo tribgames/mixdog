@@ -402,13 +402,25 @@ impl Rig {
         Client { handle, wire }
     }
 
-    /// A connection whose writer runs `watch` on each control frame just before it queues it.
-    pub(crate) fn connect_watched(&self, id: u64, watch: impl Fn(&Bytes) + Send + Sync + 'static) -> Client {
+    /// A connection whose sink hands each control frame, with what `watch` saw at that instant, to the returned
+    /// [`Arrivals`] just before it queues the frame.
+    pub(crate) fn connect_watched<T: Send + 'static>(
+        &self,
+        id: u64,
+        watch: impl Fn() -> T + Send + Sync + 'static,
+    ) -> (Client, Arrivals<T>) {
         let wire = Arc::new(MockConnection::new(ConnectionId(id), MockLimits::default()));
-        let sink = WatchedSink { inner: wire.clone(), watch: Box::new(watch) };
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let sink = WatchedSink {
+            inner: wire.clone(),
+            watch: Box::new(move |frame: &Bytes| {
+                let body = serde_json::from_slice(frame).expect("a control frame is JSON");
+                let _ = tx.send((body, watch()));
+            }),
+        };
         self.origins.lock().unwrap().insert(ConnectionId(id), Origin::Local);
         let handle = self.server.open(ConnectionId(id), Arc::new(sink));
-        Client { handle, wire }
+        (Client { handle, wire }, Arrivals(rx))
     }
 
     /// A ready connection that names itself `device` (its `clientInfo.title`) and is a
@@ -497,6 +509,19 @@ impl ConnectionSink for WatchedSink {
         recovery: Arc<dyn LaneRecovery>,
     ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
         self.inner.open_lane(sub, recovery)
+    }
+}
+
+/// The control frames of a [`Rig::connect_watched`] connection as its sink queues them, each with what the watch saw.
+pub(crate) struct Arrivals<T>(tokio::sync::mpsc::UnboundedReceiver<(Value, T)>);
+
+impl<T> Arrivals<T> {
+    /// The next frame queued to the connection; `awaited` names it in the failure when none comes within `deadline`.
+    pub(crate) async fn next(&mut self, deadline: std::time::Duration, awaited: &str) -> (Value, T) {
+        tokio::time::timeout(deadline, self.0.recv())
+            .await
+            .unwrap_or_else(|_| panic!("no frame within {deadline:?}: awaited {awaited}"))
+            .unwrap_or_else(|| panic!("the connection closed: awaited {awaited}"))
     }
 }
 

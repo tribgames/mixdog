@@ -1,0 +1,225 @@
+{
+  "scenario": "pruned-at-load",
+  "listFirst": false,
+  "calls": [
+    "create",
+    "restart-after-agent-deletion",
+    "update-rounds"
+  ],
+  "taskWorkspace": "D:\\mixdog-build\\tmp\\room-catalog-pruned-at-load-hiCMcW\\home\\AppData\\Roaming\\workspace\\unclassified",
+  "bots": [
+    "alpha",
+    "beta",
+    "gamma"
+  ],
+  "botNames": {
+    "alpha": "Alpha",
+    "beta": "Beta",
+    "gamma": "Gamma"
+  },
+  "room": {
+    "sessionId": "sess_room_mwawiyoe3ba34ef7",
+    "roomId": "mwawiyoe3ba34ef7"
+  },
+  "steps": [
+    {
+      "step": "create",
+      "listingFails": true,
+      "loadedBefore": false,
+      "loadedAfter": false,
+      "events": [
+        {
+          "kind": "background-listing-started"
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "sessionId": "sess_room_mwawiyoe3ba34ef7",
+            "roomId": "mwawiyoe3ba34ef7"
+          }
+        }
+      ]
+    },
+    {
+      "step": "restart-after-agent-deletion",
+      "listingFails": false,
+      "loadedBefore": false,
+      "loadedAfter": true,
+      "events": [
+        {
+          "kind": "background-listing-started"
+        },
+        {
+          "kind": "published",
+          "origin": "room-call-background-listing",
+          "sessions": [
+            {
+              "id": "sess_room_mwawiyoe3ba34ef7",
+              "preview": "",
+              "title": "Room One",
+              "updatedAt": 1794327939235,
+              "activityAt": 1794327939235,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-pruned-at-load-hiCMcW\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1794327939154,
+              "agentRoom": {
+                "id": "mwawiyoe3ba34ef7",
+                "name": "Room One",
+                "members": [
+                  "alpha",
+                  "beta"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "published",
+          "origin": "listing",
+          "sessions": [
+            {
+              "id": "sess_room_mwawiyoe3ba34ef7",
+              "preview": "",
+              "title": "Room One",
+              "updatedAt": 1794327939235,
+              "activityAt": 1794327939235,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-pruned-at-load-hiCMcW\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1794327939154,
+              "agentRoom": {
+                "id": "mwawiyoe3ba34ef7",
+                "name": "Room One",
+                "members": [
+                  "alpha",
+                  "beta"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "published",
+          "origin": "room-call",
+          "sessions": [
+            {
+              "id": "sess_room_mwawiyoe3ba34ef7",
+              "preview": "",
+              "title": "Room One",
+              "updatedAt": 1794327939235,
+              "activityAt": 1794327939235,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-pruned-at-load-hiCMcW\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1794327939154,
+              "agentRoom": {
+                "id": "mwawiyoe3ba34ef7",
+                "name": "Room One",
+                "members": [
+                  "alpha",
+                  "beta"
+                ],
+                "maxRounds": 3,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "answered",
+          "value": null
+        }
+      ]
+    },
+    {
+      "step": "update-rounds",
+      "listingFails": false,
+      "loadedBefore": true,
+      "loadedAfter": true,
+      "events": [
+        {
+          "kind": "published",
+          "origin": "room-call",
+          "sessions": [
+            {
+              "id": "sess_room_mwawiyoe3ba34ef7",
+              "preview": "",
+              "title": "Room One",
+              "updatedAt": 1794327939235,
+              "activityAt": 1794327939235,
+              "messageCount": 0,
+              "cwd": "D:\\mixdog-build\\tmp\\room-catalog-pruned-at-load-hiCMcW\\home\\AppData\\Roaming\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "createdAt": 1794327939154,
+              "agentRoom": {
+                "id": "mwawiyoe3ba34ef7",
+                "name": "Room One",
+                "members": [
+                  "alpha",
+                  "beta"
+                ],
+                "maxRounds": 4,
+                "maxMessages": 8,
+                "shareTools": false,
+                "memberNames": {
+                  "alpha": "Alpha",
+                  "beta": "Beta"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "answered",
+          "value": {
+            "id": "mwawiyoe3ba34ef7",
+            "name": "Room One",
+            "members": [
+              "alpha",
+              "beta"
+            ],
+            "maxRounds": 4,
+            "maxMessages": 8,
+            "shareTools": false,
+            "memberNames": {
+              "alpha": "Alpha",
+              "beta": "Beta"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

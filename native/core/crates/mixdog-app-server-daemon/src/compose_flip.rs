@@ -2557,6 +2557,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     late_room_summaries.bind(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room summaries"))?;
     room_approvals.bind_summaries(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room approvals summaries"))?;
     let republish: Arc<dyn Fn() + Send + Sync> = { let s = room_summaries.clone(); Arc::new(move || s.republish()) };
+    // The room ports a deleted agent leaves (the agent deletion's below, and the rooms' first load's).
+    let home_rooms = Arc::new(mixdog_core_rooms::rooms::sessions::SessionHomePorts::new(mcp.agents.clone(), room_sessions.clone(), rooms.clone(), room_host.clone(), room_runner.clone()));
+    // The rooms' first load (`agent-rooms.ts:353-361` `ready`, which `recover` awaits first): members whose definition is proven deleted leave.
+    let unpruned = home_rooms.prune_deleted().await.map_err(|e| ComposeError::Rooms(format!("{e:?}")))?;
+    if unpruned > 0 {
+        room_log(&format!("{unpruned} conversations of members who left their rooms could not be deleted"));
+    }
     // Start-up recover (flip-rooms-4): rooms whose exchange a dead process left running are marked interrupted; their summaries are republished.
     if !live_rooms.start(&rooms).await.map_err(|e| ComposeError::Rooms(format!("{e:?}")))?.is_empty() {
         republish();
@@ -2811,8 +2818,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     builder.register(Arc::new(mixdog_services::channels::ChannelService::new(channel_admin.clone(), channel_calls)))?;
     // agent/*, lead, home: definitions with the connector and permission stores the tool gate holds, the Lead's appearance, and the bots' homes.
     // The home threads, one value for the home methods, the lifecycle of the definition calls and Mixy's status: the stored
-    // sessions the retire pass reads, and the room ports a deleted agent leaves.
-    let home_rooms = Arc::new(mixdog_core_rooms::rooms::sessions::SessionHomePorts::new(mcp.agents.clone(), room_sessions.clone(), rooms.clone(), room_host.clone(), room_runner.clone()));
+    // sessions the retire pass reads, and the room ports a deleted agent leaves (`home_rooms`, above).
     let agent_homes = mixdog_core_agents::agents::AgentHomeSessions::new(Arc::new(mixdog_core::run_host::agent_home_deps::SessionHomeDeps::new(
         mcp.agents.clone(),
         room_sessions.clone(),
