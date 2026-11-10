@@ -68,6 +68,13 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("mixdog-ai/src/service/api_usage.rs", "XAI_TEAM_ID", "a team identifier, not a secret"),
     ("mixdog-ai/src/catalog/listing.rs", "MIXDOG_MODEL_STALE_MONTHS", "a staleness bound (code after an inline test module, unscanned before this round)"),
     ("mixdog-ai/src/providers/google/mod.rs", "std::env::var(name).ok()", "cache tuning variables (code after an inline test module, unscanned before this round)"),
+    // The OpenAI wire's process settings (Node's `process.env` reads of the Codex transport): four switches, read through `WireContext::var`.
+    ("mixdog-ai/src/providers/openai/config.rs", "std::env::var(name).ok()", "WireContext::var: the wire's settings reader (keep-alive, request compression, cache-key switches)"),
+    ("mixdog-ai/src/providers/openai/adapter.rs", "var: Box::new(|name| std::env::var(name).ok())", "Sources::var: the adapter's WireContext::var over the process environment"),
+    ("mixdog-ai/src/providers/openai/adapter.rs", "MIXDOG_LLM_KEEPALIVE_MS", "the keep-alive time the preconnect's TTL comes from"),
+    ("mixdog-ai/src/providers/openai/adapter.rs", "MIXDOG_OPENAI_REQ_ZSTD", "the request-compression switch"),
+    ("mixdog-ai/src/providers/openai/body.rs", "&|name| config.context.var(name)", "the cache-key switches (MIXDOG_OAI_CACHE_KEY_SHARED, MIXDOG_OAI_CODEX_THREAD_CACHE_KEY)"),
+    ("mixdog-ai/src/providers/openai/cache_key.rs", "std::env::var(name).ok()", "process_var: the cache-key switches for a caller with no injected environment"),
     ("mixdog-ai/src/admission/settings.rs", "MIXDOG_PROVIDER_ADMISSION_MAX_QUEUE", "a queue bound"),
     ("mixdog-ai/src/catalog/sources.rs", "let env = |name: &str| std::env::var(name).ok()", "the model floor's variables: model names"),
     ("mixdog-ai/src/client_versions.rs", "MIXDOG_DISABLE_LIVE_CLI_VERSIONS", "a feature flag"),
