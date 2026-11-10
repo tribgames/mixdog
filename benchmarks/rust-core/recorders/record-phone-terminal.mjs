@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { REPO_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { callEntry, play, record, sizeClaimScript, terminalScript } from './lib/phone-terminal-script.mjs';
+import { varianceReport } from './lib/trace-variance.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const ROOT = 'D:\\mixdog-build\\tmp\\ph2-terminal';
@@ -27,9 +28,19 @@ const RECORDING_MS = 15 * 60_000;
 /** The recording's ConPTY shells are children of the child: the whole tree ends. A pid that no longer exists is fine (taskkill answers 128 for it);
  *  any other status, or a killer that does not finish in 30 s, is a tree left running. */
 function endTree(child) {
-  const ended = spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 30_000 });
-  if (ended.error || (ended.status !== 0 && ended.status !== 128)) {
-    throw new Error(`taskkill did not end the recording's process tree (pid ${child.pid}) within 30000 ms (status ${ended.status}): ${ended.error?.message ?? 'it failed'}`);
+  const ended = spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { encoding: 'utf8', windowsHide: true, timeout: 30_000 });
+  // 255 is what taskkill answers when a descendant ended on its own while the tree was being ended ("no running instance of the task"); it is
+  // the same outcome as long as the root itself is gone, which is checked, not assumed.
+  const rootGone = () => {
+    try {
+      process.kill(child.pid, 0);
+      return false;
+    } catch {
+      return true;
+    }
+  };
+  if (ended.error || (ended.status !== 0 && ended.status !== 128 && !(ended.status === 255 && rootGone()))) {
+    throw new Error(`taskkill did not end the recording's process tree (pid ${child.pid}) within 30000 ms (status ${ended.status}): ${ended.error?.message ?? `${ended.stdout}${ended.stderr}`}`);
   }
 }
 const args = parseArgs();
@@ -39,6 +50,7 @@ if (!args.has('child')) {
   // The recording runs in a process of its own (the test environment's loader hooks only a fresh process takes). Node's real PTY
   // (ConPTY) leaves that process alive at exit, so the parent waits for the trace's end marker, which is the child's own completion
   // signal, and then ends the child it started.
+  const recordOnce = async () => {
   const here = fileURLToPath(import.meta.url);
   const hook = (rel) => pathToFileURL(join(REPO_ROOT, rel)).href;
   const child = spawn(
@@ -80,13 +92,23 @@ if (!args.has('child')) {
       throw failure;
     }
   );
-  const finalOut = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-terminal');
+  return trace;
+  };
+  // The determinism check: Node is recorded `--runs` times (default 4). The first recording is the golden; what differs between the runs is
+  // written beside it (variance.json), and is what the replay's comparison leaves to a rule instead of comparing entry by entry.
+  const runs = Number(args.get('runs') ?? 4);
+  const traces = [];
+  for (let run = 1; run <= runs; run += 1) traces.push(await recordOnce());
+  const trace = traces[0];
+  const variance = { runs, ...varianceReport(traces) };
+  const finalOut =join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-terminal');
   const out = stageSet(finalOut);
   writeJson(join(out, 'golden.json'), {
     note: 'Node terminal and folder-watch calls and pushes as a phone sees them: one ordered list of each call\'s answer or error text and each push its listeners got. Terminal text is compared as the screen at each checkpoint: Node\'s own bytes differ from run to run (see lib/phone-terminal-script.mjs).',
     root: ROOT,
     trace,
   });
+  writeJson(join(out, 'variance.json'), variance);
   writeSetManifest(out, {
     set: 'phone-terminal',
     recorder: 'benchmarks/rust-core/recorders/record-phone-terminal.mjs',
@@ -303,6 +325,27 @@ const claimScript = sizeClaimScript(ROOT);
 const claimTrace = await play(claimScript, driver);
 virtual.on = false;
 trace.claims = JSON.parse(JSON.stringify(claimTrace));
+// The replay window a late reader gets (TerminalReplayBuffer, 200,000 UTF-16 units), at its boundary: exactly full, one unit over, a
+// non-BMP character whose first unit is the one dropped, the same when it arrives in its own chunk, and two-byte characters (units, not bytes).
+const { TerminalReplayBuffer } = await importFrom(tree, 'apps/desktop/src/main/terminal-manager.ts');
+const EMOJI = '\u{1F600}';
+const units = (text) => [...text].map((c) => c.codePointAt(0)).flatMap((cp) => (cp > 0xffff ? [0xd800 + ((cp - 0x10000) >> 10), 0xdc00 + ((cp - 0x10000) & 0x3ff)] : [cp]));
+// A chunk is `[text, count]` parts, each text repeated count times.
+const part = (...parts) => parts;
+trace.replayWindow = [
+  { name: 'exactly full', chunks: [part(['a', 199_999]), part(['b', 1])] },
+  { name: 'one unit over', chunks: [part(['a', 200_000]), part(['b', 1])] },
+  { name: 'cut inside a non-BMP character, one chunk', chunks: [part([EMOJI, 1], ['a', 199_999])] },
+  { name: 'cut inside a non-BMP character, its own chunk', chunks: [part([EMOJI, 1]), part(['a', 199_999])] },
+  { name: 'non-BMP character wholly inside', chunks: [part(['a', 1]), part([EMOJI, 1], ['b', 199_997]), part(['c', 1])] },
+  { name: 'two-byte characters count as one unit', chunks: [part(['\u00e9', 200_001])] },
+].map(({ name, chunks }) => {
+  const buffer = new TerminalReplayBuffer();
+  for (const chunk of chunks) buffer.append(chunk.map(([text, count]) => text.repeat(count)).join(''));
+  const read = buffer.read();
+  const all = units(read);
+  return { name, chunks, length: read.length, head: all.slice(0, 4), tail: all.slice(-4), cursor: buffer.cursor, trimmed: buffer.trimmed };
+});
 await operations.dispose();
 lanes.dispose();
 process.stdout.write(`\n${TRACE_START}${JSON.stringify(trace)}${TRACE_END}\n`);

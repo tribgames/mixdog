@@ -119,6 +119,9 @@ export function terminalScript(root) {
       { op: 'until', kind: 'sizeOwner', event: { id: CLAMP, cols: 2, rows: 200, own: true } },
       { op: 'call', name: 'termDispose', params: [CLAMP] },
       { op: 'until', kind: 'activity', event: { id: CLAMP, state: null } },
+      // The killed shell's last output and the exit line reach the phone after the dispose; the script waits for the line (the exit code is the
+      // shell's own and is not compared as text: the screen wait takes the line's start).
+      { op: 'until', kind: 'exitLine', tab: CLAMP },
       { op: 'fire', name: 'termResize', params: [TAB, 0, 0, true] },
       { op: 'until', kind: 'sizeOwner', event: { id: TAB, cols: 0, rows: 0, own: false } },
       { op: 'call', name: 'termAttach', params: [TAB] },
@@ -148,6 +151,7 @@ export function terminalScript(root) {
       { op: 'snap', name: 'end', tabs: [TAB] },
       { op: 'call', name: 'termDispose', params: [TAB] },
       { op: 'until', kind: 'activity', event: { id: TAB, state: null } },
+      { op: 'until', kind: 'exitLine', tab: TAB },
       { op: 'call', name: 'termDispose', params: [TAB] },
       { op: 'call', name: 'termAttach', params: [TAB] },
       { op: 'call', name: 'termActivity', params: [] },
@@ -277,6 +281,7 @@ export function sizeClaimScript(root) {
       ...attachAll(tabs),
       { op: 'snap', name: 'end', tabs },
       ...tabs.map((tab) => ({ op: 'call', name: 'termDispose', params: [tab] })),
+      ...tabs.map((tab) => ({ op: 'until', kind: 'exitLine', tab })),
       { op: 'lane', lane: 'terminal', on: false },
     ],
   };
@@ -322,6 +327,8 @@ export async function play(script, driver) {
     } else if (op.op === 'clock') {
       driver.clock();
     } else if (op.op === 'advance') {
+      // The lease moments are entries of the trace: where a lease lapses is compared, not assumed from the script both sides share.
+      steps.push({ advance: op.ms });
       await driver.advance(op.ms);
     } else if (op.op === 'close') {
       driver.close(op.who);
@@ -336,6 +343,10 @@ export async function play(script, driver) {
       const { output } = driver.events();
       steps.push({ snap: op.name, screens: Object.fromEntries(op.tabs.map((tab) => [tab, screenOf(output[tab] ?? '')])) });
     } else if (op.op === 'until') {
+      if (op.kind === 'exitLine') {
+        await driver.waitFor((events) => /\[process exited with code -?\d+\]/.test(events.output[op.tab] ?? ''), `the exit line of ${op.tab}`);
+        continue;
+      }
       const what =
         op.kind === 'screen' ? `the screen of ${op.tab} to show ${JSON.stringify(op)}` : `${op.count ?? 1} x ${op.kind} event ${JSON.stringify(op.event)}`;
       // A screen wait is a checkpoint of the trace: the screen the output drew at the moment the wait held.

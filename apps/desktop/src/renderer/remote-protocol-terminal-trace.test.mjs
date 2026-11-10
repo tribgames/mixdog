@@ -6,10 +6,11 @@ import test from 'node:test';
 import { compareTraces } from './remote-protocol-terminal-compare.mjs';
 
 const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-terminal/golden.json', import.meta.url), 'utf8')).trace;
+const variance = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-terminal/variance.json', import.meta.url), 'utf8'));
 const copy = () => JSON.parse(JSON.stringify(golden));
 
 test('a trace equal to the recording passes', () => {
-  compareTraces(copy(), golden);
+  compareTraces(copy(), golden, variance);
 });
 
 test("an activity end moved from before the dispose answer to after it is a different trace", () => {
@@ -17,19 +18,19 @@ test("an activity end moved from before the dispose answer to after it is a diff
   const at = moved.order.findIndex((entry) => entry.push === 'activity' && entry.event.state === null);
   assert.equal(moved.order[at + 1].call, 'termDispose', 'Node publishes the end first and answers the dispose after it');
   [moved.order[at], moved.order[at + 1]] = [moved.order[at + 1], moved.order[at]];
-  assert.throws(() => compareTraces(moved, golden), /entry/);
+  assert.throws(() => compareTraces(moved, golden, variance), /entry/);
 });
 
-test('output chunks are cut by time in Node, so a different cut passes and a tab that streamed nothing does not', () => {
+test('output chunks are cut by time in Node, so a different cut within a slot passes and a tab that streamed nothing does not', () => {
   const recut = copy();
   const first = recut.order.findIndex((entry) => entry.push === 'termData');
   assert.ok(first >= 0, 'the recording holds the output as the relay sent it');
   const { id, data } = recut.order[first].event;
   recut.order.splice(first, 1, { push: 'termData', event: { id, data: data.slice(0, 1) } }, { push: 'termData', event: { id, data: data.slice(1) } });
-  compareTraces(recut, golden);
+  compareTraces(recut, golden, variance);
   const silent = copy();
   silent.order = silent.order.filter((entry) => !(entry.push === 'termData' && entry.event.id === id));
-  assert.throws(() => compareTraces(silent, golden), /streamed output/);
+  assert.throws(() => compareTraces(silent, golden, variance), /streamed output/);
 });
 
 test('a screen checkpoint between the first and the last differs when its text differs', () => {
@@ -38,5 +39,5 @@ test('a screen checkpoint between the first and the last differs when its text d
   const changed = copy();
   const middle = changed.claims.order.find((entry) => entry.screen);
   middle.view.rows[0].text += 'x';
-  assert.throws(() => compareTraces(changed, golden), /entry/);
+  assert.throws(() => compareTraces(changed, golden, variance), /entry/);
 });

@@ -277,6 +277,13 @@ async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause(
     service.call(request("terminal/dispose", json!({ "tabId": id }), 2)).await.unwrap();
 }
 
+/// Node's answers to the calls named 
+ame, in the order the recording made them (golden.json, trace.order).
+fn recorded_calls(name: &str) -> Vec<Value> {
+    let golden: Value = serde_json::from_str(include_str!("../../../apps/mobile/fixtures/phone-terminal/golden.json")).unwrap();
+    golden["trace"]["order"].as_array().unwrap().iter().filter(|e| e["call"] == name).cloned().collect()
+}
+
 /// Claims belong to the id, not to a running tab. Node announces a claim and a release whether or not a PTY exists, and disposing an id that has
 /// no tab forgets nothing (terminal-manager.ts:454-487, :536). Recorded: apps/mobile/fixtures/phone-terminal/golden.json, trace.claims.order,
 /// the `sizeOwner` pushes of `term_ph2_none` and the `termDispose` between the first and the second.
@@ -472,6 +479,12 @@ async fn an_ensure_without_a_profile_spawns_the_default_profile() {
         panic!("terminal/profiles answers with a value");
     };
     let default = profiles.as_array().unwrap().iter().find(|p| p["default"] == json!(true)).unwrap()["id"].as_str().unwrap().to_owned();
+    // Node's 	ermProfiles on the recording's machine marks pwsh as the default; the same machine's list does here.
+    if cfg!(windows) {
+        let recorded = recorded_calls("termProfiles").remove(0);
+        let node_default = recorded["value"].as_array().unwrap().iter().find(|p| p["default"] == json!(true)).unwrap()["id"].clone();
+        assert_eq!(json!(default), node_default, "the default profile is the one Node marked");
+    }
     let cwd = temp_dir().as_path().to_string_lossy().into_owned();
     service.call(request("terminal/ensure", json!({ "tabId": "term_default", "options": { "cwd": cwd } }), 1)).await.unwrap();
     let shells: Vec<String> = service.tabs().list_tabs().into_iter().map(|tab| tab.shell).collect();
@@ -506,14 +519,18 @@ async fn terminal_ensure_names_a_fresh_tab_and_attach_answers_replay_or_not_runn
 
     // The claim stays after the view leaves the tab (`focused: false`).
     service.notify(Method("terminal/resize"), json!({ "tabId": first, "cols": 90, "rows": 25, "claim": true }), ConnectionId(1));
-    service.call(request("terminal/focus", json!({ "tabId": first, "focused": false }), 1)).await.unwrap();
+    // Node answers a focus with null, and an attach of an id that is not running with null (golden.json: 	ermFocus, 	ermAttach).
+    let Reply::Value(focused) = service.call(request("terminal/focus", json!({ "tabId": first, "focused": false }), 1)).await.unwrap() else {
+        panic!("terminal/focus answers with a value");
+    };
+    assert_eq!(focused, recorded_calls("termFocus")[1]["value"]);
     assert_eq!(service.tabs().size_owner(&first).map(|o| o.owner), Some("1".to_owned()));
 
     // A tab that is not running is Node's `null`, and nothing is spawned.
     let Reply::Value(none) = service.call(request("terminal/attach", json!({ "tabId": "term_never" }), 1)).await.unwrap() else {
         panic!("an unknown tab answers with a value");
     };
-    assert_eq!(none, Value::Null);
+    assert_eq!(none, recorded_calls("termAttach")[3]["value"], "Node's answer for an id that is not running");
     service.tabs().dispose_all();
 }
 
