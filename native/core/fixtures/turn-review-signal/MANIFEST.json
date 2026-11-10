@@ -1,0 +1,39 @@
+{
+  "command": "node --import <tree>/apps/desktop/scripts/test-env.mjs --import <tree>/apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-turn-review-signal.mjs --tree <tree> --patch-bin <mixdog-patch built from this checkout>",
+  "fileCount": 2,
+  "files": [
+    {
+      "bytes": 6504,
+      "path": "listeners.json",
+      "sha256": "334135a08989adc621e2135115842bc1c0cd06554956c325248fa8da8e50c0ea"
+    },
+    {
+      "bytes": 811027,
+      "path": "scenarios.json",
+      "sha256": "f887b386634c868619e7686641d16ef55b80540229ec52b553e5b8e504168199"
+    }
+  ],
+  "listenerScenarios": 4,
+  "patchBinarySha256": "00941bf33598267676e69ee8376e621bab7bc8ddabf0213ca72b2dbd62427208",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-turn-review-signal.mjs",
+  "scenarios": 4,
+  "set": "turn-review-signal",
+  "totalBytes": 817531
+}
