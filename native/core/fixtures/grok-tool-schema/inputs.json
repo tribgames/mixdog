@@ -4337,6 +4337,341 @@
    "source": "synthetic-set",
    "name": "enum_empty_and_equal_empty_objects",
    "input": {"anyOf":[{"type":"object","properties":{"p":{"enum":[]}}},{"type":"object","properties":{"p":{"enum":[{},{}]}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "type_array_enums_not_merged",
+   "input": {"anyOf":[{"type":"object","properties":{"x":{"type":["string","null"],"enum":["a"]}}},{"type":"object","properties":{"x":{"type":["string","null"],"enum":["b"]}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "type_object_enums_not_merged",
+   "input": {"anyOf":[{"type":"object","properties":{"x":{"type":{"k":1},"enum":["a"]}}},{"type":"object","properties":{"x":{"type":{"k":1},"enum":["b"]}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "type_nested_arrays_enums_not_merged",
+   "input": {"anyOf":[{"type":"object","properties":{"x":{"type":[["string"],"null"],"enum":[1]}}},{"type":"object","properties":{"x":{"type":[["string"],"null"],"enum":[2]}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "type_array_alone_after_dedupe_merged",
+   "input": {"anyOf":[{"type":"object","properties":{"x":{"anyOf":[{"type":["string","null"],"enum":["a","a"]}]}}},{"type":"object","properties":{"x":{"type":["string","null"],"enum":["a","a"]}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "type_absent_in_both_merged",
+   "input": {"anyOf":[{"type":"object","properties":{"x":{"enum":["a"]}}},{"type":"object","properties":{"x":{"enum":["b"]}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "type_null_in_both_merged",
+   "input": {"anyOf":[{"type":"object","properties":{"x":{"type":null,"enum":["a"]}}},{"type":"object","properties":{"x":{"type":null,"enum":["b"]}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "type_one_and_one_point_zero_merged",
+   "input": {"anyOf":[{"type":"object","properties":{"x":{"type":1,"enum":["a"]}}},{"type":"object","properties":{"x":{"type":1.0,"enum":["b"]}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "type_zero_and_negative_zero_merged",
+   "input": {"anyOf":[{"type":"object","properties":{"x":{"type":0,"enum":["a"]}}},{"type":"object","properties":{"x":{"type":-0,"enum":["b"]}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "type_string_and_absent_not_merged",
+   "input": {"anyOf":[{"type":"object","properties":{"x":{"type":"string","enum":["a"]}}},{"type":"object","properties":{"x":{"enum":["b"]}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "alternatives_zero_and_negative_zero_differ",
+   "input": {"anyOf":[{"type":"object","properties":{"x":{"const":0}}},{"type":"object","properties":{"x":{"const":-0}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "enum_large_integers",
+   "input": {"anyOf":[{"type":"object","properties":{"x":{"enum":[9007199254740993]}}},{"type":"object","properties":{"x":{"enum":[9007199254740994]}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "enum_large_integers_equal_as_doubles",
+   "input": {"anyOf":[{"type":"object","properties":{"x":{"enum":[9007199254740993]}}},{"type":"object","properties":{"x":{"enum":[9007199254740992]}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "numbers_written_as_javascript_writes_them",
+   "input": {"type":"object","properties":{"a":{"type":"number","minimum":1e21,"maximum":123456789012345678901,"default":0.0000015,"multipleOf":1e-7,"exclusiveMinimum":-0,"const":1.0,"examples":[1E2,2.50,-1.5e-7,9223372036854775808,18446744073709551616,100000000000000000000,0.1,1e-6,5e-324,1.7976931348623157e308,-0.0]}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "numbers_in_a_flattened_schema",
+   "input": {"anyOf":[{"type":"object","properties":{"n":{"type":"integer","minimum":1.0,"maximum":1e21,"default":9007199254740993}}},{"type":"object","properties":{"m":{"multipleOf":0.0000015}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "required_one_and_one_point_zero",
+   "input": {"anyOf":[{"type":"object","required":[1]},{"type":"object","required":[1.0]}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "required_zero_and_negative_zero",
+   "input": {"anyOf":[{"type":"object","required":[-0]},{"type":"object","required":[0]}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "required_equal_objects_not_shared",
+   "input": {"anyOf":[{"type":"object","required":[{"a":1},"x"]},{"type":"object","required":[{"a":1},"x"]}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "required_null_booleans_and_strings",
+   "input": {"anyOf":[{"type":"object","required":[null,true,"a","1"]},{"type":"object","required":[true,null,"a",1]}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "integer_keys_first",
+   "input": {"anyOf":[{"properties":{"b":{},"10":{},"2":{}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "integer_keys_two_depths_untouched",
+   "input": {"type":"object","properties":{"z":{"type":"object","properties":{"b":{},"1":{},"a":{},"0":{}}},"5":{"type":"string"},"01":{},"4294967295":{},"4294967294":{},"-1":{},"1.5":{}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "integer_keys_across_branches_and_root",
+   "input": {"9":true,"x":1,"anyOf":[{"type":"object","b":2,"3":3,"properties":{"b":{},"3":{}}},{"type":"object","a":1,"1":1,"properties":{"a":{},"1":{},"3":{"type":"string"}}}],"0":false}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "integer_keys_in_data_values",
+   "input": {"type":"object","properties":{"p":{"enum":[{"b":1,"2":2,"a":3,"1":4}],"default":{"z":0,"7":1}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_number",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":5}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_true",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":true}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_false",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":false}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_null",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":null}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_zero",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":0}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_negative_zero",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":-0}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_empty",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":""}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_white_space_only",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":"  \t "}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_array",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":[1,[2,null],"a",{"k":1},1.0]}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_object",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":{"k":1}}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_large_number",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":1e21}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_trim_removes_feff_not_nel",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":"\ufeff padded \u0085"}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_array_holding_the_note",
+   "input": {"properties":{"x":{"anyOf":[{"type":"string"},{"type":"array"}],"description":["This provider accepts a single value here, not an array."]}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "description_nested_type_array_scalar",
+   "input": {"properties":{"x":{"anyOf":[{"type":["array","null"]},{"type":[["string"]]}],"description":false}}}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_minimum_one_point_zero",
+   "input": {"type":"object","oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","properties":{"x":{"type":"number","minimum":1.0}}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":{"x":{"type":"number","minimum":2}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_bounds_as_javascript_writes_them",
+   "input": {"type":"object","oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","properties":{"x":{"minimum":1e21,"maximum":0.0000015}}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":{"x":{"minimum":-1.5e-7,"maximum":123456789012345678901}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_negative_zero_bound_is_one_variant",
+   "input": {"type":"object","oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","properties":{"x":{"minimum":-0},"y":{"minimum":1}}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":{"x":{"minimum":0},"y":{"minimum":2}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_enum_join_values",
+   "input": {"type":"object","oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","properties":{"x":{"enum":[null,[1,[2,null]],{"a":1},true,0.000001,1e21,"s",-0]}}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":{"x":{"enum":["z"]}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_bounds_null_object_array",
+   "input": {"type":"object","oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","properties":{"x":{"minimum":null,"maximum":{"a":1}}}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":{"x":{"minimum":[1,2],"maximum":true}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_numeric_actions",
+   "input": {"type":"object","oneOf":[{"type":"object","properties":{"action":{"enum":[1,2.50,null]},"input":{"type":"object","properties":{"x":{"minimum":1}}}}},{"type":"object","properties":{"action":{"enum":[1e21]},"input":{"type":"object","properties":{"x":{"minimum":2}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_enum_not_an_array_throws",
+   "input": {"type":"object","oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","properties":{"x":{"enum":"abc"}}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":{"x":{"enum":["z"]}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_enum_falsy_not_an_array",
+   "input": {"type":"object","oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","properties":{"x":{"enum":0}}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":{"x":{"enum":""}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_required_string_is_its_characters",
+   "input": {"type":"object","oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","required":"xy","properties":{"x":{},"y":{"minimum":1}}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":{"y":{"minimum":2}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_required_number_throws",
+   "input": {"type":"object","oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","required":5,"properties":{"x":{"minimum":1}}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":{"x":{"minimum":2}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_required_object_throws",
+   "input": {"type":"object","oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","properties":{"x":{"minimum":1}}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","required":{"x":true},"properties":{"x":{"minimum":2}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_required_true_throws",
+   "input": {"type":"object","oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","required":true,"properties":{"x":{"minimum":1}}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":{"x":{"minimum":2}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_field_null_throws",
+   "input": {"type":"object","oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","properties":{"x":null}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":{"x":{}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_input_properties_string",
+   "input": {"type":"object","oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","properties":"ab"}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":"cd"}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_input_replaced_by_root_string",
+   "input": {"type":"object","properties":{"input":"ab"},"oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","properties":{"x":{"minimum":1}}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":{"x":{"minimum":2}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "contract_field_order_integer_keys",
+   "input": {"type":"object","oneOf":[{"type":"object","properties":{"action":{"enum":["a"]},"input":{"type":"object","properties":{"b":{},"2":{},"a":{"minimum":1}}}}},{"type":"object","properties":{"action":{"enum":["b"]},"input":{"type":"object","properties":{"a":{"minimum":2}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "merge_null_then_object_throws",
+   "input": {"anyOf":[{"type":"object","properties":{"x":null}},{"type":"object","properties":{"x":{"type":"string"}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "merge_object_then_null",
+   "input": {"anyOf":[{"type":"object","properties":{"x":{"type":"string"}}},{"type":"object","properties":{"x":null}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "merge_enum_then_null_throws",
+   "input": {"anyOf":[{"type":"object","properties":{"x":{"enum":[1]}}},{"type":"object","properties":{"x":null}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "root_property_null_throws",
+   "input": {"type":"object","properties":{"x":null},"anyOf":[{"type":"object","properties":{"y":{}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "object_branch_with_array_properties",
+   "input": {"anyOf":[{"properties":[{"type":"string"}]},{"type":"string"}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "map_keyword_array_with_a_changing_child",
+   "input": {"type":"object","properties":[{"anyOf":[{"type":"string"},{"type":"array"}]}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "map_keyword_array_unchanged",
+   "input": {"type":"object","properties":[{"type":"string"}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "branch_properties_string",
+   "input": {"anyOf":[{"type":"object","properties":"ab"},{"type":"object","properties":{"0":{"type":"string"}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "proto_property_dropped",
+   "input": {"anyOf":[{"type":"object","properties":{"__proto__":{"type":"object","properties":{"input":{"type":"string"}}},"a":{}}},{"type":"object","properties":{"b":{}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "proto_property_read_by_root",
+   "input": {"type":"object","properties":{"z":{"type":"object"}},"anyOf":[{"type":"object","properties":{"__proto__":{"z":{"type":"object","properties":{"q":{}}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "proto_property_primitive_ignored",
+   "input": {"anyOf":[{"type":"object","properties":{"__proto__":5,"a":{}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "proto_property_null_then_object",
+   "input": {"anyOf":[{"type":"object","properties":{"__proto__":null,"a":{}}},{"type":"object","properties":{"__proto__":{"type":"string"}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "proto_key_on_a_branch_object_assign",
+   "input": {"anyOf":[{"type":"object","__proto__":{"x":1},"title":"t"},{"type":"object","description":"d"}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "proto_root_reads_the_prototype",
+   "input": {"type":"object","properties":{"__proto__":{"type":"object"}},"anyOf":[{"type":"object","properties":{"__proto__":{"type":"object","properties":{"k":{}}}}}]}
+  },
+  {
+   "source": "synthetic-js",
+   "name": "root_object_property_over_combined_without_properties",
+   "input": {"properties":{"x":{"type":"object","properties":null}},"anyOf":[{"type":"object","properties":{"x":{"type":"object","title":"c"}}}]}
   }
  ]
 }
