@@ -1,42 +1,57 @@
 {
   "command": "(cwd <tree>/apps/desktop) node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs <repo>/benchmarks/rust-core/recorders/record-room-catalog-states.mjs --tree <tree> --harness <real-turn-harness dir>",
   "exact": true,
-  "fileCount": 7,
+  "fileCount": 10,
   "files": [
     {
       "bytes": 6833,
       "path": "loaded-failing.json",
-      "sha256": "99953d8881cb71ff2b74d629d6f4f73f2ddfd5d33825985e44c07c07d1368ca2"
+      "sha256": "6a334540a109b7c77559c9aa08f1beecc7c696cdb1f00c525dd6c3b3c13f984a"
     },
     {
       "bytes": 3512,
       "path": "loaded-reconnect.json",
-      "sha256": "ab7b7b7caf2e28220f1fd011f88795996afa25cc2fb0c7a004f658e40d4bbb7e"
+      "sha256": "b07b8d3f02322a83034295ec2690a3b33c9c2445c35e775e75f44c0baa27fd0d"
     },
     {
-      "bytes": 16054,
+      "bytes": 16052,
       "path": "loaded.json",
-      "sha256": "05a741055619bfdc1b6bd9418ae0c3284ef745cd2e55b5e6bb045cda71669693"
+      "sha256": "dbdfe0917d3d9f699207da04e95ef4b0f36826ffecdf6f08adf06b1b4854deb3"
     },
     {
       "bytes": 1593,
       "path": "not-loaded-failing.json",
-      "sha256": "e3d171c93b7f1ea7200acf15fcaaec773e83469806cb812154580ac8b01a3aa3"
+      "sha256": "1d66e79026e39cb9ae9890652bf9d9a6ff0a6150f066b635ad58db0a8677a75a"
     },
     {
       "bytes": 78492,
       "path": "not-loaded-large.json",
-      "sha256": "e76e4c87fc9706fba000864b3029b46e1770c8df20d99221d3349531aa0832d5"
+      "sha256": "1af971e10373efa39dacda44f89f042a54766483ada7534f50ef74b0b7aa3f8b"
     },
     {
       "bytes": 6332,
       "path": "not-loaded.json",
-      "sha256": "73e10055936f97d26c5da4e26f6a6250e2eed733439e3345514fa5a628fd4620"
+      "sha256": "52b2ffa0785daafc02cc9225cf9c6e57f4c5400ef38cd06fa14c7d38d28e140c"
     },
     {
-      "bytes": 6472,
+      "bytes": 3516,
+      "path": "prune-failed-then-update.json",
+      "sha256": "efd7a8bd584e334ee8a51090bae5350abb2e65de00223eea3835a5e3c72c69a6"
+    },
+    {
+      "bytes": 2796,
+      "path": "prune-failed.json",
+      "sha256": "d709421ed38f747789c839ba8aa63a7881fdedaf185a8cf51a88888a8667bd52"
+    },
+    {
+      "bytes": 7956,
+      "path": "prune-held.json",
+      "sha256": "9762550fbfa46fa3ce2650520dd4945445c651e7b78058ba73893fd3d4a77b96"
+    },
+    {
+      "bytes": 6620,
       "path": "pruned-at-load.json",
-      "sha256": "52e0f740f8150a4080877311d3156cf319343ce87dd03c26d8aad9aa1bb590c5"
+      "sha256": "45c10d0a82485ba2a578180b5a15ee61468cc84583b0f8b73d64f94d17a4521d"
     }
   ],
   "harness": {
@@ -62,6 +77,19 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-room-catalog-states.mjs",
+  "recorderIdentity": {
+    "files": [
+      {
+        "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+        "sha256": "7308c2f9cc10087d53a7960d5088eb27d28e62db8ec71abb8e2f28b7adeb82db"
+      },
+      {
+        "path": "benchmarks/rust-core/recorders/record-room-catalog-states.mjs",
+        "sha256": "002e85e5e710806dd89eb2a07a8a6e0cd80d1fcad9e2ad21b283f74e9b030e1a"
+      }
+    ],
+    "node": "v22.20.0"
+  },
   "scenarios": [
     "loaded",
     "loaded-reconnect",
@@ -69,8 +97,11 @@
     "not-loaded-failing",
     "loaded-failing",
     "not-loaded-large",
-    "pruned-at-load"
+    "pruned-at-load",
+    "prune-held",
+    "prune-failed-then-update",
+    "prune-failed"
   ],
   "set": "room-catalog-states",
-  "totalBytes": 119288
+  "totalBytes": 133702
 }

@@ -25,6 +25,7 @@ use serde_json::{Map, Value, json};
 
 use super::RoomError;
 use super::config::RoomConfigInput;
+use super::ready::RoomsReady;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_base::rooms::ids::room_member_session_id;
 use mixdog_core_base::rooms::ids::room_session_id;
@@ -187,11 +188,20 @@ pub struct RoomService<S: RoomStore, H: RoomHost, R: RoomRunner> {
     ops: OpScopes,
     /// The members' names an answered room summary carries (`refreshNames`, `agent-rooms.ts:304`).
     names: Arc<dyn super::catalog_rows::MemberNames>,
+    /// The rooms' first load, which every room call awaits first (`agent-rooms.ts:267,294,323,365,376,409`).
+    ready: Arc<RoomsReady>,
 }
 
 impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> RoomService<S, H, R> {
-    pub fn new(rooms: Arc<Rooms<S>>, host: Arc<H>, runner: Arc<R>, ops: OpScopes, names: Arc<dyn super::catalog_rows::MemberNames>) -> Self {
-        Self { rooms, host, runner, ops, names }
+    pub fn new(
+        rooms: Arc<Rooms<S>>,
+        host: Arc<H>,
+        runner: Arc<R>,
+        ops: OpScopes,
+        names: Arc<dyn super::catalog_rows::MemberNames>,
+        ready: Arc<RoomsReady>,
+    ) -> Self {
+        Self { rooms, host, runner, ops, names, ready }
     }
 
     async fn known(&self) -> Result<Vec<KnownAgent>, RoomError> {
@@ -384,6 +394,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Dom
                 &req,
                 None,
                 || async {
+                    self.ready.ready().await.map_err(failure)?;
                     let result = match method.as_str() {
                         "room/create" => self.create(&input, replied).await,
                         "room/update" => self.update(&input, replied).await,
@@ -532,7 +543,7 @@ mod tests {
             });
             let rooms = Arc::new(Rooms::new(Mem(Mutex::new(RoomDoc::from([(room_id.to_owned(), before.clone())])))));
             let ops = mixdog_core_base::support::testing::scopes(dir.path(), "room").await;
-            let service = RoomService::new(rooms.clone(), host.clone(), Arc::new(Runs(case["running"] == true)), ops, Arc::new(Unnamed));
+            let service = RoomService::new(rooms.clone(), host.clone(), Arc::new(Runs(case["running"] == true)), ops, Arc::new(Unnamed), RoomsReady::prepared());
 
             // The unknown room is asked for by another id than the one the record sits under.
             let asked = if name == "unknown room" { "nosuchroom" } else { room_id };
@@ -699,6 +710,7 @@ mod tests {
             Arc::new(Idle),
             mixdog_core_base::support::testing::scopes(dir.path(), "room").await,
             Arc::new(Unnamed),
+            RoomsReady::prepared(),
         );
         (service, host, dir)
     }
