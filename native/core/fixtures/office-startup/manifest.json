@@ -1,0 +1,83 @@
+{
+  "exact": true,
+  "productCommit": "b6f10295a",
+  "node": "v22.20.0",
+  "scenario": "retention-boundaries",
+  "inputs": [
+    {
+      "path": "office-transactions/inside.json",
+      "text": "{\n  \"version\": 1,\n  \"id\": \"inside\",\n  \"updatedAt\": \"2026-01-01T12:00:00.001Z\",\n  \"checkpoint\": \"inside.checkpoint\",\n  \"baselinePdf\": \"inside.pdf\"\n}\n",
+      "mtimeMs": 1769860800000
+    },
+    {
+      "path": "inside.checkpoint",
+      "text": "checkpoint inside",
+      "mtimeMs": 1769860800000
+    },
+    {
+      "path": "inside.pdf",
+      "text": "pdf inside",
+      "mtimeMs": 1769860800000
+    },
+    {
+      "path": "office-transactions/equal.json",
+      "text": "{\n  \"version\": 1,\n  \"id\": \"equal\",\n  \"updatedAt\": \"2026-01-01T12:00:00.000Z\",\n  \"checkpoint\": \"equal.checkpoint\",\n  \"baselinePdf\": \"equal.pdf\"\n}\n",
+      "mtimeMs": 1769860800000
+    },
+    {
+      "path": "equal.checkpoint",
+      "text": "checkpoint equal",
+      "mtimeMs": 1769860800000
+    },
+    {
+      "path": "equal.pdf",
+      "text": "pdf equal",
+      "mtimeMs": 1769860800000
+    },
+    {
+      "path": "office-transactions/outside.json",
+      "text": "{\n  \"version\": 1,\n  \"id\": \"outside\",\n  \"updatedAt\": \"2026-01-01T11:59:59.999Z\",\n  \"checkpoint\": \"outside.checkpoint\",\n  \"baselinePdf\": \"outside.pdf\"\n}\n",
+      "mtimeMs": 1769860800000
+    },
+    {
+      "path": "outside.checkpoint",
+      "text": "checkpoint outside",
+      "mtimeMs": 1769860800000
+    },
+    {
+      "path": "outside.pdf",
+      "text": "pdf outside",
+      "mtimeMs": 1769860800000
+    },
+    {
+      "path": "office-transactions/malformed.json",
+      "text": "{\"unfinished\":",
+      "mtimeMs": 1767268799999
+    },
+    {
+      "path": "office-transactions/not-a-journal.txt",
+      "text": "retain me",
+      "mtimeMs": 1767268799999
+    }
+  ],
+  "now": 1769860800000,
+  "boundary": {
+    "directory": "office-transactions",
+    "artifacts": [
+      "inside.checkpoint",
+      "inside.pdf",
+      "equal.checkpoint",
+      "equal.pdf",
+      "outside.checkpoint",
+      "outside.pdf"
+    ],
+    "nonJournal": "office-transactions/not-a-journal.txt"
+  },
+  "notes": "Compare every entry recursively within office-transactions, including the prepared non-journal, and every explicitly named artifact (presence and bytes). Core stores elsewhere are outside the sweep subject: Node bootstrap never had them. Exclude nothing within this boundary.",
+  "files": [
+    {
+      "path": "benchmarks/rust-core/recorders/record-office-startup.mjs",
+      "sha256": "f26ccf0e50e50d3fbf39855398ff739aeff267bd391f055580ad69f3e41cbfbe"
+    }
+  ]
+}
