@@ -97,3 +97,7 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util", "net"] }
 # The scripted relay of `domain_seams/remote/e2e.rs` (shared with mixdog-remote's integration tests).
 tokio-tungstenite = { workspace = true, features = ["handshake"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+# The composed tests' child process and what it starts, in a job object of the test (`compose_test_support::Tree`).
+windows-sys = { workspace = true, features = ["Win32_System_JobObjects"] }

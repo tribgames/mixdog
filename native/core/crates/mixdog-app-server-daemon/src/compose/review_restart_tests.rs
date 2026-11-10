@@ -70,8 +70,8 @@ impl Held {
 
 /// The daemon's composed core, as the replay's host.
 struct Composed {
-    /// The directory both compositions share (its data holds the runtime and the core's data); the test's own, removed by it after the runtime that ran
-    /// the cores has ended.
+    /// The directory both compositions share (its data holds the runtime and the core's data), inside the test's own, which the parent process
+    /// removes once this one has ended.
     dir: std::path::PathBuf,
     held: Held,
     /// The epoch of every app feed this host composed, oldest first.
@@ -128,21 +128,6 @@ impl Drop for Composed {
     }
 }
 
-/// The files under `dir` that cannot be removed now (a process or task still holds them).
-fn held_files(dir: &Path) -> Vec<String> {
-    let mut held = Vec::new();
-    let Ok(entries) = std::fs::read_dir(dir) else { return held };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            held.extend(held_files(&path));
-        } else if std::fs::remove_file(&path).is_err() {
-            held.push(path.display().to_string());
-        }
-    }
-    held
-}
-
 #[async_trait]
 impl ReplayHost for Composed {
     fn review(&self) -> TurnReview {
@@ -187,59 +172,19 @@ impl ReplayHost for Composed {
     }
 }
 
-/// The directory the child process works in; set only in the child.
-const CHILD_DIR: &str = "MIXDOG_REVIEW_RESTART_DIR";
-/// How long the child may run: both compositions, the replay and the stops, each bounded by `LIMIT` at its own wait.
-const CHILD_LIMIT: std::time::Duration = std::time::Duration::from_secs(600);
-
-/// The cores are composed and replayed in a child process (this test binary, run for this test alone), and the data directory is removed by the parent
-/// once the child has ended. A composed core's SQLite stores stay open until its process ends (they outlive the core's stop and a runtime that is
-/// dropped), which on Windows blocks removing their files: only the end of the process that held them makes the removal certain. A child that
-/// fails, runs over its limit (it is killed) or leaves the directory not removable fails the test with what is still held.
+/// The cores are composed and replayed in a child process of the test's own, over a directory of its own (`compose_test_support::in_child`: a
+/// child that fails or runs over its limit, a cluster left running in a scenario's data directory and a directory that cannot be removed are each
+/// handled and reported by the parent).
 #[test]
 #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 fn a_core_composed_again_tells_and_answers_as_node_does() {
-    if let Some(dir) = std::env::var_os(CHILD_DIR) {
-        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build().unwrap();
-        let _one = runtime.block_on(crate::compose_test_support::exclusive());
-        runtime.block_on(replay_scenarios_with_restarts(Path::new(&dir)));
-        return;
-    }
-    let dir = tempfile::tempdir().unwrap();
-    let test = "compose::review_restart_tests::a_core_composed_again_tells_and_answers_as_node_does";
-    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", test, "--ignored", "--nocapture", "--test-threads=1"])
-        .env(CHILD_DIR, dir.path())
-        .spawn()
-        .expect("the child test process starts");
-    let (done, ended) = std::sync::mpsc::channel();
-    let id = child.id();
-    let waiter = std::thread::spawn(move || {
-        let status = child.wait();
-        let _ = done.send(());
-        status
+    let mut runtime = tokio::runtime::Builder::new_multi_thread();
+    runtime.worker_threads(4);
+    crate::compose_test_support::in_child(module_path!(), "a_core_composed_again_tells_and_answers_as_node_does", runtime, |dir| async move {
+        replay_scenarios_with_restarts(&dir).await;
     });
-    let outcome = ended.recv_timeout(CHILD_LIMIT);
-    if outcome.is_err() {
-        kill_tree(id);
-    }
-    let status = waiter.join().expect("the waiting thread").expect("the child's status");
-    let path = dir.path().to_owned();
-    let removed = dir.close();
-    assert!(outcome.is_ok(), "the child test process ran over {CHILD_LIMIT:?} and was killed ({status})");
-    assert!(status.success(), "the child test process failed: {status}");
-    if let Err(error) = removed {
-        panic!("the data directory {} was not removed after the child ended: {error}; still held: {:?}", path.display(), held_files(&path));
-    }
 }
 
-/// Ends a process and every process it started (the core's Postgres among them).
-fn kill_tree(pid: u32) {
-    #[cfg(windows)]
-    let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).status();
-    #[cfg(not(windows))]
-    let _ = std::process::Command::new("kill").args(["-KILL", &pid.to_string()]).status();
-}
 async fn replay_scenarios_with_restarts(root: &Path) {
     let golden: Value = serde_json::from_slice(&std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/turn-review-signal/scenarios.json")).unwrap()).unwrap();
     let platform = std::env::consts::OS.replace("windows", "win32");
