@@ -18,12 +18,12 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, w
 import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
-import { commitStage, exactProductIdentity, importFrom, parseArgs, recordingProvenance, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { recorderProvenance } from './lib/provenance.mjs';
 import { attachmentsScript, attachmentsWorld, conversation, FIXED_NOW_MS, play, recoveryRoots, REFS, seedRecovery, WORKTREE_STATES, worldState } from './lib/phone-attachments-script.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const RECORDER = 'benchmarks/rust-core/recorders/record-phone-attachments.mjs';
-const RECORDER_MODULES = ['lib/common.mjs', 'lib/phone-attachments-script.mjs', 'lib/phone-files-replay.mjs', 'lib/phone-files-script.mjs', 'lib/phone-relay-core.mjs'].map((file) => `benchmarks/rust-core/recorders/${file}`);
 const FIXTURES = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-attachments');
 const args = parseArgs();
 const REPLAY = args.get('replay') ?? null;
@@ -126,7 +126,7 @@ writeSetManifest(out, {
   identity,
   extra: {
     steps: steps.length,
-    ...recordingProvenance(RECORDER, RECORDER_MODULES),
+    ...recorderProvenance(import.meta.url),
     entry: {
       runs: "executeRemoteFrame over createRemoteMethods (remote-methods.ts) with a real SessionHost (project registry, readAttachmentImage over the attachment store, projectRecoveryDirectory with the worktree runtime src/runtime/shared/worktrees/manager.mjs as loadWorktrees), createDesktopOperations (readLocalFileAbs, statLocalEntryAbs, projectRecoveryIn, under manager.mjs withWorktreeRecoveryStore as desktop-service.ts worktreeRecoveryStore hands it) and createSelectedFileGrants",
       notRun:
@@ -165,7 +165,7 @@ async function replay(exe) {
   const { startRelay } = await import('./lib/phone-relay-core.mjs');
   const golden = JSON.parse(readFileSync(join(FIXTURES, 'golden.json'), 'utf8'));
   const manifest = JSON.parse(readFileSync(join(FIXTURES, 'MANIFEST.json'), 'utf8'));
-  const provenance = recordingProvenance(RECORDER, RECORDER_MODULES);
+  const provenance = recorderProvenance(import.meta.url);
   if (!isDeepStrictEqual(manifest.inputs, provenance.inputs) || manifest.recorderSha256 !== provenance.recorderSha256) {
     throw new Error('the recording was made by another recorder than this one: record again before comparing');
   }

@@ -24,11 +24,11 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
-import { commitStage, exactProductIdentity, importFrom, parseArgs, recordingProvenance, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { recorderProvenance } from './lib/provenance.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const RECORDER = 'benchmarks/rust-core/recorders/record-phone-plumbing.mjs';
-const RECORDER_MODULES = ['lib/common.mjs', 'lib/phone-files-replay.mjs', 'lib/phone-files-script.mjs', 'lib/phone-relay-core.mjs'].map((file) => `benchmarks/rust-core/recorders/${file}`);
 const FIXTURES = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-plumbing');
 const args = parseArgs();
 const REPLAY = args.get('replay') ?? null;
@@ -158,7 +158,7 @@ writeSetManifest(out, {
   identity,
   extra: {
     steps: steps.length,
-    ...recordingProvenance(RECORDER, RECORDER_MODULES),
+    ...recorderProvenance(import.meta.url),
     entry: {
       runs: 'createRelayClientCallDispatch (remote-relay-client-calls.ts) over a client state of createRelayClientRegistry (remote-relay-clients.ts), the paint probe tracker of shared/remote-performance.ts (perf flag off), clientViewsSessionLane and legShowsSession (remote-transport/foreground.ts)',
       notRun:
@@ -192,7 +192,7 @@ async function replay(exe) {
   const { startRelay } = await import('./lib/phone-relay-core.mjs');
   const golden = JSON.parse(readFileSync(join(FIXTURES, 'golden.json'), 'utf8'));
   const manifest = JSON.parse(readFileSync(join(FIXTURES, 'MANIFEST.json'), 'utf8'));
-  const provenance = recordingProvenance(RECORDER, RECORDER_MODULES);
+  const provenance = recorderProvenance(import.meta.url);
   if (!isDeepStrictEqual(manifest.inputs, provenance.inputs) || manifest.recorderSha256 !== provenance.recorderSha256) {
     throw new Error('the recording was made by another recorder than this one: record again before comparing');
   }
