@@ -509,7 +509,8 @@ export async function installedFastRuntimeReady(installDir, dependencyHash) {
     const root = join(installDir, 'resources', 'fast-runtime');
     const marker = JSON.parse(await readFile(join(root, '.mixdog-fast-runtime.json'), 'utf8'));
     if (marker.schemaVersion !== 1 || marker.dependencyHash !== dependencyHash) return false;
-    await stat(join(root, 'node_modules', 'mixdog', 'src', 'standalone', 'session-client.mjs'));
+    // The extension host mixdogd starts from the runtime package (the Node core left at K1).
+    await stat(join(root, 'node_modules', 'mixdog', 'src', 'ext-host', 'worker.mjs'));
     return true;
   } catch (error) {
     if (error?.code === 'ENOENT' || error instanceof SyntaxError) return false;
