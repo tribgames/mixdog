@@ -1570,7 +1570,7 @@ mod tests {
         } })
         .await
         .expect("the thread's feed never published the provider's notice within 30 s");
-        assert_eq!((shown["text"].clone(), shown["tone"].clone()), (row["text"].clone(), row["tone"].clone()), "{shown}");
+        assert_eq!((shown["kind"].clone(), shown["text"].clone(), shown["tone"].clone()), (row["kind"].clone(), row["text"].clone(), row["tone"].clone()), "{shown}");
     }
 
     /// A turn is assembled from the header the settings reconcile returns, not the one it started

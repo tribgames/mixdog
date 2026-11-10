@@ -39,6 +39,11 @@ use crate::providers::anthropic::wire_tests::mismatch;
 use crate::providers::anthropic::wire_tests::recording;
 use crate::providers::anthropic::wire_tests::seen_of_recorded;
 use crate::providers::anthropic::wire_tests::seen_of_sent;
+use crate::registry::keys::ApiKeyStore;
+use crate::registry::keys::Environment;
+use crate::registry::keys::KeyConfig;
+use crate::registry::keys::MemoryVault;
+use crate::registry::keys::ProviderKey;
 use crate::catalog::CatalogService;
 use crate::catalog::CatalogSnapshot;
 use crate::catalog::ModelsDevSource;
@@ -55,8 +60,6 @@ use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::SendEnd;
 
-const KEY: &str = "fake-credential-not-a-secret";
-
 struct Once(Option<Bytes>);
 
 #[async_trait]
@@ -70,6 +73,20 @@ impl BodyStream for Once {
 struct Recorded {
     replies: Mutex<VecDeque<(u16, String)>>,
     sent: Mutex<Vec<WireRequest>>,
+    /// What the recording says happened to the environment when the server refused the key (a rotated or removed
+    /// key), applied once, at the first 401 this send is answered with.
+    on_refusal: Mutex<Vec<(String, Option<String>)>>,
+    env: Arc<ScenarioEnv>,
+}
+
+/// The process environment of a recorded scenario.
+#[derive(Default)]
+struct ScenarioEnv(Mutex<std::collections::HashMap<String, String>>);
+
+impl Environment for ScenarioEnv {
+    fn var(&self, name: &str) -> Option<String> {
+        self.0.lock().unwrap().get(name).cloned()
+    }
 }
 
 #[async_trait]
@@ -77,6 +94,14 @@ impl HttpSend for Recorded {
     async fn send(&self, request: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
         self.sent.lock().unwrap().push(request);
         let (status, body) = self.replies.lock().unwrap().pop_front().expect("a recorded answer for this request");
+        if status == 401 {
+            for (name, value) in self.on_refusal.lock().unwrap().drain(..) {
+                match value {
+                    Some(value) => self.env.0.lock().unwrap().insert(name, value),
+                    None => self.env.0.lock().unwrap().remove(&name),
+                };
+            }
+        }
         Ok(HttpResponse { status, headers: vec![], body: Box::new(Once(Some(Bytes::from(body)))) })
     }
 }
@@ -138,6 +163,21 @@ const STEP: std::time::Duration = std::time::Duration::from_secs(30);
 /// Every wait of this test has a deadline and says what it was waiting for when it passes.
 async fn within<T>(what: &str, wait: impl std::future::Future<Output = T>) -> T {
     tokio::time::timeout(STEP, wait).await.unwrap_or_else(|_| panic!("{what}: no answer within {STEP:?}"))
+}
+
+/// A wait nobody answers is still pending just before its deadline and fails at it, naming what it waited for. The
+/// paused clock moves only by the explicit `advance` here.
+#[tokio::test(start_paused = true)]
+async fn a_wait_nobody_answers_fails_at_its_deadline_naming_it() {
+    let waiting = tokio::spawn(within("the awaited answer", std::future::pending::<()>()));
+    tokio::task::yield_now().await;
+    tokio::time::advance(STEP - std::time::Duration::from_millis(1)).await;
+    tokio::task::yield_now().await;
+    assert!(!waiting.is_finished(), "failed before its deadline");
+    tokio::time::advance(std::time::Duration::from_millis(1)).await;
+    let failure = waiting.await.expect_err("the wait fails at its deadline");
+    let message = failure.into_panic().downcast::<String>().expect("a formatted message");
+    assert!(message.contains("the awaited answer"), "the failure names the wait: {message}");
 }
 
 /// Nothing is fetched: the pricing catalog stays empty, as on a machine that never fetched the price tables (the
@@ -217,7 +257,7 @@ fn options_of(recorded: &Value) -> RequestOptions {
 async fn every_recorded_send_puts_the_requests_node_sent_on_the_wire() {
     let document = recording("gemini.json");
     let scenarios = document["scenarios"].as_array().expect("scenarios");
-    assert_eq!(scenarios.len(), 36);
+    assert_eq!(scenarios.len(), 44);
     // The recording was made with TZ=UTC: a row's day is the local day.
     let _ = mixdog_js::time::set_process_zone(mixdog_js::time::Tz::UTC);
     let mut differences = Vec::new();
@@ -227,14 +267,37 @@ async fn every_recorded_send_puts_the_requests_node_sent_on_the_wire() {
         let tools: Vec<_> = scenario["tools"].as_array().expect("tools").iter().map(tool_of).collect();
         let runtime = Arc::new(Virtual { now: AtomicU64::new(0), seq: AtomicU64::new(0), timers: Mutex::default() });
         let mut registry = Arc::new(Registry::default());
+        // The scenario's process environment and the provider's config (where its key lives), as recorded.
+        let env = Arc::new(ScenarioEnv::default());
+        for (name, value) in scenario["env"].as_object().expect("env") {
+            env.0.lock().unwrap().insert(name.clone(), value.as_str().expect("env value").to_owned());
+        }
+        let config = KeyConfig {
+            api_key: scenario["config"]["apiKey"].as_str().map(str::to_owned),
+            api_key_env: scenario["config"]["apiKeyEnv"].as_str().map(str::to_owned),
+        };
+        let store = ApiKeyStore::new(Arc::new(MemoryVault::default()), env.clone(), false);
+        // One key source per provider instance, as Node's config rewrite after a re-read lives as long as the provider.
+        let mut key = ProviderKey::primary(store.clone(), "gemini", config.clone());
         for (n, send) in scenario["sends"].as_array().expect("sends").iter().enumerate() {
             if send["freshProcess"] == true {
                 registry = Arc::new(Registry::default());
             }
+            if send["newProvider"] == true {
+                key = ProviderKey::primary(store.clone(), "gemini", config.clone());
+            }
             let wanted = send["requests"].as_array().expect("requests");
+            let on_refusal = scenario["rotations"][n]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .map(|(name, value)| (name.clone(), value.as_str().map(str::to_owned)))
+                .collect();
             let http = Arc::new(Recorded {
                 replies: Mutex::new(wanted.iter().map(|r| (r["reply"]["status"].as_u64().expect("status") as u16, r["reply"]["body"].as_str().expect("reply body").to_owned())).collect()),
                 sent: Mutex::default(),
+                on_refusal: Mutex::new(on_refusal),
+                env: env.clone(),
             });
             let rows = Arc::new(Rows::default());
             let ledger = rows.clone();
@@ -245,7 +308,7 @@ async fn every_recorded_send_puts_the_requests_node_sent_on_the_wire() {
             // The adapter is built per send; Node's second `new GeminiProvider` of the same process shares what the
             // process keeps (the cache registry, the announced redirects) exactly as these do.
             let adapter = AccountedAdapter::wrap(
-                Arc::new(super::gemini_with(KEY, http.clone(), Arc::new(CatalogGoogleTraits(Vec::new())), runtime.clone(), registry.clone(), Tuning::default())),
+                Arc::new(super::gemini_with(key.clone(), http.clone(), Arc::new(CatalogGoogleTraits(Vec::new())), runtime.clone(), registry.clone(), Tuning::default())),
                 "gemini",
                 Arc::new(deps),
             );

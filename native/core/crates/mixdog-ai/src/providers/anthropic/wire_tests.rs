@@ -5,7 +5,9 @@
 //! turn, a long thread, a resumed and a compacted thread, tail reminders, and the requests Node never
 //! threads. Each send's requests (url, every header, the whole body with a gzip body decoded) are
 //! compared with what `AnthropicAdapter::attempt` puts on the wire when the recorded answers come back;
-//! the model's capabilities are an input (the catalog's), taken from the recorded body's own fields.
+//! the model's capabilities are an input: what Node's capability functions answered for a catalog that lists the
+//! models by id (`capabilities` in the recording), which the product's `CatalogCaps` reproduces
+//! (`mixdog-core` `the_anthropic_wire_models_get_nodes_catalog_answers`); no body field is read for them.
 
 use std::collections::BTreeMap;
 use std::collections::VecDeque;

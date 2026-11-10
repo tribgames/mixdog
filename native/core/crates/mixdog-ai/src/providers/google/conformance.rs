@@ -693,55 +693,6 @@ async fn a_failing_resend_after_a_cache_reset_persists_no_state() {
     }
 }
 
-/// A 401 on the key drops every cache made under it from the process registry
-/// (Node `gemini.mjs:667`); the send is resent once, as Node does.
-#[tokio::test]
-async fn a_rejected_key_drops_its_caches_from_the_registry() {
-    use super::cache::layer::ExplicitCache;
-    use super::cache::policy::Tuning;
-    use super::cache::registry::Registry;
-
-    let create = r#"{"name":"cachedContents/c9","usageMetadata":{"totalTokenCount":3000}}"#;
-    let http = Scripted::new(vec![
-        respond(200, create),
-        respond(401, r#"{"error":{"code":401,"status":"UNAUTHENTICATED","message":"bad key"}}"#),
-        respond(401, r#"{"error":{"code":401,"status":"UNAUTHENTICATED","message":"bad key"}}"#),
-    ]);
-    let registry = Arc::new(Registry::default());
-    let cache = ExplicitCache::new(
-        "key-1",
-        super::codec::GEMINI_ORIGIN,
-        http.clone(),
-        Arc::new(TokioRuntime),
-        registry.clone(),
-        Tuning::default(),
-    );
-    let adapter = super::gemini("key-1", http.clone(), traits()).with_cache(cache);
-    let say = |role, t: String| Message::new(role, Content::Text(t));
-    let mut request = fixture_request("gemini-2.5-pro");
-    request.messages = vec![
-        say(Role::System, "x".repeat(12_000)),
-        say(Role::User, "first".into()),
-        say(Role::Assistant, "second".into()),
-        say(Role::User, "third".into()),
-    ];
-    // The session already holds a Gemini cache and other providers' keys.
-    let held: mixdog_core_api::domain::provider::ProviderState = serde_json::from_value(json!({
-        "gemini": {
-            "cacheName": "cachedContents/old", "cacheCreatedAt": 1, "cacheCreatedAtIter": 1,
-            "cacheExpiresAt": 2, "cacheModel": "gemini-2.5-pro", "cacheTokenSize": 3,
-            "cachePrefixContentCount": 1, "cachePrefixHash": "h", "cacheCredentialFingerprint": "f"
-        },
-        "providerAccountId": "acct-1"
-    }))
-    .unwrap();
-    request.options.provider_state = Some(held);
-    let (_, err) = collect(&adapter, request).await;
-    assert!(err.is_some(), "401 surfaces");
-    assert_eq!(http.seen.lock().unwrap().len(), 3, "create, the send, and Node's single resend with the re-read key");
-    assert!(!registry.name_is_live("cachedContents/c9", NOW_MS));
-}
-
 #[tokio::test]
 async fn gemini_adapter_streams_the_recorded_turn_and_passes_the_attempt_conformance() {
     let text = load("gemini", "text");
@@ -777,16 +728,6 @@ async fn gemini_adapter_streams_the_recorded_turn_and_passes_the_attempt_conform
     refused.message = "refused".into();
     let adapter = gemini_adapter(Scripted::new(vec![Step::Fail(refused)]));
     check_provider_attempt(&adapter, Arc::new(fixture_request("gemini-2.5-pro")), DeliveryState::NotSent).await;
-}
-
-#[tokio::test]
-async fn a_rejected_static_key_is_reported_once() {
-    let scenario = load("gemini", "error-401");
-    let http = Scripted::new(vec![respond(401, &scenario.content().served), respond(401, &scenario.content().served)]);
-    let (_, err) = collect(&gemini_adapter(http.clone()), fixture_request("gemini-2.5-pro")).await;
-    let err = err.expect("401");
-    assert_eq!((err.kind, err.status), (ErrorKind::Auth, Some(401)));
-    assert_eq!(http.urls().len(), 2, "Node re-reads the key and resends once (recorded: flash25.failed-first-send)");
 }
 
 #[tokio::test]

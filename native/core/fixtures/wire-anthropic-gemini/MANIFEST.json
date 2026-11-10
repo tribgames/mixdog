@@ -8,9 +8,9 @@
       "sha256": "7d457799762e6459427e41ec20b286e55b8074585dcebd4951481c88a27c4911"
     },
     {
-      "bytes": 3339869,
+      "bytes": 3670360,
       "path": "gemini.json",
-      "sha256": "c7fa395ba98af064f641f92902f8637a2d7c1664a1a5a30618941377f42ef658"
+      "sha256": "dd7beeed4eded6e5537d80aa9295491e09cca39d5a7cac72a55321e2d435292b"
     }
   ],
   "product": {
@@ -32,5 +32,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs",
   "set": "wire-anthropic-gemini",
-  "totalBytes": 6391643
+  "totalBytes": 6722134
 }

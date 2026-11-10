@@ -618,9 +618,10 @@ impl DefaultProviderBuilder {
     }
 
     async fn build_gemini(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
-        let key = self.env.keys.resolve(name, &key_config(cfg)).await.map_err(|e| unread_key(name, &e))?;
+        // A key that cannot be read fails the build; the key itself is read at each request and again after a 401.
+        self.env.keys.resolve(name, &key_config(cfg)).await.map_err(|e| unread_key(name, &e))?;
         Ok(adapter(
-            google::gemini(key, self.env.http.clone(), self.env.google_traits.clone())
+            google::gemini_keyed(self.key_source(name, cfg), self.env.http.clone(), self.env.google_traits.clone())
                 .with_listing_lookup(self.env.listing.clone()),
         ))
     }
