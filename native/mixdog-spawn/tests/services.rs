@@ -202,11 +202,11 @@ async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause(
         panic!("terminal/ensure answers with a value");
     };
     let id = ensured["id"].as_str().unwrap().to_owned();
-    // The sizes are the claims Node recorded in the phone replay (apps/mobile/fixtures/phone-terminal/golden.json, trace.claims.sizeOwner):
-    // the first claim of a tab (`own`, its size) and the claim released by a non-positive size.
+    // The sizes are the claims Node recorded in the phone replay (apps/mobile/fixtures/phone-terminal/golden.json, trace.claims.order, the `sizeOwner` pushes in
+    // the order the phone got them): the first claim of a tab (`own`, its size) and the claim released by a non-positive size.
     let golden: Value = serde_json::from_str(include_str!("../../../apps/mobile/fixtures/phone-terminal/golden.json")).unwrap();
-    let owners = &golden["trace"]["claims"]["sizeOwner"];
-    let (claimed, released) = (&owners[0], &owners[4]);
+    let owners: Vec<&Value> = golden["trace"]["claims"]["order"].as_array().unwrap().iter().filter(|e| e["push"] == "sizeOwner").map(|e| &e["event"]).collect();
+    let (claimed, released) = (owners[0], owners[4]);
     assert_eq!((claimed["own"].clone(), released["own"].clone()), (json!(true), json!(false)), "the recorded claim owns, the recorded release does not");
     let attach = |connection: u64| {
         let service = Arc::clone(&service);

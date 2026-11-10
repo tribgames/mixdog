@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { REPO_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { mock } from 'node:test';
-import { play, sizeClaimScript, terminalScript } from './lib/phone-terminal-script.mjs';
+import { play, record, sizeClaimScript, terminalScript } from './lib/phone-terminal-script.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const ROOT = 'D:\\mixdog-build\\tmp\\ph2-terminal';
@@ -68,7 +68,7 @@ if (!args.has('child')) {
   const finalOut = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-terminal');
   const out = stageSet(finalOut);
   writeJson(join(out, 'golden.json'), {
-    note: 'Node terminal and folder-watch calls and pushes as a phone sees them: per call its answer or error text, per push kind the events its listeners got, in order. Terminal text is Node\'s real ConPTY text, exact except after the first resize (see lib/phone-terminal-script.mjs).',
+    note: 'Node terminal and folder-watch calls and pushes as a phone sees them: one ordered list of each call\'s answer or error text and each push its listeners got. Terminal text is compared as the screen at each checkpoint: Node\'s own bytes differ from run to run (see lib/phone-terminal-script.mjs).',
     root: ROOT,
     trace,
   });
@@ -77,10 +77,10 @@ if (!args.has('child')) {
     recorder: 'benchmarks/rust-core/recorders/record-phone-terminal.mjs',
     command: `node benchmarks/rust-core/recorders/record-phone-terminal.mjs --tree <git archive of ${REF} (src, apps) with node_modules>`,
     identity: exactProductIdentity(tree, REF),
-    extra: { steps: trace.steps.length },
+    extra: { entries: trace.order.length },
   });
   commitStage(out, finalOut);
-  console.log(`phone-terminal: ${trace.steps.length} steps`);
+  console.log(`phone-terminal: ${trace.order.length} entries`);
   process.exit(0);
 }
 
@@ -98,7 +98,7 @@ const { remoteTerminalRun, TERMINAL_RUN_REQUESTED_DESKTOP_EVENT } = await import
 // The phone's connection as the relay holds it: its lanes decide which pushes it reads.
 const state = { lanes: new Set(), channel: {} };
 const clients = new Map([[CONNECTION, state]]);
-const events = { activity: [], sizeOwner: [], folder: [], run: [], output: {} };
+const events = { activity: [], sizeOwner: [], folder: [], run: [], order: [], output: {} };
 const waiting = new Set();
 const changed = () => {
   for (const check of [...waiting]) check();
@@ -110,16 +110,16 @@ const { readRemoteTerminalRun } = await importFrom(tree, 'apps/desktop/src/share
 const pushes = {
   termActivity: (payload) => {
     const event = readTerminalActivityEvent(payload);
-    if (event) events.activity.push(event);
+    if (event) record(events, 'activity', event);
   },
   termSizeOwner: (payload) =>
-    events.sizeOwner.push({ id: String(payload.id || ''), cols: Number(payload.cols) || 0, rows: Number(payload.rows) || 0, own: payload.own === true }),
+    record(events, 'sizeOwner', { id: String(payload.id || ''), cols: Number(payload.cols) || 0, rows: Number(payload.rows) || 0, own: payload.own === true }),
   folderChanged: (payload) => {
-    if (String(payload || '')) events.folder.push(String(payload));
+    if (String(payload || '')) record(events, 'folder', String(payload));
   },
   terminalRunRequested: (payload) => {
     const request = readRemoteTerminalRun(payload);
-    if (request) events.run.push(request);
+    if (request) record(events, 'run', request);
   },
 };
 const lanes = createRelayPushLanes({
