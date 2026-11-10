@@ -3,8 +3,13 @@
 // by a library: the request line, the headers (name, value, in the order sent) and the body come from the bytes read off
 // the socket; a WebSocket frame is read from its header (fin, rsv bits, opcode, mask bit, length) and its payload unmasked.
 //
-// The recording is a list of events in the order the server received them:
-//   { kind: 'http', conn, line, headers: [[name, value]...], body: { encoding, bytes, sha256, text } | null }
+// The recording is a list of events in the order the server received them (an http request when its whole body has
+// arrived):
+//   { kind: 'http', conn, line, headers: [[name, value]...], body: { encoding, bytes, sha256, text } | null, started,
+//     completed }
+// `started` and `completed` are two moments of one sequence the scenario counts from 1 (`traffic.order`, which the caller
+// resets per scenario): when the request line and headers had been read, and when the body was complete. The client
+// decides the order requests start in; when a body completes also depends on how the client writes it after its head.
 //   { kind: 'ws-upgrade', conn, line, headers }
 //   { kind: 'ws-frame', opcode, fin, rsv, masked, bytes, text | hex }
 //   { kind: 'closed', conn }                 (only when the script awaits it)
@@ -74,6 +79,8 @@ export async function startWireServer({ traffic, keepRandom = false }) {
       if (!conn) { conn = ++next; ended.set(conn, closedPromise); }
       if (!traffic.paused) traffic.sink.push({ ...event, conn });
     };
+    // The next moment of the scenario's sequence (`started`, `completed`); nothing is counted while the recorder is paused.
+    const moment = () => (traffic.paused ? null : (traffic.order = (traffic.order ?? 0) + 1));
     let buffer = Buffer.alloc(0);
     let mode = 'head';
     let pending = null;
@@ -91,14 +98,14 @@ export async function startWireServer({ traffic, keepRandom = false }) {
             mode = 'frames';
           } else {
             if (headerOf(head.headers, 'transfer-encoding')) throw new Error('the recorder reads content-length bodies only');
-            pending = { ...head, length: Number(headerOf(head.headers, 'content-length') ?? 0) };
+            pending = { ...head, length: Number(headerOf(head.headers, 'content-length') ?? 0), started: moment() };
             mode = 'body';
           }
         } else if (mode === 'body') {
           if (buffer.length < pending.length) return;
           const body = buffer.subarray(0, pending.length);
           buffer = buffer.subarray(pending.length);
-          record({ kind: 'http', line: pending.line, headers: pending.headers, body: bodyRecord(body, pending.headers) });
+          record({ kind: 'http', line: pending.line, headers: pending.headers, body: bodyRecord(body, pending.headers), started: pending.started, completed: moment() });
           answerHttp(pending.line);
           pending = null;
           mode = 'head';

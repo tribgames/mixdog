@@ -170,6 +170,10 @@ let openaiProvider = null;
 /** The latest send of the run and its reply: what a compaction scenario forks. */
 let lastSend = null;
 for (const scenario of selected(doc.scenarios)) {
+  // The event loop turns once between scenarios, as it does between two turns of a session: undici gives a socket
+  // whose answer ended back to its pool one `setImmediate` later (`client-h1.js:842-846`), so a scenario started in the
+  // same turn as the previous one ended would find the connections that turn finished busy.
+  await new Promise((resolve) => setImmediate(resolve));
   const route = { ...ROUTES.find((r) => r.provider === scenario.provider) };
   if (scenario.model) route.model = scenario.model;
   const entry = { id: scenario.id, provider: scenario.provider, model: route.model };
@@ -177,6 +181,7 @@ for (const scenario of selected(doc.scenarios)) {
   for (const name of ENV_NAMES) delete process.env[name];
   Object.assign(process.env, scenario.env || {});
   traffic.sink = [];
+  traffic.order = 0;
   traffic.dispatched = null;
   traffic.script = { dials: structuredClone(scenario.dials || []), replies: structuredClone(scenario.ws || []), http: structuredClone(scenario.http || []) };
   const controller = new AbortController();

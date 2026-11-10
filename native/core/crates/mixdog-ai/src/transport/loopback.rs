@@ -39,6 +39,9 @@ struct Inner {
     script: Mutex<Script>,
     paused: AtomicBool,
     next: AtomicUsize,
+    /// The scenario's sequence of moments an http request started (its head was read) and completed (its body was
+    /// read), counted from 1 as `wire-server.mjs` counts `traffic.order`.
+    order: AtomicUsize,
     ended: Mutex<HashMap<usize, watch::Receiver<bool>>>,
     upgraded: Mutex<Vec<usize>>,
     unanswered: Mutex<Option<String>>,
@@ -101,6 +104,7 @@ impl Loopback {
     /// Starts a scenario: a fresh recording and script.
     pub fn begin(&self, script: Script) {
         self.inner.sink.lock().unwrap().clear();
+        self.inner.order.store(0, Ordering::SeqCst);
         *self.inner.script.lock().unwrap() = script;
         *self.inner.unanswered.lock().unwrap() = None;
     }
@@ -194,7 +198,7 @@ fn server_frame(opcode: u8, payload: &[u8]) -> Vec<u8> {
 
 enum Mode {
     Head,
-    Body { line: String, headers: Vec<(String, String)>, length: usize },
+    Body { line: String, headers: Vec<(String, String)>, length: usize, started: Value },
     Frames,
 }
 
@@ -206,6 +210,8 @@ async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
     let mut mode = Mode::Head;
     // `then: 'mute'`: the client's close frames are recorded, never answered (a close that ends slowly).
     let mut muted = false;
+    // The next moment of the scenario's sequence; nothing is counted while the recorder is paused.
+    let moment = || if inner.paused.load(Ordering::SeqCst) { Value::Null } else { json!(inner.order.fetch_add(1, Ordering::SeqCst) + 1) };
     // A connection is numbered by its first recorded event, as in `wire-server.mjs`.
     let record = |conn: &mut usize, event: Value| {
         if *conn == 0 {
@@ -262,17 +268,18 @@ async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
                     } else {
                         assert!(header(&headers, "transfer-encoding").is_none(), "the recorder reads content-length bodies only");
                         let length = header(&headers, "content-length").map_or(0, |v| v.parse().unwrap());
-                        mode = Mode::Body { line, headers, length };
+                        mode = Mode::Body { line, headers, length, started: moment() };
                     }
                 }
                 Mode::Body { length, .. } => {
                     if buffer.len() < *length {
                         break;
                     }
-                    let Mode::Body { line, headers, length } = std::mem::replace(&mut mode, Mode::Head) else { unreachable!() };
+                    let Mode::Body { line, headers, length, started } = std::mem::replace(&mut mode, Mode::Head) else { unreachable!() };
                     let body: Vec<u8> = buffer.drain(..length).collect();
                     let shown: Vec<Value> = headers.iter().map(|(n, v)| json!([n, v])).collect();
-                    record(&mut conn, json!({ "kind": "http", "line": line, "headers": shown, "body": body_record(&body, &headers) }));
+                    let event = json!({ "kind": "http", "line": line, "headers": shown, "body": body_record(&body, &headers), "started": started, "completed": moment() });
+                    record(&mut conn, event);
                     // A HEAD request is a socket warm-up, recorded and answered empty.
                     if line.starts_with("HEAD ") {
                         io.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await.ok();
