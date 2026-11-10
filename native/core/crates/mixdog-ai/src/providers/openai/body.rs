@@ -36,6 +36,8 @@ const DEFAULT_VERBOSITY: &str = "low";
 /// The request body plus the facts later stages read.
 pub struct BuiltBody {
     pub map: Map<String, Value>,
+    /// The body's prompt_cache_key.
+    pub cache_key: Option<String>,
     pub service_tier: Option<&'static str>,
     pub facts: ModelFacts,
 }
@@ -132,13 +134,14 @@ pub fn build_with(
     // slot on top would send the same reasoning twice.
     // The Codex route keys a thread's cache slot by the thread (`codexThreadPromptCacheKey`); the public API keeps
     // the key the request names.
-    let cache_key = codex.then(|| cache_key::codex_prompt_cache_key(&request.options));
-    let built = build_body(&profile, &BuildInputs { effort, prompt_cache_key: cache_key.as_deref(), ..BuildInputs::new(request) });
+    let derive = |prefix: &cache_key::Prefix<'_>| cache_key::codex_prompt_cache_key(&request.options, &|name| config.context.var(name), prefix);
+    let built = build_body(&profile, &BuildInputs { effort, prompt_cache_key: codex.then_some(&derive as &dyn for<'a, 'b> Fn(&'a cache_key::Prefix<'b>) -> String), ..BuildInputs::new(request) });
     for excluded in built.excluded {
         report_exclusion(&request.options, excluded);
     }
     let map = built.body;
     BuiltBody {
+        cache_key: map.get("prompt_cache_key").and_then(Value::as_str).map(str::to_owned),
         map,
         service_tier: tier,
         facts,

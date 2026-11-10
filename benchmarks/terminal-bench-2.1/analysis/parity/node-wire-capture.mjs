@@ -114,10 +114,14 @@ const seeded = seedSessionMessages({ baseRules, stableSystemContext, sessionMark
 const stampOf = (uuid) => Number.parseInt(uuid.replaceAll('-', '').slice(0, 12), 16);
 
 const results = [];
+const ENV_NAMES = [...new Set(doc.scenarios.flatMap((s) => Object.keys(s.env || {})))];
 let openaiProvider = null;
 for (const scenario of doc.scenarios) {
   const route = ROUTES.find((r) => r.provider === scenario.provider);
   const entry = { id: scenario.id, provider: scenario.provider, model: route.model };
+  // A scenario's environment is the process environment of its run; nothing else sets these variables.
+  for (const name of ENV_NAMES) delete process.env[name];
+  Object.assign(process.env, scenario.env || {});
   traffic.sink = [];
   traffic.script = { dials: structuredClone(scenario.dials || []), replies: structuredClone(scenario.ws || []), http: structuredClone(scenario.http || []) };
   const controller = new AbortController();
@@ -148,7 +152,7 @@ for (const scenario of doc.scenarios) {
     // The send options of a turn as Node's session builds them (ask-turn-loop-options.mjs): the session's own id is
     // not the Codex wire identity, the session's `codexWireSessionId` is.
     const { turnId } = scenario;
-    const record = { id: doc.nodeSessionId, provider: 'openai-oauth', model: route.model, promptCacheKey: 'mixdog-codex', codexWireSessionId: session.threadId };
+    const record = { id: doc.nodeSessionId, provider: 'openai-oauth', model: route.model, promptCacheKey: 'mixdog-codex', codexWireSessionId: session.storedHeader.codexWireSessionId };
     opts = buildRequestSendOptions({ sessionId: doc.nodeSessionId, session: record, turnEffort: undefined, effortConfiguration: undefined, stepAutoEffort: null, codexTurnId: turnId, startedAtMs: stampOf(turnId), signal: controller.signal });
   }
   try {

@@ -108,7 +108,9 @@ fn request(session: &Value, scenario: &Value, model: &str) -> ModelRequest {
     let mut options = RequestOptions { session_id: Some(thread.clone()), ..RequestOptions::default() };
     if scenario["provider"] == "openai-oauth" {
         options.prompt_cache_key = Some("mixdog-codex".into());
-        options.thread = Some(super::assemble::wire_thread(thread.as_str().into(), Some(text(&scenario["turnId"]).as_str().into())));
+        // The identity comes through the production assembly from the stored header, not from the fixture's thread id.
+        let header = session["storedHeader"].as_object().unwrap().clone();
+        options.thread = Some(super::assemble::request_identity(&thread.as_str().into(), &header, Some(text(&scenario["turnId"]).as_str().into())));
     }
     ModelRequest { model: model.into(), messages, tools, options }
 }
@@ -152,7 +154,10 @@ async fn record_all() -> Vec<Value> {
     env.http = link.clone();
     env.bidi = link;
     env.dial = Arc::new(KeepaliveDialer::pinned(schedule, server.addr, server.tls.clone()));
-    env.openai_context = Arc::new(SessionContext::with_sources(move || now, || "0".repeat(32)));
+    // A scenario's environment is the settings its run reads (Node's process.env), set per scenario below.
+    let settings: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>> = Arc::default();
+    let read = settings.clone();
+    env.openai_context = Arc::new(SessionContext::with_sources(move || now, || "0".repeat(32)).with_var(move |name| read.lock().unwrap().get(name).cloned()));
     let builder = DefaultProviderBuilder::new(env);
     let config = |provider: &str| if provider == "gemini" { json!({ "enabled": true, "apiKey": FAKE }) } else { json!({ "enabled": true }) };
 
@@ -178,6 +183,7 @@ async fn record_all() -> Vec<Value> {
             server.pause(false);
             openai = Some(builder.build(provider, &config(provider)).await.unwrap());
         }
+        *settings.lock().unwrap() = scenario["env"].as_object().into_iter().flatten().map(|(k, v)| (k.clone(), text(v))).collect();
         server.begin(script_of(scenario));
         let adapter = if provider == "openai-oauth" { openai.clone().unwrap() } else { builder.build(provider, &config(provider)).await.unwrap() };
         let outcome = within(format_args!("the reply of {id}"), async {

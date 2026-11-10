@@ -723,5 +723,9 @@
         "additionalProperties": false
       }
     }
-  ]
+  ],
+  "storedHeader": {
+    "provider": "openai-oauth",
+    "codexWireSessionId": "  0190F0A0-1C2D-7E3F-8A4B-5C6D7E8F9A0D "
+  }
 }

@@ -198,6 +198,25 @@ pub(crate) fn wire_thread(id: ThreadId, turn: Option<mixdog_core_api::ids::TurnI
     RequestThread { id, window: 0, turn, turn_started_at_ms }
 }
 
+/// `isUuidV7`: the canonical 8-4-4-4-12 form of a version 7, variant `[89ab]` id.
+fn is_uuid_v7(value: &str) -> bool {
+    let parts: Vec<&str> = value.split('-').collect();
+    parts.len() == 5
+        && parts.iter().zip([8, 4, 4, 4, 12]).all(|(part, len)| part.len() == len && part.bytes().all(|b| b.is_ascii_hexdigit()))
+        && parts[2].starts_with(['7'])
+        && parts[3].starts_with(['8', '9', 'a', 'b', 'A', 'B'])
+}
+
+/// The thread a request of the stored session `header` names: a Codex session sends its stored wire identity
+/// (`codexWireSessionId`, `ensureCodexWireSessionId`), which is not the thread's id, as the id of every request of the
+/// session, compaction summaries included; any other route names the thread itself. A Codex header with no valid stored
+/// identity falls back to the thread id (Node mints and stores one; minting here would give each request its own).
+pub(crate) fn request_identity(thread: &ThreadId, header: &Header, turn: Option<mixdog_core_api::ids::TurnId>) -> RequestThread {
+    let stored = text(header, "codexWireSessionId").to_lowercase();
+    let wire = (text(header, "provider") == "openai-oauth" && is_uuid_v7(&stored)).then(|| ThreadId::from(stored.as_str()));
+    wire_thread(wire.unwrap_or_else(|| thread.clone()), turn)
+}
+
 impl HostRunParts {
     pub fn new(services: HostServices) -> Self {
         Self { services }
@@ -291,7 +310,7 @@ impl HostRunParts {
         options.prompt_cache_key = Some(text(header, "promptCacheKey").to_owned()).filter(|k| !k.is_empty());
         options.model_parameters = header.get("modelParameters").filter(|v| v.is_object()).cloned();
         options.model_max_output_tokens = settings.model_max_output_tokens;
-        options.thread = Some(wire_thread(thread.clone(), source.turn));
+        options.thread = Some(request_identity(thread, header, source.turn));
         options.provider_state = source.provider_state;
         Ok(RequestParts { provider, cwd, tool_set, settings, options })
     }
