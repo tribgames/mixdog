@@ -244,12 +244,15 @@ async fn replay_all(set: &str) {
                 let (path, target) = (link[0].as_str().expect("path"), link[1].as_str().expect("target"));
                 junction(&data.join(path), &data.join(target));
             }
-            // `backups` on another volume (the Public profile of the system drive): the rename into it fails with EXDEV.
+            // `backups` on another volume: the rename into it fails with EXDEV. That volume is the system drive's (its Public
+            // profile), or, when the test's own temp dir is on the system drive, the one of the folder
+            // `MIXDOG_TEST_OTHER_VOLUME` names.
             let external = (state["crossVolume"] == true).then(|| {
-                let public = Path::new(&std::env::var_os("SystemDrive").expect("SystemDrive")).join("\\Users\\Public");
                 let drive = |path: &Path| path.to_string_lossy().chars().take(2).collect::<String>().to_lowercase();
-                assert_ne!(drive(&public), drive(&data), "{name}: needs a second volume (the recording renames across two)");
-                let folder = tempfile::Builder::new().prefix("mixdog-retire-").tempdir_in(public).expect("external");
+                let public = Path::new(&std::env::var_os("SystemDrive").expect("SystemDrive")).join("\\Users\\Public");
+                let other = if drive(&public) != drive(&data) { public } else { std::env::var_os("MIXDOG_TEST_OTHER_VOLUME").map(std::path::PathBuf::from).unwrap_or(public) };
+                assert_ne!(drive(&other), drive(&data), "{name}: needs a second volume (the recording renames across two); MIXDOG_TEST_OTHER_VOLUME names a folder of one");
+                let folder = tempfile::Builder::new().prefix("mixdog-retire-").tempdir_in(other).expect("external");
                 junction(&data.join("backups"), folder.path());
                 folder
             });
