@@ -198,17 +198,20 @@ impl DeviceRegistry {
         matches!(inner.connections.get(&connection), Some(Link::Relay { peer_id, .. }) if inner.peers.contains_key(peer_id))
     }
 
-    /// Every connection of the paired credential still attached.
+    /// Every connection of the paired credential still attached, in the order they were opened (Node's client registry is a `Map`
+    /// iterated in admission order, and an unpair ends their browser streams in that order).
     pub fn connections_of(&self, credential: &str) -> Vec<u64> {
         let inner = self.inner();
-        inner
+        let mut ids: Vec<u64> = inner
             .connections
             .iter()
             .filter_map(|(id, link)| match link {
                 Link::Relay { peer_id, .. } if !credential.is_empty() && inner.peers.get(peer_id).is_some_and(|d| d.credential == credential) => Some(*id),
                 _ => None,
             })
-            .collect()
+            .collect();
+        ids.sort_unstable();
+        ids
     }
 
     /// `client-close`, a revoke or the loss of the leg.

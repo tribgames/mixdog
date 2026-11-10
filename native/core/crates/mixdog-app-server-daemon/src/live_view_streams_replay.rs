@@ -6,8 +6,11 @@
 //! is a `browser/stream` request on that phone's connection, its `browserRemoteStreamAck` a `browser/streamAck` notification, a
 //! desktop frame the host's `host/browser/frame` facts followed by the X17 picture on the session's stream, a departed phone the
 //! connection's close, a time step the clock's advance, and the WebRTC hand-over steps the service's own relay (`accept`, `send`).
-//! A device's unpair is the live view's `unpaired` for each of its connections (what the unpair's device cleanup calls,
-//! `PairedDeviceCleanup::unpaired`), Node's `dropClient`; the relay's close is its `relay_closed`, Node's `dispose`.
+//! A device's unpair is what the runtime's unpair does: every connection of the device is revoked for the view (the registry's
+//! `screen_revoked`, Node's `revokeCredential`), then the live view's `unpaired` runs for each of them in the order they were admitted
+//! (`PairedDeviceCleanup::unpaired`, Node's `dropClient` of each connection `revokeCredential` names); a missed drop is the revocation
+//! alone. A departed phone is no longer attached (`peer_attached`) and its connection closed. The relay's close is `relay_closed`,
+//! Node's `dispose`. The recording is of b6f10295a with `node-fix-unpair-keeps-stream.patch` (see the manifest).
 //!
 //! What each step sent is compared with what Node sent, as serialized text: every message whole, in order, with its fields in the
 //! order they go out. The names map one to one:
@@ -112,6 +115,9 @@ fn connection_of(client: &str) -> u64 {
     }
 }
 
+/// The paired device each phone's connection acts as (the recorder's `CREDENTIALS`), in the order the connections were admitted.
+const CREDENTIALS: [(&str, &str); 3] = [("phone_A", "cred_1"), ("phone_B", "cred_2"), ("phone_C", "cred_1")];
+
 fn keys(value: &Value) -> Vec<&str> {
     value.as_object().map(|object| object.keys().map(String::as_str).collect()).unwrap_or_default()
 }
@@ -207,8 +213,10 @@ struct World {
     clock: Arc<VirtualClock>,
     log: Log,
     ids: std::sync::atomic::AtomicU64,
-    /// Connections whose device's unpair is in force (the registry's `screen_revoked`), for the send-time refusal.
+    /// Connections revoked for the view (the registry's `screen_revoked`: live at their device's unpair).
     revoked: Arc<Mutex<HashSet<u64>>>,
+    /// Connections whose peer left (no longer `peer_attached`).
+    left: Arc<Mutex<HashSet<u64>>>,
 }
 
 impl World {
@@ -216,18 +224,28 @@ impl World {
         let log: Log = Arc::default();
         let media = HostMedia::new(1 << 20);
         let clock = VirtualClock::starting_at(clock_start);
-        let revoked: Arc<Mutex<HashSet<u64>>> = Arc::default();
-        let held = revoked.clone();
+        let (revoked, left): (Arc<Mutex<HashSet<u64>>>, Arc<Mutex<HashSet<u64>>>) = Default::default();
+        let (held, gone) = (revoked.clone(), left.clone());
+        let access = PairedScreenAccess::new(
+            Arc::new(|_| None),
+            Arc::new(move |connection| lock(&held).contains(&connection.0)),
+            Arc::new(move |connection| !lock(&gone).contains(&connection.0)),
+        );
         let service = Arc::new(LiveViewService::with_clock(
             Arc::new(Desktop { log: log.clone(), streams: Mutex::default() }),
             Arc::new(Phones(log.clone())),
             media.clone(),
             runtime(dir),
             Arc::new(Scripted::default()),
-            Arc::new(PairedScreenAccess::new(Arc::new(|_| None), Arc::new(move |connection| lock(&held).contains(&connection.0)), Arc::new(|_| true))),
+            Arc::new(access),
             clock.clone(),
         ));
-        Arc::new(Self { service, media, clock, log, ids: Default::default(), revoked })
+        Arc::new(Self { service, media, clock, log, ids: Default::default(), revoked, left })
+    }
+
+    /// The connections of a device, in the order they were admitted.
+    fn connections_of(credential: &str) -> Vec<u64> {
+        CREDENTIALS.iter().filter(|(_, held)| *held == credential).map(|(client, _)| connection_of(client)).collect()
     }
 
     fn take(&self) -> Vec<Value> {
@@ -268,8 +286,20 @@ impl World {
             }
             "frame" => send_frame(service, &self.media, &step["frame"]),
             "advance" => self.clock.advance(step["ms"].as_f64().unwrap()),
-            "leave" => service.connection_closed(ConnectionId(connection_of(step["client"].as_str().unwrap()))),
-            "dropClient" => service.unpaired(ConnectionId(connection_of(step["client"].as_str().unwrap()))),
+            "leave" => {
+                let connection = connection_of(step["client"].as_str().unwrap());
+                lock(&self.left).insert(connection);
+                service.connection_closed(ConnectionId(connection));
+            }
+            "unpair" | "revokeOnly" => {
+                let connections = Self::connections_of(step["credential"].as_str().unwrap());
+                lock(&self.revoked).extend(connections.iter().copied());
+                if step["op"] == "unpair" {
+                    for connection in connections {
+                        service.unpaired(ConnectionId(connection));
+                    }
+                }
+            }
             "dispose" => service.relay_closed(),
             "query" => {
                 let (client, session) = (connection_of(step["client"].as_str().unwrap()).to_string(), step["session"].as_str().unwrap());
@@ -339,39 +369,21 @@ async fn the_live_view_serves_nodes_recorded_browser_streams() {
     }
 }
 
-/// A phone whose device was unpaired is sent no frame even when the unpair's drop of its subscriptions never reached the streams: the
-/// send itself asks whether the connection may still see the view. Node's recorded unpair scenario is replayed up to the unpair; then
-/// only the registry's revocation happens (the drop is missed) and the rest of the scenario's steps run: phone_A, whose frame was in
-/// flight and whose resend was armed, must get nothing from the frame and the resend that follow.
-#[tokio::test]
-async fn a_phone_whose_unpair_was_missed_is_sent_no_frame() {
-    mixdog_rt::testing::tokens();
-    let (recorded, clock_start) = recording();
-    let name = "an unpaired phone is dropped at once, its frame in flight and its resend with it";
-    let (steps, outcomes) = scenario(&recorded, name);
-    let unpair = steps.iter().position(|step| step["op"] == "dropClient").expect("the scenario unpairs a phone");
-    let dir = tempfile::tempdir().unwrap();
-    let world = World::new(dir.path(), clock_start);
-    replay_steps(&world, name, &steps[..unpair], &outcomes[..unpair], 0).await;
-    let phone = steps[unpair]["client"].as_str().unwrap();
-    lock(&world.revoked).insert(connection_of(phone));
-    for (number, step) in steps.iter().enumerate().skip(unpair + 1) {
-        world.step(step, &format!("{name} step {number}")).await;
-    }
-    let to_phone: Vec<Value> = world.take().into_iter().filter(|entry| entry[0] == "push" && entry[1] == phone).collect();
-    assert_eq!(to_phone, Vec::<Value>::new(), "a frame reached {phone} after its device was unpaired");
-}
-
 /// The orders the streams keep when two steps race: the first step of each pair is held on its own thread at the point it releases
 /// the streams' state (its change made, its effects not yet delivered), the next steps run meanwhile, then the held one goes on.
 /// Everything sent must be what Node sent running the same steps one after the other (`gate: …` scenarios): the effects of a change
 /// leave before those of every later change, never after.
-const GATED: [(&str, usize, usize); 5] = [
+///
+/// The steps that run meanwhile have a deadline of their own: one that delivers the held step's effects while it holds a lock those
+/// effects' handlers take never returns (`gate: a lapse, then a promote-ack`: the relay's `accept` holds its state while it settles
+/// the images, and the lapse's dropped view goes back to the relay).
+const GATED: [(&str, usize, usize); 6] = [
     ("gate: a lapse, then a fresh subscribe", 1, 2),
     ("gate: a resend, then an unsubscribe", 3, 4),
     ("gate: an ack, then a newer frame resent", 3, 5),
     ("gate: a resend, then a phone joins", 3, 4),
     ("gate: a fit failure, then a renewal", 1, 2),
+    ("gate: a lapse, then a promote-ack", 5, 6),
 ];
 
 const HELD: &str = "held-step";
@@ -409,9 +421,22 @@ async fn gated(name: &str, held: usize, last: usize) {
         .await
         .unwrap_or_else(|_| panic!("{name}: the held step {held} did not release the streams' state within 30 s"))
         .unwrap_or_else(|_| panic!("{name}: the held step {held} ended before it released the streams' state"));
-    for step in &steps[held + 1..=last] {
-        world.step(step, &format!("{name} step {step}")).await;
-    }
+    let (meanwhile_tx, meanwhile_rx) = tokio::sync::oneshot::channel::<()>();
+    let (runtime, meanwhile_world, meanwhile) = (tokio::runtime::Handle::current(), world.clone(), steps[held + 1..=last].to_vec());
+    let label = name.to_owned();
+    std::thread::Builder::new()
+        .name("meanwhile-steps".to_owned())
+        .spawn(move || {
+            for step in &meanwhile {
+                runtime.block_on(meanwhile_world.step(step, &format!("{label} step {step}")));
+            }
+            let _ = meanwhile_tx.send(());
+        })
+        .unwrap();
+    tokio::time::timeout(GATE_DEADLINE, meanwhile_rx)
+        .await
+        .unwrap_or_else(|_| panic!("{name}: the steps after the held step {held} did not finish within 30 s (a step delivered effects under a lock their handlers take)"))
+        .unwrap_or_else(|_| panic!("{name}: a step after the held step {held} failed"));
     go_tx.send(()).unwrap();
     tokio::time::timeout(GATE_DEADLINE, done_rx)
         .await

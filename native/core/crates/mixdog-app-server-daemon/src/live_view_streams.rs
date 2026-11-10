@@ -14,6 +14,16 @@
 //! (`remote-browser-streams.ts:114-128`), so no effect ever leaves after one of a later change; the outbox keeps that order across
 //! threads. A delivered effect may come back into this state (a dropped subscription's WebRTC view gives the JPEG back): what it
 //! queues goes out after it.
+//!
+//! The delivering caller runs the effects' handlers, which take the relay's state, the live view's state, the host's and the
+//! registry's locks. So no caller holding one of those may deliver: every entry point delivers except `set_images`, the one the
+//! relay calls under its own state's lock (an ownership change and the images it settles are one step there, as in Node). It only
+//! queues; the relay delivers through `deliver_queued` once it released its lock (`RelayDeps::released`).
+//!
+//! A phone that may no longer view (its device unpaired, its screen access revoked, its peer gone) is refused a subscription and
+//! holds none (`StreamsDeps::allowed`); the send itself asks again, so a missed drop still shows it nothing. Node's streams did not
+//! ask, and its unpair dropped nothing (it named the credential, the streams are keyed by connection): fixed on both sides
+//! (`node-fix-unpair-keeps-stream.patch`).
 
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -60,7 +70,12 @@ pub trait StreamsDeps: Send + Sync {
     fn request(&self, session: &str, options: Option<Value>);
     /// The phone's subscription to the session ended (stop, lapse or departure).
     fn on_drop(&self, client: &str, session: &str);
+    /// Whether the phone may still be shown the view.
+    fn allowed(&self, client: &str) -> bool;
 }
+
+/// The refusal of a subscription from a phone that may no longer view (the patched Node's `REMOTE_BROWSER_VIEW_NOT_ALLOWED`).
+pub const VIEW_NOT_ALLOWED: &str = "Remote browser view is not allowed for this device.";
 
 /// A take-over's fit in a phone's options: absent (watching, or a renewal that keeps it), `null` (released) or a viewport.
 #[derive(Debug, Clone, PartialEq)]
@@ -283,7 +298,13 @@ impl BrowserStreams {
     }
 
     /// Ends a step: its effects join the outbox under the lock that made its change, then the outbox is delivered.
-    fn commit(&self, mut state: MutexGuard<'_, State>, effects: Vec<Effect>) {
+    fn commit(&self, state: MutexGuard<'_, State>, effects: Vec<Effect>) {
+        self.queue(state, effects);
+        self.deliver();
+    }
+
+    /// Ends a step whose caller may hold a lock the effects' handlers take: its effects join the outbox, for a later delivery.
+    fn queue(&self, mut state: MutexGuard<'_, State>, effects: Vec<Effect>) {
         state.outbox.extend(effects);
         drop(state);
         #[cfg(test)]
@@ -293,6 +314,10 @@ impl BrowserStreams {
                 hook();
             }
         }
+    }
+
+    /// Delivers what was queued: called by a caller that holds no lock, after a step that only queued.
+    pub fn deliver_queued(&self) {
         self.deliver();
     }
 
@@ -445,8 +470,11 @@ impl BrowserStreams {
         effects.push(Effect::Dropped(client.to_owned(), session.to_owned()));
     }
 
-    /// Start or renew a phone's subscription.
-    pub fn subscribe(&self, client: &str, session: &str, options: StreamOptions) {
+    /// Start or renew a phone's subscription; a phone that may no longer view is refused.
+    pub fn subscribe(&self, client: &str, session: &str, options: StreamOptions) -> Result<(), String> {
+        if !self.deps.allowed(client) {
+            return Err(VIEW_NOT_ALLOWED.to_owned());
+        }
         let mut effects = Vec::new();
         let mut state = self.lock();
         {
@@ -506,6 +534,7 @@ impl BrowserStreams {
             }
         }
         self.commit(state, effects);
+        Ok(())
     }
 
     /// Stop a phone's subscription.
@@ -542,9 +571,10 @@ impl BrowserStreams {
         self.commit(state, effects);
     }
 
-    /// Whether the phone holds a live subscription to the session.
+    /// Whether the phone holds a live subscription to the session, and may still view it.
     pub fn subscribed(&self, client: &str, session: &str) -> bool {
-        self.lock().subscription(session, client).is_some()
+        let held = self.lock().subscription(session, client).is_some();
+        held && self.deps.allowed(client)
     }
 
     /// Whether the phone holds a subscription to any session.
@@ -557,7 +587,8 @@ impl BrowserStreams {
         self.lock().subscription(session, client).is_some_and(|subscription| subscription.awaiting_fit)
     }
 
-    /// Withhold (false) or resume (true) a phone's images; resuming sends the newest picture at once.
+    /// Withhold (false) or resume (true) a phone's images; resuming sends the newest picture. The relay calls this under its state's
+    /// lock, so it only queues: the picture goes out at the relay's `deliver_queued`.
     pub fn set_images(&self, client: &str, session: &str, enabled: bool) {
         let mut effects = Vec::new();
         let mut state = self.lock();
@@ -571,7 +602,7 @@ impl BrowserStreams {
             subscription.slot = Some(cached);
             self.flush(&mut state, session, client, &mut effects);
         }
-        self.commit(state, effects);
+        self.queue(state, effects);
     }
 
     /// The phone painted `seq`: its next (newest) frame may go out.
