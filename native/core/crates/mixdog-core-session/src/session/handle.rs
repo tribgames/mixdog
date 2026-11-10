@@ -499,6 +499,12 @@ impl SessionHandle {
         if params.into_thread_id.is_none() {
             heir_place(&directory.deps, &mut header).await?;
         }
+        // The heir owns a Codex wire identity of its own: Node's cold heir drops the source's and mints one (`cold-heir.mjs:70`,
+        // `:143` `ensureCodexWireSessionId`), so the two sessions never share a `session_id` on the wire.
+        header.remove("codexWireSessionId");
+        if header.get("provider").and_then(Value::as_str) == Some("openai-oauth") {
+            header.insert("codexWireSessionId".into(), Value::String(uuid::Uuid::now_v7().to_string()));
+        }
         header.insert(
             "inheritedFromSessionId".into(),
             Value::String(self.id.as_str().to_owned()),

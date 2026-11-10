@@ -347,19 +347,30 @@ impl NodeClient {
         Self { pinned: Some(pinned), ..Self::new(tcp, None) }
     }
 
+    /// The address every connect goes to, when a test pinned it.
     #[cfg(any(test, feature = "test-support"))]
-    fn pinned_target(&self) -> Option<&Pinned> {
-        self.pinned.as_ref()
+    fn pinned_addr(&self) -> Option<SocketAddr> {
+        self.pinned.as_ref().map(|pinned| pinned.addr)
     }
 
     #[cfg(not(any(test, feature = "test-support")))]
-    fn pinned_target(&self) -> Option<&Pinned> {
+    fn pinned_addr(&self) -> Option<SocketAddr> {
         None
     }
 
+    /// The TLS configuration a test pinned, which trusts its own certificate alone.
+    #[cfg(any(test, feature = "test-support"))]
+    fn pinned_tls(&self) -> Option<Arc<rustls::ClientConfig>> {
+        self.pinned.as_ref().map(|pinned| pinned.tls.clone())
+    }
+
+    #[cfg(not(any(test, feature = "test-support")))]
+    fn pinned_tls(&self) -> Option<Arc<rustls::ClientConfig>> {
+        None
+    }
     /// The proxy the request goes through, decided before any pooled connection is looked at.
     async fn route(&self, url: &url::Url) -> Result<Option<String>, ProviderError> {
-        if self.pinned_target().is_some() {
+        if self.pinned_addr().is_some() {
             return Ok(None);
         }
         match &self.policy {
@@ -385,8 +396,8 @@ impl NodeClient {
         let bare = host.trim_start_matches('[').trim_end_matches(']').to_owned();
         let https = url.scheme() == "https";
         let port = url.port_or_known_default().unwrap_or(if https { 443 } else { 80 });
-        let tcp_stream: Stream = if let Some(pinned) = self.pinned_target() {
-            let socket = tcp::connect(pinned.addr, &self.tcp).await.map_err(|e| io_error(&e, true, DeliveryState::NotSent, surface))?;
+        let tcp_stream: Stream = if let Some(addr) = self.pinned_addr() {
+            let socket = tcp::connect(addr, &self.tcp).await.map_err(|e| io_error(&e, true, DeliveryState::NotSent, surface))?;
             Box::new(socket)
         } else {
             match proxy {
@@ -423,8 +434,8 @@ impl NodeClient {
         if !https {
             return Ok((tcp_stream, false));
         }
-        let config = match self.pinned_target() {
-            Some(pinned) => pinned.tls.clone(),
+        let config = match self.pinned_tls() {
+            Some(config) => config,
             None => tls_config().map_err(|e| io_error(&e, true, DeliveryState::NotSent, surface))?,
         };
         let name = rustls::pki_types::ServerName::try_from(bare)
