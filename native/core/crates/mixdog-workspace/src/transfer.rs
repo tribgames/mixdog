@@ -2036,6 +2036,35 @@ mod tests {
         assert!(t.begin_grant("dev", &grant_of(&t, dir.path(), "dev", "s1").grant_id).is_ok(), "a conversation removed before the close is no longer marked");
     }
 
+    /// Node's `relay close during a read`: a range held at the file when the relay closes (every download revoked) answers what Node's phone
+    /// got, the file is let go (nothing holds it: an exclusive open succeeds on Windows, where a held handle refuses one) and can be removed,
+    /// and a later range of the transfer is refused as Node's is.
+    #[test]
+    fn a_read_held_when_the_relay_closes_ends_as_nodes_and_lets_the_file_go() {
+        const NAME: &str = "relay close during a read";
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::default());
+        let grant = grant_of(&t, dir.path(), "dev", "s1");
+        let leased = t.begin_grant("dev", &grant.grant_id).unwrap();
+        let closing = t.clone();
+        t.on_point(Some(Arc::new(move |reached: &str| {
+            if reached == "read.read" {
+                closing.revoke_all();
+            }
+        })));
+        assert_refused_as(range_of(&t, "dev", &leased).unwrap_err(), &frame_of_held(NAME));
+        t.on_point(None);
+        assert_eq!(t.held_downloads(), open_in(NAME, 0));
+        let file = dir.path().join("a.bin");
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            drop(std::fs::OpenOptions::new().read(true).share_mode(0).open(&file).expect("no handle of the download is left open"));
+        }
+        std::fs::remove_file(&file).unwrap();
+        assert_refused_as(range_of(&t, "dev", &leased).unwrap_err(), &frame_of_call(NAME, 2));
+    }
+
     /// The sweeper's stop and an authorize's arm never lose the schedule (Node's `stopSweeperWhenIdle` and `addGrant` + `ensureSweeper` are
     /// each one synchronous step, `file-downloads.ts:527-545`): the abort of the last grant has looked at what is held and found nothing,
     /// and an authorize on another thread publishes its grant at that very moment. Either the authorize waits for the stop's step to end
