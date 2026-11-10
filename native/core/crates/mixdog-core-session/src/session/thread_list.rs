@@ -280,21 +280,12 @@ impl ThreadListService {
         Ok(row)
     }
 
-    /// The whole catalog, every page of it, as Node's `listSessions` lists it for `publishCatalogs` (one unpaged `session.list`,
-    /// `session-host.ts:797-804`); marked loaded only once it is all in hand, as Node marks it after its listing answered (`:807`).
+    /// The whole catalog as Node's `listSessions` lists it for `publishCatalogs`: one unpaged `session.list`
+    /// (`session-host.ts:797-804`), so one read of the index as it is at one moment, never pages a session could move between.
+    /// Marked loaded only once it is in hand, as Node marks it after its listing answered (`:807`).
     async fn whole_listing(&self) -> Result<Vec<ThreadSummary>, CoreError> {
-        let mut rows = Vec::new();
-        let mut cursor = None;
-        loop {
-            let page = self
-                .page(ThreadListParams { cursor, limit: Some(MAX_PAGE_LIMIT as u32), sort_key: None, sort_direction: None, archived: None, cwd: None, search_term: None })
-                .await?;
-            rows.extend(page.data);
-            match page.next_cursor {
-                Some(next) => cursor = Some(next),
-                None => break,
-            }
-        }
+        let whole = ThreadListParams { cursor: None, limit: None, sort_key: None, sort_direction: None, archived: None, cwd: None, search_term: None };
+        let rows = self.page_of(whole, usize::MAX).await?.data;
         self.loaded.store(true, std::sync::atomic::Ordering::SeqCst);
         self.published(&rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>());
         Ok(rows)
@@ -322,8 +313,17 @@ impl ThreadListService {
         Ok(response)
     }
 
-    /// One page of the listing.
+    /// One page of the listing, of the size the caller asked for within the listing's bounds.
     async fn page(&self, params: ThreadListParams) -> Result<ThreadListResponse, CoreError> {
+        let limit = match params.limit.map(|limit| limit as usize) {
+            Some(requested) if requested > 0 => requested.min(MAX_PAGE_LIMIT),
+            _ => DEFAULT_PAGE_LIMIT,
+        };
+        self.page_of(params, limit).await
+    }
+
+    /// At most `limit` rows of the listing after `params.cursor`, read from the index in one read.
+    async fn page_of(&self, params: ThreadListParams, limit: usize) -> Result<ThreadListResponse, CoreError> {
         if params.search_term.as_deref().is_some_and(|term| !term.is_empty()) {
             return Err(invalid("searchTerm", "absent: the listing has no text search (`thread/search` is the search)"));
         }
@@ -333,10 +333,6 @@ impl ThreadListService {
         if params.sort_direction.is_some_and(|direction| direction != SortDirection::Desc) {
             return Err(invalid("sortDirection", "desc: the listing is newest activity first"));
         }
-        let limit = match params.limit.map(|limit| limit as usize) {
-            Some(requested) if requested > 0 => requested.min(MAX_PAGE_LIMIT),
-            _ => DEFAULT_PAGE_LIMIT,
-        };
         let after = decode_catalog_cursor(params.cursor.as_deref())
             .map_err(|error| coded(DOMAIN, "EINVALIDCURSOR", error.to_string()))?;
         let workspace = self.workspace().await?;

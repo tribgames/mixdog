@@ -102,13 +102,8 @@ impl DirectorySessions {
         }
         if on {
             let now = self.directory.deps().clock.now_ms();
-            let archive = key == "archivedAt";
-            let stamp = if archive { self.stamps.next(now) } else { now };
-            self.patch(session_id, Map::from_iter([(key.to_owned(), json!(stamp))])).await?;
-            if archive {
-                self.stamps.note(stamp);
-            }
-            Ok(())
+            let stamp = if key == "archivedAt" { self.stamps.take(now) } else { now };
+            self.patch(session_id, Map::from_iter([(key.to_owned(), json!(stamp))])).await
         } else {
             self.patch_unset(session_id, Map::new(), vec![key.to_owned()]).await
         }
@@ -271,7 +266,7 @@ mod tests {
         sessions.set_archived("room_b", true).await.unwrap();
         assert_eq!((stamp("room_a").await, stamp("room_b").await), (Some(json!(now)), Some(json!(now + 1))));
         // The host's archive handed out a later stamp meanwhile: the rooms' next one follows it.
-        stamps.note(now + 5);
+        assert_eq!(stamps.take(now + 5), now + 5);
         sessions.set_archived("room_c", true).await.unwrap();
         assert_eq!(stamp("room_c").await, Some(json!(now + 6)));
     }
