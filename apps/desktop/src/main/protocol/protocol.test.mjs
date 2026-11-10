@@ -28,6 +28,11 @@ function fakeStore() {
     emit: (change) => listeners.forEach((l) => l(change)),
     section: (section, key = null) => map.get(section)?.get(key ?? ''),
     sections: (section) => [...(map.get(section)?.values() ?? [])],
+    // The app feed the store was last folded from; a test moves it to another core by assigning its epoch.
+    epoch: 'core-1',
+    appFeed() {
+      return { epoch: this.epoch };
+    },
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -180,6 +185,19 @@ test('a second reconnect supersedes a replace still sending: the old chunks are 
   assert.equal(stages.filter((s) => s === 'begin').length, 2);
   assert.equal(stages.filter((s) => s === 'commit').length, 1, 'only the last replace commits');
   assert.equal(stages.at(-1), 'commit');
+});
+
+test('a replace commits with the epoch of the app feed it was taken from, and the snapshot carries it too', () => {
+  const store = fakeStore();
+  const pushes = [];
+  const queue = [];
+  const relay = createSectionRelay({ store, sectionNames: SECTION_NAMES, send: (p) => pushes.push(p), defer: (f) => queue.push(f) });
+  assert.equal(relay.snapshot('ready').epoch, 'core-1');
+  store.epoch = 'core-2';
+  relay.reconnected();
+  while (queue.length > 0) queue.shift()();
+  assert.equal(pushes.at(-1).stage, 'commit');
+  assert.equal(pushes.at(-1).epoch, 'core-2');
 });
 test('a window gets the snapshot and pushes; only listed methods are callable; a watch is namespaced to its window', async () => {
   const client = fakeClient();

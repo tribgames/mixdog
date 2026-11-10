@@ -77,8 +77,14 @@ dbg_macro = "deny"
 debug = false
 incremental = false
 
+# Registry and git dependencies are compiled optimised; the workspace's own crates stay unoptimised, so an edit
+# rebuilds as fast as before. A dependency is compiled once per checkout and never again on an edit, while the
+# tests spend their processor time inside them (SQLite, sha2, serde_json, tokio). Measured 2026-11-10 on five
+# crates' suites (2,618 tests, eight threads, busy PC), twice each: 202 s and 184 s before, 148 s and 123 s
+# after; a log-reading store test 61 s -> 21 s; a migration crash matrix 222 -> 87 processor seconds.
 [profile.dev.package."*"]
 debug = false
+opt-level = 3
 
 [workspace.dependencies]
 # Internal crates (layering: SPEC §3.2; protocol/api crates at the bottom).

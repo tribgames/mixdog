@@ -35,6 +35,13 @@ pub struct ToolReviewRecorder {
     cwd: Arc<dyn ThreadCwd>,
 }
 
+/// `runtime-review-api.mjs`: `registerCacheInvalidationListener((paths) => noteTurnWorktreeChange(paths))`. Every invalidation
+/// of the read state (an edit, an apply_patch, a tidy write, a rejected cached read) is a boundary for the review of the
+/// worktrees holding those paths. No paths means anything may have changed.
+pub fn follow_read_state(review: Arc<dyn TurnReviewApi>, state: &mixdog_tools::fs::ReadState) {
+    state.on_invalidated(Arc::new(move |paths| review.note_change((!paths.is_empty()).then_some(paths))));
+}
+
 impl ToolReviewRecorder {
     pub fn new(review: Arc<dyn TurnReviewApi>, cwd: Arc<dyn ThreadCwd>) -> Self {
         Self { review, cwd }
