@@ -862,6 +862,89 @@ async fn provider_state_is_sent_updated_by_the_provider_and_handed_back() {
     assert_eq!(output.provider_state, None);
 }
 
+/// What Node's `agentLoop` calls the observer's callbacks with when the provider raises a notice among the other
+/// things a send reports (`fixtures/wire-anthropic-gemini/observer.json`, recorded by
+/// `benchmarks/rust-core/recorders/record-wire-anthropic-gemini.mjs`): the whole ordered stream, notices included,
+/// compared with every event the run loop gave its observer. An event with no Node callback to compare with is
+/// rendered as what it is, so it shows as a difference instead of being left out.
+#[tokio::test]
+async fn the_observer_stream_of_a_provider_notice_is_nodes_whole() {
+    let recording: JsonValue = serde_json::from_str(include_str!("../../../../fixtures/wire-anthropic-gemini/observer.json")).expect("observer.json");
+    let mut differences = Vec::new();
+    for scenario in recording["scenarios"].as_array().expect("scenarios") {
+        let id = scenario["id"].as_str().expect("id");
+        let mut steps = Vec::new();
+        let mut notices = Vec::new();
+        let mut refusal = None;
+        for step in scenario["steps"].as_array().expect("steps") {
+            match step[0].as_str().expect("kind") {
+                "notice" => {
+                    let warn = step[1] == "warn";
+                    let message = step[2].as_str().expect("message").to_owned();
+                    steps.push(Step::Event(StreamEvent::Notice { message: message.clone(), warn }));
+                    notices.push((message, warn));
+                }
+                "text" => steps.push(text(step[1].as_str().expect("text"))),
+                "fail" => {
+                    // The adapter hands the notices it raised before the failure over with it.
+                    let mut error = ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted);
+                    error.status = step[1].as_u64().map(|s| s as u16);
+                    error.message = step[2].as_str().expect("message").to_owned();
+                    error.notices = std::mem::take(&mut notices);
+                    refusal = Some(error);
+                }
+                other => panic!("{other}"),
+            }
+        }
+        let h = Harness::new(vec![match refusal {
+            Some(error) => Attempt::Reject(error),
+            None => {
+                steps.push(done(StopReason::EndTurn));
+                turn(steps)
+            }
+        }]);
+        let begun = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut config = config();
+        let counter = begun.clone();
+        config.request_begin = Some(Arc::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        }));
+        let ended = h.run(config, vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await;
+        // `onProviderSendStarted` is the request hook, which runs before the request's first event.
+        let mut stream: Vec<JsonValue> = (0..begun.load(Ordering::SeqCst)).map(|_| json!(["onProviderSendStarted"])).collect();
+        for event in h.observer.events() {
+            stream.extend(callbacks_of(event));
+        }
+        // Two events of the loop's own have no Node callback: `Stage(Streaming)` when the stream opens and the send's
+        // `Usage` when it ends (Node's loop keeps its usage in the result and makes no `onUsage` call; the recording
+        // shows neither). They are part of the compared stream at their place, so any other event, or either one
+        // anywhere else, is a difference.
+        let mut node: Vec<JsonValue> = scenario["observed"].as_array().expect("observed").clone();
+        if scenario["outcome"]["content"].is_string() {
+            node.insert(1, json!(["no Node callback", "Stage(Streaming)"]));
+            node.push(json!(["no Node callback", "Usage"]));
+        }
+        if JsonValue::Array(stream.clone()) != JsonValue::Array(node.clone()) {
+            differences.push(format!("{id}: observer stream: Node {} / Rust {}", JsonValue::Array(node), JsonValue::Array(stream)));
+        }
+        if ended.is_err() != scenario["outcome"]["error"].is_string() {
+            differences.push(format!("{id}: outcome: Node {} / Rust failed: {}", scenario["outcome"], ended.is_err()));
+        }
+    }
+    assert!(differences.is_empty(), "{} difference(s):\n{}", differences.len(), differences.join("\n"));
+}
+
+/// The Node callback(s) one run event is: a text delta is the provider's `onStreamDelta('text')` then `onTextDelta`
+/// (`StreamEvent::progress_kind`), a notice is `onStageChange('notice', { tone, message })`.
+fn callbacks_of(event: RunEvent) -> Vec<JsonValue> {
+    match event {
+        RunEvent::TextDelta(text) => vec![json!(["onStreamDelta", "text"]), json!(["onTextDelta", text])],
+        RunEvent::Stage(Stage::Notice { message, tone }) => vec![json!(["onStageChange", "notice", { "tone": tone.as_str(), "message": message }])],
+        RunEvent::Usage { .. } => vec![json!(["no Node callback", "Usage"])],
+        other => vec![json!(["no Node callback", format!("{other:?}")])],
+    }
+}
+
 #[tokio::test]
 async fn steering_enters_after_the_tool_batch_and_before_the_next_request() {
     let h = Harness::new(vec![

@@ -110,6 +110,7 @@ impl ResponseBuilder {
             }
             StreamEvent::Usage(usage) => response.usage = usage,
             StreamEvent::ProviderState(state) => response.provider_state = Some(state),
+            StreamEvent::ServedModel(model) => response.model = model,
             StreamEvent::ServerToolBlock(block) => response.server_blocks.push(block),
             StreamEvent::Completed { stop, request_ms, .. } => {
                 response.stop = stop;
@@ -122,6 +123,7 @@ impl ResponseBuilder {
             | StreamEvent::Refusal(_)
             | StreamEvent::Citation(_)
             | StreamEvent::ProviderKeepalive
+            | StreamEvent::Notice { .. }
             | StreamEvent::Progress(_)
             | StreamEvent::ChunkProgress(_) => {}
         }

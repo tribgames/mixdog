@@ -121,6 +121,7 @@ pub mod room_publication;
 mod roster_rows_tests;
 pub mod room_approvals;
 pub mod next_request_source;
+pub mod request_snapshot;
 pub mod warm_ports;
 pub mod desktop_notices;
 pub mod inheritance_fit;
