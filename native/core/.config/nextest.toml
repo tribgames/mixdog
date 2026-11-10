@@ -30,6 +30,10 @@ test-group = 'pg-cluster'
 [[profile.default.overrides]]
 filter = 'package(mixdog-core-session) & (test(=project::tests::every_recorded_step_equals_nodes_over_real_state) | test(=session::worktree::worktree_service_tests::the_safety_scenarios_leave_the_git_and_disk_state_nodes_left))'
 threads-required = 'num-test-threads'
+# With twelve checkouts building beside it the project replay takes 120-142 s (it passed in 141.87 s alone
+# on 2026-11-10): at the default 120 s it was killed in nine of nine runs of an hour, each a lost two
+# minutes and a failed suite that was then run again.
+slow-timeout = { period = "60s", terminate-after = 6 }
 
 # DS-WS-5 gates a real latency: an external write must reach the subscriber within 400 ms (250 ms of that is the watcher's batching
 # window). The OS watch cannot be given a clock, so the claim can only be measured on a machine that is not busy; beside the git replays
