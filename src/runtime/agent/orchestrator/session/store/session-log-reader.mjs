@@ -59,7 +59,13 @@ export function parseSessionLog(bytes, { messages: wantMessages = true } = {}) {
     damage: null,
     replayFrom: -1,
   };
-  const accepted = [];
+  // Records are applied as they are read and then dropped: a log of hundreds
+  // of megabytes is replayed holding its base, its header and (full replay)
+  // the transcript as it stands, never every record it ever held. Kept whole,
+  // a 205 MB log took a listing's rebuild worker past its heap and the daemon
+  // with it (2026-11-10).
+  let base = null;
+  let count = 0;
   let length = 0;
   let lastCompacted = -1;
   for (let pos = 0; pos < bytes.length; ) {
@@ -79,7 +85,7 @@ export function parseSessionLog(bytes, { messages: wantMessages = true } = {}) {
       pos = nl + 1;
       continue;
     }
-    const expected = accepted.length;
+    const expected = count;
     // The base is written whole (one atomic file), so its second record is
     // always the history: anything else there is not a log of ours.
     const misplaced =
@@ -98,33 +104,31 @@ export function parseSessionLog(bytes, { messages: wantMessages = true } = {}) {
       break;
     }
     length = nextLength;
-    if (record.t === RECORD.COMPACTED) lastCompacted = accepted.length;
-    accepted.push(record);
+    if (record.t === RECORD.COMPACTED) lastCompacted = count;
+    // The first record is the base; the second is always the history (a
+    // `compacted` record, which empties the transcript before it fills it),
+    // so a patch or a message record only ever follows a valid opening.
+    if (count === 0) base = record;
+    else if (record.t === RECORD.PATCH) applyPatch(base.header, record);
+    else if (wantMessages && isMessageRecord(record)) applyMessageRecord(result.messages, record);
+    count += 1;
     pos = nl + 1;
   }
-  if (accepted.length < 2) {
-    if (!result.damage && accepted.length) {
+  if (count < 2) {
+    if (!result.damage && count) {
       result.damage = { offset: bytes.length, expectedSeq: 1, foundSeq: null, reason: 'no-history' };
     }
     return result;
   }
-  const base = accepted[0];
   result.valid = true;
   result.logId = base.logId;
   result.sessionId = base.id;
   result.prev = base.prev;
   result.legacy = base.legacy;
-  result.seq = accepted.length - 1;
+  result.seq = count - 1;
   result.messageCount = length;
   result.replayFrom = lastCompacted;
-  const header = base.header;
-  for (const record of accepted) if (record.t === RECORD.PATCH) applyPatch(header, record);
-  result.header = header;
-  if (wantMessages) {
-    for (let i = lastCompacted; i < accepted.length; i += 1) {
-      if (isMessageRecord(accepted[i])) applyMessageRecord(result.messages, accepted[i]);
-    }
-  }
+  result.header = base.header;
   return result;
 }
 
