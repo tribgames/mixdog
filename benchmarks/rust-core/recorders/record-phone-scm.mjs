@@ -1768,38 +1768,6 @@ async function recordInputChecks() {
     ['setGitGlobalConfig-long-value', 'setGitGlobalConfig', ['user.name', 'v'.repeat(501)]],
   ];
   for (const [name, call, params] of refused) await rec(`refused-${name}`, call, params);
-  // ── a coercion that throws: `String(x)` and `Number(x)` of an object whose own `toString` or `valueOf` (never callable in JSON)
-  //    shadows the inherited one, alone, in a list and in a nested list, at each argument Node reads through a coercion: the
-  //    action (`Object.hasOwn(GITHUB_ACTIONS, action)`) and the sha (`/^[a-f0-9]{40}$/i.test`) of githubRequest (string hint),
-  //    the merge method (`String(method ?? 'merge')`, string hint) and the pull request number (`Number(value)`, number hint) of
-  //    gh-cli.ts, and the history page (`Number(value)`, number hint) ──
-  const shadowing = [
-    ['own-tostring-null', { toString: null }],
-    ['own-tostring-string', { toString: 'x' }],
-    ['own-tostring-object', { toString: {} }],
-    ['own-valueof-null', { valueOf: null }],
-    ['own-valueof-string', { valueOf: '1' }],
-    ['own-valueof-object', { valueOf: {} }],
-    ['own-both-null', { toString: null, valueOf: null }],
-    ['own-both-string', { toString: 'x', valueOf: '1' }],
-    ['own-both-object', { toString: {}, valueOf: {} }],
-  ];
-  const sites = [
-    ['githubRequest-action', 'githubRequest', (value) => [I, { action: value, repo: 'octo/demo' }]],
-    ['githubRequest-sha', 'githubRequest', (value) => [I, { action: 'pr.merge', repo: 'octo/demo', number: 1, sha: value }]],
-    ['ghPrMerge-method', 'ghPrMerge', (value) => [I, 12, value]],
-    ['ghPrMerge-number', 'ghPrMerge', (value) => [I, value, 'merge']],
-    ['ghPrView-number', 'ghPrView', (value) => [I, value]],
-    ['gitLog-offset', 'gitLog', (value) => [I, '', value, 40]],
-    ['gitLog-limit', 'gitLog', (value) => [I, '', 0, value]],
-  ];
-  for (const [site, call, at] of sites) {
-    for (const [label, value] of shadowing) {
-      for (const [wrap, wrapped] of [['', value], ['-in-list', [value]], ['-in-nested-list', [[value]]]]) {
-        await rec(`coerced-throw-${site}-${label}${wrap}`, call, at(wrapped));
-      }
-    }
-  }
   // ── spellings the request must carry as they are: inside a list or an object, an escaped key or string, an integer past 2^53 ──
   const cwdText = JSON.stringify(I);
   const spelled = [

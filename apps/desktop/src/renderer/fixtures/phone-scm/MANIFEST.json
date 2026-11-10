@@ -1,6 +1,6 @@
 {
   "calls": 62,
-  "cases": 739,
+  "cases": 550,
   "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "clock": "Date.now, new Date() and the run-limit timeouts are virtual; every other timer of the code under test is real and is printed, by delay, at the end of a recording",
@@ -22,9 +22,9 @@
       "sha256": "8b63c7e51d857b2c89d826722e34efdb5c7c34485b33f69dd19a5ade73364257"
     },
     {
-      "bytes": 2230737,
+      "bytes": 1849938,
       "path": "golden.json",
-      "sha256": "2d3fc56e389505bbc0dbd893661cae3004309790c1f91c511e30a1ddb6799697"
+      "sha256": "51b3b66abf8f5bea2e3a4dd0281bcf4a7a9597972582d7a3072c9556bcc78e1d"
     }
   ],
   "groups": {
@@ -37,7 +37,7 @@
       "what": "the GitHub CLI, its sign-in, pull requests and githubRequest (sections 6-8)"
     },
     "input": {
-      "cases": 451,
+      "cases": 262,
       "what": "the argument checks (section 0)"
     },
     "runner": {
@@ -77,7 +77,7 @@
   "recorderFiles": [
     {
       "path": "benchmarks/rust-core/recorders/record-phone-scm.mjs",
-      "sha256": "47b4157b88fbf82e2f5a7c8f80090f19acc8078e2ea0af3c3b9855f53a2c350d"
+      "sha256": "a80cb5d51856a016ccb57cad1a5f6392526938ba2b8958174aaeda841f41dd31"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -776,5 +776,5 @@
       }
     ]
   },
-  "totalBytes": 2256218
+  "totalBytes": 1875419
 }

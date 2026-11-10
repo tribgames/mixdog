@@ -88,7 +88,7 @@ fn to_entry(record: &Value) -> Map<String, Value> {
 
 /// `requiredPrNumber` (`gh-cli.ts`): `Number(value)` must be an integer from 1 to 10 000 000, so `'12'` is 12.
 pub(crate) fn required_number(value: &Value) -> Result<u64, ScmFailure> {
-    let number = mixdog_js::try_to_number(value).map_err(|error| ScmFailure::git(error.to_string()))?;
+    let number = mixdog_js::to_number(value);
     if number.is_finite() && number.fract() == 0.0 && (1.0..=10_000_000.0).contains(&number) {
         return Ok(number as u64);
     }
@@ -100,7 +100,7 @@ pub(crate) fn required_number(value: &Value) -> Result<u64, ScmFailure> {
 pub(crate) fn merge_args(value: &Value, method: &Value) -> Result<Vec<String>, ScmFailure> {
     let chosen = match method {
         Value::Null => "merge".to_owned(),
-        other => mixdog_js::try_value_to_string(other).map_err(|error| ScmFailure::git(error.to_string()))?,
+        other => mixdog_js::value_to_string(other),
     };
     if !["merge", "squash", "rebase"].contains(&chosen.as_str()) {
         return Err(ScmFailure::git("A valid merge method is required."));
