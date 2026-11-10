@@ -2995,3 +2995,43 @@ async fn the_loop_stores_and_runs_what_node_s_loop_does_for_a_leaked_call() {
     }
     assert!(compared > 100, "scenarios compared: {compared}");
 }
+
+/// A gate whose surface refuses `blocked` before any call is dispatched.
+struct BlockedSurface;
+#[async_trait]
+impl ToolGate for BlockedSurface {
+    async fn check_call(&self, _call_id: &str, _call: &GateCall) -> GateDecision {
+        GateDecision::Allow
+    }
+    fn pre_dispatch_deny(&self, call: &GateCall) -> Option<String> {
+        (call.name == "blocked").then(|| "Error: tool \"blocked\" is not available in this session.".to_owned())
+    }
+}
+
+/// Three refused calls leave the fourth waiting on outcomes that are only recorded after the decision pass; it is
+/// decided again once they are, instead of the batch ending without its result.
+#[tokio::test]
+async fn a_call_waiting_on_refused_earlier_calls_is_decided_again_and_runs() {
+    let mut h = Harness::new(vec![
+        turn(vec![
+            call("c1", "blocked", json!({"n": 1})),
+            call("c2", "blocked", json!({"n": 2})),
+            call("c3", "blocked", json!({"n": 3})),
+            call("c4", "echo", json!({"n": 4})),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    h.gate = Arc::new(BlockedSurface);
+    let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    let refusal = "Error: tool \"blocked\" is not available in this session.";
+    assert_eq!(
+        dump(&output.transcript)[2..],
+        [
+            format!("tool#c1(Error):{refusal}"),
+            format!("tool#c2(Error):{refusal}"),
+            format!("tool#c3(Error):{refusal}"),
+            "tool#c4(Normal):echo:{\"n\":4}".to_owned(),
+        ]
+    );
+}
