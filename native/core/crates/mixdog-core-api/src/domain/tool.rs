@@ -369,6 +369,13 @@ impl ToolError {
 
 pub type ToolOutcome = Result<ToolOutput, ToolError>;
 
+/// What the call of a projecting tool stands for ([`Tool::projection`]).
+pub trait CallProjection: Send + Sync {
+    /// The call `arguments` stand for on `thread`: the target tool and its arguments, or the model
+    /// text of why they stand for none (the call is then answered with that text and nothing runs).
+    fn project(&self, thread: &ThreadId, arguments: &JsonValue) -> Result<(String, JsonValue), String>;
+}
+
 #[async_trait]
 pub trait Tool: Send + Sync {
     fn spec(&self) -> &ToolSpec;
@@ -400,6 +407,13 @@ pub trait Tool: Send + Sync {
     /// Typed outbound classification for the policy (replaces the name list):
     /// the action kind this call performs outside the machine, if any.
     fn outbound_kind(&self, _args: &JsonValue) -> Option<ActionKind> {
+        None
+    }
+
+    /// Set by a tool that is only the name of another tool's call (the bridge's `call_tool`): the
+    /// loop replaces such a call by its target before anything judges it, so every layer sees the
+    /// target itself (Node `resolveExecutionToolCalls`).
+    fn projection(&self) -> Option<&dyn CallProjection> {
         None
     }
 

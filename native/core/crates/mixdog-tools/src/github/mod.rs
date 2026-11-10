@@ -21,6 +21,30 @@ use crate::orch::util::spec_from_def;
 const SPEC: &str = include_str!("specs/github.json");
 const RUN_LIMIT: u64 = 32_000_000;
 
+/// The actions that only read; every other request, an unknown one included, changes something
+/// (`githubRequestMutates`, `runtime/github/contract.mjs`).
+const READ_ACTIONS: [&str; 15] = [
+    "repo.list",
+    "repo.view",
+    "issue.list",
+    "issue.view",
+    "issue.comments",
+    "pr.list",
+    "pr.view",
+    "pr.comments",
+    "workflow.list",
+    "run.list",
+    "run.view",
+    "run.logs",
+    "release.list",
+    "release.view",
+    "notification.list",
+];
+
+/// Whether a `github` request may change something: an unknown action counts as a change.
+pub fn github_call_mutates(args: &JsonValue) -> bool {
+    !args.get("action").and_then(JsonValue::as_str).is_some_and(|action| READ_ACTIONS.contains(&action))
+}
 pub struct GithubTool {
     spec: ToolSpec,
 }
