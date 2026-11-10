@@ -152,6 +152,7 @@ const CASES = [
   ],
   ['agentRoomAction', ['leave', ['r1']], [['room/leave', { input: { roomId: 'r1' } }]]],
   ['agentRoomAction', ['remove', ['r1']], [['room/remove', { input: { roomId: 'r1' } }]]],
+  ['agentRoomAction', ['reset', ['r1']], [['room/reset', { input: { roomId: 'r1' } }]]],
   [
     'inheritSession',
     ['t1', route, { compact: true }],
@@ -301,7 +302,7 @@ test('a method with no request op is refused before anything is sent, with no fa
   for (const method of SERVICE_NOT_ROUTED) {
     await assert.rejects(service.call(method, []), (error) => error.code === 'unknownMethod', method);
   }
-  await assert.rejects(service.call('agentRoomAction', ['reset', ['r1']]), (error) => error.code === 'unknownMethod');
+  await assert.rejects(service.call('agentRoomAction', ['purge', ['r1']]), (error) => error.code === 'unknownMethod');
   assert.deepEqual(calls, []);
 });
 
