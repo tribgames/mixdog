@@ -94,5 +94,7 @@ test('keystrokes and resizes go out once the connection is up, without waiting f
   log.push('connection up');
   connected.resolve();
   await bounded(delivered.promise, 'both terminal calls to be sent once the connection is up, with the view sync still unfinished', 10_000);
+  // Node's fire waits for the connection and sends (remote-shim-calls.ts:354); the core's frame names are the spec table's, so there is no
+  // Node output of these entries to record: the order is the assertion (the lane's own order is recorded in phone-order/golden.json).
   assert.deepEqual(log, ['connection up', 'terminal/input', 'terminal/resize']);
 });

@@ -385,6 +385,19 @@ impl WorkspaceService {
         let _ = self.managed.set(managed);
     }
 
+    /// `projectDirectory`: the managed worktree's folder, else the Project's real path. `owner` asks for the Project's real path even for
+    /// a worktree (`startProjectTask`'s `canonicalDirectory(knownProject(path))`).
+    async fn project_directory(&self, path: &str, owner: bool, cancel: &CancellationToken) -> WsResult<PathBuf> {
+        let (project, worktree) = self.scope(path).await?;
+        match worktree.filter(|_| !owner) {
+            Some(folder) => Ok(folder),
+            None => {
+                let given = project.to_string_lossy().into_owned();
+                run_fallible(self.lanes.interactive, cancel, move || crate::catalog::canonical_directory(&project, &given)).await
+            }
+        }
+    }
+
     /// Node's `projectScope`: the registered Project a path names, or the owner of the managed worktree it names (with
     /// that worktree's folder). Any other path is the registry's refusal.
     async fn scope(&self, path: &str) -> WsResult<(PathBuf, Option<PathBuf>)> {
@@ -607,14 +620,7 @@ impl WorkspaceService {
             "project/directory" => {
                 // `projectDirectory`: the managed worktree's folder, else the Project's real path. `owner` asks for the
                 // Project's real path even for a worktree (`startProjectTask`'s `canonicalDirectory(knownProject(path))`).
-                let (project, worktree) = self.scope(s(params, "path")?).await?;
-                let folder = match worktree.filter(|_| !opt_bool(params, "owner")) {
-                    Some(folder) => folder,
-                    None => {
-                        let given = project.to_string_lossy().into_owned();
-                        run_fallible(self.lanes.interactive, &cancel, move || crate::catalog::canonical_directory(&project, &given)).await?
-                    }
-                };
+                let folder = self.project_directory(s(params, "path")?, opt_bool(params, "owner"), &cancel).await?;
                 value(json!({ "path": folder.to_string_lossy() }))
             }
             "project/recoveryDirectory" => {
@@ -1012,7 +1018,9 @@ impl WorkspaceService {
             }
             "transfer/abort" => value(json!({ "aborted": self.transfers.abort(&Self::owner(req), s(params, "transferId")?) })),
             "transfer/trash/info" => {
-                let root = crate::pathguard::absolute_local_path(s(params, "path")?)?;
+                // `serverTrashInfo` is handed `projectDirectory` of a registered project (ipc-server-files.ts:132), whatever the
+                // connection: a path that names none is the registry's refusal, and a relative one is read by the registry's rule.
+                let root = self.project_directory(s(params, "path")?, false, &cancel).await?;
                 value(run_fallible(self.lanes.interactive, &cancel, move || Ok(crate::servertrash::info(&root))).await?)
             }
             "transfer/grant/mint" => {

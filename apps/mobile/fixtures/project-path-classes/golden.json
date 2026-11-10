@@ -1,0 +1,324 @@
+{
+  "note": "What Node answers per class of project path, on a Windows host with the working directory on the project's parent: `known` (the registry's lookup), `ensure` (the folder the catalog makes) and `add` (the real path `addProject` registers); `{proj}` is the registered folder, `{tmp}` its parent. Answers are in the order of `inputs`.",
+  "inputs": [
+    {
+      "name": "absolute",
+      "template": "{proj}"
+    },
+    {
+      "name": "trailing separator",
+      "template": "{proj}\\"
+    },
+    {
+      "name": "forward slashes",
+      "template": "{projSlash}"
+    },
+    {
+      "name": "upper case",
+      "template": "{projUpper}"
+    },
+    {
+      "name": "dot-dot inside",
+      "template": "{proj}\\sub\\.."
+    },
+    {
+      "name": "padded",
+      "template": "  {proj}  "
+    },
+    {
+      "name": "relative",
+      "template": "proj"
+    },
+    {
+      "name": "relative dot",
+      "template": ".\\proj"
+    },
+    {
+      "name": "relative dot-dot",
+      "template": "..\\{tmpName}\\proj"
+    },
+    {
+      "name": "relative, nothing there",
+      "template": "other"
+    },
+    {
+      "name": "relative, a new nested folder",
+      "template": "made\\deep"
+    },
+    {
+      "name": "rooted backslash",
+      "template": "{tmpRooted}\\proj"
+    },
+    {
+      "name": "rooted slash",
+      "template": "{tmpRootedSlash}/proj"
+    },
+    {
+      "name": "drive-relative",
+      "template": "{drive}proj"
+    },
+    {
+      "name": "absolute, not registered",
+      "template": "{tmp}\\other"
+    },
+    {
+      "name": "absolute, a new nested folder",
+      "template": "{tmp}\\made2\\deep"
+    },
+    {
+      "name": "device path",
+      "template": "\\\\?\\{proj}"
+    },
+    {
+      "name": "empty",
+      "template": ""
+    },
+    {
+      "name": "blank",
+      "template": "   "
+    },
+    {
+      "name": "NUL inside",
+      "template": "{proj}\u0000"
+    }
+  ],
+  "answers": {
+    "known": [
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "error": {
+          "name": "Error",
+          "message": "Project is not available.",
+          "code": "PROJECT_UNAVAILABLE"
+        }
+      },
+      {
+        "error": {
+          "name": "Error",
+          "message": "Project is not available.",
+          "code": "PROJECT_UNAVAILABLE"
+        }
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "error": {
+          "name": "Error",
+          "message": "Project is not available.",
+          "code": "PROJECT_UNAVAILABLE"
+        }
+      },
+      {
+        "error": {
+          "name": "Error",
+          "message": "Project is not available.",
+          "code": "PROJECT_UNAVAILABLE"
+        }
+      },
+      {
+        "error": {
+          "name": "Error",
+          "message": "Project is not available.",
+          "code": "PROJECT_UNAVAILABLE"
+        }
+      },
+      {
+        "error": {
+          "name": "Error",
+          "message": "Project is not available.",
+          "code": "PROJECT_UNAVAILABLE"
+        }
+      },
+      {
+        "error": {
+          "name": "Error",
+          "message": "Project is not available.",
+          "code": "PROJECT_UNAVAILABLE"
+        }
+      },
+      {
+        "error": {
+          "name": "Error",
+          "message": "Project is not available.",
+          "code": "PROJECT_UNAVAILABLE"
+        }
+      }
+    ],
+    "ensure": [
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{PROJ}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{tmp}\\other"
+      },
+      {
+        "result": "{tmp}\\made\\deep"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{tmp}\\other"
+      },
+      {
+        "result": "{tmp}\\made2\\deep"
+      },
+      {
+        "result": "\\\\?\\{proj}"
+      },
+      {
+        "error": {
+          "name": "TypeError",
+          "message": "project path is required"
+        }
+      },
+      {
+        "error": {
+          "name": "TypeError",
+          "message": "project path is required"
+        }
+      },
+      {
+        "error": {
+          "name": "Error",
+          "message": "project directory could not be created"
+        }
+      }
+    ],
+    "add": [
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{tmp}\\other"
+      },
+      {
+        "result": "{tmp}\\made\\deep"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "result": "{tmp}\\other"
+      },
+      {
+        "result": "{tmp}\\made2\\deep"
+      },
+      {
+        "result": "{proj}"
+      },
+      {
+        "error": {
+          "name": "TypeError",
+          "message": "projectPath is invalid."
+        }
+      },
+      {
+        "error": {
+          "name": "TypeError",
+          "message": "projectPath is invalid."
+        }
+      },
+      {
+        "error": {
+          "name": "TypeError",
+          "message": "The argument 'path' must be a string, Uint8Array, or URL without null bytes. Received '{proj}\\x00'",
+          "code": "ERR_INVALID_ARG_VALUE"
+        }
+      }
+    ]
+  }
+}

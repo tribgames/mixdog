@@ -202,6 +202,12 @@ async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause(
         panic!("terminal/ensure answers with a value");
     };
     let id = ensured["id"].as_str().unwrap().to_owned();
+    // The sizes are the claims Node recorded in the phone replay (apps/mobile/fixtures/phone-terminal/golden.json, trace.claims.sizeOwner):
+    // the first claim of a tab (`own`, its size) and the claim released by a non-positive size.
+    let golden: Value = serde_json::from_str(include_str!("../../../apps/mobile/fixtures/phone-terminal/golden.json")).unwrap();
+    let owners = &golden["trace"]["claims"]["sizeOwner"];
+    let (claimed, released) = (&owners[0], &owners[4]);
+    assert_eq!((claimed["own"].clone(), released["own"].clone()), (json!(true), json!(false)), "the recorded claim owns, the recorded release does not");
     let attach = |connection: u64| {
         let service = Arc::clone(&service);
         let id = id.clone();
@@ -220,9 +226,9 @@ async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause(
 
     // A claim (Node's `phoneOwner`) owns; it is told `own`, every other connection is not. The reply
     // names the connection (`client`) so a phone can tell its own claim in the tabs section.
-    service.notify(Method("terminal/resize"), json!({ "tabId": id, "cols": 100, "rows": 30, "claim": true }), ConnectionId(1));
+    service.notify(Method("terminal/resize"), json!({ "tabId": id, "cols": claimed["cols"], "rows": claimed["rows"], "claim": true }), ConnectionId(1));
     let mine = attach(1).await;
-    assert_eq!((mine["own"].clone(), mine["cols"].clone(), mine["rows"].clone()), (json!(true), json!(100), json!(30)));
+    assert_eq!((mine["own"].clone(), mine["cols"].clone(), mine["rows"].clone()), (claimed["own"].clone(), claimed["cols"].clone(), claimed["rows"].clone()));
     assert_eq!(attach(2).await["own"], json!(false));
     let client_of = |connection: u64| {
         let service = Arc::clone(&service);
@@ -246,16 +252,16 @@ async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause(
         Some((owner["owner"].as_str()?.to_owned(), owner["cols"].as_u64()?, owner["rows"].as_u64()?))
     };
     publisher.wait_for("the owner in the tab list section", |_| owner_in_section().is_some()).await;
-    assert_eq!(owner_in_section(), first.clone().map(|c| (c, 100, 30)));
+    assert_eq!(owner_in_section(), first.clone().map(|c| (c, claimed["cols"].as_u64().unwrap(), claimed["rows"].as_u64().unwrap())));
 
     // A resize that is not a claim is ignored while one stands.
     service.notify(Method("terminal/resize"), json!({ "tabId": id, "cols": 70, "rows": 20 }), ConnectionId(2));
-    assert_eq!(attach(1).await["cols"], json!(100));
+    assert_eq!(attach(1).await["cols"], claimed["cols"]);
 
     // The owner's connection closing releases nothing: its lease does.
     service.connection_closed(ConnectionId(1));
-    assert_eq!(attach(2).await["cols"], json!(100));
-    service.notify(Method("terminal/resize"), json!({ "tabId": id, "cols": 0, "rows": 0, "claim": true }), ConnectionId(1));
+    assert_eq!(attach(2).await["cols"], claimed["cols"]);
+    service.notify(Method("terminal/resize"), json!({ "tabId": id, "cols": released["cols"], "rows": released["rows"], "claim": true }), ConnectionId(1));
     assert_eq!(attach(2).await, Value::Null);
 
     for method in ["terminal/pause", "terminal/resume"] {
@@ -372,16 +378,18 @@ async fn terminal_ensure_opens_the_output_feed_without_an_attach() {
     let publisher = Arc::new(SectionLog::default());
     let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
     let cwd = temp_dir().as_path().to_string_lossy().into_owned();
+    let tab = "term_feed";
     let Reply::Value(ensured) = service
-        .call(request("terminal/ensure", json!({ "tabId": "term_feed", "options": { "cwd": cwd } }), 1))
+        .call(request("terminal/ensure", json!({ "tabId": tab, "options": { "cwd": cwd } }), 1))
         .await
         .unwrap()
     else {
         panic!("terminal/ensure answers with a value");
     };
-    assert_eq!(ensured["id"], json!("term_feed"));
+    // Node answers an ensure with the id it was given (phone-terminal golden.json, `termEnsure` of `term_ph2_l1`: `{ id: "term_ph2_l1" }`).
+    assert_eq!(ensured["id"], json!(tab));
     let ids: Vec<String> = made.ids().iter().map(ToString::to_string).collect();
-    assert_eq!(ids, vec!["process:term_feed".to_owned()]);
+    assert_eq!(ids, vec![format!("process:{tab}")]);
     service.tabs().dispose_all();
 }
 

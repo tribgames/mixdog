@@ -156,6 +156,14 @@ pub fn absolute_local_path(value: &str) -> WsResult<PathBuf> {
     Ok(PathBuf::from(mixdog_js::nodepath::resolve_host(&[text])))
 }
 
+/// How Node's project registry reads a path (`resolveProjectPath`, projects.mjs:251, behind `knownPath`, `ensureDir` and the catalog): the
+/// string trimmed and, unless empty, resolved by the host's `path.resolve` against the working directory. Nothing else is checked and a
+/// relative path is not refused, unlike `absoluteLocalPath` (local-files.ts:7), which the local-file operations use.
+pub fn project_path(value: &str) -> Option<PathBuf> {
+    let text = mixdog_js::js_trim(value);
+    (!text.is_empty()).then(|| PathBuf::from(mixdog_js::nodepath::resolve_host(&[text])))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
