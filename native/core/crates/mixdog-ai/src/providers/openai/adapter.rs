@@ -14,6 +14,7 @@
 #![allow(clippy::result_large_err, reason = "the frozen provider error type is returned unboxed")]
 
 use crate::transport::deadlines::MODEL_STREAM_FETCH;
+use crate::transport::deadlines::PRECONNECT;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fmt;
@@ -86,6 +87,10 @@ const ZSTD_LEVEL: i32 = 3;
 /// `_openaiReqZstdLatch`: set once a request the backend refused (400/415) as compressed was accepted plain, after which
 /// no body of this process is compressed (Node's latch is module-wide, so it outlives the provider that set it).
 static ZSTD_LATCHED: AtomicBool = AtomicBool::new(false);
+/// `CODEX_BACKEND_ORIGIN` (`openai-codex-endpoints.mjs:10`), the one origin the Codex route warms.
+const CODEX_BACKEND_ORIGIN: &str = "https://chatgpt.com";
+/// `_preconnectedAt` (`shared/llm/http-agent.mjs:482`): when each origin was last warmed, per process.
+static PRECONNECTED_AT: Mutex<Option<HashMap<&'static str, u64>>> = Mutex::new(None);
 
 // ---------------------------------------------------------------------------
 // Credentials
@@ -280,7 +285,7 @@ impl OpenAiAdapter {
             links.credentials.clone(),
             links.listing,
         );
-        Self {
+        let adapter = Self {
             id,
             codec,
             policy: super::policy::retry_policy(),
@@ -294,13 +299,56 @@ impl OpenAiAdapter {
             mode: TransportMode::default(),
             models,
             compress_lane: links.compress_lane,
-        }
+        };
+        // The provider's constructor warms the socket (`openai-oauth.mjs:106`).
+        adapter.preconnect();
+        adapter
     }
 
     /// The transport policy of a WebSocket codec (default `auto`).
     pub fn with_mode(mut self, mode: TransportMode) -> Self {
         self.mode = mode;
         self
+    }
+
+    /// `preconnect(CODEX_BACKEND_ORIGIN)` (`shared/llm/http-agent.mjs:496-527`): a fire-and-forget HEAD that lands a
+    /// kept-alive socket, gated by a TTL of `MIXDOG_LLM_KEEPALIVE_MS` (60 s) less 10 s, at least 5 s. Any failure only
+    /// clears the stamp so the next call warms again; nothing is surfaced.
+    fn preconnect(&self) {
+        if self.codec.route() != Route::Codex {
+            return;
+        }
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
+        let keepalive = self.context.var("MIXDOG_LLM_KEEPALIVE_MS").and_then(|raw| raw.trim().parse::<u64>().ok()).unwrap_or(60_000);
+        let ttl = keepalive.saturating_sub(10_000).max(5_000);
+        let now = self.context.now_unix_ms();
+        {
+            let mut stamps = PRECONNECTED_AT.lock().unwrap_or_else(PoisonError::into_inner);
+            let stamps = stamps.get_or_insert_with(HashMap::new);
+            if stamps.get(CODEX_BACKEND_ORIGIN).is_some_and(|last| now.saturating_sub(*last) < ttl) {
+                return;
+            }
+            stamps.insert(CODEX_BACKEND_ORIGIN, now);
+        }
+        let http = self.http.clone();
+        runtime.spawn(async move {
+            let head = WireRequest {
+                transport: TransportKind::Http1,
+                method: "HEAD".into(),
+                url: format!("{CODEX_BACKEND_ORIGIN}/"),
+                headers: Vec::new(),
+                body: Vec::new(),
+            };
+            let warmed = match http.send(head, PRECONNECT).await {
+                Ok(response) => response.read_all().await.is_ok(),
+                Err(_) => false,
+            };
+            if !warmed
+                && let Some(stamps) = PRECONNECTED_AT.lock().unwrap_or_else(PoisonError::into_inner).as_mut()
+            {
+                stamps.remove(CODEX_BACKEND_ORIGIN);
+            }
+        });
     }
 
     fn authorize(&self, mut wire: WireRequest, credential: &Credential) -> WireRequest {
@@ -550,6 +598,8 @@ impl ProviderAdapter for OpenAiAdapter {
     /// HTTP/SSE rather than trying a sixth socket). A switch of an `openai-oauth`
     /// session and every 1009 stay switched for the session.
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        // `_sendOnce` re-warms before every turn (`openai-oauth.mjs:170`).
+        self.preconnect();
         let route = self.codec.route();
         let scope = request_scope(&request).map(str::to_owned);
         let keys: Vec<&str> = scope.iter().map(String::as_str).chain(request.options.session_id.as_deref()).collect();
