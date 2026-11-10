@@ -77,6 +77,8 @@ pub(crate) struct GateDomain {
     pub(crate) methods: &'static [&'static str],
     pub(crate) log: Mutex<Vec<String>>,
     pub(crate) permits: Semaphore,
+    /// Each call's hold on its reply (`CallContext::reply_queued`), in call order.
+    pub(crate) held: Mutex<Vec<mixdog_rt::CancellationToken>>,
 }
 
 impl GateDomain {
@@ -98,6 +100,7 @@ impl DomainService for GateDomain {
             .unwrap_or("")
             .to_owned();
         let tag = format!("{}:{tag}", req.method);
+        self.held.lock().unwrap().push(req.ctx.reply_queued.hold());
         self.log.lock().unwrap().push(format!("start {tag}"));
         self.permits.acquire().await.unwrap().forget();
         self.log.lock().unwrap().push(format!("end {tag}"));
@@ -336,6 +339,7 @@ impl Rig {
                         methods,
                         log: Mutex::new(Vec::new()),
                         permits: Semaphore::new(0),
+                        held: Mutex::new(Vec::new()),
                     };
                     (name, Arc::new(gate))
                 })
@@ -398,6 +402,15 @@ impl Rig {
         Client { handle, wire }
     }
 
+    /// A connection whose writer runs `watch` on each control frame just before it queues it.
+    pub(crate) fn connect_watched(&self, id: u64, watch: impl Fn(&Bytes) + Send + Sync + 'static) -> Client {
+        let wire = Arc::new(MockConnection::new(ConnectionId(id), MockLimits::default()));
+        let sink = WatchedSink { inner: wire.clone(), watch: Box::new(watch) };
+        self.origins.lock().unwrap().insert(ConnectionId(id), Origin::Local);
+        let handle = self.server.open(ConnectionId(id), Arc::new(sink));
+        Client { handle, wire }
+    }
+
     /// A ready connection that names itself `device` (its `clientInfo.title`) and is a
     /// `kind` client.
     pub(crate) fn ready_as(&self, id: u64, device: &str, kind: &str) -> Client {
@@ -446,6 +459,35 @@ impl ConnectionSink for HookedSink {
     }
 
     fn send_control_release(&self, frame: Bytes, release: LaneRelease) -> Result<(), SinkClosed> {
+        self.inner.send_control_release(frame, release)
+    }
+
+    fn open_lane(
+        &self,
+        sub: SubscriptionId,
+        recovery: Arc<dyn LaneRecovery>,
+    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
+        self.inner.open_lane(sub, recovery)
+    }
+}
+
+struct WatchedSink {
+    inner: Arc<MockConnection>,
+    watch: Box<dyn Fn(&Bytes) + Send + Sync>,
+}
+
+impl ConnectionSink for WatchedSink {
+    fn id(&self) -> ConnectionId {
+        self.inner.id()
+    }
+
+    fn send_control(&self, frame: Bytes) -> Result<(), SinkClosed> {
+        (self.watch)(&frame);
+        self.inner.send_control(frame)
+    }
+
+    fn send_control_release(&self, frame: Bytes, release: LaneRelease) -> Result<(), SinkClosed> {
+        (self.watch)(&frame);
         self.inner.send_control_release(frame, release)
     }
 

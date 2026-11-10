@@ -49,6 +49,7 @@ use mixdog_core_api::CoreRequest;
 use mixdog_core_api::CoreState;
 use mixdog_core_api::HostError;
 use mixdog_core_api::Reply;
+use mixdog_core_api::ReplyQueued;
 use mixdog_core_api::Subscribe;
 use mixdog_core_api::ThreadHandle;
 use mixdog_core_api::feed::AttachMode;
@@ -262,7 +263,8 @@ type ReplyFuture = Pin<Box<dyn Future<Output = Result<Reply, CoreError>> + Send>
 
 enum Dispatch {
     Ready(Result<Reply, CoreError>),
-    Later(TaskClass, ReplyFuture),
+    /// The work, and its context's reply mark, set once the reply has been queued.
+    Later(TaskClass, ReplyFuture, ReplyQueued),
 }
 
 fn method_index() -> &'static HashMap<&'static str, &'static MethodSpec> {
@@ -375,13 +377,16 @@ impl Shared {
                 drop(slot);
                 self.finish(conn, &id, outcome);
             }
-            Dispatch::Later(class, work) => {
+            Dispatch::Later(class, work, replied) => {
                 let shared = Arc::clone(self);
                 let owner = Arc::clone(conn);
                 let run = async move {
                     let outcome = work.await;
                     drop(slot);
                     shared.finish(&owner, &id, outcome);
+                    // The response is in the connection's control queue, which the writer empties before any lane frame
+                    // (`ConnectionWriter::next_work`): what the call held for its reply goes out after it.
+                    replied.mark();
                 };
                 match scope {
                     Some(scope) => {
@@ -608,6 +613,7 @@ impl Shared {
             ClientRequest::OpStatus { params, .. } => {
                 let core = Arc::clone(&self.core);
                 let ctx = CallContext::connection(conn.id, origin, conn.cancel.clone());
+                let replied = ctx.reply_queued.clone();
                 Dispatch::Later(
                     TaskClass::Work,
                     Box::pin(async move {
@@ -621,6 +627,7 @@ impl Shared {
                             .await?;
                         op_status_reply(params.op_ids, statuses)
                     }),
+                    replied,
                 )
             }
             ClientRequest::HostClaim { params, .. } => {
@@ -639,6 +646,7 @@ impl Shared {
                         shared.outgoing.claim(params.host_id, &conn);
                         Ok(Reply::Value(empty_result()))
                     }),
+                    ReplyQueued::new(),
                 )
             }
             _ => {
@@ -662,6 +670,7 @@ impl Shared {
         op: Option<OpId>,
     ) -> Dispatch {
         let ctx = CallContext::connection(conn.id, origin, conn.cancel.clone());
+        let replied = ctx.reply_queued.clone();
         let namespace = namespace(spec.method);
         let thread = THREAD_NAMESPACES
             .contains(&namespace)
@@ -696,6 +705,7 @@ impl Shared {
                         _ => core.threads().request(request).await,
                     }
                 }),
+                replied,
             );
         }
         Dispatch::Later(
@@ -706,6 +716,7 @@ impl Shared {
                     None => Err(unclaimed(spec.method)),
                 }
             }),
+            replied,
         )
     }
 
@@ -731,6 +742,7 @@ impl Shared {
         let Some(thread) = thread else {
             return Dispatch::Ready(Ok(Reply::Value(stop_reply(None, false))));
         };
+        let replied = ctx.reply_queued.clone();
         let stop = Stop { turn: turn_id, restore_prompt, submission_id, ctx };
         Dispatch::Later(
             TaskClass::Control,
@@ -738,6 +750,7 @@ impl Shared {
                 let reply = thread.stop(stop).await?;
                 Ok(Reply::Value(reply))
             }),
+            replied,
         )
     }
 
