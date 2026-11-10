@@ -52,8 +52,15 @@ function databaseEnded(dataDir) {
   const pgdata = join(dataDir, 'pgdata');
   const [pid, , , port] = readFileSync(pidFile, 'utf8').split('\n').map((line) => line.trim());
   const running = spawnSync('powershell', ['-NoProfile', '-Command', `if (Get-Process -Id ${pid} -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }`]).status === 0;
-  if (!running) spawnSync(bin, ['start', '-D', pgdata, '-w', '-t', '600', '-o', `-p ${port}`], { stdio: 'ignore' });
-  spawnSync(bin, ['stop', '-D', pgdata, '-m', 'fast', '-w', '-t', '600'], { stdio: 'ignore' });
+  if (!running) {
+    // On Windows `pg_ctl start -w` takes a pid file whose start time is within 2 s of its own start as the new server's, ready: the dead one's file would end its wait at once
+    // and the stop below would find no server, leaving the recovering one to hold the data directory against the core. The dead server's file is removed first.
+    rmSync(pidFile);
+    const started = spawnSync(bin, ['start', '-D', pgdata, '-w', '-t', '600', '-o', `-p ${port}`], { stdio: 'ignore' });
+    if (started.status !== 0) throw new Error(`recovering the killed core's database failed: pg_ctl start exited ${started.status}`);
+  }
+  const stopped = spawnSync(bin, ['stop', '-D', pgdata, '-m', 'fast', '-w', '-t', '600'], { stdio: 'ignore' });
+  if (stopped.status !== 0) throw new Error(`stopping the core's database failed: pg_ctl stop exited ${stopped.status}`);
 }
 /** The port of the core's database, which the core keeps in its data directory and takes again at its next start. */
 const databasePort = (dataDir) => {

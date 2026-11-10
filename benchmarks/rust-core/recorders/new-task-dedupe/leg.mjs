@@ -91,9 +91,9 @@ const daemon = {
   },
   configure: async (args) => {
     // The daemon's `setRoute` readies the route's provider in the provider registry before anything else
-    // (set-route.mjs:50 `ensureProvidersReady(ensureProviderEnabled(config, provider))`, provider-readiness.mjs:116 `initProviders`):
+    // (set-route.mjs:51 `ensureProvidersReady(ensureProviderEnabled(config, provider))`, provider-readiness.mjs:116 `initProviders`):
     // a provider the registry does not know is refused there, with the registry's own error (registry.mjs:223, wrapped at :366,
-    // thrown at :380), which reaches the host unchanged (daemon-local-session-bridge.mjs:24-40 passes the rejection on).
+    // thrown at :383), which reaches the host unchanged (daemon-local-session-bridge.mjs:23-41 passes the rejection on).
     if (args.action === 'setRoute') await initProviders({ [args.args[0].provider]: { enabled: true } });
     return { ...full(args.sessionId), value: args.action === 'setRoute' ? { provider: args.args[0].provider, model: args.args[0].model } : null };
   },
