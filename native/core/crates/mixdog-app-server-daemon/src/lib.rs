@@ -146,7 +146,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
         &data_dir,
         compose::ext_host_config(&js_runtime, &data_dir, &tokens),
         serving::StartIn {
-            runtime_root,
+            runtime_root: runtime_root.clone(),
             exiter: std::sync::Arc::new(lifecycle::ProcessExiter),
             update_text: control::UPDATE_TEXT.to_owned(),
         },
@@ -167,6 +167,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     let sweep_dir = data_dir.clone();
     let config = compose::ComposeConfig {
         user_data_dir: data_dir.join("userdata"),
+        runtime_root,
         data_dir,
         js_runtime,
         ort_library,
@@ -236,6 +237,8 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     core.start_heartbeat();
     // `startPostgresInBackground` (daemon.mjs:1274), after ready: the memory database starts here only where a cluster already exists.
     core.open_memory_in_background();
+    // A pinned channel session outlives the core that pinned it (daemon.mjs:1284-1293): restored after ready, off the boot path.
+    core.restore_remote_intent();
     // The report-only stall monitor (LR §5.4): the runtime probe and the lanes' wedge watch. It lives as long as the process serves.
     let _stall_monitor = serving.watch_stalls(executors.clone());
     // A stop that arrived on the way is handed over now: the watcher has been live since boot.

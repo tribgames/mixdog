@@ -5,6 +5,7 @@
 pub mod admin;
 pub mod bridge;
 pub mod call;
+pub mod intent;
 pub mod ports;
 pub mod running;
 pub mod runtime;
@@ -14,6 +15,8 @@ pub mod tools;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod intent_tests;
 #[cfg(test)]
 mod setup_tests;
 #[cfg(test)]

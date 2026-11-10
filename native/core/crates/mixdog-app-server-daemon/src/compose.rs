@@ -403,6 +403,10 @@ impl ComposedCore {
         self.real.open_memory_in_background();
     }
 
+    pub fn restore_remote_intent(&self) {
+        self.real.restore_remote_intent();
+    }
+
     /// The memory database handle, for the readiness test that makes a first use.
     #[cfg(test)]
     pub fn memory_db(&self) -> Arc<mixdog_services::memory::pg::db::Db> {
@@ -555,6 +559,8 @@ pub struct ComposeConfig {
     pub data_dir: PathBuf,
     /// The desktop profile folder (editor backups, `User/settings.json`).
     pub user_data_dir: PathBuf,
+    /// The runtime root (`discovery::runtime_root`): the channel remote intent lives there, as in Node.
+    pub runtime_root: PathBuf,
     pub js_runtime: JsRuntime,
     /// The ONNX Runtime shared library (install layout), or that the platform has no binding.
     pub ort_library: OrtRuntime,
@@ -599,7 +605,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
 /// [`compose`], whose slow waits (the PostgreSQL install and start) end when `interrupt` is cancelled: `serve` cancels it when a stop arrives meanwhile. A composition that
 /// fails, interrupted or not, gives back what it had acquired before it returns the error (`Acquired`), so no PostgreSQL is left running.
 pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, interrupt: tokio_util::sync::CancellationToken) -> Result<ComposedCore, ComposeError> {
-    let ComposeConfig { data_dir, user_data_dir, js_runtime, ort_library, outgoing, ownership, log, stop, catalog_http, #[cfg(test)] pg_install } = config;
+    let ComposeConfig { data_dir, user_data_dir, runtime_root, js_runtime, ort_library, outgoing, ownership, log, stop, catalog_http, #[cfg(test)] pg_install } = config;
     let data_dir = data_dir.as_path();
     let state_dir = data_dir.join("state");
     create_dir(tokens, state_dir.clone()).await.map_err(ComposeError::StateDir)?;
@@ -676,6 +682,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         tokens: tokens.clone(),
         data_dir: data_dir.to_path_buf(),
         user_data_dir,
+        runtime_root,
         package_root: js_runtime.package_root.clone(),
         js_runtime,
         #[cfg(test)]
@@ -802,6 +809,7 @@ mod tests {
         ComposeConfig {
             data_dir: data.to_path_buf(),
             user_data_dir: dir.join("userdata"),
+            runtime_root: dir.join("runtime"),
             js_runtime: crate::js_runtime::fixture(dir),
             ort_library: OrtRuntime::NoBinding,
             outgoing: mixdog_app_server::Outgoing::new(),
