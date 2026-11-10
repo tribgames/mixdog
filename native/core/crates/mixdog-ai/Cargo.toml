@@ -10,6 +10,9 @@ workspace = true
 [features]
 # The loopback TLS server and manifest reader of the wire parity checks (`transport::loopback`, `transport::manifest`).
 test-support = ["dep:rcgen"]
+# Counters of the credential reads, provider constructions and provider-map loads (mixdog_ai::work): for the dev-dependency of
+# the crate whose tests count them, never a normal build.
+count-work = ["dep:mixdog-secrets", "mixdog-secrets/count-work"]
 
 [dependencies]
 rcgen = { workspace = true, optional = true }
@@ -58,11 +61,6 @@ url = { workspace = true }
 mixdog-secrets = { workspace = true, optional = true }
 zstd = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
-
-[features]
-# Counters of the credential reads, provider constructions and provider-map loads (mixdog_ai::work): for the dev-dependency of
-# the crate whose tests count them, never a normal build.
-count-work = ["dep:mixdog-secrets", "mixdog-secrets/count-work"]
 
 [dev-dependencies]
 mixdog-js = { workspace = true, features = ["fixture-tools"] }
