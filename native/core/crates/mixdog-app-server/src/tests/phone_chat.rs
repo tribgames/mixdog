@@ -199,15 +199,14 @@ async fn another_device_stopping_publishes_prompt_restore_with_nodes_fields() {
 
     let node = &case["after"]["promptRestore"];
     let frames = world.published_prompt_restores().await;
-    let restore = &frames.last().expect("promptRestore was published")["value"];
-    assert_eq!(restore["text"], node["text"]);
-    assert_eq!(restore["ids"], node["ids"]);
-    assert_eq!(restore["device"], wire_device(node["device"].as_str().unwrap()));
-    // Node's id is `restore-<clock>-<first submission id>`; the clock is the only part that differs.
-    let id = restore["id"].as_str().unwrap();
-    assert!(id.starts_with("restore-") && id.ends_with(&format!("-{}", node["ids"][0].as_str().unwrap())), "{id}");
-    assert!(restore["at"].is_number());
-    assert_eq!(node.as_object().unwrap().len(), restore.as_object().unwrap().len(), "the same fields: {restore}");
+    // Node's one published restore, whole; the clock (Node's fake 1700000000450, in `at` and in the id `restore-<clock>-<first
+    // submission id>`) and the device name (`wire_device`) are the rig's.
+    let mut want = node.clone();
+    let at = frames[0]["value"]["at"].clone();
+    want["id"] = json!(format!("restore-{at}-{}", node["ids"][0].as_str().unwrap()));
+    want["at"] = at;
+    want["device"] = json!(wire_device(node["device"].as_str().unwrap()));
+    assert_eq!(frames.into_iter().map(|mut frame| { frame.as_object_mut().unwrap().remove("threadId"); frame }).collect::<Vec<_>>(), vec![json!({ "value": want })]);
 }
 
 #[tokio::test(start_paused = true)]

@@ -39,18 +39,27 @@ mod transcript_convert;
 mod transcript_divider;
 #[path = "transcript_live.rs"]
 mod transcript_live;
-/// `promptDisplayText` (`queue-helpers.mjs`) of a prompt with no stored attachment: `promptContentText` over the parts that are not media
-/// references (`prompt-utils.mjs:10`): the text of a text part, `[Image]` for an image, the text of any other part, one per line.
-/// `None` for a prompt holding a stored attachment, whose text Node reads from the store.
+/// `promptDisplayText` (`queue-helpers.mjs`) of a prompt whose text parts hold no stored attachment: `promptContentText` over the parts
+/// that are not media references (`idle-auto-clear-gate.mjs:10-24`, the one `queue-helpers.mjs:10` imports): a string part as it is, the
+/// text of a text part, `[Image]` for an image, `[File]` for a file, the text of any other part, one per line.
+/// `None` for a prompt with a text part holding a stored attachment (`isAttachmentReference`), whose text Node reads from the store.
 fn inline_prompt_text(message: &Value) -> Option<String> {
     let Some(parts) = message.as_array() else { return None };
-    if parts.iter().any(|part| part.get("attachmentRef").is_some()) {
+    let held = |part: &Value| part.get("attachmentRef").and_then(Value::as_str).is_some_and(is_attachment_ref);
+    let kind = |part: &Value| part.get("type").and_then(Value::as_str).map(str::to_owned);
+    let media_reference = |part: &Value| kind(part).as_deref() == Some("text") && part.get("attachmentReference").is_some_and(|held| held.as_bool() != Some(false) && !held.is_null()) && part.get("text").is_some_and(Value::is_string);
+    if parts.iter().any(|part| !media_reference(part) && kind(part).as_deref() == Some("text") && held(part)) {
         return None;
     }
     let lines: Vec<&str> = parts
         .iter()
-        .filter(|part| !(part.get("type").and_then(Value::as_str) == Some("text") && part.get("attachmentReference").is_some_and(|held| held.as_bool() != Some(false) && !held.is_null()) && part.get("text").is_some_and(Value::is_string)))
-        .map(|part| if part.get("type").and_then(Value::as_str) == Some("image") { "[Image]" } else { part.get("text").and_then(Value::as_str).unwrap_or_default() })
+        .filter(|part| !media_reference(part))
+        .map(|part| match (part.as_str(), kind(part).as_deref()) {
+            (Some(text), _) => text,
+            (None, Some("image")) => "[Image]",
+            (None, Some("file")) => "[File]",
+            _ => part.get("text").and_then(Value::as_str).unwrap_or_default(),
+        })
         .filter(|line| !line.is_empty())
         .collect();
     Some(lines.join("\n"))
