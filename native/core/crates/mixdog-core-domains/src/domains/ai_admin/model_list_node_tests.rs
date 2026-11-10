@@ -54,7 +54,18 @@ pub(super) fn statusline_recording() -> Value {
 }
 
 /// The providers a profile can name that Node's route resolution knows.
-const KNOWN: [&str; 5] = ["custom-aaaa", "custom-bbbb", "custom-dddd", "custom-dddddddd-dddd-dddd-dddd-dddddddddddd", "anthropic-oauth"];
+const KNOWN: [&str; 9] = [
+    "custom-aaaa",
+    "custom-bbbb",
+    "custom-dddd",
+    "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+    "anthropic-oauth",
+    // The providers of the catalog-refresh-start recording.
+    "custom-0a0a0a0a-0000-4000-8000-00000000000a",
+    "custom-0b0b0b0b-0000-4000-8000-00000000000b",
+    "custom-0c0c0c0c-0000-4000-8000-00000000000c",
+    "custom-0e0e0e0e-0000-4000-8000-00000000000e",
+];
 const GATED: [&str; 4] = ["mimo-oauth", "cursor-oauth", "devin-oauth", "antigravity-oauth"];
 /// Where the recorder's endpoint is, and a valid, unused address for the Rust profile.
 const ENDPOINT: &str = "http://127.0.0.1:9";
@@ -69,6 +80,9 @@ struct Endpoint {
     arrived: Arc<tokio::sync::Semaphore>,
     /// Every request that reached the endpoint.
     hits: Arc<std::sync::atomic::AtomicUsize>,
+    /// Every request that reached the endpoint, in order: method, URL (the endpoint as `__BASE_URL__`), the headers the
+    /// adapter set and the body (`null` when empty).
+    requests: tokio::sync::watch::Sender<Vec<Value>>,
 }
 
 struct Body(Option<bytes::Bytes>);
@@ -90,6 +104,9 @@ impl HttpSend for Endpoint {
         };
         // Anything but the recorded endpoint is unreachable, as the recorded Node processes' fetch of other hosts was.
         let Some(path) = request.url.strip_prefix(ENDPOINT) else { return Ok(reply(503, json!({}))) };
+        let body = if request.body.is_empty() { Value::Null } else { Value::String(String::from_utf8_lossy(&request.body).into_owned()) };
+        let logged = json!({ "method": request.method, "url": format!("__BASE_URL__{path}"), "headers": request.headers, "body": body });
+        self.requests.send_modify(|log| log.push(logged));
         self.arrived.add_permits(1);
         self.hits.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.gate.clone().wait_for(|open| *open).await.expect("the gate outlives the rig");
@@ -217,11 +234,18 @@ pub(super) struct Rig {
     pub(super) vault_gate: tokio::sync::watch::Sender<bool>,
     pub(super) vault_arrived: Arc<tokio::sync::Semaphore>,
     pub(super) secret_reads: Arc<std::sync::atomic::AtomicUsize>,
+    /// The re-warms a settled startup refresh started, once [`Rig::bind_rewarm`] bound them.
+    pub(super) rewarms: Arc<std::sync::atomic::AtomicUsize>,
     pub(super) _dir: tempfile::TempDir,
 }
 
 /// One recorded profile's pipeline; `fail` makes the provider builds refuse.
 pub(super) async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
+    rig_on(scenario, seeds, fail, None).await
+}
+
+/// [`rig`] whose catalog stamps retry times with `clock` (milliseconds since the epoch) instead of the wall clock.
+pub(super) async fn rig_on(scenario: &Value, seeds: &Value, fail: bool, clock: Option<Arc<dyn Fn() -> u64 + Send + Sync>>) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let io = || CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
@@ -243,11 +267,12 @@ pub(super) async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
         .unwrap();
     let listing = ListingLookup::new();
     // The composition the daemon runs (`build_catalog`): models.dev, LiteLLM and the roster files of the data directory.
-    let catalog = Arc::new(
-        CatalogService::composed(CatalogSnapshot::default(), Vec::new(), Arc::new(Offline), dir.path().to_path_buf(), io())
-            .await
-            .with_listing_lookup(listing.clone()),
-    );
+    let composed = CatalogService::composed(CatalogSnapshot::default(), Vec::new(), Arc::new(Offline), dir.path().to_path_buf(), io()).await;
+    let composed = match clock {
+        Some(clock) => composed.with_clock(clock),
+        None => composed,
+    };
+    let catalog = Arc::new(composed.with_listing_lookup(listing.clone()));
     let env_vars: HashMap<String, String> = scenario["env"].as_object().map(|m| m.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect()).unwrap_or_default();
     let env: Arc<dyn Environment> = Arc::new(Vars(env_vars));
     let (vault_gate, vault_gate_rx) = tokio::sync::watch::channel(true);
@@ -264,6 +289,7 @@ pub(super) async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
         gate: gate_rx,
         arrived: arrived.clone(),
         hits: hits.clone(),
+        requests: tokio::sync::watch::channel(Vec::new()).0,
     });
     let link = Arc::new(ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap());
     let builder: Arc<dyn ProviderBuilder> = Arc::new(Builder {
@@ -311,10 +337,41 @@ pub(super) async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
         unsupported: Arc::new(UnsupportedEfforts::default()),
         host: Some(host.clone()),
     });
-    Rig { config, catalog, registry, readiness, effective, loaded, service, host, endpoint, gate, arrived, hits, vault_gate, vault_arrived, secret_reads, _dir: dir }
+    let rewarms = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    Rig { config, catalog, registry, readiness, effective, loaded, service, host, endpoint, gate, arrived, hits, vault_gate, vault_arrived, secret_reads, rewarms, _dir: dir }
 }
 
 impl Rig {
+    /// Binds the re-warm as the daemon does (`compose_flip.rs`: the model list's secrets-carrying warm), counted.
+    pub(super) fn bind_rewarm(&self) {
+        let (service, rewarms) = (Arc::downgrade(&self.service), self.rewarms.clone());
+        let bound = self.readiness.bind_rewarm(Arc::new(move || {
+            rewarms.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if let Some(service) = service.upgrade() {
+                service.warm_cache(true);
+            }
+        }));
+        assert!(bound.is_ok(), "the re-warm is bound once");
+    }
+
+    /// Past the startup catalog refresh: it ran and settled, its completion included, a first load was adopted, and then the
+    /// registry revision moved, so the next load lists every provider again at the endpoint (`sharedProviderCatalog` keys its
+    /// answer by the revision), where a test can hold it. The endpoint arrivals so far are spent.
+    pub(super) async fn past_startup_refresh(&self) {
+        self.readiness.ensure_providers_ready(None).await.unwrap();
+        self.readiness.settle_refreshes().await;
+        self.service.rows(false, false).await.unwrap();
+        self.readiness.invalidate_provider_caches(true);
+        while let Ok(permit) = self.arrived.try_acquire() {
+            permit.forget();
+        }
+    }
+
+    /// The endpoint's request log.
+    pub(super) fn requests(&self) -> tokio::sync::watch::Receiver<Vec<Value>> {
+        self.endpoint.requests.subscribe()
+    }
+
     /// From now on the endpoint answers `routes` (a recorded `serveCatalog` call): a provider's catalog moves on its own.
     pub(super) fn serve(&self, routes: &Value) {
         *self.endpoint.routes.lock().unwrap() = routes.as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
@@ -515,11 +572,13 @@ async fn the_registered_providers_listings_are_the_catalogs_sources() {
 
 // A quick read starts the warm load; the endpoint holds it between its preparation and `adopt` while something else
 // moves the cache's state, so the order is the test's, not the scheduler's. The load that listed under the old state must
-// not fill the new one. The gate is closed before the quick read and opened by `finish`.
+// not fill the new one. The gate is closed before the quick read and opened by `finish`; the startup catalog refresh is past
+// (a load joins it during its preparation, where the gate would hold the refresh instead).
 async fn warm_parked() -> Rig {
     let recording = recording();
     let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "custom-discovery").unwrap();
     let rig = rig(scenario, &recording["seeds"], false).await;
+    rig.past_startup_refresh().await;
     rig.gate.send_replace(false);
     rig.service.rows(false, true).await.unwrap();
     rig.arrived.acquire().await.unwrap().forget();

@@ -71,15 +71,14 @@ pub async fn build_catalog(
     let initial = read_snapshot(tokens, data_dir.join("catalogs").join("snapshot.json")).await;
     let service = Arc::new(CatalogService::composed(initial, sources, http, data_dir.to_path_buf(), io).await);
     let warmup = CatalogWarmup::new(service.clone());
-    arm_first_warm(&service, &warmup, &|name| std::env::var(name).ok());
+    arm_first_warm(&warmup, &|name| std::env::var(name).ok());
     Ok(CatalogHost { service, warmup })
 }
 
-/// Arms the first warm-up and marks its refresh pending from that moment, so a job that is scheduled before the refresh
-/// begins (the model cache's boot warm) waits for it as one scheduled after.
-fn arm_first_warm(service: &CatalogService, warmup: &Arc<CatalogWarmup>, env: &dyn Fn(&str) -> Option<String>) {
+/// Arms the first warm-up. Its refresh is the metadata tables' only (`warmCatalogsInBackground`): the providers' listings
+/// are the readiness' startup refresh and its 24 h timer, so nothing waits on this one.
+fn arm_first_warm(warmup: &Arc<CatalogWarmup>, env: &dyn Fn(&str) -> Option<String>) {
     if let Some(delay) = first_warm_delay(env) {
-        service.expect_startup_refresh();
         warmup.arm(delay);
     }
 }
@@ -114,8 +113,8 @@ struct WarmState {
 
 /// The model catalog warm-up loop (`warmup/catalog-warmup.mjs`, with `timer-arm.mjs`): one warm-up after the boot delay,
 /// deferred while a turn runs or a session is being created and woken when that settles, then the next one `REFRESH_AFTER`
-/// after it finishes (a failed refresh waits for the regular cycle too). A warm-up refreshes the catalog and then audits
-/// the cached routes' prices (`warmCatalogsInBackground`).
+/// after it finishes (a failed refresh waits for the regular cycle too). A warm-up refreshes the LiteLLM and models.dev
+/// tables and then audits the cached routes' prices (`warmCatalogsInBackground`); the providers' listings are not its.
 pub struct CatalogWarmup {
     service: Arc<CatalogService>,
     busy: OnceLock<BusyProbe>,
@@ -164,10 +163,7 @@ impl CatalogWarmup {
         }
         let this = self.clone();
         mixdog_rt::spawn("catalog.refresh", TaskClass::Work, async move {
-            // `registry.mjs:679-683`: each provider whose listing failed is written to stderr; its previous models stay.
-            for (provider, error) in this.service.refresh_startup().await.failed {
-                tracing::warn!("[provider:{provider:?}] catalog refresh failed: {error:?}");
-            }
+            this.service.refresh_metadata().await;
             this.service.audit_cached_pricing();
             this.arm(REFRESH_AFTER);
         });
@@ -189,8 +185,6 @@ impl CatalogWarmup {
         if let Some(handle) = state.timer.take() {
             let _ = handle.cancel();
         }
-        drop(state);
-        self.service.abandon_startup_refresh();
     }
 }
 /// The snapshot restored from disk; a missing or unparsable cache is the empty catalog.
@@ -325,6 +319,32 @@ mod tests {
         assert_eq!(http.0.load(Ordering::SeqCst), 2, "a wake with nothing parked starts nothing");
     }
 
+    /// A listing that counts the times it is asked.
+    struct CountedListing(Arc<AtomicUsize>);
+
+    #[async_trait]
+    impl mixdog_core_api::domain::provider::ModelListing for CountedListing {
+        async fn list_models(&self) -> Result<Vec<mixdog_core_api::domain::provider::ModelRecord>, ProviderError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(Vec::new())
+        }
+    }
+
+    /// `warmCatalogsInBackground` loads the price tables only: the providers' listings belong to the readiness' startup
+    /// refresh and its 24 h timer, so a warm-up asks no provider.
+    #[tokio::test(start_paused = true)]
+    async fn the_catalog_warm_up_asks_no_provider() {
+        let http = Arc::new(Counting::default());
+        let (_dir, warmup) = warmup_over(http.clone()).await;
+        let asked = Arc::new(AtomicUsize::new(0));
+        warmup.service.set_sources(vec![mixdog_ai::catalog::ModelSource::new("p".into(), Arc::new(CountedListing(asked.clone())))]);
+        warmup.arm(Duration::ZERO);
+        settle().await;
+        assert_eq!(http.0.load(Ordering::SeqCst), 2, "the warm-up ran: one fetch per price table");
+        assert_eq!(asked.load(Ordering::SeqCst), 0, "no provider was asked");
+        warmup.stop();
+    }
+
     /// A stopped host starts no warm-up, a parked one included.
     #[tokio::test(start_paused = true)]
     async fn a_stopped_catalog_warm_up_does_not_run() {
@@ -340,48 +360,4 @@ mod tests {
         assert_eq!(http.0.load(Ordering::SeqCst), 0);
     }
 
-    fn settled_signal(service: &CatalogService) -> tokio::sync::mpsc::UnboundedReceiver<()> {
-        let (send, receive) = tokio::sync::mpsc::unbounded_channel();
-        service.on_refresh_settled(Arc::new(move || {
-            send.send(()).ok();
-        }));
-        receive
-    }
-
-    fn with_delay(ms: &'static str) -> impl Fn(&str) -> Option<String> {
-        move |name| (name == "MIXDOG_MODEL_CATALOG_WARMUP_DELAY_MS").then(|| ms.to_owned())
-    }
-
-    /// `rt.startupProviderCatalogRefreshPending`: the first refresh is pending from the moment the loop is armed, before it
-    /// has begun, and a loop stopped before it ran leaves nothing pending (and wakes whoever waited).
-    #[tokio::test]
-    async fn the_armed_warm_up_marks_its_first_refresh_pending_until_the_loop_stops() {
-        let (_dir, warmup) = warmup_over(Arc::new(Counting::default())).await;
-        let mut settled = settled_signal(&warmup.service);
-        assert!(!warmup.service.refresh_in_flight());
-        arm_first_warm(&warmup.service, &warmup, &with_delay("60000"));
-        assert!(warmup.service.refresh_in_flight(), "armed: the refresh is pending though it has not begun");
-        warmup.stop();
-        settled.recv().await.unwrap();
-        assert!(!warmup.service.refresh_in_flight());
-    }
-
-    #[tokio::test]
-    async fn the_first_refresh_the_loop_runs_settles_the_pending_state_before_it_wakes_anyone() {
-        let http = Arc::new(Counting::default());
-        let (_dir, warmup) = warmup_over(http.clone()).await;
-        let mut settled = settled_signal(&warmup.service);
-        arm_first_warm(&warmup.service, &warmup, &with_delay("0"));
-        settled.recv().await.unwrap();
-        assert!(!warmup.service.refresh_in_flight(), "the wake finds the refresh settled");
-        assert_eq!(http.0.load(Ordering::SeqCst), 2, "the refresh ran: one fetch per price table");
-        warmup.stop();
-    }
-
-    #[tokio::test]
-    async fn a_disabled_warm_up_loop_leaves_no_refresh_pending() {
-        let (_dir, warmup) = warmup_over(Arc::new(Counting::default())).await;
-        arm_first_warm(&warmup.service, &warmup, &|name| (name == "MIXDOG_DISABLE_MODEL_CATALOG_WARMUP").then(|| "1".to_owned()));
-        assert!(!warmup.service.refresh_in_flight());
-    }
 }

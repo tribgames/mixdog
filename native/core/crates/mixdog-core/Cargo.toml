@@ -80,7 +80,7 @@ tempfile = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "net", "io-util"] }
-mixdog-core-session = { workspace = true, features = ["test-support"] }
+mixdog-core-session = { workspace = true, features = ["crash-gates", "test-support"] }
 mixdog-core-run = { workspace = true, features = ["test-support"] }
 mixdog-core-base = { workspace = true, features = ["test-support"] }
 mixdog-trace = { workspace = true }

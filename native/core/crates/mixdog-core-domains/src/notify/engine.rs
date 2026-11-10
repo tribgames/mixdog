@@ -250,11 +250,13 @@ impl NotificationEngine {
 
     /// `notify/test`: reaches the desktop hosts and the paired devices named, bypassing the decision.
     pub fn test(&self, target: &TestTarget, audience: &Audience) -> Plan {
-        let (title, body) = ("Mixdog", "Test notification");
+        // Node's words: the PC's toast (index.ts `showTestNotification`, b6f10295a) and a device's push
+        // (push-notifier.ts `TEST_PUSH_TEXT`), both titled "Mixdog".
+        let (title, body) = ("Mixdog", "Notifications from this PC reach this device.");
         let mut plan = Plan::default();
         if matches!(target, TestTarget::Desktop | TestTarget::All) {
             for host in &audience.hosts {
-                plan.toasts.push((host.connection_id.clone(), self.toast("", title, body)));
+                plan.toasts.push((host.connection_id.clone(), self.toast("", title, "Notifications from Mixdog appear like this.")));
             }
         }
         for device in &audience.devices {

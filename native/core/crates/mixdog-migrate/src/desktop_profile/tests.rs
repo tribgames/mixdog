@@ -252,6 +252,7 @@ const CORPUS_KEYS: &[&str] = &[
     "desktopProfile/desktopProjects",
     "desktopProfile/editorBackups",
     "desktopProfile/nativePush",
+    "desktopProfile/newTaskReceipts",
     "desktopProfile/notificationPreferences",
     "desktopProfile/pairingToken",
     "desktopProfile/relayDevice",
@@ -276,8 +277,8 @@ fn the_electron_profile_corpus_migrates_verified_and_leaves_electron_files_alone
     let retired = keys.iter().filter(|key| key.starts_with("retire/profile/")).count();
     keys.retain(|key| !key.starts_with("retire/profile/"));
     assert_eq!(keys, CORPUS_KEYS);
-    // Four `.bak` copies, the interrupted metadata write and four task receipts.
-    assert_eq!(retired, 9);
+    // Four `.bak` copies and the interrupted metadata write; the four task receipts are carried over.
+    assert_eq!(retired, 5);
     let planned: BTreeSet<String> = run
         .items()
         .flat_map(|item| item.sources.iter().map(|file| file.path.clone()))
@@ -296,7 +297,7 @@ fn the_electron_profile_corpus_migrates_verified_and_leaves_electron_files_alone
     assert!(report.quarantined.is_empty(), "{:?}", report.quarantined);
     // `webPush` retires: the framework verifies it by planning alone.
     assert_eq!(report.verified.len(), CORPUS_KEYS.len() - 1);
-    assert_eq!(report.retired, 10);
+    assert_eq!(report.retired, 6);
 
     // The corpus's own expectation: how many entries of each map name a corpus session.
     let manifest_json = json(&corpus.join("manifest.json"));
@@ -358,6 +359,14 @@ fn the_electron_profile_corpus_migrates_verified_and_leaves_electron_files_alone
         assert!(fsx::is_owner_only(&moved).unwrap());
     }
 
+    // The receipts Node wrote come across under their names with their bytes, so a request retried after the upgrade is answered from them.
+    let receipts = files_of(&corpus.join("electron-profile").join("new-task-receipts"));
+    assert_eq!(receipts.len(), 4);
+    for (name, path) in receipts {
+        let moved = data.join("userdata/new-task-receipts").join(name);
+        assert_eq!(std::fs::read(&moved).unwrap(), std::fs::read(&path).unwrap());
+        assert!(mixdog_statefile::new_task_receipt::Receipt::parse(&std::fs::read(&moved).unwrap()).is_some());
+    }
     // Disposal removed exactly the planned sources; everything else is byte-identical.
     let after = files_of(run.profile.path());
     for (name, path) in &before {
@@ -375,6 +384,31 @@ fn the_electron_profile_corpus_migrates_verified_and_leaves_electron_files_alone
     );
 }
 
+/// The receipts Node wrote in each phase come across under their names with their bytes (the core answers a retried request from them);
+/// what is no receipt (`readReceipt` binds nothing for it) retires.
+#[test]
+fn a_receipt_in_each_phase_is_carried_over_and_what_is_no_receipt_retires() {
+    let key = |id: &str| {
+        use sha2::Digest;
+        sha2::Sha256::digest(id.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect::<String>()
+    };
+    let receipt = |id: &str, phase: &str| format!(r#"{{"signature":"{}","sessionId":"sess_desktop_{}","phase":"{phase}"}}"#, "a".repeat(64), key(id)).into_bytes();
+    let carried = [("s-reserved", "reserved"), ("s-configured", "configured"), ("s-accepted", "accepted")];
+    let mut files: Vec<(String, Vec<u8>)> = carried.iter().map(|(id, phase)| (format!("new-task-receipts/{}.json", key(id)), receipt(id, phase))).collect();
+    files.push((format!("new-task-receipts/{}.json", key("s-empty")), Vec::new()));
+    files.push(("new-task-receipts/not-a-key.json".to_owned(), receipt("s-other", "accepted")));
+    let borrowed: Vec<(&str, &[u8])> = files.iter().map(|(name, bytes)| (name.as_str(), bytes.as_slice())).collect();
+    let run = Run::new(None, &borrowed, &BTreeSet::new());
+    let report = run.migrate_all();
+    assert!(report.quarantined.is_empty(), "{:?}", report.quarantined);
+    assert_eq!(run.item(ItemKind::NewTaskReceipts).sources.len(), 3);
+    for (id, phase) in carried {
+        let moved = run.data.path().join("userdata/new-task-receipts").join(format!("{}.json", key(id)));
+        assert_eq!(std::fs::read(moved).unwrap(), receipt(id, phase), "{phase}");
+    }
+    assert_eq!(files_of(&run.data.path().join("userdata/new-task-receipts")).len(), 3, "no empty or misnamed file comes across");
+    assert_eq!(report.retired, 2);
+}
 #[test]
 fn titles_and_names_equal_what_the_desktops_own_functions_produce() {
     #[derive(serde::Deserialize)]
@@ -738,7 +772,7 @@ fn the_migrator_completes_the_corpus_profile_with_nothing_quarantined_unexpected
     let quarantined = files_of(&roots.data.join("quarantine")).into_keys().collect::<Vec<_>>();
     assert_eq!(counts.quarantined_unexpected, 0, "{quarantined:?}");
     assert_eq!(counts.verified, CORPUS_KEYS.len() as u64 - 1);
-    assert_eq!(counts.retired, 10);
+    assert_eq!(counts.retired, 6);
     assert!(counts.dangling > 0);
     assert_eq!(complete.kinds.data.verified, 0);
     // A finished migration answers from its marker.

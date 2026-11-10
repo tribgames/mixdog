@@ -344,6 +344,11 @@ impl ComposedCore {
         self.run_stop_steps().await;
     }
 
+    /// A stop was requested: the new-task attempts in flight end now (`SessionDirectory::cut_new_tasks`), before the drain.
+    pub fn cut_new_tasks(&self) {
+        self.real.directory.cut_new_tasks();
+    }
+
     /// Records Node's text of this stop (`daemon.mjs:272` `shutdown(reason)`) for the stop steps; the first one wins, so the release and a
     /// later `stop` agree on one reason.
     pub fn set_stop_reason(&self, reason: &str) {
@@ -513,8 +518,12 @@ impl CoreHandle for ComposedCore {
         crate::domain_seams::remote::register_local(&self.real.remote.registry, connection, origin, device, kind);
     }
 
-    fn request_started(&self) -> mixdog_core_api::handle::RequestGuard {
+    fn request_started(&self, method: &str, params: &serde_json::Value) -> mixdog_core_api::handle::RequestGuard {
         match self.real.late_lifecycle.get() {
+            // A new task is host logic in Node: a stop request cuts it instead of waiting for it (`Lifecycle::begin_new_task`).
+            Some(lifecycle) if method == "thread/start" && mixdog_core_session::session::new_task::starts_new_task(params) => {
+                Box::new(lifecycle.begin_new_task())
+            }
             Some(lifecycle) => Box::new(lifecycle.begin_call()),
             // A startup bug (the listener accepts only after the bind): said, not silently left out of the count.
             None => {
@@ -639,7 +648,8 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     let shell_control = Arc::new(mixdog_tools::exec::ShellControl::new(exec.runtime.clone(), process_manager.clone()));
     let id = FeedId::from("app");
     let epoch = FeedEpoch::from(new_instance_id());
-    let app_feed = Arc::new(CoreFeed::new(
+    // The app feed is of the ordered class (`SectionFeed::ordered`).
+    let app_feed = Arc::new(CoreFeed::new_ordered(
         id.clone(),
         epoch.clone(),
         empty_view(&id, &epoch),
@@ -876,6 +886,9 @@ mod tests {
                 }
                 fn cancel_running(&self, running: &[Running]) {
                     self.inner.cancel_running(running);
+                }
+                fn cut_new_tasks(&self) {
+                    self.inner.cut_new_tasks();
                 }
                 fn release_decision(&self, pid: u32) {
                     self.inner.release_decision(pid);

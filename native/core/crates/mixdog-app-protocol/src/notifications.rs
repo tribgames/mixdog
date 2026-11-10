@@ -28,6 +28,8 @@ use crate::v2::host::ModelProxyCancelParams;
 use crate::v2::host::ModelProxyRunEventParams;
 use crate::v2::host::RemotePointerParams;
 use crate::v2::host::UiOpenRequestedParams;
+use crate::v2::config::UiProviderModelsChangedParams;
+use crate::v2::config::UiSettingsChangedParams;
 use crate::v2::thread::*;
 
 /// `error`: a connection-scoped failure, or a thread error with `willRetry`.
@@ -189,6 +191,11 @@ crate::notification_definitions! {
     Warning => "warning" (WarningParams) @app,
     ConfigWarning => "configWarning" (WarningParams) @app,
     UiOpenRequested => "ui/openRequested" (UiOpenRequestedParams) @app,
+    /// Node's `settings-changed` event: settings pages re-read (a writer's announcement, a notification store write, or a
+    /// change of the config outside `desktop`).
+    UiSettingsChanged => "ui/settings/changed" (UiSettingsChangedParams) @app,
+    /// Node's `provider-models-changed` event: every client drops its provider model lists; `origin` names the announcer.
+    UiProviderModelsChanged => "ui/providerModels/changed" (UiProviderModelsChangedParams) @app,
     RemotePointer => "remote/pointer" (RemotePointerParams) @app,
     /// Draining: what still runs and the token that authorizes an abort (`lifecycle-remote.md` §5.1).
     CoreDrain => "core/drain" (CoreDrainParams) @app,

@@ -199,6 +199,9 @@ pub enum ItemKind {
     SelectedFileGrants,
     EditorBackups,
     EditorRecovery,
+    /// `new-task-receipts/` (one receipt per client submission id): the tree moves to `<D>/userdata/new-task-receipts/` at the same names, so a
+    /// request retried after the upgrade is answered by the receipt Node wrote (a file that is no receipt binds nothing and is retired).
+    NewTaskReceipts,
     /// `workspace/unclassified/` stays in place; its path becomes config
     /// `desktop.unclassifiedWorkspaceRoot`.
     UnclassifiedWorkspace,

@@ -150,7 +150,7 @@ async fn resume_in_the_ring_replays_behind_the_response() {
 }
 
 #[tokio::test]
-async fn lanes_share_the_socket_round_robin_in_order() {
+async fn lanes_share_the_socket_in_queue_order() {
     install_rt();
     let limits = small_limits();
     let hub = ConnectionHub::new(limits.clone()).unwrap();
@@ -166,13 +166,12 @@ async fn lanes_share_the_socket_round_robin_in_order() {
     peer.allow(usize::MAX >> 4);
 
     let texts = peer.take_text(10).await;
-    assert_eq!(texts[..2], ["ra", "rb"]);
-    let lane_a: Vec<_> = texts.iter().filter(|t| t.starts_with("evt")).collect();
-    // Each lane keeps its own order; the lanes alternate one frame per turn.
-    assert_eq!(
-        lane_a,
-        ["evt@1", "evt@1", "evt@2", "evt@2", "evt@3", "evt@3"]
-    );
+    // Queue order: each lane's snapshot (queued at subscribe, gated) right after its response,
+    // then every frame in the order it was published, A's before B's.
+    let published: Vec<String> = (1..=3).chain(1..=3).map(|seq| format!("evt@{seq}")).collect();
+    let mut expected: Vec<String> = ["ra", "snapshot@0", "rb", "snapshot@0"].map(String::from).to_vec();
+    expected.extend(published);
+    assert_eq!(texts, expected);
 }
 
 #[tokio::test]

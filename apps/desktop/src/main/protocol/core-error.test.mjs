@@ -33,11 +33,26 @@ test('a coded refusal keeps the wire message, and a typed detail does not replac
       domain: 'config',
       code: 'ROOM_MEMBER_SWITCHED_OFF',
       message: 'Member is switched off.',
-      detail: { type: 'worktreeDirtyChoice', count: 1, paths: ['a.ts'] },
+      detail: { type: 'roomMember', name: 'Bench', count: 1 },
     })
   );
   assert.equal(shown.message, 'Member is switched off.');
-  assert.deepEqual(shown.details, { count: 1, paths: ['a.ts'] });
+  // Only the params the code declares public, as Node's client keeps them (codedErrorParams).
+  assert.deepEqual(shown.details, { name: 'Bench' });
+});
+
+test('a coded worktree refusal keeps no details beside its message, as Node\'s reached the app', () => {
+  const shown = coreErrorForWindow(
+    rpcFailure({
+      reason: 'domainError',
+      domain: 'worktree',
+      code: 'WORKTREE_REVISION_CONFLICT',
+      message: 'This transaction belongs to another session.',
+      detail: { type: 'worktreeRevisionConflict', txId: 't-1' },
+    })
+  );
+  assert.equal(shown.message, 'WORKTREE_REVISION_CONFLICT: This transaction belongs to another session.\n[worktree-details] {"txId":"t-1"}');
+  assert.equal(Object.hasOwn(shown, 'details'), false);
 });
 
 test('an uncoded domain error without a text and other failures are left as they are', () => {

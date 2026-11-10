@@ -13,10 +13,10 @@
 // relay's answers to the WebRTC steps and state questions. The relay's calls into the window process (`forward`, `viewerLeft`) are not:
 // in the core that window is the core's own live-view host, which has no boundary there.
 //
-// The product is b6f10295a with `node-fix-unpair-keeps-stream.patch` applied (a clear Node bug fixed on both sides: an unpair named the
+// The product is b6f10295a with `node-patches/node-fix-unpair-keeps-stream.patch` applied (a clear Node bug fixed on both sides: an unpair named the
 // credential to streams keyed by connection, so it dropped nothing, and an unpaired connection the relay left open could subscribe again
 // and was sent frames and WebRTC signals, also ones whose encryption was under way at the unpair). The tree must be exactly that
-// (`patchedProductIdentity`); the screen-access publisher is the REAL one (remote-screen/screen-access-publisher.ts), wired as the
+// (`nodeTreeIdentity` with `--patch`); the screen-access publisher is the REAL one (remote-screen/screen-access-publisher.ts), wired as the
 // patched remote-relay.ts wires it: `allowed` of the streams and the `mayWrite` of both live-view sends are its `viewAllowed`, and an
 // unpair records the unpair, then drops the streams of every connection `revokeCredential` names (`revokeClient`). The delivery
 // (`sendEncryptedFrame`) is a stand-in that runs the patched order: encrypt (at once, or held by a `hold` step until `release`), then
@@ -25,20 +25,19 @@
 // Time is the recorder's own: `Date.now` and every timer the relay arms go to a virtual clock that moves only by an explicit `advance`
 // step and runs due timers in due-time then registration order, one at a time, with the microtasks drained between them.
 //
-//   node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-browser-streams.mjs --tree <git archive of b6f10295a with the patch applied and node_modules> --patch <node-fix-unpair-keeps-stream.patch> [--only <scenario name>]
+//   node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-browser-streams.mjs --tree <git archive of b6f10295a with the patch applied and node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-unpair-keeps-stream.patch [--only <scenario name>]
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { FIXTURES_ROOT, REPO_ROOT, commitStage, importFrom, parseArgs, patchedProductIdentity, resolveTree, sha256, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, REPO_ROOT, commitStage, importFrom, nodeTreeIdentity, parseArgs, resolveTree, sha256, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const args = parseArgs();
 const tree = resolveTree(args);
 const only = args.get('only') ?? null;
-const patchPath = args.get('patch');
-if (!patchPath) throw new Error('pass --patch <node-fix-unpair-keeps-stream.patch>, the fix the tree carries');
+if (!args.get('patch')) throw new Error('pass --patch benchmarks/rust-core/recorders/node-patches/node-fix-unpair-keeps-stream.patch, the fix the tree carries');
 const NODE_COMMIT = execFileSync('git', ['rev-parse', 'b6f10295a^{commit}'], { cwd: REPO_ROOT, encoding: 'utf8', timeout: 30_000, windowsHide: true }).trim();
 // Checked before anything is loaded from the tree.
-const identity = patchedProductIdentity(tree, NODE_COMMIT, patchPath);
+const identity = nodeTreeIdentity(args, tree, NODE_COMMIT);
 const recorder = 'benchmarks/rust-core/recorders/record-browser-streams.mjs';
 const RECORDER_FILES = [
   recorder,
@@ -741,7 +740,7 @@ if (only) {
   writeSetManifest(stage, {
     set: 'browser-streams',
     recorder,
-    command: `node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs ${recorder} --tree <b6f10295a with the patch> --patch <${identity.patch.file}>`,
+    command: `node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs ${recorder} --tree <b6f10295a with the patch> --patch ${identity.patch.file}`,
     extra: {
       exact: true,
       recorderSha256: sha256(readFileSync(join(REPO_ROOT, recorder))),
@@ -751,8 +750,6 @@ if (only) {
       replayProjections: [],
       nodeVersion: process.version,
       productCommit: NODE_COMMIT,
-      // The fix the product carries (AGENT-RULES: a clear Node bug is fixed on both sides), applied to `productCommit`.
-      nodePatch: { file: identity.patch.file, sha256: identity.patch.sha256, files: identity.patch.files },
       // What the recording holds: the scenarios driven one step at a time, and the sequential runs of the core's forced interleavings.
       inventory: (() => {
         const gates = scenarios.filter((scenario) => scenario.name.startsWith('gate: ')).length;
