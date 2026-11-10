@@ -2354,8 +2354,9 @@ impl SessionActor {
                 let shown = self.cell.shown_approval.load_full();
                 // A refused remote Allow is not taken: the approval stays pending and the answer is told it lost (a response, as a
                 // late one, gets nothing).
+                let known = self.deps.devices.knows(decision.connection);
                 let refused =
-                    super::approval_notification::refuses_remote_allow(device.kind, shown.as_deref(), &decision.request, &decision.result);
+                    super::approval_notification::refuses_remote_allow(device.kind, known, shown.as_deref(), &decision.request, &decision.result);
                 let outcome = match (!refused).then(|| self.book.validate(&decision.request, &decision.result, device, at)) {
                     Some(Ok(Some(accepted))) => {
                         self.resolve(accepted.aid, &accepted.rid, accepted.resolution);
