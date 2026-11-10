@@ -16412,12 +16412,17 @@
           "description": "`save`, `share` or `open`.",
           "type": "string"
         },
+        "sessionId": {
+          "description": "The conversation the phone names: the grant and the transfer it becomes end with it (Node's `Grant.sessionId`).",
+          "type": "string"
+        },
         "source": {
           "$ref": "#/definitions/DownloadSource"
         }
       },
       "required": [
         "purpose",
+        "sessionId",
         "source"
       ],
       "type": "object"

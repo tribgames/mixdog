@@ -4825,6 +4825,8 @@ pub enum DownloadSource {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferAuthorizeReadParams {
+    /// The conversation the phone names: the grant and the transfer it becomes end with it (Node's `Grant.sessionId`).
+    pub session_id: String,
     pub source: DownloadSource,
     /// `save`, `share` or `open`.
     pub purpose: String,

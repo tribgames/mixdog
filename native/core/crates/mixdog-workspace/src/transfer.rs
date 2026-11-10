@@ -61,6 +61,8 @@ pub fn version_string(version: &FileVersion) -> String {
 /// phone was told of it.
 struct Grant {
     owner: String,
+    /// The conversation the request named (Node's `Grant.sessionId`): its deletion ends the grant.
+    session: String,
     file: File,
     size: u64,
     version: String,
@@ -90,18 +92,15 @@ const MAX_GRANTS_PER_DEVICE: usize = 8;
 /// Concurrent phone transfers per device (`MAX_LEASES_PER_DEVICE`).
 const MAX_LEASES_PER_DEVICE: usize = 4;
 
-/// The wall clock grants and transfers expire on, in epoch milliseconds (Node's `Date.now`); tests substitute a controllable one.
-pub trait WallClock: Send + Sync {
-    fn now_ms(&self) -> i64;
-}
+/// How often the sweeper looks for expired grants and transfers once any is held (`SWEEP_INTERVAL_MS`).
+pub const SWEEP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
 
-/// The system clock, which a debug build pinned by `MIXDOG_FIXED_NOW_MS` replaces (see `editorcfg::now_ms`).
-pub struct SystemWall;
-
-impl WallClock for SystemWall {
-    fn now_ms(&self) -> i64 {
-        crate::editorcfg::now_ms()
-    }
+/// Debug builds only (a release build has no such entry): the instant, in epoch milliseconds, a replay of Node's recording has written to
+/// the file named by `MIXDOG_DOWNLOAD_CLOCK_FILE`, so a spawned core can be moved in time by explicit steps as the recording's clock was.
+#[cfg(debug_assertions)]
+fn replayed_now_ms() -> Option<i64> {
+    let path = std::env::var_os("MIXDOG_DOWNLOAD_CLOCK_FILE")?;
+    std::fs::read_to_string(path).ok()?.trim().parse().ok()
 }
 
 fn download(code: &'static str, message: &str) -> WsError {
@@ -111,6 +110,11 @@ fn download(code: &'static str, message: &str) -> WsError {
 /// Node's `FileDownloadError('changed')`: what a phone is told when the file is no longer the version it was offered.
 fn download_changed() -> WsError {
     download("file-download:changed", "The file changed on the host.")
+}
+
+/// Node's `FileDownloadError('unavailable')`: the conversation a download names has left the host's catalog.
+pub fn unavailable() -> WsError {
+    download("file-download:unavailable", "This conversation is not available.")
 }
 
 /// What `authorize` tells the phone (Node's `FileDownloadGrant`).
@@ -156,15 +160,36 @@ pub struct Finished {
     pub version: String,
 }
 
-/// Revocation generations: each only grows, so a changed value says something revoked the owner (or everything) meanwhile.
+/// Revocation generations: each only grows, so a changed value says something revoked the owner, the conversation or everything
+/// meanwhile. The lock on them is the one gate every revoke and every consume-and-publish step passes (order: generations, grants,
+/// reads), so a revoke runs wholly before or wholly after each such step, as Node's synchronous steps do.
 #[derive(Default)]
 struct Generations {
     all: u64,
     owners: HashMap<String, u64>,
+    sessions: HashMap<String, u64>,
+}
+
+impl Generations {
+    fn of(&self, owner: &str, session: &str) -> u64 {
+        self.all + self.owners.get(owner).copied().unwrap_or(0) + self.sessions.get(session).copied().unwrap_or(0)
+    }
+}
+
+/// Node's `createDownloadTables` sweeper: started by the first grant or transfer added, ticking every [`SWEEP_INTERVAL`] from then,
+/// stopped once nothing is held.
+#[derive(Default)]
+struct Sweeper {
+    anchor: Mutex<Option<Instant>>,
+    changed: tokio::sync::Notify,
+    /// Raised after each tick's sweep, so a test moving the clock tick by tick knows the tick has run.
+    #[cfg(test)]
+    swept: tokio::sync::Notify,
 }
 
 struct Read {
     owner: String,
+    session: String,
     file: File,
     size: u64,
     version: String,
@@ -304,12 +329,13 @@ pub trait IdleClock: Send + Sync {
     fn now(&self) -> Instant;
 }
 
-/// The daemon's clock: the monotonic one.
+/// The daemon's clock: the monotonic one, read through the runtime's own so that a test of the whole service on a paused runtime moves
+/// every deadline of it (uploads, downloads, grants) by one `tokio::time::advance`. Outside a paused runtime it is `Instant::now()`.
 pub struct SystemClock;
 
 impl IdleClock for SystemClock {
     fn now(&self) -> Instant {
-        Instant::now()
+        tokio::time::Instant::now().into_std()
     }
 }
 
@@ -336,7 +362,10 @@ pub struct Transfers {
     /// Insertion ordered, so a device's oldest grant is the first of its own.
     grants: Mutex<Vec<(String, Grant)>>,
     generations: Mutex<Generations>,
-    wall: std::sync::OnceLock<Arc<dyn WallClock>>,
+    sweeper: Sweeper,
+    /// The epoch time and the monotonic instant at construction: a download's clock is the first plus the time since the second.
+    epoch_ms: i64,
+    origin: Instant,
     /// Test seam: called with the name of a point in `authorize`, `begin_grant` or a lease read, where a revoke may run meanwhile.
     #[cfg(test)]
     pause: Mutex<Option<Arc<dyn Fn(&str) + Send + Sync>>>,
@@ -363,7 +392,9 @@ impl Transfers {
             reads: Mutex::default(),
             grants: Mutex::default(),
             generations: Mutex::default(),
-            wall: std::sync::OnceLock::new(),
+            sweeper: Sweeper::default(),
+            epoch_ms: crate::editorcfg::now_ms(),
+            origin: clock.now(),
             #[cfg(test)]
             pause: Mutex::default(),
             writes: Mutex::default(),
@@ -373,13 +404,21 @@ impl Transfers {
         }
     }
 
-    /// The clock grants and transfers expire on, set once before the first download (the system clock otherwise).
-    pub fn set_wall(&self, wall: Arc<dyn WallClock>) {
-        let _ = self.wall.set(wall);
+    /// Node's `Date.now()` for grants and transfers: the epoch time at construction plus the monotonic time since (the clock that also
+    /// times the idle sweep of uploads, which is what a virtual-time test moves).
+    fn now_ms(&self) -> i64 {
+        #[cfg(debug_assertions)]
+        if let Some(replayed) = replayed_now_ms() {
+            return replayed;
+        }
+        self.epoch_ms + i64::try_from(self.clock.now().saturating_duration_since(self.origin).as_millis()).unwrap_or(i64::MAX)
     }
 
-    fn now_ms(&self) -> i64 {
-        self.wall.get().map_or_else(|| SystemWall.now_ms(), |wall| wall.now_ms())
+    /// Sets the hook called at each named point of `authorize`, `begin_grant` and a lease read; a revoke run from it is one that came
+    /// in the middle of the call.
+    #[cfg(test)]
+    pub(crate) fn on_point(&self, hook: Option<Arc<dyn Fn(&str) + Send + Sync>>) {
+        *self.pause.lock().expect("pause") = hook;
     }
 
     #[cfg(test)]
@@ -393,34 +432,126 @@ impl Transfers {
     #[cfg(not(test))]
     fn point(&self, _name: &str) {}
 
-    fn generation(&self, owner: &str) -> u64 {
-        let generations = self.generations.lock().expect("generations");
-        generations.all + generations.owners.get(owner).copied().unwrap_or(0)
+    fn generation(&self, owner: &str, session: &str) -> u64 {
+        self.generations.lock().expect("generations").of(owner, session)
     }
 
-    /// Ends every grant and phone transfer whose time is up (Node's `sweep`, run at the start of every call).
+    /// Ends every grant and phone transfer whose time is up (Node's `sweep`: run at the start of every call, and by the sweeper).
     fn sweep_downloads(&self) {
         let now = self.now_ms();
         self.grants.lock().expect("transfer grants").retain(|(_, grant)| grant.expires_at > now);
         self.reads.lock().expect("transfer reads").retain(|_, read| read.lease.is_none_or(|lease| lease.expires_at > now && lease.idle_until > now));
+        self.stop_sweeper_when_idle();
+    }
+
+    /// Whether any grant or phone transfer is held (Node's three tables being empty, less the exports this core has no table for).
+    fn downloads_held(&self) -> bool {
+        !self.grants.lock().expect("transfer grants").is_empty() || self.reads.lock().expect("transfer reads").values().any(|read| read.lease.is_some())
+    }
+
+    fn arm_sweeper(&self) {
+        let mut anchor = self.sweeper.anchor.lock().expect("sweeper");
+        if anchor.is_none() {
+            *anchor = Some(self.clock.now());
+            self.sweeper.changed.notify_one();
+        }
+    }
+
+    fn stop_sweeper_when_idle(&self) {
+        let held = self.downloads_held();
+        let mut anchor = self.sweeper.anchor.lock().expect("sweeper");
+        if !held && anchor.take().is_some() {
+            self.sweeper.changed.notify_one();
+        }
+    }
+
+    /// Node's 15 s sweeper: from the moment the first grant or transfer is held it sweeps every [`SWEEP_INTERVAL`] on `timer`, so a
+    /// handle closes at its tick although no call comes, and it stops when nothing is held. Never returns; run it as one task.
+    pub async fn run_download_sweeper(&self, timer: &dyn IdleTimer) {
+        loop {
+            let anchor = loop {
+                let changed = self.sweeper.changed.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                if let Some(anchor) = *self.sweeper.anchor.lock().expect("sweeper") {
+                    break anchor;
+                }
+                changed.await;
+            };
+            let mut tick = anchor + SWEEP_INTERVAL;
+            loop {
+                let changed = self.sweeper.changed.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                let current = *self.sweeper.anchor.lock().expect("sweeper");
+                if current != Some(anchor) {
+                    break;
+                }
+                tokio::select! {
+                    () = timer.sleep_until(tick) => {
+                        if *self.sweeper.anchor.lock().expect("sweeper") != Some(anchor) {
+                            break;
+                        }
+                        self.sweep_downloads();
+                        #[cfg(test)]
+                        self.sweeper.swept.notify_one();
+                        tick += SWEEP_INTERVAL;
+                    }
+                    () = &mut changed => {}
+                }
+            }
+        }
     }
 
     /// Unpair: everything `owner` holds ends now, and a call of it that is in flight finds it revoked.
     pub fn revoke_owner(&self, owner: &str) {
-        *self.generations.lock().expect("generations").owners.entry(owner.to_owned()).or_default() += 1;
+        let mut gate = self.generations.lock().expect("generations");
+        *gate.owners.entry(owner.to_owned()).or_default() += 1;
         self.end_owner(owner);
+        self.stop_sweeper_when_idle();
+    }
+
+    /// The conversation was deleted: every grant and phone transfer on it ends now, and a call on it that is in flight finds it revoked
+    /// (Node's `retainSessions`).
+    pub fn revoke_session(&self, session: &str) {
+        let mut gate = self.generations.lock().expect("generations");
+        *gate.sessions.entry(session.to_owned()).or_default() += 1;
+        self.grants.lock().expect("transfer grants").retain(|(_, g)| g.session != session);
+        self.reads.lock().expect("transfer reads").retain(|_, r| r.session != session);
+        self.stop_sweeper_when_idle();
+    }
+
+    /// The conversations the grants and phone transfers held belong to.
+    pub fn held_sessions(&self) -> Vec<String> {
+        let mut sessions: Vec<String> = self.grants.lock().expect("transfer grants").iter().map(|(_, g)| g.session.clone()).collect();
+        sessions.extend(self.reads.lock().expect("transfer reads").values().filter(|r| r.lease.is_some()).map(|r| r.session.clone()));
+        sessions.sort();
+        sessions.dedup();
+        sessions
+    }
+
+    /// The conversation a grant or phone transfer of `owners` belongs to, if one is held under `id`.
+    pub fn session_of(&self, owners: &[&str], id: &str) -> Option<String> {
+        let grants = self.grants.lock().expect("transfer grants");
+        if let Some((_, grant)) = grants.iter().find(|(grant, g)| grant == id && owners.contains(&g.owner.as_str())) {
+            return Some(grant.session.clone());
+        }
+        drop(grants);
+        self.reads.lock().expect("transfer reads").get(id).filter(|r| r.lease.is_some() && owners.contains(&r.owner.as_str())).map(|r| r.session.clone())
     }
 
     /// The relay closed, or this host unpaired every device.
     pub fn revoke_all(&self) {
-        self.generations.lock().expect("generations").all += 1;
+        let mut gate = self.generations.lock().expect("generations");
+        gate.all += 1;
         self.grants.lock().expect("transfer grants").clear();
         self.reads.lock().expect("transfer reads").retain(|_, read| read.lease.is_none());
+        self.stop_sweeper_when_idle();
     }
 
     /// Opens the download a phone asked for as a grant: the file stays open, so what was authorized is what is read. `mark` is
     /// [`Self::mark`] taken before the file work.
-    pub fn authorize(&self, owner: &str, mark: u64, opened: SourceFile) -> WsResult<Authorized> {
+    pub fn authorize(&self, owner: &str, session: &str, mark: u64, opened: SourceFile) -> WsResult<Authorized> {
         self.sweep_downloads();
         let SourceFile { file, name, mime_type, cleanup } = opened;
         let size = file.metadata()?.len();
@@ -428,45 +559,67 @@ impl Transfers {
             return Err(download("file-download:too-large", "Files larger than 256 MB cannot be downloaded."));
         }
         self.point("authorize.opened");
-        if self.generation(owner) != mark {
-            return Err(WsError::expired());
-        }
         let version = version_string(&file_version(&file)?);
         let name = sanitized_file_name(&name);
         let grant_id = new_id();
-        let expires_at = self.now_ms() + GRANT_TTL_MS;
-        let mut grants = self.grants.lock().expect("transfer grants");
-        let held: Vec<String> = grants.iter().filter(|(_, g)| g.owner == owner).map(|(id, _)| id.clone()).collect();
-        for stale in held.iter().take((held.len() + 1).saturating_sub(MAX_GRANTS_PER_DEVICE)) {
-            grants.retain(|(id, _)| id != stale);
+        // Checking the marks and publishing the grant are one step for a revoke (Node's `stillAuthorized` and `addGrant`, synchronous).
+        let gate = self.generations.lock().expect("generations");
+        if gate.of(owner, session) != mark {
+            return Err(WsError::expired());
         }
-        grants.push((
-            grant_id.clone(),
-            Grant { owner: owner.to_owned(), file, size, version: version.clone(), name: name.clone(), mime: mime_type.clone(), expires_at, cleanup: cleanup.map(Cleanup) },
-        ));
+        let expires_at = self.now_ms() + GRANT_TTL_MS;
+        {
+            let mut grants = self.grants.lock().expect("transfer grants");
+            let held: Vec<String> = grants.iter().filter(|(_, g)| g.owner == owner).map(|(id, _)| id.clone()).collect();
+            for stale in held.iter().take((held.len() + 1).saturating_sub(MAX_GRANTS_PER_DEVICE)) {
+                grants.retain(|(id, _)| id != stale);
+            }
+            grants.push((
+                grant_id.clone(),
+                Grant {
+                    owner: owner.to_owned(),
+                    session: session.to_owned(),
+                    file,
+                    size,
+                    version: version.clone(),
+                    name: name.clone(),
+                    mime: mime_type.clone(),
+                    expires_at,
+                    cleanup: cleanup.map(Cleanup),
+                },
+            ));
+        }
+        drop(gate);
+        self.arm_sweeper();
         Ok(Authorized { grant_id, name, size, mime: mime_type, version, expires_at })
     }
 
-    /// The revocation generation of `owner`, read before the file work of a call that checks it again afterwards.
-    pub fn mark(&self, owner: &str) -> u64 {
-        self.generation(owner)
+    /// The revocation generation of `owner` and `session`, read before the file work of a call that checks it again afterwards.
+    pub fn mark(&self, owner: &str, session: &str) -> u64 {
+        self.generation(owner, session)
     }
 
     /// Consumes the grant (once) into one transfer (Node's `begin`).
     pub fn begin_grant(&self, owner: &str, grant_id: &str) -> WsResult<Leased> {
         self.sweep_downloads();
-        let grant = {
+        // Consuming the grant and reading the marks are one step for a revoke: it either ends the grant first or finds it consumed
+        // and is seen by the check after the file work.
+        let (grant, mark) = {
+            let gate = self.generations.lock().expect("generations");
             let mut grants = self.grants.lock().expect("transfer grants");
             let at = grants.iter().position(|(id, g)| id == grant_id && g.owner == owner).ok_or_else(WsError::expired)?;
-            grants.remove(at).1
+            let grant = grants.remove(at).1;
+            let mark = gate.of(owner, &grant.session);
+            (grant, mark)
         };
-        // Out of the table, a revoke can no longer reach the grant: it is checked against this mark after the file work.
-        let mark = self.generation(owner);
-        self.point("begin.verify");
+        self.point("begin.taken");
         if version_string(&file_version(&grant.file)?) != grant.version {
             return Err(download_changed());
         }
-        if self.generation(owner) != mark {
+        self.point("begin.verify");
+        // The check and the publication of the transfer are one step for a revoke.
+        let gate = self.generations.lock().expect("generations");
+        if gate.of(owner, &grant.session) != mark {
             return Err(WsError::expired());
         }
         let mut reads = self.reads.lock().expect("transfer reads");
@@ -476,11 +629,15 @@ impl Transfers {
         let at = self.now_ms();
         let times = LeaseTimes { expires_at: at + LEASE_MAX_MS, idle_until: at + LEASE_IDLE_MS };
         let transfer_id = new_id();
-        let Grant { file, size, version, name, mime, cleanup, .. } = grant;
+        let Grant { file, session, size, version, name, mime, cleanup, .. } = grant;
         reads.insert(
             transfer_id.clone(),
-            Read { owner: owner.to_owned(), file, size, version: version.clone(), lease: Some(times), _cleanup: cleanup, opened: Instant::now() },
+            Read { owner: owner.to_owned(), session, file, size, version: version.clone(), lease: Some(times), _cleanup: cleanup, opened: Instant::now() },
         );
+        drop(reads);
+        drop(gate);
+        self.point("begin.published");
+        self.arm_sweeper();
         Ok(Leased {
             transfer_id,
             name,
@@ -573,7 +730,7 @@ impl Transfers {
         let name = sanitized_file_name(&name);
         reads.insert(
             id.clone(),
-            Read { owner: owner.to_owned(), file, size, version: version.clone(), lease: None, _cleanup: cleanup.map(Cleanup), opened: Instant::now() },
+            Read { owner: owner.to_owned(), session: String::new(), file, size, version: version.clone(), lease: None, _cleanup: cleanup.map(Cleanup), opened: Instant::now() },
         );
         Ok(Opened { transfer_id: id, size, mime_type: mime.to_owned(), name, version, range_max_bytes: RANGE_MAX_BYTES })
     }
@@ -699,13 +856,18 @@ impl Transfers {
         let mut reads = self.reads.lock().expect("transfer reads");
         if reads.get(id).is_some_and(|r| owners.contains(&r.owner.as_str())) {
             reads.remove(id);
+            drop(reads);
+            self.stop_sweeper_when_idle();
             return true;
         }
         drop(reads);
         let mut grants = self.grants.lock().expect("transfer grants");
         let before = grants.len();
         grants.retain(|(grant, g)| !(grant == id && owners.contains(&g.owner.as_str())));
-        grants.len() != before
+        let ended = grants.len() != before;
+        drop(grants);
+        self.stop_sweeper_when_idle();
+        ended
     }
 
     pub fn begin_write(&self, owner: &str, root: &Path, rel: &str, size: u64) -> WsResult<String> {
@@ -860,6 +1022,12 @@ impl Transfers {
 
     pub fn open_reads(&self) -> usize {
         self.reads.lock().expect("transfer reads").len()
+    }
+
+    /// The files held open for phone downloads: unredeemed grants and begun transfers (what Node's handle count shows).
+    #[cfg(test)]
+    pub(crate) fn held_downloads(&self) -> usize {
+        self.grants.lock().expect("transfer grants").len() + self.reads.lock().expect("transfer reads").values().filter(|r| r.lease.is_some()).count()
     }
 }
 
@@ -1128,17 +1296,24 @@ mod tests {
     }
 
     /// One shared manual time source for the idle clock and the idle timer: nothing here waits.
-    struct Manual {
+    pub(super) struct Manual {
         base: Instant,
         elapsed_ms: tokio::sync::watch::Sender<u64>,
     }
 
     impl Manual {
-        fn new() -> Arc<Self> {
+        pub(super) fn new() -> Arc<Self> {
             Arc::new(Self { base: Instant::now(), elapsed_ms: tokio::sync::watch::Sender::new(0) })
         }
-        fn advance(&self, ms: u64) {
+        pub(super) fn advance(&self, ms: u64) {
             self.elapsed_ms.send_modify(|elapsed| *elapsed += ms);
+        }
+        pub(super) fn elapsed(&self) -> u64 {
+            *self.elapsed_ms.borrow()
+        }
+        /// The elapsed milliseconds at which `at` falls.
+        pub(super) fn ms_of(&self, at: Instant) -> u64 {
+            u64::try_from(at.saturating_duration_since(self.base).as_millis()).unwrap_or(u64::MAX)
         }
     }
 
@@ -1189,7 +1364,139 @@ mod tests {
         t.sweep_idle();
         assert!(!part.exists(), "the abandoned upload's partial file is removed by the timer's sweep alone");
     }
-    /// Node's `authorizeProjectFile` refusal for `../x`, recorded by fixtures/desktop/transfer: its whole text.
+    /// A grant of `owner` on `session` for a file of `dir`, made as the service makes one.
+    fn grant_of(t: &Transfers, dir: &Path, owner: &str, session: &str) -> Authorized {
+        let path = dir.join("a.bin");
+        std::fs::write(&path, b"0123456789abcdef").unwrap();
+        let opened = open_session_download(&path.to_string_lossy(), None, None).unwrap();
+        t.authorize(owner, session, t.mark(owner, session), opened).unwrap()
+    }
+
+    /// Runs `revoke` when the call under test reaches `point`.
+    fn at(t: &Arc<Transfers>, point: &'static str, revoke: impl Fn(&Transfers) + Send + Sync + 'static) {
+        let table = t.clone();
+        t.on_point(Some(Arc::new(move |reached: &str| {
+            if reached == point {
+                revoke(&table);
+            }
+        })));
+    }
+
+    fn range_of(t: &Transfers, owner: &str, leased: &Leased) -> WsResult<Range> {
+        t.read_range(&[owner], &leased.transfer_id, 0, 4, Some(&leased.version))
+    }
+
+    /// The first window of an unpair against a redeem: the grant is out of the table and the revoke finds nothing to end. The
+    /// marks are read in the one step that consumes the grant, so the revoke is seen when the transfer would be published.
+    #[test]
+    fn a_revoke_after_the_grant_is_consumed_leaves_no_transfer() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::default());
+        let grant = grant_of(&t, dir.path(), "dev", "s1");
+        at(&t, "begin.taken", |t| t.revoke_owner("dev"));
+        assert_eq!(t.begin_grant("dev", &grant.grant_id).unwrap_err().reason, Reason::DownloadExpired);
+        assert_eq!(t.open_reads(), 0);
+    }
+
+    /// The second window: the file check is done and the transfer is about to be published.
+    #[test]
+    fn a_revoke_after_the_file_check_leaves_no_transfer() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::default());
+        let grant = grant_of(&t, dir.path(), "dev", "s1");
+        at(&t, "begin.verify", |t| t.revoke_owner("dev"));
+        assert_eq!(t.begin_grant("dev", &grant.grant_id).unwrap_err().reason, Reason::DownloadExpired);
+        assert_eq!(t.open_reads(), 0);
+    }
+
+    /// A revoke the moment the transfer is published reaches it: publishing and the check are one step for a revoke.
+    #[test]
+    fn a_revoke_right_after_the_transfer_is_published_ends_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::default());
+        let grant = grant_of(&t, dir.path(), "dev", "s1");
+        at(&t, "begin.published", |t| t.revoke_owner("dev"));
+        let leased = t.begin_grant("dev", &grant.grant_id).unwrap();
+        assert_eq!(range_of(&t, "dev", &leased).unwrap_err().reason, Reason::DownloadExpired);
+        assert_eq!(t.open_reads(), 0);
+    }
+
+    /// Whatever the interleaving, a device's reads fail from its unpair on: a read in flight, an authorize in flight, and the other
+    /// device untouched.
+    #[test]
+    fn after_an_unpair_no_read_of_the_device_succeeds_whatever_was_in_flight() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::default());
+        let grant = grant_of(&t, dir.path(), "dev", "s1");
+        let leased = t.begin_grant("dev", &grant.grant_id).unwrap();
+        at(&t, "read.read", |t| t.revoke_owner("dev"));
+        assert_eq!(range_of(&t, "dev", &leased).unwrap_err().reason, Reason::DownloadExpired);
+        // An authorize that was opening its file when the device was revoked leaves no grant.
+        at(&t, "authorize.opened", |t| t.revoke_owner("dev"));
+        let path = dir.path().join("a.bin");
+        let opened = open_session_download(&path.to_string_lossy(), None, None).unwrap();
+        let mark = t.mark("dev", "s1");
+        assert_eq!(t.authorize("dev", "s1", mark, opened).unwrap_err().reason, Reason::DownloadExpired);
+        t.on_point(None);
+        assert!(t.grants.lock().unwrap().is_empty());
+        // Another device is untouched.
+        let other = grant_of(&t, dir.path(), "other", "s1");
+        let kept = t.begin_grant("other", &other.grant_id).unwrap();
+        t.revoke_owner("dev");
+        assert!(range_of(&t, "other", &kept).is_ok());
+    }
+
+    /// The same two windows for a conversation that is deleted, and a deletion ends what the conversation held and nothing else.
+    #[test]
+    fn a_deleted_conversation_ends_its_grants_and_transfers_in_every_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = Arc::new(Transfers::default());
+        let grant = grant_of(&t, dir.path(), "dev", "s1");
+        at(&t, "begin.taken", |t| t.revoke_session("s1"));
+        assert_eq!(t.begin_grant("dev", &grant.grant_id).unwrap_err().reason, Reason::DownloadExpired);
+        let grant = grant_of(&t, dir.path(), "dev", "s1");
+        at(&t, "begin.verify", |t| t.revoke_session("s1"));
+        assert_eq!(t.begin_grant("dev", &grant.grant_id).unwrap_err().reason, Reason::DownloadExpired);
+        t.on_point(None);
+        assert_eq!(t.open_reads(), 0);
+        let unbegun = grant_of(&t, dir.path(), "dev", "s1");
+        let kept = grant_of(&t, dir.path(), "dev", "s2");
+        let live = t.begin_grant("dev", &kept.grant_id).unwrap();
+        t.revoke_session("s1");
+        assert_eq!(t.begin_grant("dev", &unbegun.grant_id).unwrap_err().reason, Reason::DownloadExpired);
+        assert!(range_of(&t, "dev", &live).is_ok(), "the other conversation's transfer lives");
+        at(&t, "authorize.opened", |t| t.revoke_session("s2"));
+        let opened = open_session_download(&dir.path().join("a.bin").to_string_lossy(), None, None).unwrap();
+        let mark = t.mark("dev", "s2");
+        assert_eq!(t.authorize("dev", "s2", mark, opened).unwrap_err().reason, Reason::DownloadExpired);
+        assert!(range_of(&t, "dev", &live).is_err(), "s2 was deleted too");
+    }
+
+    /// Node's `createDownloadTables` sweeper on a virtual clock: ticks of 15 s counted from the first thing held, a handle closed at the
+    /// first tick at or after its expiry with no call, and a new count after nothing was held.
+    #[tokio::test]
+    async fn the_sweeper_closes_expired_handles_at_its_ticks_with_no_call() {
+        let manual = Manual::new();
+        let t = Arc::new(Transfers::with_clock(manual.clone(), UPLOAD_IDLE));
+        let sweeping = { let (t, manual) = (t.clone(), manual.clone()); tokio::spawn(async move { t.run_download_sweeper(&*manual).await }) };
+        let dir = tempfile::tempdir().unwrap();
+        grant_of(&t, dir.path(), "dev", "s1");
+        manual.advance(5_000);
+        grant_of(&t, dir.path(), "dev", "s1");
+        let held = || t.grants.lock().unwrap().len();
+        // Ticks at 15, 30, 45, 60 s: the first grant (expires at 60 s) goes at the 60 s tick, the second (65 s) at the 75 s tick.
+        for (to, expected) in [(15_000, 2), (30_000, 2), (45_000, 2), (59_999, 2), (60_000, 1), (74_999, 1), (75_000, 0)] {
+            manual.advance(to - manual.elapsed());
+            if to % 15_000 == 0 {
+                t.sweeper.swept.notified().await;
+            }
+            assert_eq!(held(), expected, "held at {to} ms");
+        }
+        assert!(t.sweeper.anchor.lock().unwrap().is_none(), "the sweeper stops once nothing is held");
+        sweeping.abort();
+    }
+
+
     #[test]
     fn a_project_path_beyond_the_project_is_nodes_outside_project_refusal() {
         let corpus: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/desktop/transfer/corpus.json")).unwrap();

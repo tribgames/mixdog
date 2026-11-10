@@ -203,8 +203,13 @@ async fn the_relay_peer_header_never_raises_rights_or_works_off_the_ssh_listener
     // local or SSH connection has nothing to mint into), and the phone's live view, whose stream, signals and display
     // list belong to the relay client that asked (`remote-relay-client-calls.ts` `browserRemoteStream`;
     // `desktop-service.ts` `browserRemoteWebrtcSignal`, called with the relay client's id; `remote-webrtc.ts`
-    // `REMOTE_WEBRTC_SCREEN_DISPLAYS_METHOD`).
+    // `REMOTE_WEBRTC_SCREEN_DISPLAYS_METHOD`), and the phone's download stages: Node serves `fileDownloadAuthorize`, `fileDownloadBegin`
+    // and `fileDownloadFinish` only in the relay's method table (`remote-methods.ts:874`, `fileDownloadRemoteMethods`), so the desktop's
+    // own window and an SSH client never call them (`transfer/readRange` and `transfer/endRead` also serve their local reads).
     let phone_only = [
+        ("transfer/authorizeRead", serde_json::json!({ "sessionId": "s1", "source": { "kind": "sessionFile", "path": "/outside/file.txt" }, "purpose": "save" })),
+        ("transfer/redeemGrant", serde_json::json!({ "grantId": "00000000-0000-4000-8000-000000000001" })),
+        ("transfer/finishRead", serde_json::json!({ "transferId": "00000000-0000-4000-8000-000000000002" })),
         ("transfer/grant/mint", serde_json::json!({ "path": "/outside/file.txt" })),
         ("browser/stream", serde_json::json!({ "sessionId": "s1", "on": true })),
         ("browser/webrtcSignal", serde_json::json!({ "signal": {} })),
@@ -247,7 +252,10 @@ async fn answer_to(origin: ListenerOrigin, peers: &[&str], method: &'static str,
     let origins = hub.clone();
     let available = || CapabilityState::Available;
     let server = AppServer::new(
-        Arc::new(MockCore::new(&["transfer/grant/mint", "browser/stream", "browser/webrtcSignal", "browser/screenDisplays"], MockLimits::default())),
+        Arc::new(MockCore::new(
+            &["transfer/authorizeRead", "transfer/redeemGrant", "transfer/finishRead", "transfer/grant/mint", "browser/stream", "browser/webrtcSignal", "browser/screenDisplays"],
+            MockLimits::default(),
+        )),
         Outgoing::new(),
         Arc::new(move |id| origins.origin_of(id)),
         ServerConfig {

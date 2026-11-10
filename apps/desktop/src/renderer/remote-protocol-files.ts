@@ -92,7 +92,7 @@ async function grantedPlace(host: PhoneProtocolHost, target: Params): Promise<{ 
 
 // ── a paired phone's downloads (Node's `fileDownloadRemoteMethods`, main/file-downloads.ts:960-1070 at b6f10295a) ──
 // The arguments are checked here, in Node's order and with its sentences. The conversation a request names is the adapter's to resolve
-// (Node's `sessionRow` / `projectRoot`): the core is told the project, never the conversation.
+// (Node's `sessionRow` / `projectRoot`): the core is told the project, and the conversation's id, whose deletion ends the grant.
 const DOWNLOAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const DOWNLOAD_VERSION = /^[A-Za-z0-9_-]{43}$/;
 const SESSION_ID = /^[A-Za-z0-9_-]+$/;
@@ -156,9 +156,10 @@ async function authorizeDownload(host: PhoneProtocolHost, value: unknown): Promi
   const project = await conversationProject(host, request.sessionId);
   if (request.kind === 'project') {
     if (project === null) throw new FileDownloadError('outside-project', "The file is outside the conversation's project.");
-    return rpc(host, 'transfer/authorizeRead', { source: { kind: 'file', root: project, rel: request.relPath }, purpose: request.purpose });
+    return rpc(host, 'transfer/authorizeRead', { sessionId: request.sessionId, source: { kind: 'file', root: project, rel: request.relPath }, purpose: request.purpose });
   }
   return rpc(host, 'transfer/authorizeRead', {
+    sessionId: request.sessionId,
     source: { kind: 'sessionFile', path: request.path, ...(project === null ? {} : { projectPath: project }) },
     purpose: request.purpose,
   });

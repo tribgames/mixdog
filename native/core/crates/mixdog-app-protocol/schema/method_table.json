@@ -8015,8 +8015,6 @@
         "kind": "none"
       },
       "origins": [
-        "local",
-        "ssh",
         "relay"
       ],
       "params": "TransferAuthorizeReadParams",
@@ -8035,8 +8033,6 @@
         "kind": "none"
       },
       "origins": [
-        "local",
-        "ssh",
         "relay"
       ],
       "params": "TransferRedeemGrantParams",
@@ -8055,8 +8051,6 @@
         "kind": "none"
       },
       "origins": [
-        "local",
-        "ssh",
         "relay"
       ],
       "params": "TransferFinishReadParams",

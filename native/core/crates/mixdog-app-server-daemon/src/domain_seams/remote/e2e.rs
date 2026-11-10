@@ -220,19 +220,11 @@ impl StatePublisher for Published {
     }
 }
 
-/// The clock phone downloads expire on, which only the test moves (Node's recorder moved its own by explicit steps too).
-#[derive(Default)]
-struct ManualWall(std::sync::atomic::AtomicI64);
-
-impl mixdog_workspace::transfer::WallClock for ManualWall {
-    fn now_ms(&self) -> i64 {
-        self.0.load(Ordering::SeqCst)
-    }
-}
-
 /// The core booted as `compose` and `serving::attach` boot it, with one paired device ("Pixel", `CRED`) in the relay's roster.
 struct Harness {
-    wall: Arc<ManualWall>,
+    /// The file the debug build's download clock is read from (`MIXDOG_DOWNLOAD_CLOCK_FILE`), which only the test writes: Node's recorder
+    /// moved its own clock by explicit steps too.
+    wall: std::path::PathBuf,
     dir: tempfile::TempDir,
     core: Arc<Core>,
     registry: Arc<DeviceRegistry>,
@@ -339,8 +331,9 @@ impl Harness {
             releases: mixdog_workspace::release::FolderReleases::new(),
         })
         .unwrap();
-        let wall = Arc::new(ManualWall::default());
-        workspace.set_download_clock(wall.clone());
+        let wall = dir.path().join("download-clock");
+        // SAFETY: set before the harness serves a call; each test of this module is a process of its own under nextest.
+        unsafe { std::env::set_var("MIXDOG_DOWNLOAD_CLOCK_FILE", &wall) };
         let grants = Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(AllSessions)));
         workspace.set_phone_grants(grants.clone(), phone_credential(remote.registry.clone()));
         remote
@@ -1218,7 +1211,7 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
             ($phone:expr, $path:expr, $method:expr, $params:expr) => {{
                 let recorded = at(scenario, $path);
                 // Node's recorder moved its clock a second for every call the phone made (its ids count from 100).
-                h.wall.0.store(DOWNLOAD_CLOCK_START + (recorded["id"].as_i64().unwrap() - 99) * 1000, Ordering::SeqCst);
+                std::fs::write(&h.wall, (DOWNLOAD_CLOCK_START + (recorded["id"].as_i64().unwrap() - 99) * 1000).to_string()).unwrap();
                 $phone.send(&json!({ "id": recorded["id"], "method": $method, "params": $params }).to_string());
                 let wire = answer(&mut $phone, recorded["id"].as_u64().unwrap()).await;
                 let frame = canon.frame($path, &node_of(&wire));
@@ -1255,7 +1248,7 @@ async fn an_unpair_leaves_a_revoked_phone_everything_but_the_screen_as_nodes_des
         // The download in its two stages, as Node's phone made them: the grant, the transfer it is consumed into, and a second grant
         // never begun.
         let source = json!({ "kind": "sessionFile", "path": download.to_string_lossy() });
-        let authorize = json!({ "source": source, "purpose": "save" });
+        let authorize = json!({ "sessionId": "s1", "source": source, "purpose": "save" });
         let grant = replay!(phone, "before.files.grant", "transfer/authorizeRead", authorize)["result"]["grantId"].clone();
         let transfer = replay!(phone, "before.files.transfer", "transfer/redeemGrant", json!({ "grantId": grant }))["result"]["transferId"].clone();
         let unbegun = replay!(phone, "before.files.unbegun", "transfer/authorizeRead", authorize)["result"]["grantId"].clone();

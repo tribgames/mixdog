@@ -275,7 +275,7 @@ fn s<'a>(params: &'a Value, key: &str) -> WsResult<&'a str> {
 }
 
 /// Largest staged upload and its chunk size (`shared/server-files.ts`).
-use crate::transfer::{UPLOAD_CHUNK_BYTES, UPLOAD_MAX_BYTES};
+use crate::transfer::{UPLOAD_CHUNK_BYTES, UPLOAD_MAX_BYTES, unavailable};
 
 fn opt_bool(params: &Value, key: &str) -> bool {
     params.get(key).and_then(Value::as_bool).unwrap_or(false)
@@ -300,6 +300,16 @@ fn text_query(options: &Value) -> WsResult<TextQuery> {
 
 impl WorkspaceService {
     pub fn new(deps: Deps) -> WsResult<Arc<Self>> {
+        Self::build(deps, Arc::new(Transfers::default()))
+    }
+
+    /// A service over a transfer table whose clock a test moves (the whole download path then runs on that clock).
+    #[cfg(test)]
+    pub(crate) fn new_with_transfers(deps: Deps, transfers: Arc<Transfers>) -> WsResult<Arc<Self>> {
+        Self::build(deps, transfers)
+    }
+
+    fn build(deps: Deps, transfers: Arc<Transfers>) -> WsResult<Arc<Self>> {
         let router = Arc::new(Router { fs: Mutex::default(), search: OnceLock::new() });
         let watcher = Arc::new(FolderWatcher::new(router.clone())?);
         let search = SearchSessions::new(deps.lanes, deps.feeds.clone(), watcher.clone());
@@ -314,7 +324,7 @@ impl WorkspaceService {
             catalog: Catalog::new(deps.state.clone(), deps.lanes),
             fs: Arc::new(ProjectFs::new(Arc::new(RecoveryStore::new(deps.recovery_dir)))),
             paths: path_claims(),
-            transfers: Arc::new(Transfers::default()),
+            transfers,
             file_leases: Arc::default(),
             read_windows: crate::readwindow::ReadWindows::default(),
             watcher,
@@ -345,6 +355,11 @@ impl WorkspaceService {
     /// per-upload `setTimeout(idleMs)`: it sleeps to the earliest idle deadline and sweeps then, so a
     /// partial file does not wait for the next upload call. Call once after construction.
     pub fn spawn_idle_sweeper(&self) {
+        let sweeping = self.transfers.clone();
+        // Node's 15 s sweeper of grants and phone transfers: their handles close at its tick although no call comes.
+        drop(mixdog_rt::spawn("download-sweep", mixdog_rt::TaskClass::Work, async move {
+            sweeping.run_download_sweeper(&crate::transfer::TokioTimer).await;
+        }));
         let (transfers, lanes) = (self.transfers.clone(), self.lanes);
         drop(mixdog_rt::spawn("upload-idle-sweep", mixdog_rt::TaskClass::Work, async move {
             let cancel = CancellationToken::new();
@@ -466,9 +481,54 @@ impl WorkspaceService {
         }
     }
 
-    /// The clock phone downloads expire on (the system clock unless set); set once, before the first download.
-    pub fn set_download_clock(&self, wall: Arc<dyn crate::transfer::WallClock>) {
-        self.transfers.set_wall(wall);
+    /// Whether the conversation a phone's download names has left the catalog (Node's `sessionRemoved`); false until a published
+    /// catalog listed it, and without paired-device state.
+    async fn session_gone(&self, session: &str) -> WsResult<bool> {
+        match self.phone_grants.get() {
+            Some(grants) => grants.store.conversation_gone(session).await,
+            None => Ok(false),
+        }
+    }
+
+    /// Node's `retainSessions` (`remote-relay.ts:450`, at each publication of the session list): every conversation the downloads
+    /// hold that the catalog no longer has ends its grants and transfers.
+    pub async fn retire_gone_download_sessions(&self) {
+        for session in self.transfers.held_sessions() {
+            if self.session_gone(&session).await.unwrap_or(false) {
+                self.transfers.revoke_session(&session);
+            }
+        }
+    }
+
+    /// The observer of the published session catalog: `seen` records which conversations the catalog has listed (the paired devices'
+    /// grants), then the downloads of a conversation the catalog no longer has end.
+    pub fn catalog_observer(self: &Arc<Self>, seen: Arc<dyn mixdog_core_api::state::CatalogObserver>) -> Arc<dyn mixdog_core_api::state::CatalogObserver> {
+        struct Retiring {
+            seen: Arc<dyn mixdog_core_api::state::CatalogObserver>,
+            service: Weak<WorkspaceService>,
+        }
+        impl mixdog_core_api::state::CatalogObserver for Retiring {
+            fn published(&self, session_ids: &[&str]) {
+                self.seen.published(session_ids);
+                if let Some(service) = self.service.upgrade().filter(|service| !service.transfers.held_sessions().is_empty()) {
+                    drop(mixdog_rt::spawn("download-retain-sessions", mixdog_rt::TaskClass::Work, async move {
+                        service.retire_gone_download_sessions().await;
+                    }));
+                }
+            }
+        }
+        Arc::new(Retiring { seen, service: Arc::downgrade(self) })
+    }
+
+    /// Node's `retainSessions` for the one call at hand: a conversation that is gone ends the grants and transfers on it before the
+    /// call looks for them.
+    async fn retire_download_session(&self, owners: &[&str], id: &str) -> WsResult<()> {
+        if let Some(session) = self.transfers.session_of(owners, id)
+            && self.session_gone(&session).await?
+        {
+            self.transfers.revoke_session(&session);
+        }
+        Ok(())
     }
 
     /// An unpair ends what the device holds. `device` names a connection of it (the unpair walks the device's attached connections,
@@ -971,6 +1031,7 @@ impl WorkspaceService {
                 }
                 let id = s(params, "transferId")?.to_owned();
                 let (owner, connection, t) = (self.download_owner(req), Self::owner(req), self.transfers.clone());
+                self.retire_download_session(&[owner.as_str(), connection.as_str()], &id).await?;
                 let version = params.get("version").and_then(Value::as_str).map(str::to_owned);
                 let range = run_fallible(self.lanes.interactive, &cancel, move || t.read_range(&[owner.as_str(), connection.as_str()], &id, offset, length, version.as_deref())).await?;
                 value(json!(range))
@@ -978,7 +1039,8 @@ impl WorkspaceService {
             "transfer/authorizeRead" => {
                 let source = params.get("source").ok_or_else(|| WsError::invalid("source is invalid."))?;
                 let owner = self.download_owner(req);
-                let mark = self.transfers.mark(&owner);
+                let session = s(params, "sessionId")?.to_owned();
+                let mark = self.transfers.mark(&owner, &session);
                 let t = self.transfers.clone();
                 let opened = match source.get("kind").and_then(Value::as_str) {
                     Some("file") => {
@@ -1002,18 +1064,41 @@ impl WorkspaceService {
                     }
                     _ => return Err(WsError::invalid("source.kind is invalid.")),
                 };
-                value(json!(t.authorize(&owner, mark, opened)?))
+                let granted = t.authorize(&owner, &session, mark, opened)?;
+                // Node's `stillAuthorized`: a conversation that left the catalog while the file was opened leaves no grant behind.
+                if self.session_gone(&session).await? {
+                    self.transfers.revoke_session(&session);
+                    return Err(unavailable());
+                }
+                value(json!(granted))
             }
             "transfer/redeemGrant" => {
                 let (owner, t, id) = (self.download_owner(req), self.transfers.clone(), s(params, "grantId")?.to_owned());
-                value(json!(run_fallible(self.lanes.interactive, &cancel, move || t.begin_grant(&owner, &id)).await?))
+                self.retire_download_session(&[owner.as_str()], &id).await?;
+                let session = self.transfers.session_of(&[owner.as_str()], &id);
+                let leased = run_fallible(self.lanes.interactive, &cancel, {
+                    let (owner, id) = (owner.clone(), id.clone());
+                    move || t.begin_grant(&owner, &id)
+                })
+                .await?;
+                // The conversation left the catalog while the file was checked: no transfer is left behind.
+                if let Some(session) = session
+                    && self.session_gone(&session).await?
+                {
+                    self.transfers.revoke_session(&session);
+                    return Err(unavailable());
+                }
+                value(json!(leased))
             }
             "transfer/finishRead" => {
                 let (owner, t, id) = (self.download_owner(req), self.transfers.clone(), s(params, "transferId")?.to_owned());
+                self.retire_download_session(&[owner.as_str()], &id).await?;
                 value(json!(run_fallible(self.lanes.interactive, &cancel, move || t.finish_read(&owner, &id)).await?))
             }
             "transfer/endRead" => {
-                value(json!({ "ended": self.transfers.end_read(&[self.download_owner(req).as_str(), Self::owner(req).as_str()], s(params, "transferId")?) }))
+                let (owner, connection, id) = (self.download_owner(req), Self::owner(req), s(params, "transferId")?);
+                self.retire_download_session(&[owner.as_str(), connection.as_str()], id).await?;
+                value(json!({ "ended": self.transfers.end_read(&[owner.as_str(), connection.as_str()], id) }))
             }
             "transfer/beginWrite" if params.get("scope").is_some() => {
                 // `serverUploadBegin(name, size, scope)`: staged under the data dir, named at commit.

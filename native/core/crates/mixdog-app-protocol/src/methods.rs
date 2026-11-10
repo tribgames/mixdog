@@ -3230,7 +3230,7 @@ crate::client_request_definitions! {
         scope: none,
         class: C1,
         mutation: none,
-        origins: [Local, Ssh, Relay],
+        origins: [Relay],
     },
     /// A paired phone's download, second stage: consumes the grant once into a transfer.
     TransferRedeemGrant => "transfer/redeemGrant" {
@@ -3239,7 +3239,7 @@ crate::client_request_definitions! {
         scope: none,
         class: C1,
         mutation: none,
-        origins: [Local, Ssh, Relay],
+        origins: [Relay],
     },
     /// A paired phone's download is done: the file must still be the leased version; the transfer ends either way.
     TransferFinishRead => "transfer/finishRead" {
@@ -3248,7 +3248,7 @@ crate::client_request_definitions! {
         scope: none,
         class: C1,
         mutation: none,
-        origins: [Local, Ssh, Relay],
+        origins: [Relay],
     },
     /// Close a read (finish or abort).
     TransferEndRead => "transfer/endRead" {
