@@ -66,32 +66,47 @@ const SCENARIOS = [
     },
   },
   {
-    // bash-tool-cwd-env.test.mjs: the model shell's env over a daemon env of `PATH=A;B`, with the launcher directory of this
-    // process's runtime under a data dir of the recorder's work dir; the launcher files written there.
-    name: 'launcher-path',
+    // bash-tool-cwd-env.test.mjs, its two tests through the whole tool: the daemon env is replaced by the test's (a stale
+    // MIXDOG_SESSION_CWD; then `PATH=A;B`), and a run in the test's cwd hands the shell the env recorded whole, with the
+    // launchers written under the data dir. `<WORK>` stands for the recorder's work dir in every value.
+    name: 'spawn-env',
     test: `${B}/bash-tool-cwd-env.test.mjs`,
-    async run(tree, work) {
-      const dataDir = join(work, 'data');
-      process.env.MIXDOG_DATA_DIR = dataDir;
-      const { buildShellSpawnEnv } = await load(tree, `${B}/bash-tool.mjs`);
-      const { skillLauncherDir, skillLauncherFiles, skillScriptRuntime } = await load(tree, 'src/runtime/shared/skill-script-runtime.mjs');
-      const { readFileSync, existsSync } = await import('node:fs');
+    mocks: true,
+    async run(tree, work, mock) {
+      const { readFileSync, readdirSync } = await import('node:fs');
+      const { isDeepStrictEqual } = await import('node:util');
       const { delimiter } = await import('node:path');
+      const dataDir = join(work, 'data');
+      const keep = { SystemRoot: process.env.SystemRoot, MIXDOG_DATA_DIR: dataDir };
+      const seen = await mockShell(tree, mock, { stdout: '', stderr: '', exitCode: 0, signal: null }, {
+        preflight: ({ command }) => ({
+          command,
+          analysisCommand: command,
+          resolvedSpec: { shell: 'powershell.exe', shellArg: '-Command', shellArgs: [], shellType: 'powershell' },
+        }),
+      });
+      const { executeBashTool } = await load(tree, `${B}/bash-tool.mjs`);
+      const { skillLauncherDir, skillScriptRuntime } = await load(tree, 'src/runtime/shared/skill-script-runtime.mjs');
       const runtime = skillScriptRuntime();
       const dir = skillLauncherDir(runtime, dataDir);
-      const daemonPath = process.env.PATH;
-      const daemonEnv = { PATH: ['A', 'B'].join(delimiter) };
-      const env = buildShellSpawnEnv('C:\\x', daemonEnv);
-      return {
-        runtime: { platform: runtime.platform, interpreter: runtime.interpreter, entry: runtime.entry, electron: runtime.electron },
-        dataDir,
-        dir,
-        daemonEnv,
-        PATH: env.PATH,
-        sessionCwd: env.MIXDOG_SESSION_CWD,
-        daemonPathKept: process.env.PATH === daemonPath,
-        files: skillLauncherFiles(runtime).map(({ name }) => ({ name, exists: existsSync(join(dir, name)), content: readFileSync(join(dir, name), 'utf8') })),
-      };
+      const runs = [
+        { base: { PATH: ['C:\\P1', 'C:\\P2'].join(delimiter), MIXDOG_SESSION_CWD: 'C:\\wrong-session' }, cwd: ['Project', 'mixdog'] },
+        { base: { PATH: ['A', 'B'].join(delimiter) }, cwd: ['x'] },
+      ];
+      const cases = [];
+      for (const run of runs) {
+        const base = { ...keep, ...run.base };
+        for (const key of Object.keys(process.env)) delete process.env[key];
+        Object.assign(process.env, base);
+        const cwd = join(work, ...run.cwd);
+        mkdirSync(cwd, { recursive: true });
+        await executeBashTool({ command: 'echo hi' }, cwd, { sessionId: 't' });
+        const env = seen.at(-1).env;
+        cases.push({ base: { ...base }, cwd: run.cwd, env: { ...env }, daemonEnvKept: isDeepStrictEqual({ ...process.env }, base) });
+      }
+      const files = readdirSync(dir).sort().map((name) => ({ name, content: readFileSync(join(dir, name), 'utf8') }));
+      const record = { runtime: { platform: runtime.platform, interpreter: runtime.interpreter, entry: runtime.entry, electron: runtime.electron }, dir, cases, files };
+      return JSON.parse(JSON.stringify(record).split(JSON.stringify(work).slice(1, -1)).join('<WORK>'));
     },
   },
   {
@@ -197,42 +212,61 @@ const SCENARIOS = [
     },
   },
   {
-    // shell-output-silence.test.mjs 'a running job quiet past the threshold…' and 'output on either stream resets the silence
-    // clock': a running shell task whose streams last wrote at the given minute, read at the given minute.
+    // shell-output-silence.test.mjs, its first two tests, each on a job of its own as the tests do: a running shell task whose
+    // streams wrote `x\n` at the given minute, its silence note (`shellTaskSilenceNote`) and its progress digest
+    // (`readShellTaskOutput` digest) read at the given minute, in the tests' order. Later output appends (the tests rewrite
+    // the same bytes and move the mtime; a live stream only grows). The third test and the fourth are not recorded (manifest).
     name: 'output-silence',
     test: `${B}/shell-output-silence.test.mjs`,
     async run(tree, work) {
       const { shellTaskSilenceNote } = await load(tree, `${B}/lib/shell-output-silence.mjs`);
+      const { readShellTaskOutput } = await load(tree, `${B}/lib/shell-task-output.mjs`);
       const { registerBackgroundTask } = await load(tree, 'src/runtime/shared/background-tasks.mjs');
-      const { utimesSync, writeFileSync } = await import('node:fs');
+      const { appendFileSync, utimesSync } = await import('node:fs');
       const MIN = 60_000;
       const warnMs = 10 * MIN;
       const base = Date.now() - 3_600_000;
-      const paths = { stdout: join(work, 'out.log'), stderr: join(work, 'err.log') };
-      const steps = [];
-      const output = (stream, minute) => {
-        writeFileSync(paths[stream], 'x\n');
-        utimesSync(paths[stream], new Date(base + minute * MIN), new Date(base + minute * MIN));
-        steps.push({ output: stream, minute });
+      const job = (name, script) => {
+        const paths = { stdout_path: join(work, `${name}.out.log`), stderr_path: join(work, `${name}.err.log`) };
+        const steps = [];
+        const output = (stream, minute) => {
+          const path = paths[`${stream}_path`];
+          appendFileSync(path, 'x\n');
+          utimesSync(path, new Date(base + minute * MIN), new Date(base + minute * MIN));
+          steps.push({ output: stream, minute });
+        };
+        output('stdout', 0);
+        output('stderr', 0);
+        const task = registerBackgroundTask({
+          taskId: `job_${name}`,
+          startedAtMs: base,
+          surface: 'shell',
+          operation: 'shell',
+          label: 'slow test',
+          context: { callerSessionId: 'sess_silence' },
+          meta: { stdout: paths.stdout_path, stderr: paths.stderr_path },
+        });
+        const note = (minute) => steps.push({ note: minute, text: shellTaskSilenceNote(task, { now: base + minute * MIN, warnMs }) });
+        const digest = (minute) =>
+          steps.push({ digest: minute, text: readShellTaskOutput(task, paths, { digest: true, now: base + minute * MIN, silenceWarnMs: warnMs }) });
+        script({ output, note, digest });
+        return { name, steps };
       };
-      output('stdout', 0);
-      output('stderr', 0);
-      const task = registerBackgroundTask({
-        taskId: 'job_silence',
-        startedAtMs: base,
-        surface: 'shell',
-        operation: 'shell',
-        label: 'slow test',
-        context: { callerSessionId: 'sess_silence' },
-        meta: { stdout: paths.stdout, stderr: paths.stderr },
-      });
-      const read = (minute) => steps.push({ read: minute, note: shellTaskSilenceNote(task, { now: base + minute * MIN, warnMs }) });
-      read(9);
-      read(12);
-      output('stderr', 11);
-      read(12);
-      read(22);
-      return { warnMs, steps };
+      const jobs = [
+        job('quiet', ({ note, digest }) => {
+          digest(9);
+          digest(12);
+          note(12);
+        }),
+        job('reset', ({ output, note, digest }) => {
+          note(12);
+          output('stderr', 11);
+          note(12);
+          digest(12);
+          note(22);
+        }),
+      ];
+      return { warnMs, jobs };
     },
   },
   {
@@ -252,7 +286,7 @@ const SCENARIOS = [
       const { executeBashTool } = await load(tree, `${B}/bash-tool.mjs`);
       const original = 'npm test 2>&1 | Select-String fail';
       await executeBashTool({ command: original, background: true }, work);
-      return { command: original, wrapped: /__mixdogProducerExit/.test(seen[0].command), displayCommand: seen[0].displayCommand };
+      return { command: original, ran: seen[0].command, tmp: (await import('node:os')).tmpdir(), displayCommand: seen[0].displayCommand };
     },
   },
   {
@@ -326,12 +360,14 @@ async function parent(args) {
       scenarios: SCENARIOS.map((s) => ({ name: s.name, test: s.test })),
       compared: {
         'deadline-plan': 'autoBackgroundMs against the hold, and the run limit (backgroundDeadlineMs with background tasks on, timeout without) against the time limit. Rust has one run limit the process manager enforces and no separate foreground timeout: promotedTimeoutMs and promoteAtTimeout are not compared; a run limit at or below the hold being enforced instead of promoted is the real-process test a_real_command_over_its_time_limit_is_killed_with_nodes_text',
-        'launcher-path': 'the launcher directory and files are compared for the recorded runtime and data dir; the shell PATH for the daemon env PATH=A;B',
+        'spawn-env': "both tests through the shell tool: the child's whole env per daemon env (<WORK> is the replay's directory), the daemon env unchanged, and the launcher files written",
+        'display-command': 'the whole executed script (the tee token as <T>, its temp dir as <TMP>) and the task label',
         'filter-plan-groups': 'whether a plan is made; the plan text carries a random token',
         'powershell-live': 'the whole result text of each live run on pwsh',
         'bash-byte-identity': "the exit and stdout of each body, run through Rust's bash transport on the recorded Git Bash. Node's case runs below the tool (execShellCommand), so the tool's `cat` read-tool note line is removed from the Rust result before comparing",
         'integration-live': 'the whole result text of each live run; the repo case runs in a repo the replay builds the same way',
-        'output-silence':"the warning at each read. Not recorded: the test's unreadable-capture case (a capture file that cannot be stat'd): Rust reads silence from the output it received, held in memory, and has no capture file to fail",
+        'output-silence':
+          "the first two tests: each silence note against the job's task-list entry, each digest against the whole body of a task wait. Not recorded: 'an unreadable capture file means unknown silence…' (a difference: Rust reads silence from the output it received, held in memory, and has no capture file to fail) and 'agent status shows the waited job tool silence…' (the agent tool's status, mixdog-agent)",
         'wmic-note': 'the result text and the hard limit; the executed text ends with the rewritten command (Rust puts its UTF-8 preamble before it in the same script, Node in execShellCommand)',
       },
     },

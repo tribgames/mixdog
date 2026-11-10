@@ -220,7 +220,7 @@
         }
       ]
     },
-    "launcher-path": {
+    "spawn-env": {
       "test": "src/runtime/agent/orchestrator/tools/builtin/bash-tool-cwd-env.test.mjs",
       "runtime": {
         "platform": "win32",
@@ -228,23 +228,66 @@
         "entry": "D:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs",
         "electron": false
       },
-      "dataDir": "D:\\mixdog-build\\tmp\\w27\\rec\\launcher-path-5kmmeV\\data",
-      "dir": "D:\\mixdog-build\\tmp\\w27\\rec\\launcher-path-5kmmeV\\data\\skill-launchers\\b87fe136f710817d",
-      "daemonEnv": {
-        "PATH": "A;B"
-      },
-      "PATH": "D:\\mixdog-build\\tmp\\w27\\rec\\launcher-path-5kmmeV\\data\\skill-launchers\\b87fe136f710817d;A;B",
-      "sessionCwd": "C:\\x",
-      "daemonPathKept": true,
+      "dir": "<WORK>\\data\\skill-launchers\\b87fe136f710817d",
+      "cases": [
+        {
+          "base": {
+            "SystemRoot": "C:\\WINDOWS",
+            "MIXDOG_DATA_DIR": "<WORK>\\data",
+            "PATH": "C:\\P1;C:\\P2",
+            "MIXDOG_SESSION_CWD": "C:\\wrong-session"
+          },
+          "cwd": [
+            "Project",
+            "mixdog"
+          ],
+          "env": {
+            "MIXDOG_DATA_DIR": "<WORK>\\data",
+            "MIXDOG_SESSION_CWD": "<WORK>\\Project\\mixdog",
+            "PATH": "<WORK>\\data\\skill-launchers\\b87fe136f710817d;C:\\P1;C:\\P2",
+            "SystemRoot": "C:\\WINDOWS",
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+            "PYTHONUTF8": "1",
+            "PYTHONIOENCODING": "utf-8",
+            "TEMP": "<WORK>\\data\\scratch\\s.e3b98a4da31a127d",
+            "TMP": "<WORK>\\data\\scratch\\s.e3b98a4da31a127d",
+            "TMPDIR": "<WORK>\\data\\scratch\\s.e3b98a4da31a127d"
+          },
+          "daemonEnvKept": true
+        },
+        {
+          "base": {
+            "SystemRoot": "C:\\WINDOWS",
+            "MIXDOG_DATA_DIR": "<WORK>\\data",
+            "PATH": "A;B"
+          },
+          "cwd": [
+            "x"
+          ],
+          "env": {
+            "MIXDOG_DATA_DIR": "<WORK>\\data",
+            "PATH": "<WORK>\\data\\skill-launchers\\b87fe136f710817d;A;B",
+            "SystemRoot": "C:\\WINDOWS",
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+            "MIXDOG_SESSION_CWD": "<WORK>\\x",
+            "PYTHONUTF8": "1",
+            "PYTHONIOENCODING": "utf-8",
+            "TEMP": "<WORK>\\data\\scratch\\s.e3b98a4da31a127d",
+            "TMP": "<WORK>\\data\\scratch\\s.e3b98a4da31a127d",
+            "TMPDIR": "<WORK>\\data\\scratch\\s.e3b98a4da31a127d"
+          },
+          "daemonEnvKept": true
+        }
+      ],
       "files": [
         {
           "name": "mixdog-skill-node",
-          "exists": true,
           "content": "#!/bin/sh\n# Mixdog skill-script launcher, generated for one installation. Do not edit.\nexec 'C:\\Program Files\\nodejs\\node.exe' 'D:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' \"$@\"\n"
         },
         {
           "name": "mixdog-skill-node.cmd",
-          "exists": true,
           "content": "@echo off\r\nrem Mixdog skill-script launcher, generated for one installation. Do not edit.\r\nsetlocal EnableExtensions DisableDelayedExpansion\r\n\"C:\\Program Files\\nodejs\\node.exe\" \"D:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs\" %*\r\nset \"MIXDOG_SKILL_EXIT=%ERRORLEVEL%\"\r\nexit /b %MIXDOG_SKILL_EXIT%\r\n"
         }
       ]
@@ -359,41 +402,72 @@
     "output-silence": {
       "test": "src/runtime/agent/orchestrator/tools/builtin/shell-output-silence.test.mjs",
       "warnMs": 600000,
-      "steps": [
+      "jobs": [
         {
-          "output": "stdout",
-          "minute": 0
+          "name": "quiet",
+          "steps": [
+            {
+              "output": "stdout",
+              "minute": 0
+            },
+            {
+              "output": "stderr",
+              "minute": 0
+            },
+            {
+              "digest": 9,
+              "text": "[progress] +0.0 KB, +2 lines since you last saw it · last line: \"x\" — still running, not an error\n\n[stdout]\nx\n\n\n[stderr]\nx\n"
+            },
+            {
+              "digest": 12,
+              "text": "[progress] no output for 12m — may be hung; inspect or cancel\n\n(no new output)"
+            },
+            {
+              "note": 12,
+              "text": "no output for 12m — may be hung; inspect or cancel"
+            }
+          ]
         },
         {
-          "output": "stderr",
-          "minute": 0
-        },
-        {
-          "read": 9,
-          "note": null
-        },
-        {
-          "read": 12,
-          "note": "no output for 12m — may be hung; inspect or cancel"
-        },
-        {
-          "output": "stderr",
-          "minute": 11
-        },
-        {
-          "read": 12,
-          "note": null
-        },
-        {
-          "read": 22,
-          "note": "no output for 11m — may be hung; inspect or cancel"
+          "name": "reset",
+          "steps": [
+            {
+              "output": "stdout",
+              "minute": 0
+            },
+            {
+              "output": "stderr",
+              "minute": 0
+            },
+            {
+              "note": 12,
+              "text": "no output for 12m — may be hung; inspect or cancel"
+            },
+            {
+              "output": "stderr",
+              "minute": 11
+            },
+            {
+              "note": 12,
+              "text": null
+            },
+            {
+              "digest": 12,
+              "text": "[progress] +0.0 KB, +3 lines since you last saw it · last line: \"x\" — still running, not an error\n\n[stdout]\nx\n\n\n[stderr]\nx\nx\n"
+            },
+            {
+              "note": 22,
+              "text": "no output for 11m — may be hung; inspect or cancel"
+            }
+          ]
         }
       ]
     },
     "display-command": {
       "test": "src/runtime/agent/orchestrator/tools/builtin/bash-tool/display-command.test.mjs",
       "command": "npm test 2>&1 | Select-String fail",
-      "wrapped": true,
+      "ran": "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=New-Object System.Text.UTF8Encoding $false;\nfunction mixdog-skill-node { $__mxa = 'mixdog1'; foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }; $__mxo0 = $env:MIXDOG_SKILL_ARGV; try { $env:MIXDOG_SKILL_ARGV = $__mxa; & 'C:\\Program Files\\nodejs\\node.exe' 'D:\\mixdog-build\\tmp\\b6f-tree\\src\\skill-script-entry.mjs' } finally { $env:MIXDOG_SKILL_ARGV = $__mxo0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE } }\n$__mixdogProducerExit39d9c0c0 = [ref]0; & { $global:LASTEXITCODE = 0; npm test 2>&1; $__mixdogProducerExit39d9c0c0.Value = $global:LASTEXITCODE } | Tee-Object -FilePath 'D:\\mixdog-build\\tmp\\w27\\rec\\display-command-M5FRq2\\mixdog-tee-39d9c0c0.log' | Select-String fail; exit $__mixdogProducerExit39d9c0c0.Value",
+      "tmp": "D:\\mixdog-build\\tmp\\w27\\rec\\display-command-M5FRq2",
       "displayCommand": "npm test 2>&1 | Select-String fail"
     },
     "wmic-note": {

@@ -3,19 +3,20 @@
   "compared": {
     "bash-byte-identity": "the exit and stdout of each body, run through Rust's bash transport on the recorded Git Bash. Node's case runs below the tool (execShellCommand), so the tool's `cat` read-tool note line is removed from the Rust result before comparing",
     "deadline-plan": "autoBackgroundMs against the hold, and the run limit (backgroundDeadlineMs with background tasks on, timeout without) against the time limit. Rust has one run limit the process manager enforces and no separate foreground timeout: promotedTimeoutMs and promoteAtTimeout are not compared; a run limit at or below the hold being enforced instead of promoted is the real-process test a_real_command_over_its_time_limit_is_killed_with_nodes_text",
+    "display-command": "the whole executed script (the tee token as <T>, its temp dir as <TMP>) and the task label",
     "filter-plan-groups": "whether a plan is made; the plan text carries a random token",
     "integration-live": "the whole result text of each live run; the repo case runs in a repo the replay builds the same way",
-    "launcher-path": "the launcher directory and files are compared for the recorded runtime and data dir; the shell PATH for the daemon env PATH=A;B",
-    "output-silence": "the warning at each read. Not recorded: the test's unreadable-capture case (a capture file that cannot be stat'd): Rust reads silence from the output it received, held in memory, and has no capture file to fail",
+    "output-silence": "the first two tests: each silence note against the job's task-list entry, each digest against the whole body of a task wait. Not recorded: 'an unreadable capture file means unknown silence…' (a difference: Rust reads silence from the output it received, held in memory, and has no capture file to fail) and 'agent status shows the waited job tool silence…' (the agent tool's status, mixdog-agent)",
     "powershell-live": "the whole result text of each live run on pwsh",
+    "spawn-env": "both tests through the shell tool: the child's whole env per daemon env (<WORK> is the replay's directory), the daemon env unchanged, and the launcher files written",
     "wmic-note": "the result text and the hard limit; the executed text ends with the rewritten command (Rust puts its UTF-8 preamble before it in the same script, Node in execShellCommand)"
   },
   "fileCount": 1,
   "files": [
     {
-      "bytes": 66552,
+      "bytes": 70024,
       "path": "golden.json",
-      "sha256": "98e8463bc0c8ca9f05371db2d6769cd5ed11b9f57a3c73218bb1ea01b05ccc9e"
+      "sha256": "01431bbba1031528633f94794b8d94cd7dc5ff8a8cca92acec278f916f571a71"
     }
   ],
   "node": "v22.20.0",
@@ -43,7 +44,7 @@
       "test": "src/runtime/agent/orchestrator/tools/builtin/bash-tool/deadline-plan.test.mjs"
     },
     {
-      "name": "launcher-path",
+      "name": "spawn-env",
       "test": "src/runtime/agent/orchestrator/tools/builtin/bash-tool-cwd-env.test.mjs"
     },
     {
@@ -90,9 +91,9 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/record-exec-cases.mjs",
-      "sha256": "d63b171fe374dc7c21365e76948ccbf50cb76d415ed1dee30ae1fe334252b7f2"
+      "sha256": "21117a4abcaed1efded1d0eedc59f30196f34a12b294f21bade5824fc276e6d6"
     }
   ],
   "set": "exec-cases",
-  "totalBytes": 66552
+  "totalBytes": 70024
 }
