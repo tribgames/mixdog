@@ -194,19 +194,21 @@ async fn another_device_stopping_publishes_prompt_restore_with_nodes_fields() {
     let canceller = world.client(connection_of(canceller_device));
     world.submit(&sender, case["prompt"].as_str().unwrap(), case["submit"]["id"].as_str().unwrap()).await;
 
+    // The rig's clock at the moment of the restore, set by the test: the restore is stamped from it (Node: `Date.now()`, `abort.mjs:72,76`).
+    let clock: u64 = 7777;
+    world.session.clock.0.store(clock, std::sync::atomic::Ordering::SeqCst);
     let frame = world.interrupt(&canceller, json!({})).await;
     assert_node_reply(&frame["result"], &case["result"], "another device");
 
     let node = &case["after"]["promptRestore"];
     let frames = world.published_prompt_restores().await;
     // Node's one published restore, whole; the clock (Node's fake 1700000000450, in `at` and in the id `restore-<clock>-<first
-    // submission id>`) and the device name (`wire_device`) are the rig's.
+    // submission id>`) is the value the test set, and the device name (`wire_device`) is the rig's.
     let mut want = node.clone();
-    let at = frames[0]["value"]["at"].clone();
-    want["id"] = json!(format!("restore-{at}-{}", node["ids"][0].as_str().unwrap()));
-    want["at"] = at;
+    want["id"] = json!(format!("restore-{clock}-{}", node["ids"][0].as_str().unwrap()));
+    want["at"] = json!(clock);
     want["device"] = json!(wire_device(node["device"].as_str().unwrap()));
-    assert_eq!(frames.into_iter().map(|mut frame| { frame.as_object_mut().unwrap().remove("threadId"); frame }).collect::<Vec<_>>(), vec![json!({ "value": want })]);
+    assert_eq!(frames, vec![json!({ "threadId": world.id, "value": want })]);
 }
 
 #[tokio::test(start_paused = true)]
