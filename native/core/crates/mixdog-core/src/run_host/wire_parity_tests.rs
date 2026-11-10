@@ -209,7 +209,9 @@ async fn record_all(only: Option<&str>, node: &[Value]) -> Vec<Value> {
 
     let model = "gpt-6.1-sol";
     let mut records = vec![ModelRecord::new(ProviderId::from("openai-oauth"), model)];
-    // A scenario that names its own model has that row offer the `priority` service tier, as Node's catalog does.
+    // A scenario that names its own model has that row offer the `priority` service tier, as Node's catalog does. The
+    // catalog is the Codex one: the other providers' scenarios (Grok's name models too) are left out of it, as
+    // `node-wire-capture.mjs` (`tierModels`) leaves them out of Node's.
     let mut tier_models: Vec<&str> = doc["scenarios"].as_array().unwrap().iter().filter(|s| s["provider"] == "openai-oauth").filter_map(|s| s["model"].as_str()).collect();
     tier_models.dedup();
     for id in tier_models {
