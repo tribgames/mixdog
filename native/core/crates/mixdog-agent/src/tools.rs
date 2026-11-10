@@ -558,6 +558,21 @@ fn denial_for_unapproved(name: &str, detail: &str) -> String {
 /// Policy, approval wait, then the tool task. Awaiting the approval is a
 /// cancel-safe wait: the run's token ends it from outside.
 pub(crate) async fn execute_call(call: ToolCall, env: Arc<CallEnv>) -> Executed {
+    // `executeCall`'s invalid-args guard (`session/tool-batch/execute-call.mjs`): a call whose arguments the provider
+    // could not parse is answered with the retry notice and never dispatched.
+    if call.arguments.get("__invalidToolArgs").and_then(JsonValue::as_bool) == Some(true) {
+        let detail = call
+            .arguments
+            .get("__parseError")
+            .and_then(JsonValue::as_str)
+            .filter(|d| !d.is_empty())
+            .unwrap_or("arguments were not valid JSON");
+        let name = if call.name.is_empty() { "tool" } else { call.name.as_str() };
+        return Executed::error(
+            &call.id,
+            format!("The arguments provided to `{name}` are invalid JSON and could not be parsed: {detail}. Re-issue this tool call with valid JSON arguments."),
+        );
+    }
     let executed = execute_gated(&call, &env).await;
     // PostToolUseFailure: a tool that resolved to a failure fires the hook;
     // it never breaks the loop.

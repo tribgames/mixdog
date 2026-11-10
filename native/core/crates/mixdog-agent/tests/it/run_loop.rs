@@ -3035,3 +3035,24 @@ async fn a_call_waiting_on_refused_earlier_calls_is_decided_again_and_runs() {
         ]
     );
 }
+
+/// A call whose arguments the provider could not parse is answered with the retry notice and never dispatched.
+#[tokio::test]
+async fn a_call_with_unparseable_arguments_is_answered_with_the_retry_notice_and_not_run() {
+    let h = Harness::new(vec![
+        turn(vec![
+            call(
+                "c1",
+                "echo",
+                json!({"__invalidToolArgs": true, "__rawArguments": "{\"a\":", "__parseError": "Unexpected end of JSON input"}),
+            ),
+            done(StopReason::ToolUse),
+        ]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(
+        dump(&output.transcript)[2],
+        "tool#c1(Error):The arguments provided to `echo` are invalid JSON and could not be parsed: Unexpected end of JSON input. Re-issue this tool call with valid JSON arguments."
+    );
+}
