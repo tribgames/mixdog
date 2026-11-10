@@ -482,8 +482,9 @@ async fn h4_a_head_answer_with_a_content_length_has_no_body() {
     assert!(body(response).await.unwrap().is_empty());
 }
 
-// H4 (recheck): every method of Node's recording (`parity/node-method-capture.mjs`, Node's global `fetch`) is written
-// as `fetch` writes it, or refused with its text before any socket; the cases in the recording's order.
+// H4 (recheck): every method of Node's recording (`parity/node-method-capture.mjs`, the global `fetch` of the runtime
+// the product runs its core under, named in the manifest) is written as `fetch` writes it, or refused with its text
+// before any socket; the cases in the recording's order.
 #[tokio::test]
 async fn h4_methods_are_written_or_refused_as_nodes_fetch_does() {
     use sha2::{Digest, Sha256};
@@ -491,6 +492,7 @@ async fn h4_methods_are_written_or_refused_as_nodes_fetch_does() {
     const CAPTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/node-method-capture.mjs"));
     let node: serde_json::Value = serde_json::from_str(RECORDING).unwrap();
     assert_eq!(node["manifest"]["exact"], true);
+    assert_eq!((&node["manifest"]["electron"], &node["manifest"]["node"], &node["manifest"]["undici"]), (&"43.8.4".into(), &"v24.22.1".into(), &"7.30.1".into()), "recorded under the desktop's runtime");
     let sha: String = Sha256::digest(CAPTURE).iter().map(|b| format!("{b:02x}")).collect();
     assert_eq!(node["manifest"]["harness"]["node-method-capture.mjs"], sha.as_str(), "node-method-capture.mjs changed since the recording");
     let (lines_tx, mut lines) = tokio::sync::mpsc::unbounded_channel::<String>();

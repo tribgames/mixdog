@@ -331,12 +331,19 @@ fn refused_method(text: String, surface: Surface) -> ProviderError {
     error
 }
 
-/// The method written for `method`. `fetch` (`fetch/request.js`, Node 22's bundled undici; recorded in
-/// `parity/fixtures/node-methods.json`) refuses one that is no token, refuses `CONNECT`, `TRACE` and `TRACK` in any
-/// letter case, and writes `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` in upper case however they were
-/// given, any other (`patch`) as given. `undici.request` writes the method as given; a `CONNECT` is refused there too,
-/// since hyper would read its answer as a tunnel's.
+/// The method written for `method`. `fetch` (`fetch/request.js` of the bundled undici of the runtime the product runs
+/// its core under, Electron 43.8.4's Node 24.22.1 with undici 7.30.1; recorded in `parity/fixtures/node-methods.json`)
+/// first converts the method as a WebIDL `ByteString` (a character above U+00FF is refused with its UTF-16 index),
+/// refuses one that is no token, refuses `CONNECT`, `TRACE` and `TRACK` in any letter case, and writes `DELETE`, `GET`,
+/// `HEAD`, `OPTIONS`, `POST` and `PUT` in upper case however they were given, any other (`patch`, `query`) as given.
+/// `undici.request` writes the method as given; a `CONNECT` is refused there too, since hyper would read its answer as
+/// a tunnel's.
 fn request_method(method: &str, writer: Writer) -> Result<String, String> {
+    if writer == Writer::Fetch
+        && let Some((index, unit)) = method.encode_utf16().enumerate().find(|(_, unit)| *unit > 0xff)
+    {
+        return Err(format!("Cannot convert argument to a ByteString because the character at index {index} has a value of {unit} which is greater than 255."));
+    }
     if hyper::Method::from_bytes(method.as_bytes()).is_err() {
         return Err(format!("'{method}' is not a valid HTTP method."));
     }

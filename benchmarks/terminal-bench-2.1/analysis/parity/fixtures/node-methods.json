@@ -1,10 +1,11 @@
 {
  "manifest": {
   "exact": true,
-  "node": "v22.20.0",
-  "undici": "6.21.2",
+  "node": "v24.22.1",
+  "undici": "7.30.1",
+  "electron": "43.8.4",
   "harness": {
-   "node-method-capture.mjs": "611bd8b2fff847a791d38c92ad5ce5e5f85be03a7ac330d75c6122250b24b2c9"
+   "node-method-capture.mjs": "698c3eedcffd7f1dd115334e33cc0b407728ae40fe828fb45441e4a299eb2a42"
   }
  },
  "methods": [
@@ -125,6 +126,38 @@
    "error": {
     "name": "TypeError",
     "message": "'bad method' is not a valid HTTP method."
+   }
+  },
+  {
+   "method": "Query",
+   "wrote": "Query"
+  },
+  {
+   "method": "GE(T",
+   "error": {
+    "name": "TypeError",
+    "message": "'GE(T' is not a valid HTTP method."
+   }
+  },
+  {
+   "method": "GÉT",
+   "error": {
+    "name": "TypeError",
+    "message": "'GÉT' is not a valid HTTP method."
+   }
+  },
+  {
+   "method": "GĀT",
+   "error": {
+    "name": "TypeError",
+    "message": "Cannot convert argument to a ByteString because the character at index 1 has a value of 256 which is greater than 255."
+   }
+  },
+  {
+   "method": "",
+   "error": {
+    "name": "TypeError",
+    "message": "'' is not a valid HTTP method."
    }
   }
  ]
