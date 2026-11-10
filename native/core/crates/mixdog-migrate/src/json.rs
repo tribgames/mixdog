@@ -103,6 +103,35 @@ pub fn parse_source(text: &[u8]) -> Result<Parsed, String> {
     })
 }
 
+/// Whether the top-level object of `text` names one key twice (`hasUniqueTopLevelKeys`,
+/// `lifecycle-scan.mjs`): a parse keeps the last copy, where 1.4.5 found the record unreadable.
+pub fn repeats_a_top_level_key(text: &[u8]) -> bool {
+    struct Repeats(bool);
+    impl<'de> serde::Deserialize<'de> for Repeats {
+        fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            struct Keys;
+            impl<'de> serde::de::Visitor<'de> for Keys {
+                type Value = Repeats;
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    f.write_str("an object")
+                }
+                fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Repeats, A::Error> {
+                    let mut seen = std::collections::HashSet::new();
+                    let mut repeated = false;
+                    while let Some(key) = map.next_key::<String>()? {
+                        map.next_value::<serde::de::IgnoredAny>()?;
+                        repeated |= !seen.insert(key);
+                    }
+                    Ok(Repeats(repeated))
+                }
+            }
+            deserializer.deserialize_map(Keys)
+        }
+    }
+    let (fixed, _) = replace_lone_surrogates(text);
+    serde_json::from_slice::<Repeats>(&fixed).is_ok_and(|r| r.0)
+}
+
 /// `value` with every object's keys in sorted order, whatever map type serde_json uses.
 pub fn canonical(value: &Value) -> Value {
     match value {
