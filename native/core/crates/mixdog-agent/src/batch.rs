@@ -50,6 +50,14 @@ const NON_PROGRESS_TOOLS: [&str; 9] = [
     "Skill", "recall", "agent", "task", "cwd", "session", "load_tool", "tool_search", "todo",
 ];
 
+/// A call started while the response streams.
+pub(crate) struct EagerStarted {
+    id: String,
+    read_only: bool,
+    spec: Option<ToolSpec>,
+    done: tokio::sync::watch::Receiver<bool>,
+}
+
 struct Receipt {
     count: u32,
     first_iteration: u32,
@@ -242,20 +250,29 @@ impl Run {
         let canonical = ToolCall { name: self.tools.canonical(&call.name), ..call.clone() };
         // A streamed `call_tool` is admitted, ordered and run as its target; one that names no tool is
         // answered by the serial batch.
-        let exec = match self.tools.project(&self.tool_env.thread_id, &canonical) {
-            Projection::Plain => canonical,
-            Projection::Target(target) => target,
+        let (exec, bridged) = match self.tools.project(&self.tool_env.thread_id, &canonical) {
+            Projection::Plain => (canonical, false),
+            Projection::Target(target) => (target, true),
             Projection::Refused(_) => return,
         };
         let name = exec.name.clone();
-        if !self.tools.read_only(&name) {
-            return;
+        if is_single_call_per_turn_tool(&name) {
+            match self.eager_single.get(&name) {
+                Some(first) if *first != call.id => return,
+                Some(_) => {}
+                None => {
+                    self.eager_single.insert(name.clone(), call.id.clone());
+                }
+            }
         }
         let gate_call = GateCall::new(name.clone(), exec.arguments.clone());
         if self.env.gate.pre_dispatch_deny(&gate_call).is_some() || self.carry.repeat.could_fire(0) {
             return;
         }
-        if self.tools.dedup_eligible(&name) {
+        // Admission classifies a call by the session's tool list plus the definitions of bridged targets
+        // (`bridgeClassificationTools`, `tool-call-resolution.mjs:90`): a deferred tool called by its name is not on it.
+        let dedup = self.tools.dedup_eligible(&name) && (bridged || self.tools.get(&name).is_some());
+        if dedup {
             let sig = call_signature(&name, &exec.arguments);
             if !self.eager_sigs.insert(sig.clone()) {
                 return;
@@ -269,22 +286,43 @@ impl Run {
         let env = self.call_env();
         let id = call.id.clone();
         let (observer, early_id) = (Arc::clone(&self.env.observer), id.clone());
+        // Every executable call starts as it streams, a write, an MCP call or one that asks for approval included
+        // (`isParallelDispatchable`, `loop/tool-helpers.mjs:52`); a call that conflicts with an earlier started one
+        // waits for it (`eager-dispatch/barriers.mjs`), as the serial batch holds it back.
+        let spec = self.tools.resolve(&name).map(|t| t.spec().clone());
+        let preceding: Vec<_> = self
+            .eager_started
+            .iter()
+            .filter(|e| matches!((&e.spec, &spec), (Some(a), Some(b)) if conflicts(a, b)))
+            .map(|e| e.done.clone())
+            .collect();
+        let (finished, done) = tokio::sync::watch::channel(false);
         let handle = mixdog_rt::spawn("agent.eager", TaskClass::Work, async move {
+            for mut earlier in preceding {
+                // A sender dropped by an aborted read ends the wait too.
+                let _ = earlier.wait_for(|settled| *settled).await;
+            }
             let executed = execute_call(exec, env).await;
             // The instant this streamed call settles, whatever consumes it later (call order) or nothing does.
             observer.event(RunEvent::EarlyResult(early_result(&early_id, &executed)));
+            finished.send_replace(true);
             executed
         });
+        self.eager_started.push(EagerStarted { id: id.clone(), read_only: self.tools.read_only(&name), spec, done });
         self.eager.insert(id, handle);
     }
 
-    /// Eager results of a dead attempt or an unused call are dropped; the
-    /// tools were read-only, and their tokens wind them down.
+    /// Eager results of a dead attempt or an unused call are dropped. A read is wound down; a write that started
+    /// is not stopped, as Node leaves it (its cancel token ends it with the run).
     pub(crate) fn drop_eager(&mut self) {
-        for (_, handle) in self.eager.drain() {
-            handle.abort();
+        for (id, handle) in self.eager.drain() {
+            if self.eager_started.iter().any(|e| e.id == id && e.read_only) {
+                handle.abort();
+            }
         }
         self.eager_sigs.clear();
+        self.eager_started.clear();
+        self.eager_single.clear();
     }
 
     /// The batch is over. A streamed call no listed call consumed (the provider ran a text-recovered call and then
@@ -293,6 +331,8 @@ impl Run {
     fn release_eager(&mut self) {
         self.eager.clear();
         self.eager_sigs.clear();
+        self.eager_started.clear();
+        self.eager_single.clear();
     }
 
     pub(crate) fn eager_dispatched(&self, id: &str) -> bool {
@@ -561,6 +601,14 @@ impl Run {
                     continue;
                 }
                 started[j] = true;
+                // The first live call starts the rest of the batch, as a provider that streamed nothing leaves it
+                // to the batch (`startEagerRun`, `tool-batch/execute-call.mjs:112`): the calls after it do not
+                // wait for the guards to learn what the calls before it came to.
+                for k in j..n {
+                    if !dups.contains_key(&k) {
+                        self.try_eager(&wire_calls[k]).await;
+                    }
+                }
                 let call = calls[j].clone();
                 let hit = match self.env.reuse.clone() {
                     Some(reuse) => reuse.lookup(&call, true).await,
@@ -583,7 +631,10 @@ impl Run {
                 if eager.is_some() {
                     streamed.insert(j);
                 }
-                let eager = eager.filter(|_| (0..j).all(|i| skipped[i] || specs[i].as_ref().is_none_or(|s| s.parallel_safe)));
+                // A write is never run twice: only a streamed read is thrown away, and only when it may be stale.
+                let eager = eager.filter(|_| {
+                    !self.tools.read_only(&call.name) || (0..j).all(|i| skipped[i] || specs[i].as_ref().is_none_or(|s| s.parallel_safe))
+                });
                 if let Some(handle) = eager {
                     streamed.insert(j);
                     let id = call.id.clone();

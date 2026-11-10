@@ -261,6 +261,8 @@ async function runScenario(scenario) {
           while (!before.every((id) => served.has(id))) await new Promise((resolve) => setImmediate(resolve));
           cards.push(clone(card));
           timeline.push({ ev: 'card', name: card.name, args: clone(card.args) });
+          // A person answers later: every call that needs no answer runs first.
+          await new Promise((resolve) => setImmediate(resolve));
           const answer = answers.shift();
           if (!answer) throw new Error(`${scenario.name}: an approval card nobody scripted`);
           served.add(card.toolCallId);

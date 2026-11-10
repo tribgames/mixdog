@@ -353,7 +353,8 @@ impl ApprovalGate for Cards {
         self.timeline.note(json!({ "ev": "card", "name": ask.tool, "args": ask.payload["args"] }));
         // A person answers later: the loop runs meanwhile, as it does while Node awaits the card.
         let answer = self.answers.request(ask).await;
-        tokio::task::yield_now().await;
+        // The recorder answers after a macrotask: every call that needs no answer runs first.
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
         answer
     }
 }
@@ -893,10 +894,6 @@ async fn differences(take: impl Fn(&Value) -> bool, skip: &[&str]) -> (usize, Ve
         let (mut got, mut want) = (observed(scenario, golden["tools"].as_array().expect("tools")).await, recorded(scenario));
         for view in [&mut got, &mut want] {
             view["timeline"] = settled(&view["timeline"]);
-            // The same concurrency decides the order of the executors and the hooks across the calls of a batch.
-            view["executed"].as_array_mut().expect("list").sort_by_key(|call| (call["name"].to_string(), call["args"].to_string()));
-            view["hooks"]["before"].as_array_mut().expect("list").sort_by_key(|call| (call["name"].to_string(), call["args"].to_string()));
-            view["hooks"]["after"].as_array_mut().expect("list").sort_by_key(|call| (call["name"].to_string(), call["args"].to_string()));
         }
         for key in want.as_object().expect("view").keys().filter(|key| !skip.contains(&key.as_str())) {
             if got[key] != want[key] {
@@ -932,9 +929,7 @@ async fn the_scenarios_whose_writes_start_early_in_node_end_the_same_in_the_core
 
 /// Node dispatches every executable call while the provider streams it, a write, an MCP call or a call that
 /// needs approval included (`createEagerDispatcher`, `eager-dispatch.mjs`): its card is shown before the response ends.
-/// The core starts only read-only calls then, and the others after the response: open.
 #[tokio::test(start_paused = true)]
-#[ignore = "open difference: the core starts only read-only calls while the response streams"]
 async fn calls_that_are_not_read_only_start_while_the_response_streams_as_in_node() {
     let (compared, failures) = differences(starts_a_write_early, &[]).await;
     assert!(compared > 0);
