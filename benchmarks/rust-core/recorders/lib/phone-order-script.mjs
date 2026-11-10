@@ -19,6 +19,14 @@ export const orderCalls = {
   archive: { method: 'setSessionArchived', params: ['s1', true] },
   snapshot: { method: 'getSnapshot', params: ['s1'] },
   usage: { method: 'readCapabilities', params: [[{ capability: 'getUsageDashboard', args: [] }]] },
+  // The terminal lane's six methods. A keystroke and a size are sent, not awaited (instant: the handler ends where it starts, there
+  // is nothing for the script to hold); the others are awaited by the page.
+  termEnsure: { method: 'termEnsure', params: ['term_o1', P, null] },
+  termAttach: { method: 'termAttach', params: ['term_o1'] },
+  termProfiles: { method: 'termProfiles', params: [] },
+  termWrite: { method: 'termWrite', params: ['term_o1', 'x'], instant: true },
+  termResize: { method: 'termResize', params: ['term_o1', 80, 24, true], instant: true },
+  termDispose: { method: 'termDispose', params: ['term_o1'] },
 };
 
 const send = (name) => ['send', name];
@@ -56,6 +64,17 @@ export const orderScenarios = {
     send('write'), fire('archive'), send('snapshot'), settle,
     release('write'), settle, release('archive'), settle, release('snapshot'), settle,
   ],
+  // The terminal lane runs apart from the general lane: a file write, a chat mutation or a read unfinished does not hold a terminal call,
+  // and an unfinished terminal call does not hold theirs.
+  'terminal calls beside a file write and a chat mutation': [
+    send('write'), send('termEnsure'), fire('termWrite'), send('rename'), send('termProfiles'), send('snapshot'), settle,
+    release('termEnsure'), settle, release('termProfiles'), settle, release('write'), settle, release('rename'), settle, release('snapshot'), settle,
+  ],
+  // The lane is one at a time, in arrival order: a keystroke and a size wait for the 	ermEnsure before them, a dispose for them all.
+  'terminal lifecycle in one lane, in arrival order': [
+    send('termEnsure'), fire('termWrite'), fire('termResize'), send('termDispose'), send('termAttach'), send('termProfiles'), settle,
+    release('termEnsure'), settle, release('termDispose'), settle, release('termAttach'), settle, release('termProfiles'), settle,
+  ],
   // A usage sweep (a slow read, named by its capability) observes the file write before it, not the chat mutation after it.
   'a slow capability read observes the earlier file write, a later chat mutation waits for the write': [
     send('write'), send('usage'), send('archive'), send('snapshot'), settle,
@@ -74,7 +93,7 @@ export async function play(steps, driver) {
   driver.begin({
     started: (name) => events.push(['start', name]),
     gate: async (name) => {
-      await gates[name].promise;
+      if (!orderCalls[name].instant) await gates[name].promise;
       events.push(['end', name]);
     },
   });

@@ -1019,7 +1019,9 @@ impl Transfers {
         self.register(owner, opened.file, name, mime_type(&path), None)
     }
 
-    /// An absolute path the connection may read (the caller's origin rules apply).
+    /// An absolute path the connection may read (the caller's origin rules apply). The path rule is Node's `absoluteLocalPath`, which
+    /// `readLocalFileAbs` (local-files.ts:44) and `describe` (selected-file-access.ts:94) run first; Node has no streamed download of
+    /// a local path, so the read after it (a file, not a folder; ranges instead of a 20 MB cap) has no Node output to compare.
     pub fn begin_local_read(&self, owner: &str, path: &str) -> WsResult<Opened> {
         let absolute = absolute_local_path(path)?;
         let file = File::open(&absolute)?;

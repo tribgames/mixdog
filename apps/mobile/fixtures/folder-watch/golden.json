@@ -1,0 +1,62 @@
+{
+  "note": "Node's folder-watch registry (createFolderWatchRegistry, the real fs.watch) on a Windows host: a folder and a junction to it watched under both names, and the answers for a missing folder, a folder the user may not list and a file. `{root}` is the recording's folder.",
+  "twoNames": {
+    "watch": [
+      {
+        "watched": true
+      },
+      {
+        "watched": true
+      }
+    ],
+    "fsWatchPaths": [
+      "{root}\\alias",
+      "{root}\\actual"
+    ],
+    "reportedUnder": [
+      {
+        "dir": "{root}\\alias",
+        "reports": 1
+      },
+      {
+        "dir": "{root}\\actual",
+        "reports": 1
+      }
+    ]
+  },
+  "failures": [
+    {
+      "name": "missing folder",
+      "path": "{root}\\missing",
+      "answer": {
+        "error": {
+          "message": "ENOENT: no such file or directory, watch '{root}\\missing'",
+          "code": "ENOENT"
+        }
+      }
+    },
+    {
+      "name": "folder the user may not list",
+      "path": "{root}\\locked",
+      "answer": {
+        "error": {
+          "message": "EPERM: operation not permitted, watch '{root}\\locked'",
+          "code": "EPERM"
+        }
+      }
+    },
+    {
+      "name": "a file",
+      "path": "{root}\\afile.txt",
+      "answer": {
+        "watched": true
+      },
+      "reportedUnder": "{root}\\afile.txt"
+    }
+  ],
+  "fsWatchPathsOfFailures": [
+    "{root}\\missing",
+    "{root}\\locked",
+    "{root}\\afile.txt"
+  ]
+}

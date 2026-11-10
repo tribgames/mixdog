@@ -40,7 +40,7 @@ fn provider_options(provider: &str) -> Option<&'static [&'static str]> {
 /// The ladder of a model family when its catalog row declares none.
 fn family_options(family: &str) -> Option<&'static [&'static str]> {
     Some(match family {
-        "opus" | "fable" => &["low", "medium", "high", "xhigh", "max"],
+        "opus" | "fable" | "mythos" => &["low", "medium", "high", "xhigh", "max"],
         "sonnet" => &["low", "medium", "high"],
         "haiku" => &[],
         "gpt-5.5" | "gpt-5.4" | "gpt-5.2" | "gpt-5" | "gpt-mini" => &["none", "low", "medium", "high", "xhigh"],

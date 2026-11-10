@@ -252,6 +252,36 @@ fn same(actual: &Map<String, Value>, expected: &Value, label: &str) {
     );
 }
 
+/// The oracle is Node's frozen pre-change HEAD capture; Node's own parity test
+/// (`openai-compat-responses-native.test.mjs` `assertHeadParity`,
+/// `withoutCustomOutputName`) compares the current lowering with it minus exactly
+/// two declared deltas, applied here the same way: a server-replay key drops the
+/// one client `tool_search_output` HEAD synthesized for the server search call
+/// (`wire-pairing.mjs` `isServerToolSearch`), and a first-party key drops the
+/// `name` HEAD sent on `custom_tool_call_output`.
+fn node_expectation(heads: &Map<String, Value>, key: &str) -> Value {
+    let mut expected = heads[key].clone();
+    let input = expected["input"].as_array_mut().unwrap();
+    if key.ends_with("/server-replay") {
+        let synthesized = |i: &Value| {
+            i["type"] == "tool_search_output"
+                && i["call_id"] == "ts_srv"
+                && i["execution"] == "client"
+                && i["status"] == "completed"
+                && i["tools"].as_array().is_some_and(Vec::is_empty)
+        };
+        assert_eq!(input.iter().filter(|i| synthesized(i)).count(), 1, "{key}: HEAD synthesized one output");
+        input.retain(|i| !synthesized(i));
+    }
+    if key.starts_with("first-party/") {
+        for item in input.iter_mut().filter(|i| i["type"] == "custom_tool_call_output") {
+            assert!(item["name"].is_string(), "{key}: HEAD sent the name");
+            item.as_object_mut().unwrap().remove("name");
+        }
+    }
+    expected
+}
+
 // ---- gateway family: OpenCode Go, Muse Code, Command Code, xAI, ... -------
 
 fn gateway(name: &str, prompt_cache_key: bool) -> ResponsesProfile {
@@ -282,7 +312,7 @@ fn gateway_profile_matches_the_compat_heads() {
         for (label, history) in cases {
             let key = format!("compat/{name}/{model}/{label}");
             let body = body_of(&profile, &BuildInputs::new(&request(model, history, vec![], None)));
-            same(&body, &heads[&key], &key);
+            same(&body, &node_expectation(&heads, &key), &key);
             checked += 1;
         }
     }
@@ -404,7 +434,7 @@ fn first_party_server_replay_heads_still_hold() {
     ];
     for (name, config) in configs {
         let key = format!("first-party/{name}/server-replay");
-        let expected = heads[&key].clone();
+        let expected = node_expectation(&heads, &key);
         let cache = expected["prompt_cache_key"].as_str().unwrap().to_owned();
         let req = request(
             "gpt-5.5",
@@ -451,7 +481,7 @@ fn first_party_native_oauth_and_own_search_heads_hold() {
         ];
         for (label, history) in cases {
             let key = format!("first-party/{name}/{label}");
-            let expected = heads[&key].clone();
+            let expected = node_expectation(&heads, &key);
             let cache = expected["prompt_cache_key"].as_str().unwrap().to_owned();
             let req = request("gpt-5.5", history, vec![], Some(&cache));
             same(&build(&config, &req).map, &expected, &key);

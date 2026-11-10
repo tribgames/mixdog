@@ -54,28 +54,6 @@ pub const MESSAGE_STOP_WAIT_MS: u64 = 5_000;
 /// The request-wide limit on `cache_control` breakpoints with `thread` set.
 const MAX_BREAKPOINTS: usize = 4;
 
-/// Models the feature documents as supported (dated variants of a listed alias and the dated ids themselves
-/// match).
-const SUPPORTED_MODELS: [&str; 17] = [
-    "claude-fable-5-1",
-    "claude-mythos-5-1",
-    "claude-fable-5",
-    "claude-mythos-5",
-    "claude-mythos-preview",
-    "claude-opus-5-5",
-    "claude-opus-5",
-    "claude-sonnet-5-5",
-    "claude-sonnet-5",
-    "claude-haiku-5-5",
-    "claude-haiku-4-5-20251001",
-    "claude-opus-4-8",
-    "claude-opus-4-7",
-    "claude-opus-4-6",
-    "claude-sonnet-4-6",
-    "claude-opus-4-5-20251101",
-    "claude-sonnet-4-5-20250929",
-];
-
 const NORMAL_STOPS: [&str; 5] = ["end_turn", "tool_use", "stop_sequence", "pause_turn", "max_tokens"];
 const REPLAY_CODES: [&str; 4] = [
     "thread_not_found",
@@ -98,16 +76,9 @@ fn sha(text: &str) -> String {
     Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn is_dated(long: &str, short: &str) -> bool {
-    long.strip_prefix(short)
-        .and_then(|rest| rest.strip_prefix('-'))
-        .is_some_and(|date| date.len() == 8 && date.bytes().all(|b| b.is_ascii_digit()))
-}
-
-/// `threadsSupportModel`.
+/// `threadsSupportModel`: the models the feature documents, as family floors (`claude_floors::MESSAGE_THREADS`).
 pub fn supports_model(model: &str) -> bool {
-    let id = model.trim();
-    !id.is_empty() && SUPPORTED_MODELS.iter().any(|listed| *listed == id || is_dated(id, listed) || is_dated(listed, id))
+    crate::claude_floors::threads_support_model(model)
 }
 
 /// `threadAccountKey`: the account a thread belongs to, as an opaque hash.
@@ -552,6 +523,7 @@ impl Threads {
             threads: Arc::clone(self),
             scope: input.scope.to_owned(),
             provider: input.provider.to_owned(),
+            model: input.body["model"].as_str().unwrap_or_default().to_owned(),
             generation: generation_id,
             token,
             account: input.account.to_owned(),
@@ -583,6 +555,8 @@ struct Claim {
     threads: Arc<Threads>,
     scope: String,
     provider: String,
+    /// The request body's model, which a rejection may switch threads off for (`disableModel`).
+    model: String,
     generation: u64,
     token: u64,
     account: String,
@@ -684,10 +658,15 @@ impl Plan {
                 record.disabled_account = Some(claim.account.clone());
             }
         };
+        // `disableModel`: no later request of this model on this route is threaded in this process.
+        let disable_model = || crate::claude_floors::mark_unsupported(crate::claude_floors::Feature::MessageThreads, &claim.provider, &claim.model);
         if code == "thread_unsupported_request" {
             if unsupported.iter().any(|value| ACCOUNT_UNSUPPORTED.contains(&value.as_str())) {
                 inner.accounts.entry(claim.account.clone()).or_default().disabled = true;
                 log_once(&mut inner, &claim.account, &format!("threads unavailable for this account ({}); sending unthreaded", unsupported.join(",")));
+            } else if unsupported.is_empty() || unsupported.iter().any(|value| value == "model") {
+                // Nothing of the request named (or the model itself): the model does not take threads.
+                disable_model();
             } else {
                 disable_conversation(&mut inner);
             }
@@ -715,6 +694,9 @@ impl Plan {
             if !inner.accounts.entry(claim.account.clone()).or_default().confirmed {
                 inner.accounts.entry(claim.account.clone()).or_default().disabled = true;
                 log_once(&mut inner, &claim.account, &format!("threads rejected for this account (HTTP {status}); sending unthreaded from now on"));
+            } else {
+                // Once the account has threaded, it is this model that does not take them.
+                disable_model();
             }
             return force_none;
         }

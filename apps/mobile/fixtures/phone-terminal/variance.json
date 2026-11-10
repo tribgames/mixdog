@@ -1,0 +1,800 @@
+{
+  "runs": 50,
+  "order": {
+    "entries": [
+      115,
+      114,
+      116,
+      115,
+      118,
+      115,
+      115,
+      114,
+      114,
+      114,
+      113,
+      115,
+      114,
+      116,
+      115,
+      116,
+      114,
+      114,
+      114,
+      116,
+      115,
+      119,
+      121,
+      115,
+      115,
+      115,
+      114,
+      116,
+      114,
+      113,
+      116,
+      114,
+      116,
+      116,
+      117,
+      115,
+      115,
+      117,
+      114,
+      117,
+      114,
+      115,
+      115,
+      113,
+      114,
+      114,
+      111,
+      112,
+      115,
+      113
+    ],
+    "entriesWithoutData": [
+      93,
+      93,
+      93,
+      93,
+      95,
+      93,
+      93,
+      95,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      95,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      95,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93
+    ],
+    "distinctSequencesWithoutData": 15,
+    "afterLastDispose": [
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ]
+    ],
+    "perTab": {
+      "term_ph2a": {
+        "slotsWithData": 10,
+        "slotsWhereDataPresenceDiffers": [
+          42,
+          43,
+          76,
+          77,
+          78
+        ],
+        "slotsWhereBytesDiffer": 9,
+        "concatenatedBytesDistinct": 12,
+        "bytesBeforeDisposeDistinct": 1
+      },
+      "term_ph2b": {
+        "slotsWithData": 3,
+        "slotsWhereDataPresenceDiffers": [],
+        "slotsWhereBytesDiffer": 0,
+        "concatenatedBytesDistinct": 1,
+        "bytesBeforeDisposeDistinct": 1
+      },
+      "term_ph2c": {
+        "slotsWithData": 6,
+        "slotsWhereDataPresenceDiffers": [
+          80,
+          82,
+          84,
+          86,
+          88,
+          90
+        ],
+        "slotsWhereBytesDiffer": 6,
+        "concatenatedBytesDistinct": 2,
+        "bytesBeforeDisposeDistinct": 2
+      }
+    }
+  },
+  "claims.order": {
+    "entries": [
+      227,
+      228,
+      231,
+      227,
+      248,
+      230,
+      228,
+      236,
+      223,
+      227,
+      230,
+      245,
+      252,
+      234,
+      226,
+      223,
+      256,
+      234,
+      247,
+      236,
+      265,
+      283,
+      307,
+      231,
+      239,
+      242,
+      233,
+      228,
+      226,
+      224,
+      238,
+      235,
+      233,
+      235,
+      260,
+      228,
+      229,
+      226,
+      230,
+      227,
+      225,
+      227,
+      227,
+      222,
+      223,
+      229,
+      229,
+      228,
+      224,
+      227
+    ],
+    "entriesWithoutData": [
+      164,
+      164,
+      164,
+      164,
+      164,
+      166,
+      164,
+      168,
+      164,
+      164,
+      164,
+      166,
+      166,
+      164,
+      164,
+      164,
+      164,
+      164,
+      166,
+      166,
+      174,
+      174,
+      174,
+      164,
+      164,
+      164,
+      164,
+      164,
+      164,
+      164,
+      164,
+      166,
+      164,
+      166,
+      170,
+      164,
+      164,
+      164,
+      164,
+      164,
+      164,
+      164,
+      164,
+      164,
+      164,
+      164,
+      164,
+      164,
+      164,
+      164
+    ],
+    "distinctSequencesWithoutData": 50,
+    "afterLastDispose": [
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "term_ph2_l6 running",
+        "term_ph2_l6 null",
+        "lane terminal false"
+      ],
+      [
+        "term_ph2_l6 running",
+        "term_ph2_l6 null",
+        "lane terminal false"
+      ],
+      [
+        "term_ph2_l6 running",
+        "term_ph2_l6 null",
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ]
+    ],
+    "perTab": {
+      "term_ph2_l1": {
+        "slotsWithData": 9,
+        "slotsWhereDataPresenceDiffers": [
+          22,
+          23,
+          154,
+          155,
+          156
+        ],
+        "slotsWhereBytesDiffer": 6,
+        "concatenatedBytesDistinct": 19,
+        "bytesBeforeDisposeDistinct": 19
+      },
+      "term_ph2_l2": {
+        "slotsWithData": 17,
+        "slotsWhereDataPresenceDiffers": [
+          29,
+          72,
+          84,
+          156,
+          157,
+          158,
+          159,
+          160
+        ],
+        "slotsWhereBytesDiffer": 14,
+        "concatenatedBytesDistinct": 25,
+        "bytesBeforeDisposeDistinct": 25
+      },
+      "term_ph2_l4": {
+        "slotsWithData": 13,
+        "slotsWhereDataPresenceDiffers": [
+          36,
+          158,
+          159,
+          160,
+          161,
+          162,
+          163,
+          164
+        ],
+        "slotsWhereBytesDiffer": 12,
+        "concatenatedBytesDistinct": 10,
+        "bytesBeforeDisposeDistinct": 10
+      },
+      "term_ph2_l5": {
+        "slotsWithData": 21,
+        "slotsWhereDataPresenceDiffers": [
+          43,
+          44,
+          49,
+          50,
+          149,
+          150,
+          160,
+          161,
+          162,
+          164,
+          165,
+          166,
+          167,
+          168
+        ],
+        "slotsWhereBytesDiffer": 17,
+        "concatenatedBytesDistinct": 32,
+        "bytesBeforeDisposeDistinct": 32
+      },
+      "term_ph2_l6": {
+        "slotsWithData": 20,
+        "slotsWhereDataPresenceDiffers": [
+          56,
+          63,
+          64,
+          76,
+          162,
+          164,
+          166,
+          168,
+          171,
+          172
+        ],
+        "slotsWhereBytesDiffer": 15,
+        "concatenatedBytesDistinct": 27,
+        "bytesBeforeDisposeDistinct": 27
+      }
+    }
+  }
+}

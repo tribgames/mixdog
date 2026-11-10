@@ -1,1249 +1,13 @@
 {
   "_doc": "Recorded from the REAL listModels of a Node custom provider (createCustomProvider) over a scripted /models behind a stubbed fetch; metadata catalogs empty. `rows` are the Node rows verbatim.",
-  "anthropicRoster": [
-    {
-      "display_name": "Claude X",
-      "id": "claude-x",
-      "max_input_tokens": 200000,
-      "max_tokens": 64000
-    },
-    {
-      "id": "claude-y"
-    },
-    {
-      "id": "claude-z",
-      "max_input_tokens": 0,
-      "max_tokens": "8000"
-    }
-  ],
-  "cases": [
-    {
-      "config": {
-        "baseURL": "https://gateway.example/v1",
-        "headers": {
-          "X-Extra": "e"
-        },
-        "name": "Fixture",
-        "protocol": "openai-chat",
-        "schemaVersion": 2
-      },
-      "requests": [
-        {
-          "headers": {
-            "authorization": "Bearer fixture-custom-key",
-            "x-extra": "e"
-          },
-          "url": "https://gateway.example/v1/models"
-        }
-      ],
-      "rows": [
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "plain",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "plain"
-          },
-          "manual": false,
-          "name": "plain",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "supportsReasoning": false
-        },
-        {
-          "contextWindow": 128000,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "limits",
-          "inherited": {
-            "contextWindow": 128000,
-            "maxOutputTokens": 4096,
-            "name": "limits"
-          },
-          "manual": false,
-          "name": "limits",
-          "outputTokens": 4096,
-          "provider": "custom-fixture",
-          "supportsReasoning": false
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "ladder",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "ladder"
-          },
-          "manual": false,
-          "name": "ladder",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "reasoningLevels": [
-            "low",
-            "high"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "low",
-                "high"
-              ]
-            }
-          ],
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "ladder-none",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "ladder-none"
-          },
-          "manual": false,
-          "name": "ladder-none",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "reasoningLevels": [
-            "none"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "none"
-              ]
-            }
-          ],
-          "supportsReasoning": false
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "overridden",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "overridden"
-          },
-          "manual": false,
-          "name": "overridden",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "supportsReasoning": false
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "hidden-one",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "hidden-one"
-          },
-          "manual": false,
-          "name": "hidden-one",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "supportsReasoning": false
-        }
-      ],
-      "scenario": "plain-discovery"
-    },
-    {
-      "config": {
-        "baseURL": "https://gateway.example/v1",
-        "headers": {
-          "X-Extra": "e"
-        },
-        "modelOverrides": {
-          "hidden-one": {
-            "hidden": true
-          },
-          "ladder": {
-            "reasoning": {
-              "wireValues": {
-                "high": "H",
-                "medium": "dropped"
-              }
-            }
-          },
-          "limits": {
-            "hidden": false,
-            "supportsVision": false
-          },
-          "manual-only": {
-            "contextWindow": 32000,
-            "hidden": false,
-            "manual": true,
-            "name": "Manual"
-          },
-          "overridden": {
-            "contextWindow": 64000,
-            "maxOutputTokens": 2000,
-            "name": "Renamed",
-            "reasoning": {
-              "levels": [
-                "low",
-                "high",
-                "max"
-              ],
-              "replay": true,
-              "wireFormat": "together",
-              "wireValues": {
-                "low": "L",
-                "max": "M"
-              }
-            },
-            "supportsVision": true
-          }
-        },
-        "name": "Fixture",
-        "protocol": "openai-chat",
-        "schemaVersion": 2
-      },
-      "requests": [
-        {
-          "headers": {
-            "authorization": "Bearer fixture-custom-key",
-            "x-extra": "e"
-          },
-          "url": "https://gateway.example/v1/models"
-        }
-      ],
-      "rows": [
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "plain",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "plain"
-          },
-          "manual": false,
-          "name": "plain",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "supportsReasoning": false
-        },
-        {
-          "contextWindow": 128000,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "limits",
-          "inherited": {
-            "contextWindow": 128000,
-            "maxOutputTokens": 4096,
-            "name": "limits"
-          },
-          "manual": false,
-          "name": "limits",
-          "outputTokens": 4096,
-          "provider": "custom-fixture",
-          "supportsReasoning": false,
-          "supportsVision": false
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {
-              "high": "H"
-            }
-          },
-          "hidden": false,
-          "id": "ladder",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "ladder"
-          },
-          "manual": false,
-          "name": "ladder",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "reasoningLevels": [
-            "low",
-            "high"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "low",
-                "high"
-              ]
-            }
-          ],
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "ladder-none",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "ladder-none"
-          },
-          "manual": false,
-          "name": "ladder-none",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "reasoningLevels": [
-            "none"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "none"
-              ]
-            }
-          ],
-          "supportsReasoning": false
-        },
-        {
-          "contextWindow": 64000,
-          "created": null,
-          "customReasoning": {
-            "replay": true,
-            "wireFormat": "together",
-            "wireValues": {
-              "low": "L",
-              "max": "M"
-            }
-          },
-          "hidden": false,
-          "id": "overridden",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "overridden"
-          },
-          "manual": false,
-          "name": "Renamed",
-          "outputTokens": 2000,
-          "provider": "custom-fixture",
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "low",
-            "high",
-            "max"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "low",
-                "high",
-                "max"
-              ]
-            }
-          ],
-          "supportsReasoning": true,
-          "supportsVision": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": true,
-          "id": "hidden-one",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "hidden-one"
-          },
-          "manual": false,
-          "name": "hidden-one",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "supportsReasoning": false
-        },
-        {
-          "contextWindow": 32000,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "manual-only",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "manual-only"
-          },
-          "manual": true,
-          "name": "Manual",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "supportsReasoning": false
-        }
-      ],
-      "scenario": "overrides"
-    },
-    {
-      "config": {
-        "baseURL": "https://gateway.example/v1",
-        "discovery": {
-          "newModelsHidden": true
-        },
-        "headers": {
-          "X-Extra": "e"
-        },
-        "modelOverrides": {
-          "hidden-one": {
-            "hidden": true
-          },
-          "ladder": {
-            "reasoning": {
-              "wireValues": {
-                "high": "H",
-                "medium": "dropped"
-              }
-            }
-          },
-          "limits": {
-            "hidden": false,
-            "supportsVision": false
-          },
-          "manual-only": {
-            "contextWindow": 32000,
-            "hidden": false,
-            "manual": true,
-            "name": "Manual"
-          },
-          "overridden": {
-            "contextWindow": 64000,
-            "maxOutputTokens": 2000,
-            "name": "Renamed",
-            "reasoning": {
-              "levels": [
-                "low",
-                "high",
-                "max"
-              ],
-              "replay": true,
-              "wireFormat": "together",
-              "wireValues": {
-                "low": "L",
-                "max": "M"
-              }
-            },
-            "supportsVision": true
-          }
-        },
-        "name": "Fixture",
-        "protocol": "openai-chat",
-        "schemaVersion": 2
-      },
-      "requests": [
-        {
-          "headers": {
-            "authorization": "Bearer fixture-custom-key",
-            "x-extra": "e"
-          },
-          "url": "https://gateway.example/v1/models"
-        }
-      ],
-      "rows": [
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": true,
-          "id": "plain",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "plain"
-          },
-          "manual": false,
-          "name": "plain",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "supportsReasoning": false
-        },
-        {
-          "contextWindow": 128000,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "limits",
-          "inherited": {
-            "contextWindow": 128000,
-            "maxOutputTokens": 4096,
-            "name": "limits"
-          },
-          "manual": false,
-          "name": "limits",
-          "outputTokens": 4096,
-          "provider": "custom-fixture",
-          "supportsReasoning": false,
-          "supportsVision": false
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {
-              "high": "H"
-            }
-          },
-          "hidden": false,
-          "id": "ladder",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "ladder"
-          },
-          "manual": false,
-          "name": "ladder",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "reasoningLevels": [
-            "low",
-            "high"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "low",
-                "high"
-              ]
-            }
-          ],
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": true,
-          "id": "ladder-none",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "ladder-none"
-          },
-          "manual": false,
-          "name": "ladder-none",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "reasoningLevels": [
-            "none"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "none"
-              ]
-            }
-          ],
-          "supportsReasoning": false
-        },
-        {
-          "contextWindow": 64000,
-          "created": null,
-          "customReasoning": {
-            "replay": true,
-            "wireFormat": "together",
-            "wireValues": {
-              "low": "L",
-              "max": "M"
-            }
-          },
-          "hidden": false,
-          "id": "overridden",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "overridden"
-          },
-          "manual": false,
-          "name": "Renamed",
-          "outputTokens": 2000,
-          "provider": "custom-fixture",
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "low",
-            "high",
-            "max"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "low",
-                "high",
-                "max"
-              ]
-            }
-          ],
-          "supportsReasoning": true,
-          "supportsVision": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": true,
-          "id": "hidden-one",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "hidden-one"
-          },
-          "manual": false,
-          "name": "hidden-one",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "supportsReasoning": false
-        },
-        {
-          "contextWindow": 32000,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "manual-only",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "manual-only"
-          },
-          "manual": true,
-          "name": "Manual",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "supportsReasoning": false
-        }
-      ],
-      "scenario": "new-models-hidden"
-    },
-    {
-      "config": {
-        "baseURL": "https://gateway.example/v1",
-        "headers": {
-          "X-Extra": "e"
-        },
-        "name": "Fixture",
-        "protocol": "openai-chat",
-        "schemaVersion": 2
-      },
-      "requests": [
-        {
-          "headers": {
-            "authorization": "Bearer fixture-custom-key",
-            "x-extra": "e"
-          },
-          "url": "https://gateway.example/v1/models"
-        }
-      ],
-      "rows": [
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": true,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "deepseek-reasoner-fixture",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "deepseek-reasoner-fixture"
-          },
-          "manual": false,
-          "mode": null,
-          "name": "deepseek-reasoner-fixture",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "reasoningContentField": "reasoning_content",
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": true,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "vendor/deepseek-reasoner-fixture",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "vendor/deepseek-reasoner-fixture"
-          },
-          "manual": false,
-          "mode": null,
-          "name": "vendor/deepseek-reasoner-fixture",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "reasoningContentField": "reasoning_content",
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "plain",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "plain"
-          },
-          "manual": false,
-          "name": "plain",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "supportsReasoning": false
-        }
-      ],
-      "scenario": "catalog-replay"
-    },
-    {
-      "config": {
-        "baseURL": "https://gateway.example/v1",
-        "headers": {
-          "X-Extra": "e"
-        },
-        "modelOverrides": {
-          "deepseek-reasoner-fixture": {
-            "reasoning": {
-              "replay": false
-            }
-          },
-          "vendor/deepseek-reasoner-fixture": {
-            "reasoning": {
-              "levels": [
-                "low"
-              ]
-            }
-          }
-        },
-        "name": "Fixture",
-        "protocol": "openai-chat",
-        "schemaVersion": 2
-      },
-      "requests": [
-        {
-          "headers": {
-            "authorization": "Bearer fixture-custom-key",
-            "x-extra": "e"
-          },
-          "url": "https://gateway.example/v1/models"
-        }
-      ],
-      "rows": [
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "deepseek-reasoner-fixture",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "deepseek-reasoner-fixture"
-          },
-          "manual": false,
-          "mode": null,
-          "name": "deepseek-reasoner-fixture",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": true,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "vendor/deepseek-reasoner-fixture",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "vendor/deepseek-reasoner-fixture"
-          },
-          "manual": false,
-          "mode": null,
-          "name": "vendor/deepseek-reasoner-fixture",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "reasoningContentField": "reasoning_content",
-          "reasoningLevels": [
-            "low"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "low"
-              ]
-            }
-          ],
-          "supportsReasoning": true
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "plain",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "plain"
-          },
-          "manual": false,
-          "name": "plain",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "supportsReasoning": false
-        }
-      ],
-      "scenario": "catalog-replay-overridden"
-    },
-    {
-      "config": {
-        "auth": "none",
-        "baseURL": "https://gateway.example/v1",
-        "headers": {
-          "X-Extra": "e"
-        },
-        "name": "Fixture",
-        "protocol": "openai-chat",
-        "schemaVersion": 2
-      },
-      "requests": [
-        {
-          "headers": {
-            "x-extra": "e"
-          },
-          "url": "https://gateway.example/v1/models"
-        }
-      ],
-      "rows": [
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "plain",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "plain"
-          },
-          "manual": false,
-          "name": "plain",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "supportsReasoning": false
-        },
-        {
-          "contextWindow": 128000,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "limits",
-          "inherited": {
-            "contextWindow": 128000,
-            "maxOutputTokens": 4096,
-            "name": "limits"
-          },
-          "manual": false,
-          "name": "limits",
-          "outputTokens": 4096,
-          "provider": "custom-fixture",
-          "supportsReasoning": false
-        },
-        {
-          "contextWindow": 0,
-          "created": null,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "ladder",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "ladder"
-          },
-          "manual": false,
-          "name": "ladder",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "reasoningLevels": [
-            "low",
-            "high"
-          ],
-          "reasoningOptions": [
-            {
-              "type": "effort",
-              "values": [
-                "low",
-                "high"
-              ]
-            }
-          ],
-          "supportsReasoning": true
-        }
-      ],
-      "scenario": "keyless"
-    },
-    {
-      "config": {
-        "baseURL": "https://gateway.example/v1",
-        "headers": {
-          "X-Extra": "e"
-        },
-        "modelOverrides": {
-          "hidden-one": {
-            "hidden": true
-          },
-          "ladder": {
-            "reasoning": {
-              "wireValues": {
-                "high": "H",
-                "medium": "dropped"
-              }
-            }
-          },
-          "limits": {
-            "hidden": false,
-            "supportsVision": false
-          },
-          "manual-only": {
-            "contextWindow": 32000,
-            "hidden": false,
-            "manual": true,
-            "name": "Manual"
-          },
-          "overridden": {
-            "contextWindow": 64000,
-            "maxOutputTokens": 2000,
-            "name": "Renamed",
-            "reasoning": {
-              "levels": [
-                "low",
-                "high",
-                "max"
-              ],
-              "replay": true,
-              "wireFormat": "together",
-              "wireValues": {
-                "low": "L",
-                "max": "M"
-              }
-            },
-            "supportsVision": true
-          }
-        },
-        "name": "Fixture",
-        "protocol": "openai-chat",
-        "schemaVersion": 2
-      },
-      "requests": [
-        {
-          "headers": {
-            "authorization": "Bearer fixture-custom-key",
-            "x-extra": "e"
-          },
-          "url": "https://gateway.example/v1/models"
-        }
-      ],
-      "rows": [
-        {
-          "contextWindow": 32000,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "manual-only",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "manual-only"
-          },
-          "manual": true,
-          "name": "Manual",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "supportsReasoning": false
-        }
-      ],
-      "scenario": "failed-with-manual"
-    },
-    {
-      "config": {
-        "baseURL": "https://gateway.example/v1",
-        "headers": {
-          "X-Extra": "e"
-        },
-        "name": "Fixture",
-        "protocol": "openai-chat",
-        "schemaVersion": 2
-      },
-      "error": "custom-fixture models 500",
-      "requests": [
-        {
-          "headers": {
-            "authorization": "Bearer fixture-custom-key",
-            "x-extra": "e"
-          },
-          "url": "https://gateway.example/v1/models"
-        }
-      ],
-      "scenario": "failed-with-nothing",
-      "status": 500
-    },
-    {
-      "config": {
-        "baseURL": "https://gateway.example/v1",
-        "headers": {
-          "X-Extra": "e"
-        },
-        "modelOverrides": {
-          "claude-y": {
-            "hidden": true,
-            "name": "Why"
-          }
-        },
-        "name": "Fixture",
-        "protocol": "anthropic",
-        "schemaVersion": 2
-      },
-      "requests": [
-        {
-          "headers": {
-            "anthropic-version": "2023-06-01",
-            "x-api-key": "fixture-custom-key",
-            "x-extra": "e"
-          },
-          "url": "https://gateway.example/v1/models"
-        }
-      ],
-      "rows": [
-        {
-          "contextWindow": 200000,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "claude-x",
-          "inherited": {
-            "contextWindow": 200000,
-            "maxOutputTokens": 64000,
-            "name": "Claude X"
-          },
-          "manual": false,
-          "name": "Claude X",
-          "outputTokens": 64000,
-          "provider": "custom-fixture",
-          "supportsReasoning": false
-        },
-        {
-          "contextWindow": 0,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": true,
-          "id": "claude-y",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": null,
-            "name": "claude-y"
-          },
-          "manual": false,
-          "name": "Why",
-          "outputTokens": null,
-          "provider": "custom-fixture",
-          "supportsReasoning": false
-        },
-        {
-          "contextWindow": 0,
-          "customReasoning": {
-            "replay": false,
-            "wireFormat": "standard",
-            "wireValues": {}
-          },
-          "hidden": false,
-          "id": "claude-z",
-          "inherited": {
-            "contextWindow": 0,
-            "maxOutputTokens": 8000,
-            "name": "claude-z"
-          },
-          "manual": false,
-          "name": "claude-z",
-          "outputTokens": 8000,
-          "provider": "custom-fixture",
-          "supportsReasoning": false
-        }
-      ],
-      "scenario": "anthropic"
-    }
-  ],
-  "catalogRoster": [
-    {
-      "id": "deepseek-reasoner-fixture"
-    },
-    {
-      "id": "vendor/deepseek-reasoner-fixture"
-    },
-    {
-      "id": "plain"
-    }
-  ],
-  "modelsDev": {
-    "deepseek-reasoner-fixture": {
-      "id": "deepseek-reasoner-fixture",
-      "interleaved": {
-        "field": "reasoning_content"
-      },
-      "limit": {
-        "context": 64000,
-        "output": 8000
-      },
-      "name": "DeepSeek Reasoner Fixture",
-      "reasoning": true
-    }
-  },
   "recorder": "benchmarks/rust-core/recorders/record-custom-listing.mjs",
   "roster": [
     {
       "id": "plain"
     },
     {
-      "context_window": 128000,
       "id": "limits",
+      "context_window": 128000,
       "max_output_tokens": 4096
     },
     {
@@ -1271,6 +35,1242 @@
     },
     {
       "id": "plain"
+    }
+  ],
+  "anthropicRoster": [
+    {
+      "id": "claude-x",
+      "display_name": "Claude X",
+      "max_input_tokens": 200000,
+      "max_tokens": 64000
+    },
+    {
+      "id": "claude-y"
+    },
+    {
+      "id": "claude-z",
+      "max_input_tokens": 0,
+      "max_tokens": "8000"
+    }
+  ],
+  "catalogRoster": [
+    {
+      "id": "deepseek-reasoner-fixture"
+    },
+    {
+      "id": "vendor/deepseek-reasoner-fixture"
+    },
+    {
+      "id": "plain"
+    }
+  ],
+  "modelsDev": {
+    "deepseek-reasoner-fixture": {
+      "id": "deepseek-reasoner-fixture",
+      "name": "DeepSeek Reasoner Fixture",
+      "reasoning": true,
+      "interleaved": {
+        "field": "reasoning_content"
+      },
+      "limit": {
+        "context": 64000,
+        "output": 8000
+      }
+    }
+  },
+  "cases": [
+    {
+      "scenario": "plain-discovery",
+      "config": {
+        "schemaVersion": 2,
+        "name": "Fixture",
+        "protocol": "openai-chat",
+        "baseURL": "https://gateway.example/v1",
+        "headers": {
+          "X-Extra": "e"
+        }
+      },
+      "requests": [
+        {
+          "url": "https://gateway.example/v1/models",
+          "headers": {
+            "authorization": "Bearer fixture-custom-key",
+            "x-extra": "e"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "id": "plain",
+          "name": "plain",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "plain",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        },
+        {
+          "id": "limits",
+          "name": "limits",
+          "provider": "custom-fixture",
+          "contextWindow": 128000,
+          "outputTokens": 4096,
+          "created": null,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "limits",
+            "contextWindow": 128000,
+            "maxOutputTokens": 4096
+          },
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        },
+        {
+          "id": "ladder",
+          "name": "ladder",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "ladder",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high"
+              ]
+            }
+          ],
+          "reasoningLevels": [
+            "low",
+            "high"
+          ],
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        },
+        {
+          "id": "ladder-none",
+          "name": "ladder-none",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": false,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "ladder-none",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "none"
+              ]
+            }
+          ],
+          "reasoningLevels": [
+            "none"
+          ],
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        },
+        {
+          "id": "overridden",
+          "name": "overridden",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "overridden",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        },
+        {
+          "id": "hidden-one",
+          "name": "hidden-one",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "hidden-one",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "overrides",
+      "config": {
+        "schemaVersion": 2,
+        "name": "Fixture",
+        "protocol": "openai-chat",
+        "baseURL": "https://gateway.example/v1",
+        "headers": {
+          "X-Extra": "e"
+        },
+        "modelOverrides": {
+          "overridden": {
+            "name": "Renamed",
+            "contextWindow": 64000,
+            "maxOutputTokens": 2000,
+            "supportsVision": true,
+            "reasoning": {
+              "levels": [
+                "low",
+                "high",
+                "max"
+              ],
+              "wireFormat": "together",
+              "wireValues": {
+                "low": "L",
+                "max": "M"
+              },
+              "replay": true
+            }
+          },
+          "hidden-one": {
+            "hidden": true
+          },
+          "ladder": {
+            "reasoning": {
+              "wireValues": {
+                "high": "H",
+                "medium": "dropped"
+              }
+            }
+          },
+          "manual-only": {
+            "manual": true,
+            "name": "Manual",
+            "contextWindow": 32000,
+            "hidden": false
+          },
+          "limits": {
+            "hidden": false,
+            "supportsVision": false
+          }
+        }
+      },
+      "requests": [
+        {
+          "url": "https://gateway.example/v1/models",
+          "headers": {
+            "authorization": "Bearer fixture-custom-key",
+            "x-extra": "e"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "id": "plain",
+          "name": "plain",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "plain",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        },
+        {
+          "id": "limits",
+          "name": "limits",
+          "provider": "custom-fixture",
+          "contextWindow": 128000,
+          "outputTokens": 4096,
+          "created": null,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "limits",
+            "contextWindow": 128000,
+            "maxOutputTokens": 4096
+          },
+          "supportsVision": false,
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        },
+        {
+          "id": "ladder",
+          "name": "ladder",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "ladder",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high"
+              ]
+            }
+          ],
+          "reasoningLevels": [
+            "low",
+            "high"
+          ],
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {
+              "high": "H"
+            },
+            "replay": false
+          }
+        },
+        {
+          "id": "ladder-none",
+          "name": "ladder-none",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": false,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "ladder-none",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "none"
+              ]
+            }
+          ],
+          "reasoningLevels": [
+            "none"
+          ],
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        },
+        {
+          "id": "overridden",
+          "name": "Renamed",
+          "provider": "custom-fixture",
+          "contextWindow": 64000,
+          "outputTokens": 2000,
+          "created": null,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "overridden",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "reasoningLevels": [
+            "low",
+            "high",
+            "max"
+          ],
+          "customReasoning": {
+            "wireFormat": "together",
+            "wireValues": {
+              "low": "L",
+              "max": "M"
+            },
+            "replay": true
+          },
+          "reasoningContentField": "reasoning_content"
+        },
+        {
+          "id": "hidden-one",
+          "name": "hidden-one",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "hidden": true,
+          "manual": false,
+          "inherited": {
+            "name": "hidden-one",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        },
+        {
+          "id": "manual-only",
+          "name": "Manual",
+          "provider": "custom-fixture",
+          "contextWindow": 32000,
+          "outputTokens": null,
+          "hidden": false,
+          "manual": true,
+          "inherited": {
+            "name": "manual-only",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "new-models-hidden",
+      "config": {
+        "schemaVersion": 2,
+        "name": "Fixture",
+        "protocol": "openai-chat",
+        "baseURL": "https://gateway.example/v1",
+        "headers": {
+          "X-Extra": "e"
+        },
+        "discovery": {
+          "newModelsHidden": true
+        },
+        "modelOverrides": {
+          "overridden": {
+            "name": "Renamed",
+            "contextWindow": 64000,
+            "maxOutputTokens": 2000,
+            "supportsVision": true,
+            "reasoning": {
+              "levels": [
+                "low",
+                "high",
+                "max"
+              ],
+              "wireFormat": "together",
+              "wireValues": {
+                "low": "L",
+                "max": "M"
+              },
+              "replay": true
+            }
+          },
+          "hidden-one": {
+            "hidden": true
+          },
+          "ladder": {
+            "reasoning": {
+              "wireValues": {
+                "high": "H",
+                "medium": "dropped"
+              }
+            }
+          },
+          "manual-only": {
+            "manual": true,
+            "name": "Manual",
+            "contextWindow": 32000,
+            "hidden": false
+          },
+          "limits": {
+            "hidden": false,
+            "supportsVision": false
+          }
+        }
+      },
+      "requests": [
+        {
+          "url": "https://gateway.example/v1/models",
+          "headers": {
+            "authorization": "Bearer fixture-custom-key",
+            "x-extra": "e"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "id": "plain",
+          "name": "plain",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "hidden": true,
+          "manual": false,
+          "inherited": {
+            "name": "plain",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        },
+        {
+          "id": "limits",
+          "name": "limits",
+          "provider": "custom-fixture",
+          "contextWindow": 128000,
+          "outputTokens": 4096,
+          "created": null,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "limits",
+            "contextWindow": 128000,
+            "maxOutputTokens": 4096
+          },
+          "supportsVision": false,
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        },
+        {
+          "id": "ladder",
+          "name": "ladder",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "ladder",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high"
+              ]
+            }
+          ],
+          "reasoningLevels": [
+            "low",
+            "high"
+          ],
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {
+              "high": "H"
+            },
+            "replay": false
+          }
+        },
+        {
+          "id": "ladder-none",
+          "name": "ladder-none",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": false,
+          "hidden": true,
+          "manual": false,
+          "inherited": {
+            "name": "ladder-none",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "none"
+              ]
+            }
+          ],
+          "reasoningLevels": [
+            "none"
+          ],
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        },
+        {
+          "id": "overridden",
+          "name": "Renamed",
+          "provider": "custom-fixture",
+          "contextWindow": 64000,
+          "outputTokens": 2000,
+          "created": null,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "overridden",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "supportsVision": true,
+          "supportsReasoning": true,
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "reasoningLevels": [
+            "low",
+            "high",
+            "max"
+          ],
+          "customReasoning": {
+            "wireFormat": "together",
+            "wireValues": {
+              "low": "L",
+              "max": "M"
+            },
+            "replay": true
+          },
+          "reasoningContentField": "reasoning_content"
+        },
+        {
+          "id": "hidden-one",
+          "name": "hidden-one",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "hidden": true,
+          "manual": false,
+          "inherited": {
+            "name": "hidden-one",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        },
+        {
+          "id": "manual-only",
+          "name": "Manual",
+          "provider": "custom-fixture",
+          "contextWindow": 32000,
+          "outputTokens": null,
+          "hidden": false,
+          "manual": true,
+          "inherited": {
+            "name": "manual-only",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "catalog-replay",
+      "config": {
+        "schemaVersion": 2,
+        "name": "Fixture",
+        "protocol": "openai-chat",
+        "baseURL": "https://gateway.example/v1",
+        "headers": {
+          "X-Extra": "e"
+        }
+      },
+      "requests": [
+        {
+          "url": "https://gateway.example/v1/models",
+          "headers": {
+            "authorization": "Bearer fixture-custom-key",
+            "x-extra": "e"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "id": "deepseek-reasoner-fixture",
+          "name": "deepseek-reasoner-fixture",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true,
+          "mode": null,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "deepseek-reasoner-fixture",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": true
+          },
+          "reasoningContentField": "reasoning_content"
+        },
+        {
+          "id": "vendor/deepseek-reasoner-fixture",
+          "name": "vendor/deepseek-reasoner-fixture",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true,
+          "mode": null,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "vendor/deepseek-reasoner-fixture",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": true
+          },
+          "reasoningContentField": "reasoning_content"
+        },
+        {
+          "id": "plain",
+          "name": "plain",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "plain",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "catalog-replay-overridden",
+      "config": {
+        "schemaVersion": 2,
+        "name": "Fixture",
+        "protocol": "openai-chat",
+        "baseURL": "https://gateway.example/v1",
+        "headers": {
+          "X-Extra": "e"
+        },
+        "modelOverrides": {
+          "deepseek-reasoner-fixture": {
+            "reasoning": {
+              "replay": false
+            }
+          },
+          "vendor/deepseek-reasoner-fixture": {
+            "reasoning": {
+              "levels": [
+                "low"
+              ]
+            }
+          }
+        }
+      },
+      "requests": [
+        {
+          "url": "https://gateway.example/v1/models",
+          "headers": {
+            "authorization": "Bearer fixture-custom-key",
+            "x-extra": "e"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "id": "deepseek-reasoner-fixture",
+          "name": "deepseek-reasoner-fixture",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true,
+          "mode": null,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "deepseek-reasoner-fixture",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        },
+        {
+          "id": "vendor/deepseek-reasoner-fixture",
+          "name": "vendor/deepseek-reasoner-fixture",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true,
+          "mode": null,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "vendor/deepseek-reasoner-fixture",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low"
+              ]
+            }
+          ],
+          "reasoningLevels": [
+            "low"
+          ],
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": true
+          },
+          "reasoningContentField": "reasoning_content"
+        },
+        {
+          "id": "plain",
+          "name": "plain",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "plain",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "keyless",
+      "config": {
+        "schemaVersion": 2,
+        "name": "Fixture",
+        "protocol": "openai-chat",
+        "baseURL": "https://gateway.example/v1",
+        "headers": {
+          "X-Extra": "e"
+        },
+        "auth": "none"
+      },
+      "requests": [
+        {
+          "url": "https://gateway.example/v1/models",
+          "headers": {
+            "x-extra": "e"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "id": "plain",
+          "name": "plain",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "plain",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        },
+        {
+          "id": "limits",
+          "name": "limits",
+          "provider": "custom-fixture",
+          "contextWindow": 128000,
+          "outputTokens": 4096,
+          "created": null,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "limits",
+            "contextWindow": 128000,
+            "maxOutputTokens": 4096
+          },
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        },
+        {
+          "id": "ladder",
+          "name": "ladder",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "created": null,
+          "supportsReasoning": true,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "ladder",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "reasoningOptions": [
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high"
+              ]
+            }
+          ],
+          "reasoningLevels": [
+            "low",
+            "high"
+          ],
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "failed-with-manual",
+      "config": {
+        "schemaVersion": 2,
+        "name": "Fixture",
+        "protocol": "openai-chat",
+        "baseURL": "https://gateway.example/v1",
+        "headers": {
+          "X-Extra": "e"
+        },
+        "modelOverrides": {
+          "overridden": {
+            "name": "Renamed",
+            "contextWindow": 64000,
+            "maxOutputTokens": 2000,
+            "supportsVision": true,
+            "reasoning": {
+              "levels": [
+                "low",
+                "high",
+                "max"
+              ],
+              "wireFormat": "together",
+              "wireValues": {
+                "low": "L",
+                "max": "M"
+              },
+              "replay": true
+            }
+          },
+          "hidden-one": {
+            "hidden": true
+          },
+          "ladder": {
+            "reasoning": {
+              "wireValues": {
+                "high": "H",
+                "medium": "dropped"
+              }
+            }
+          },
+          "manual-only": {
+            "manual": true,
+            "name": "Manual",
+            "contextWindow": 32000,
+            "hidden": false
+          },
+          "limits": {
+            "hidden": false,
+            "supportsVision": false
+          }
+        }
+      },
+      "requests": [
+        {
+          "url": "https://gateway.example/v1/models",
+          "headers": {
+            "authorization": "Bearer fixture-custom-key",
+            "x-extra": "e"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "id": "manual-only",
+          "name": "Manual",
+          "provider": "custom-fixture",
+          "contextWindow": 32000,
+          "outputTokens": null,
+          "hidden": false,
+          "manual": true,
+          "inherited": {
+            "name": "manual-only",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "failed-with-nothing",
+      "config": {
+        "schemaVersion": 2,
+        "name": "Fixture",
+        "protocol": "openai-chat",
+        "baseURL": "https://gateway.example/v1",
+        "headers": {
+          "X-Extra": "e"
+        }
+      },
+      "requests": [
+        {
+          "url": "https://gateway.example/v1/models",
+          "headers": {
+            "authorization": "Bearer fixture-custom-key",
+            "x-extra": "e"
+          }
+        }
+      ],
+      "error": "custom-fixture models 500",
+      "status": 500
+    },
+    {
+      "scenario": "anthropic",
+      "config": {
+        "schemaVersion": 2,
+        "name": "Fixture",
+        "protocol": "anthropic",
+        "baseURL": "https://gateway.example/v1",
+        "headers": {
+          "X-Extra": "e"
+        },
+        "modelOverrides": {
+          "claude-y": {
+            "name": "Why",
+            "hidden": true
+          }
+        }
+      },
+      "requests": [
+        {
+          "url": "https://gateway.example/v1/models",
+          "headers": {
+            "x-api-key": "fixture-custom-key",
+            "anthropic-version": "2023-06-01",
+            "x-extra": "e"
+          }
+        }
+      ],
+      "rows": [
+        {
+          "id": "claude-x",
+          "name": "Claude X",
+          "provider": "custom-fixture",
+          "contextWindow": 200000,
+          "outputTokens": 64000,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "Claude X",
+            "contextWindow": 200000,
+            "maxOutputTokens": 64000
+          },
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        },
+        {
+          "id": "claude-y",
+          "name": "Why",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": null,
+          "hidden": true,
+          "manual": false,
+          "inherited": {
+            "name": "claude-y",
+            "contextWindow": 0,
+            "maxOutputTokens": null
+          },
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        },
+        {
+          "id": "claude-z",
+          "name": "claude-z",
+          "provider": "custom-fixture",
+          "contextWindow": 0,
+          "outputTokens": 8000,
+          "hidden": false,
+          "manual": false,
+          "inherited": {
+            "name": "claude-z",
+            "contextWindow": 0,
+            "maxOutputTokens": 8000
+          },
+          "supportsReasoning": false,
+          "customReasoning": {
+            "wireFormat": "standard",
+            "wireValues": {},
+            "replay": false
+          }
+        }
+      ]
     }
   ]
 }

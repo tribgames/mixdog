@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { settle, until, withShim } from './remote-shim-test-harness.mjs';
+import { adapterWorld } from './phone-adapter-world.mjs';
 import { TerminalLocalEcho } from './terminal-local-echo.ts';
 
 function makeEcho(anchor = 10) {
@@ -109,17 +109,15 @@ test('cursor-moving output is a mismatch, never consumed', () => {
 });
 
 test('the shim announces a completed reconnection to mounted terminal panes, never the first connect', async () => {
-  await withShim({ secure: true }, async (h) => {
-    const reconnected = () => h.events.filter((event) => event.type === 'mixdog:remote-reconnected').length;
-    const first = await h.dial();
-    await settle();
-    assert.equal(reconnected(), 0);
-    first.ws.onclose({ code: 1006 });
-    await h.dial();
-    await until(() => reconnected() === 1, 'the reconnect announcement');
-  });
+  const { world } = await adapterWorld();
+  const reconnected = () => world.events.filter((event) => event.ev === 'reconnected').length;
+  assert.equal(reconnected(), 0);
+  world.setRandom(() => 0);
+  world.peerClose(world.sockets[0], 1006);
+  await world.advance(0);
+  await world.accept();
+  await world.until(() => reconnected() === 1);
 });
-
 // Source-text on purpose: TerminalPane mounts xterm and a PTY, which a renderer test cannot run; the shim
 // event above and terminal-connect-gate.test.mjs own the behaviour, this pins the pane's subscription wiring.
 test('a mounted terminal pane re-ensures on reconnect through its connect gate and cleans up on unmount', async () => {
