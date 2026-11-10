@@ -919,9 +919,12 @@ function spelledDifference(recorded, spelled, wires) {
   assert.ok(recorded.ops.length <= 1, `${recorded.name}: a call sent as its bytes stands for one operation`);
   const outcome = recorded.ops.length ? expectedWires(recorded.ops)[0].outcome : { failed: { message: recorded.frame.error } };
   // The values are compared as read back (mapFlowIds prints `-0` as `0` on both sides); the bytes sent, by their text.
-  const expected = [{ ...mapFlowIds(spelled.route), text: spelled.text, outcome }];
-  const actual = actualWires(wires).map((wire, at) => ({ ...wire, text: wires[at].text }));
-  const order = (list) => list.map(({ method, params, text, outcome: told }) => ({ method, params, text, outcome: told }));
+  // Each argument as the recording spells it (`1.0`, `1e0`, `-0`), read from the recorded text itself, is in the bytes the
+  // request carried: a request re-serialised from parsed values would carry `1` or `0` instead.
+  const tokens = spelledArgs(recorded.paramsText).filter((arg) => JSON.isRawJSON(arg)).map((arg) => arg.rawJSON);
+  const expected = [{ ...mapFlowIds(spelled.route), text: spelled.text, spelled: tokens, outcome }];
+  const actual = actualWires(wires).map((wire, at) => ({ ...wire, text: wires[at].text, spelled: tokens.filter((token) => (wires[at].text ?? '').includes(token)) }));
+  const order = (list) => list.map(({ method, params, text, spelled: kept, outcome: told }) => ({ method, params, text, spelled: kept, outcome: told }));
   return isDeepStrictEqual(order(actual), order(expected)) ? null : { node: expected, core: actual };
 }
 

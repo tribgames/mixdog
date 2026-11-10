@@ -31,6 +31,7 @@ use mixdog_core_api::domain::process::SpawnRequest;
 use mixdog_core_api::domain::process::SpawnedProcess;
 use mixdog_protocol::ProcessHandle;
 
+use crate::error::ScmFailure;
 use crate::review_dispatch_tests::Log;
 use crate::review_dispatch_tests::service_over;
 
@@ -381,10 +382,12 @@ fn a_coerced_argument_reaches_github_as_node_sent_it() {
                 let rest = sent(&["api"]);
                 assert_eq!((command.args, command.input), (argv(rest), rest["stdin"].as_str().map(str::to_owned)), "{name}");
             }
-            "ghPrMerge" => {
-                let args = crate::gh::pr::merge_args(&args[1], &args[2]).unwrap_or_else(|error| panic!("{name}: {error:?}"));
-                assert_eq!(args, argv(sent(&["pr", "merge"])), "{name}");
-            }
+            "ghPrMerge" => match (crate::gh::pr::merge_args(&args[1], &args[2]), op["error"]["message"].as_str()) {
+                // `String(7)` and `String(true)` are no method's name: Node refused before running gh.
+                (Err(error), Some(refused)) => assert_eq!(error, ScmFailure::git(refused), "{name}"),
+                (Ok(args), None) => assert_eq!(args, argv(sent(&["pr", "merge"])), "{name}"),
+                (core, node) => panic!("{name}: the core {core:?}, Node {node:?}"),
+            },
             operation @ ("ghPrView" | "ghPrDiff" | "ghPrCheckout") => {
                 let number = crate::gh::pr::required_number(&args[1]).unwrap_or_else(|error| panic!("{name}: {error:?}"));
                 let verb = &operation[4..].to_lowercase();
