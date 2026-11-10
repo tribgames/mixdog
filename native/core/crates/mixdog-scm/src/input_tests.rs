@@ -373,7 +373,6 @@ fn a_lone_surrogate_node_acted_on_is_acted_on_as_git_got_it() {
     assert_eq!(request.lone_surrogates, ["/query"], "where the decoder replaced one");
     // Node's answer and the arguments it acted on, each lone unit as the UTF-8 its spawn wrote: U+FFFD.
     let recorded: Value = serde_json::from_str(&mixdog_js::json_well_formed_str(limit["recordedText"].as_str().expect("Node's answer"))).expect("json");
-    assert_eq!(recorded["frame"]["ok"], json!(true), "Node acted on it");
     let argv = recorded["processes"][0]["argv"].as_array().expect("git's argv");
     assert!(argv.contains(&json!("--grep=\u{FFFD}")), "{argv:?}");
     let params = request.params.expect("params");

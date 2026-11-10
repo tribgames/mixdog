@@ -126,6 +126,7 @@ export async function replay({ exe, golden, only }) {
       if (!isDeepStrictEqual(got, expected)) (step.accepted ? accepted : unexpected).push({ step: step.name, node: expected, core: got, why: step.accepted });
     }
     if (!only) {
+      // Sorted by name as the recording is: the order is the file system's listing, which no Node code chose.
       const files = readdirSync(PROJECT, { withFileTypes: true })
         .sort((a, b) => (a.name < b.name ? -1 : 1))
         .map((entry) => ({ name: hex(Buffer.from(entry.name)), ...(entry.isDirectory() ? { dir: true } : { bytes: hex(readFileSync(join(PROJECT, entry.name))) }) }));

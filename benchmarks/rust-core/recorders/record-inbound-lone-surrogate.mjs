@@ -29,6 +29,9 @@ const RECORDER_FILES = [
   'lib/inbound-lone-surrogate-replay.mjs',
   'lib/raw-frame-bytes.mjs',
   'lib/common.mjs',
+  'lib/phone-relay-core.mjs',
+  'lib/phone-files-replay.mjs',
+  'lib/phone-files-script.mjs',
 ];
 const args = parseArgs();
 const REPLAY = args.get('replay') ?? null;
@@ -108,6 +111,12 @@ const next = (clientId, what) => {
     });
   });
 };
+/** `event`, or a failure naming `what` at the deadline. */
+const within = (event, what) => {
+  let timer;
+  const deadline = new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(`${what}: nothing within ${WAIT_MS} ms`)), WAIT_MS)));
+  return Promise.race([event, deadline]).finally(() => clearTimeout(timer));
+};
 let socket = null;
 let tokenSet = null;
 const tokenWritten = new Promise((resolve) => (tokenSet = resolve));
@@ -121,7 +130,7 @@ wss.on('connection', (ws) => {
     if ((envelope.type === 'frame' || envelope.type === 'close-client') && typeof envelope.clientId === 'string') deliver(envelope.clientId, envelope);
   });
 });
-await new Promise((resolve) => wss.once('listening', resolve));
+await within(new Promise((resolve) => wss.once('listening', resolve)), 'the scripted relay listening');
 const send = (envelope) => socket.send(JSON.stringify(envelope));
 
 const handle = await startRemoteRelay({
@@ -132,7 +141,7 @@ const handle = await startRemoteRelay({
   hostName: () => 'FIXTURE-PC',
   onClientClaim: async () => ({ approved: true }),
 });
-await Promise.race([tokenWritten, new Promise((_, reject) => setTimeout(() => reject(new Error(`the PC never sent set-client-token within ${WAIT_MS} ms`)), WAIT_MS))]);
+await within(tokenWritten, 'the PC sending set-client-token');
 send({ type: 'relay-capabilities', textFrames: 1, maxFrameBytes: 1_048_576 });
 
 // ── the phone: one E2EE channel per client; every frame the PC sends it is opened in order ──
@@ -182,10 +191,10 @@ await handle.close();
 await host.dispose();
 await operations.dispose();
 for (const client of wss.clients) client.terminate();
-await new Promise((resolve) => wss.close(resolve));
+await within(new Promise((resolve) => wss.close(resolve)), 'the scripted relay closing');
 
 // What Node left on disk: every entry of the project folder (name and, for a file, its bytes, hex), and the preferences file holding
-// the aliases.
+// the aliases. Sorted by name: the order is the file system's listing, which no Node code chose.
 const files = readdirSync(PROJECT, { withFileTypes: true })
   .sort((a, b) => (a.name < b.name ? -1 : 1))
   .map((entry) => ({ name: hex(Buffer.from(entry.name)), ...(entry.isDirectory() ? { dir: true } : { bytes: hex(readFileSync(join(PROJECT, entry.name))) }) }));
