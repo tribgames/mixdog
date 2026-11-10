@@ -485,6 +485,61 @@ mod tests {
         assert!(health.get("buildHash").is_none());
     }
 
+    /// Readiness does not wait for the PostgreSQL runtime (Node installs it inside the memory start, at the first memory use, `supervisor.mjs:484`; its ready
+    /// signal, `daemon.mjs:852`, comes first): a fresh profile whose install is held at a gate composes, publishes `serving` and answers a request while the
+    /// install has not been entered, and nothing is downloaded or initialised.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_fresh_profile_serves_while_the_runtime_install_is_held() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        let (entered, mut entries) = tokio::sync::mpsc::unbounded_channel::<()>();
+        let tokens = mixdog_rt::testing::tokens();
+        let outgoing = mixdog_app_server::Outgoing::new();
+        let composing = crate::compose::compose(
+            &tokens,
+            ComposeConfig {
+                data_dir: data.clone(),
+                user_data_dir: dir.path().join("userdata"),
+                js_runtime: crate::js_runtime::fixture(dir.path()),
+                ort_library: mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
+                outgoing: outgoing.clone(),
+                ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
+                log: crate::daemon_log::DaemonLog::new(data.join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
+                stop: mixdog_rt::CancellationToken::new(),
+                catalog_http: crate::compose_test_support::offline_http(),
+                pg_install: Some(Arc::new(move |cancel| {
+                    entered.send(()).expect("the test listens");
+                    Box::pin(async move {
+                        cancel.cancelled().await;
+                        Err(mixdog_services::memory::error::MemoryError::Runtime("held at the gate".to_owned()))
+                    })
+                })),
+            },
+        );
+        // The gate is never opened, so a composition that waited for the install would not end: the one deadline turns that into this failure.
+        let core = Arc::new(tokio::time::timeout(std::time::Duration::from_secs(20), composing).await.expect("the composition waited for the held runtime install").unwrap());
+        core.open_memory_in_background();
+        let (exited, exit) = oneshot::channel();
+        let root = dir.path().join("runtime");
+        let serving = start(&tokens, core, outgoing, StartIn { runtime_root: root.clone(), exiter: Arc::new(RecordedExit(Mutex::new(Some(exited)))), update_text: "Update.".into() })
+            .await
+            .unwrap();
+        serving.lifecycle.set_serving().unwrap();
+        let writer = serving.discovery.clone();
+        tokio::task::spawn_blocking(move || writer.flush()).await.unwrap();
+        let document: serde_json::Value = serde_json::from_slice(&tokio::fs::read(discovery::path(&root)).await.unwrap()).unwrap();
+        assert_eq!(document["core"]["state"], "serving");
+        let token = document["endpoints"]["session"]["token"].as_str().unwrap().to_owned();
+        let control = u16::try_from(document["core"]["control"]["port"].as_u64().unwrap()).unwrap();
+        let answered = reqwest::Client::new().get(format!("http://127.0.0.1:{control}/mgmt/status")).bearer_auth(&token).send().await.unwrap();
+        assert_eq!(answered.status(), 200);
+        assert!(entries.try_recv().is_err(), "the install was not entered before the first memory use");
+        assert!(!data.join("runtime").exists() && !data.join("pgdata").exists(), "nothing was downloaded or initialised");
+        serving.lifecycle.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+        exit.await.unwrap();
+    }
+
     /// `start` against a temp runtime root: discovery is written and names both listeners, the
     /// control and RPC listeners answer (and refuse a wrong token), and a stop takes the lifecycle
     /// through the release procedure: barriers once, `last-exit.json`, discovery withdrawn, `Stopped`.
@@ -508,6 +563,7 @@ mod tests {
                     log: crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
                     stop: mixdog_rt::CancellationToken::new(),
                     catalog_http: crate::compose_test_support::offline_http(),
+                    pg_install: None,
                 },
             )
             .await

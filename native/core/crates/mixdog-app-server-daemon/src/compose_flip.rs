@@ -36,6 +36,7 @@ pub struct Built {
     pub user_data_dir: std::path::PathBuf,
     pub package_root: std::path::PathBuf,
     pub js_runtime: crate::compose::JsRuntime,
+    pub pg_install: Option<mixdog_services::memory::boot::PgInstall>,
     pub env: mixdog_core::run_host::run_seams::EnvReader,
     pub app_feed: Arc<mixdog_core_base::feed::CoreFeed>,
     pub scoped_feeds: Arc<dyn mixdog_core_api::feed::ScopedFeeds>,
@@ -1437,7 +1438,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let pg_runtime = {
         use mixdog_services::memory::pg::runtime_install as pg;
         let (data_dir, release_repositories, durability, bulk, now) = (b.data_dir.clone(), pg::repositories_env(|name| (b.env)(name)), b.tokens.durability_io, b.tokens.cpu_bulk, now_ms.clone());
-        mixdog_services::memory::boot::PgRuntimeSource::Install(Arc::new(move |cancel| {
+        mixdog_services::memory::boot::PgRuntimeSource::Install(b.pg_install.clone().unwrap_or_else(|| Arc::new(move |cancel| {
             let (data_dir, release_repositories, now) = (data_dir.clone(), release_repositories.clone(), now.clone());
             Box::pin(async move {
                 let options = pg::InstallOptions {
@@ -1452,7 +1453,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 };
                 pg::ensure_runtime(&options, &cancel).await.map(|installed| installed.runtime_dir).map_err(|e| mixdog_services::memory::error::MemoryError::Runtime(e.to_string()))
             })
-        }))
+        })))
     };
     let store_threads = Arc::new(mixdog_core_session::session::StoreThreads::new(
         &b.data_dir,
