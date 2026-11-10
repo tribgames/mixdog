@@ -64,13 +64,16 @@ fn content(snapshot: Option<&Snapshot>) -> ReviewContent {
 
 /// A committed `apply_patch`: `before` are the pre-patch snapshots, `paths` only the targets the
 /// apply actually mutated, `renames` the (source, destination) pairs of V4A moves.
-pub(super) async fn committed_patch(ctx: &ToolContext, state: Option<&ReadState>, before: &[Snapshot], paths: &[AbsPath], renames: &[(AbsPath, AbsPath)]) {
+///
+/// `announce`: the read state's invalidation (which the review follows) happens here, as Node's native apply does it once for
+/// the batch. A sequence announces each unit as it commits ([`unit_committed`]), so its end does not announce again.
+pub(super) async fn committed_patch(ctx: &ToolContext, state: Option<&ReadState>, before: &[Snapshot], paths: &[AbsPath], renames: &[(AbsPath, AbsPath)], announce: bool) {
     if (ctx.review.is_none() && state.is_none()) || before.is_empty() {
         return;
     }
     let Ok(Ok(after)) = capture(ctx, paths, &std::collections::HashSet::new()).await else { return };
     if let Some(state) = state {
-        note_patch(ctx, state, before, &after);
+        note_patch(ctx, state, before, &after, announce);
     }
     if ctx.review.is_none() {
         return;
@@ -97,18 +100,38 @@ fn state_key(path: &AbsPath) -> String {
     super::common::fwd(path.as_path())
 }
 
+/// One sequence unit reached disk: its paths' cached answers are dropped at once (Node's `invalidateNativeCaches` after each
+/// native unit), which is a boundary for the review of their worktrees.
+///
+/// Node's next `await` lets the delivery queued by that signal run before the next unit signals; an await that is ready does
+/// not yield in Rust, so the yield is explicit.
+pub(super) async fn unit_committed(state: Option<&ReadState>, paths: &[&AbsPath]) {
+    let Some(state) = state else { return };
+    let keys: Vec<String> = paths.iter().map(|p| state_key(p)).collect();
+    state.invalidate(&keys.iter().map(String::as_str).collect::<Vec<_>>());
+    tokio::task::yield_now().await;
+}
+
 /// What the read state learns from a committed patch (`recordNativeSnapshots`): a deleted file is
 /// forgotten; a written one is recorded as patched. The patch inherits "the session holds the body"
 /// only when the session had read exactly the bytes the patch started from.
-fn note_patch(ctx: &ToolContext, state: &ReadState, before: &[Snapshot], after: &[Snapshot]) {
+fn note_patch(ctx: &ToolContext, state: &ReadState, before: &[Snapshot], after: &[Snapshot], announce: bool) {
     let scope = ctx.thread_id.to_string();
     for snap in after {
         let key = state_key(&snap.path);
         if snap.bytes().is_none() && snap.version().is_none() {
-            state.forget_path(&key);
+            if announce {
+                state.forget_path(&key);
+            } else {
+                state.sweep_path(&key);
+            }
             continue;
         }
-        state.invalidate(&[key.as_str()]);
+        if announce {
+            state.invalidate(&[key.as_str()]);
+        } else {
+            state.drop_cached(&[key.as_str()]);
+        }
         let Some(version) = snap.version() else { continue };
         let prior = state.snapshot(Some(&scope), &key);
         let started = find(before, &snap.path);
