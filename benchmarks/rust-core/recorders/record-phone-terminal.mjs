@@ -85,7 +85,8 @@ if (args.has('merge')) {
     identity: exactProductIdentity(tree, REF),
     extra: {
       ...extra,
-      runsMerged: `runs.json: runs 0-${kept - 1} from the fixture's ${kept}-run recording, runs ${kept}-${traces.length - 1} from ${folders.length} recordings of one run each (${folders.join(', ')}), merged with --merge in that order.`,
+      // Each merge adds to what earlier merges recorded.
+      runsMerged: `${extra.runsMerged ? `${extra.runsMerged} Then: ` : ''}runs.json: runs 0-${kept - 1} from the fixture's ${kept}-run recording, runs ${kept}-${traces.length - 1} from ${folders.length} recordings of one run each (${folders.join(', ')}), merged with --merge in that order.`,
     },
   });
   commitStage(out, finalOut);

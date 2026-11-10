@@ -1,5 +1,5 @@
 {
-  "runs": 23,
+  "runs": 30,
   "order": {
     "entries": [
       115,
@@ -24,7 +24,14 @@
       116,
       115,
       119,
-      121
+      121,
+      115,
+      115,
+      115,
+      114,
+      116,
+      114,
+      113
     ],
     "entriesWithoutData": [
       93,
@@ -49,10 +56,59 @@
       93,
       93,
       93,
-      95
+      95,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93,
+      93
     ],
     "distinctSequencesWithoutData": 11,
     "afterLastDispose": [
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
+      [
+        "lane terminal false",
+        "lane files false",
+        "undefined undefined",
+        "undefined undefined"
+      ],
       [
         "lane terminal false",
         "lane files false",
@@ -253,7 +309,14 @@
       236,
       265,
       283,
-      307
+      307,
+      231,
+      239,
+      242,
+      233,
+      228,
+      226,
+      224
     ],
     "entriesWithoutData": [
       164,
@@ -278,9 +341,16 @@
       166,
       174,
       174,
-      174
+      174,
+      164,
+      164,
+      164,
+      164,
+      164,
+      164,
+      164
     ],
-    "distinctSequencesWithoutData": 23,
+    "distinctSequencesWithoutData": 30,
     "afterLastDispose": [
       [
         "lane terminal false"
@@ -356,6 +426,27 @@
         "term_ph2_l6 running",
         "term_ph2_l6 null",
         "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
+      ],
+      [
+        "lane terminal false"
       ]
     ],
     "perTab": {
@@ -369,8 +460,8 @@
           156
         ],
         "slotsWhereBytesDiffer": 6,
-        "concatenatedBytesDistinct": 12,
-        "bytesBeforeDisposeDistinct": 12
+        "concatenatedBytesDistinct": 16,
+        "bytesBeforeDisposeDistinct": 16
       },
       "term_ph2_l2": {
         "slotsWithData": 17,
@@ -385,8 +476,8 @@
           160
         ],
         "slotsWhereBytesDiffer": 14,
-        "concatenatedBytesDistinct": 15,
-        "bytesBeforeDisposeDistinct": 15
+        "concatenatedBytesDistinct": 21,
+        "bytesBeforeDisposeDistinct": 21
       },
       "term_ph2_l4": {
         "slotsWithData": 12,
@@ -400,8 +491,8 @@
           164
         ],
         "slotsWhereBytesDiffer": 11,
-        "concatenatedBytesDistinct": 8,
-        "bytesBeforeDisposeDistinct": 8
+        "concatenatedBytesDistinct": 9,
+        "bytesBeforeDisposeDistinct": 9
       },
       "term_ph2_l5": {
         "slotsWithData": 19,
@@ -419,8 +510,8 @@
           168
         ],
         "slotsWhereBytesDiffer": 15,
-        "concatenatedBytesDistinct": 19,
-        "bytesBeforeDisposeDistinct": 19
+        "concatenatedBytesDistinct": 24,
+        "bytesBeforeDisposeDistinct": 24
       },
       "term_ph2_l6": {
         "slotsWithData": 19,
@@ -436,8 +527,8 @@
           172
         ],
         "slotsWhereBytesDiffer": 14,
-        "concatenatedBytesDistinct": 15,
-        "bytesBeforeDisposeDistinct": 15
+        "concatenatedBytesDistinct": 20,
+        "bytesBeforeDisposeDistinct": 20
       }
     }
   }
