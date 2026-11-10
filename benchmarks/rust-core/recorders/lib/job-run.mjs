@@ -14,8 +14,8 @@
 // its exit report came before the program's; otherwise whether it outlived the program is unknown and the run fails.
 //
 // The reports are always checked against the job's own accounting, whatever was left: the job's TotalProcesses at its end must be
-// the joins reported, and its ActiveProcesses read just after the program's exit must be what the members' lifetimes give at that
-// instant (a member that started or ended while the count was read, or within one clock tick of it since process times are kept
+// the joins reported, and its ActiveProcesses read just after the program's exit must not exceed what the members' lifetimes give at
+// that instant (a member that started or ended while the count was read, or within one clock tick of it since process times are kept
 // at tick precision, counts on either side). A disagreement means a report was lost,
 // so membership at the program's exit is unknown: the report says so and `readJobReport` fails the run. The job is made with
 // KILL_ON_JOB_CLOSE, so ending the host (a caller's deadline, a failure) ends the whole tree.
@@ -274,7 +274,10 @@ public static class JobRun {
     }
     if (atEnd[0] != joins) problems.Add("the job held " + atEnd[0] + " processes but reported " + joins + " joins");
     if (atEnd[1] != 0) problems.Add("the job reported no member left but counts " + atEnd[1] + " active");
-    if (atExit[1] < surely || atExit[1] > possibly) problems.Add("the job counted " + atExit[1] + " active members after the program's exit, its reported members' lifetimes give " + (surely == possibly ? surely.ToString() : surely + " to " + possibly));
+    // Only the upper bound: a member the job counts and the host did not see (a lost join) makes the count exceed it. The lower bound
+    // does not hold: the job stops counting an exiting member before its exit time is recorded (a full recording counted 1 where the
+    // lifetimes gave 2), so a member may look alive past the read and not be counted.
+    if (atExit[1] > possibly) problems.Add("the job counted " + atExit[1] + " active members after the program's exit, its reported members' lifetimes give " + (surely == possibly ? surely.ToString() : surely + " to " + possibly));
     Unreported = problems.Count == 0 ? null : string.Join("; ", problems.ToArray());
     return left.ToArray();
   }
