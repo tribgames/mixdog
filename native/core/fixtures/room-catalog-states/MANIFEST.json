@@ -64,16 +64,15 @@
         "scenario": "loaded-reset-listing-first",
         "step": "reset",
         "part": "after the answer",
-        "owner": "Lead (decisions.md: Node lists a session its daemon holds live in the live form, room_publication.rs live_form)",
-        "reason": "Node first hands the reset log row in its live form (no compactCount, no incomingTail) and, once the store refresh lists it stored, hands the stored form again after the answer; the core's row is always the stored form, already held, so it sends nothing then. At the part's end the client holds Node's last catalog. Here the core's client does not hold Node's last catalog at the part's end: its row is the one of its single reset publication, while Node's store refresh lists the row read after the reset's later writes (this branch's named order, loaded-reset-listing-first/reset/before the answer).",
+        "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
+        "reason": "Forced orders (MANIFEST forcedOrders.loaded-reset-listing-first): Node's store refresh, held until after the answer, lists the reset log's row read after the reset's later writes and publishes it then; the core publishes the reset's row at a fixed point before the answer (its room pass) and sends nothing after it. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces.",
         "rust": [
-          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (thread/summary/updated, every room row of a room pass, changed or not)"
+          "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point before the answer)"
         ],
         "node": [
           "catalog [<room log 0>]"
         ],
-        "core": [],
-        "heldAtEnd": false
+        "compareWith": "loaded-reset-refresh-in-io"
       },
       {
         "scenario": "loaded-reconnect",
@@ -521,7 +520,7 @@
         "step": "reset",
         "part": "before the answer",
         "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
-        "reason": "Forced orders (MANIFEST forcedOrders.loaded): Node publishes the reset log's row twice before the answer, from the reset's own listing (session-host-lifecycle.ts:401) and from the room call's catalog (agent-rooms.ts:388), Node's last of them is the stored row the client then holds, which the core's one publication also leaves held. The core announces the reset's log write once (an edge at the write and the room pass), so it produces the one-publication order recorded in loaded-reset-refresh-in-io and not this one.",
+        "reason": "Forced orders (MANIFEST forcedOrders.loaded): Node publishes the reset log's row twice before the answer, from the reset's own listing (session-host-lifecycle.ts:401) and from the room call's catalog (agent-rooms.ts:388), Node's last of them is the stored row the client then holds, which the core's one publication also leaves held. The core announces the reset's log write once (an edge at the write and the room pass), so it produces the one-publication order recorded in loaded-reset-refresh-in-io and not this one. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces.",
         "rust": [
           "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:258-271 (publish_change: the reset log's write announced once, at the write)",
           "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point)"
@@ -530,12 +529,7 @@
           "catalog [<room log 0>]",
           "catalog [<room log 0>]"
         ],
-        "core": [
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          }
-        ]
+        "compareWith": "loaded-reset-refresh-in-io"
       },
       {
         "scenario": "loaded-reset-listing-first",
@@ -600,8 +594,7 @@
         "step": "reset",
         "part": "before the answer",
         "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
-        "heldAtEnd": false,
-        "reason": "Forced orders (MANIFEST forcedOrders.loaded-reset-listing-first): Node publishes the reset log's row twice before the answer, from the reset's own listing (session-host-lifecycle.ts:401) and from the room call's catalog (agent-rooms.ts:388), the two differing in the row's form or room fields. The core announces the reset's log write once (an edge at the write and the room pass), so it produces the one-publication order recorded in loaded-reset-refresh-in-io and not this one.",
+        "reason": "Forced orders (MANIFEST forcedOrders.loaded-reset-listing-first): Node publishes the reset log's row twice before the answer, from the reset's own listing (session-host-lifecycle.ts:401) and from the room call's catalog (agent-rooms.ts:388), the two differing in the row's form or room fields. The core announces the reset's log write once (an edge at the write and the room pass), so it produces the one-publication order recorded in loaded-reset-refresh-in-io and not this one. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces.",
         "rust": [
           "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:258-271 (publish_change: the reset log's write announced once, at the write)",
           "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point)"
@@ -610,20 +603,14 @@
           "catalog [<room log 0>]",
           "catalog [<room log 0>]"
         ],
-        "core": [
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": 0
-          }
-        ]
+        "compareWith": "loaded-reset-refresh-in-io"
       },
       {
         "scenario": "loaded-reset-listing-first",
         "step": "forget-member",
         "part": "before the answer",
         "owner": "room-catalog-race (pool w8, this branch): an order Node can produce and the core cannot",
-        "heldAtEnd": false,
-        "reason": "Follows this scenario's reset: Node's client holds the row from the reset's later publication (its stored form), which the forget-member room call's catalog republishes; the core's client holds the row of its one reset publication.",
+        "reason": "Follows this scenario's reset: Node's client holds the row from the reset's later publication (its stored form), which the forget-member room call's catalog republishes; the core's client holds the row of its one reset publication. The core's part is compared whole with Node's loaded-reset-refresh-in-io part (the same step and part), the order it produces.",
         "rust": [
           "native/core/crates/mixdog-core-session/src/session/thread_edges.rs:258-271 (publish_change: the reset log's write announced once, at the write)",
           "native/core/crates/mixdog-core-session/src/session/thread_list.rs:545 (the room pass: the reset's room row, at a fixed point)"
@@ -631,12 +618,7 @@
         "node": [
           "catalog [<room log 0>]"
         ],
-        "core": [
-          {
-            "frame": "thread/summary/updated <room log 0>",
-            "publication": null
-          }
-        ]
+        "compareWith": "loaded-reset-refresh-in-io"
       }
     ]
   },
@@ -748,7 +730,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/room-catalog-core-differences.json",
-      "sha256": "e57d8560270a256cc6c6992d628e2e7cdade010688d7dfd04abc9a8ae5b7f77e"
+      "sha256": "c66f752de2228725574d3e3ca20254e3a4d457ff51ee6ff629b69825682ed8a1"
     }
   ],
   "nodeVersion": "v22.20.0",
