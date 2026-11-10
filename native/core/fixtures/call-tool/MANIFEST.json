@@ -3,16 +3,16 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 3785029,
+      "bytes": 9903141,
       "path": "golden.json",
-      "sha256": "5c3412a4a032693a47f74786b409990e3ce828448de274b84eadedd148d6cb37"
+      "sha256": "2902ac515118023b00ec09e673f0d589624fa0b87984124cad37d01507f85cf5"
     }
   ],
   "nodeRuntime": "v22.20.0",
   "normalisations": {
-    "batchIds": "the batch_id of a trace row (and the batch_id inside a tool row's payload.batch) becomes <BATCH-n>, n by first appearance within the scenario",
-    "clockValues": "numbers under these keys become 0: createdAt, ts, at, elapsedMs, duration, tool_ms, started_at_ms, completed_at_ms, dispatchStartedAt, executionStartedAt, executionCompletedAt, postprocessStartedAt, resultCompletedAt, dispatch_wait_ms, execution_ms, result_collection_wait_ms, postprocess_ms, total_ms",
-    "keptWhole": "system messages, tool timings' keys, stored and requested messages, events, cards, hooks, executed calls, the timeline, the human gate's audit records and every trace row of the session (context, batch, tool, usage) are recorded whole apart from the values above",
+    "batchIds": "generated ids: the batch_id of a trace row (and inside a tool row's payload.batch) becomes <BATCH-n>, and a stored row's meta.transcript.messageId becomes <MESSAGE-n>, n by first appearance of each kind within the scenario",
+    "clockValues": "numbers under these keys become 0: createdAt, ts, at, elapsedMs, duration, tool_ms, started_at_ms, completed_at_ms, requestMs, dispatchStartedAt, executionStartedAt, executionCompletedAt, postprocessStartedAt, resultCompletedAt, dispatch_wait_ms, execution_ms, result_collection_wait_ms, postprocess_ms, total_ms",
+    "keptWhole": "everything else: system messages, stored and requested messages, events, cards, hooks, executed calls, the timeline, the human gate's audit records and every trace row of the session",
     "sandboxPath": "the recorder's sandbox folder (and its forward-slash form), in every string, becomes <SANDBOX>"
   },
   "product": {
@@ -33,8 +33,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-call-tool.mjs",
-  "recorderSha256": "af3224312c3e3bfe81398875422b5f06dcfe8876cf61baa65ab7a8f71922143e",
-  "scenarios": 60,
+  "recorderSha256": "109b143913b6db8b246be3433c8a4fb17ac663f35c52ac5158633dd0dd1963c8",
+  "scenarios": 65,
   "set": "call-tool",
   "syntheticInputs": [
     "the provider: a scripted `send` that returns each scenario's replies in order; for a streamed scenario it hands every call to `onToolCall` one macrotask apart and ends the response once the calls the twin run saw settle early (`settles`)",
@@ -48,6 +48,37 @@
     "synchronous file work: `fs/promises` readFile / appendFile / mkdir of the human gate's grants.json and audit.jsonl are replaced by the same operation done synchronously after one macrotask (the recorder's `fileStep`), so the order of two concurrent approvals is the scenario's",
     "the session: createSession with the sandbox profile (MIXDOG_DATA_DIR and the home variables under the sandbox), a fixed id per scenario, a work directory holding x.txt"
   ],
-  "totalBytes": 3785029,
-  "twoRunIdentity": "two recordings in a row produce byte-identical golden.json and MANIFEST.json (compare their sha256 entries)"
+  "totalBytes": 9903141,
+  "twoRunEvidence": {
+    "batchIds": [
+      "batch_id",
+      "messageId"
+    ],
+    "clockValues": [
+      "at",
+      "completed_at_ms",
+      "createdAt",
+      "dispatchStartedAt",
+      "dispatch_wait_ms",
+      "duration",
+      "elapsedMs",
+      "executionCompletedAt",
+      "executionStartedAt",
+      "execution_ms",
+      "postprocessStartedAt",
+      "postprocess_ms",
+      "requestMs",
+      "resultCompletedAt",
+      "result_collection_wait_ms",
+      "started_at_ms",
+      "tool_ms",
+      "total_ms",
+      "ts"
+    ],
+    "sandboxPath": [
+      "content",
+      "cwd",
+      "workdir"
+    ]
+  }
 }
