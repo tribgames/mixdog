@@ -1,5 +1,5 @@
 // PH-2 "Settings, update, notifications and feedback" group of the phone over `mixdogd`: the settings toggles, this PC's updater
-// and display preferences, Settings › Notifications and the feedback dialog. The phone still calls by Node's relay method names
+// and display preferences, the activity rail pins, Settings › Notifications and the feedback dialog. The phone still calls by Node's relay method names
 // (remote-shim-api.ts); each answers as Node's host did (remote-methods.ts at b6f10295a: `settingsRemoteMethods` :1086,
 // `notificationRemoteMethods` :1109, `hostWindowRemoteMethods` :1053, `submitFeedback` and `notifyProviderModelsChanged` :912-917):
 // Node's argument checks first, with Node's texts, then the core request, then the value the relay frame carried.
@@ -9,6 +9,7 @@
 // window's updater state). The events Node's relay pushed are the core's announcements and the `update` section (install below).
 // `libreOfficeStatus` and `installLibreOffice` are answered by the source-control group (remote-protocol-scm.ts).
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
+import { normalizeActivityRailPins, storedPinsState, type ActivityRailPinsState } from '../shared/activity-rail-pins';
 import { normalizeDesktopFeedback } from '../shared/contract-feedback';
 import { desktopSettingPath, desktopSettingsFromConfig } from '../shared/desktop-settings';
 import { readHostDisplayPreferences } from '../shared/host-display-preferences';
@@ -44,6 +45,43 @@ const record = (value: unknown): Record<string, unknown> =>
 /** The held value of `(section, key)`, or undefined while the core holds none. */
 const held = (client: Client, section: string, key: string | null = null): unknown =>
   client.store.section(section as never, key)?.value;
+
+// The activity rail pins: Node (b6f10295a) kept them in the config's `desktop.activityRailPins` (settings-store.ts:268-291) and sent
+// every paired phone the saved `{pins, revision}` as `activity-rail-pins-changed` after each update, whoever made it
+// (desktop-operations.ts:425-431, remote-relay-push-lanes.ts:50-62); a phone that connected later was sent nothing and read the pins
+// when it mounted. The core keeps the same value in the `desktop` subtree of its `config` section: a read is that section's held value,
+// an update is one `config/value/write`, and the push is the section's next revision with a pins revision the page has not been told.
+
+/** The held pins (Node's `readActivityRailPins`: null until some client saved them). */
+const heldPins = (client: Client): ActivityRailPinsState | null =>
+  storedPinsState(record(held(client, 'config', 'desktop')).activityRailPins);
+
+/** Node's phone read a refused call as an `Error` carrying the host's text (remote-shim-dispatch.ts:165-178). */
+const refused = (text: string): Error => new Error(text);
+
+async function updatePins(pins: unknown, host: PhoneProtocolHost): Promise<ActivityRailPinsState> {
+  // settings-store.ts:274-275: the list is checked before anything is written.
+  if (!normalizeActivityRailPins(pins)) throw refused('Activity rail pins must be an array of supported destinations.');
+  const reply = record(await host.client().call('config/value/write', { path: 'desktop.activityRailPins', value: pins } as never));
+  const values = reply.values;
+  const state = storedPinsState(Array.isArray(values) ? values[0] : undefined);
+  if (!state) throw refused('The config write did not return valid activity rail pins.');
+  return state;
+}
+
+/** Tells the page each pins revision the connected client hears live; what a connection's snapshot holds is not announced. */
+function followPins(host: PhoneProtocolHost, client: Client): () => void {
+  let told = heldPins(client)?.revision ?? 0;
+  return client.store.subscribe((change) => {
+    // A snapshot announces every section it holds (`store.owed` is set while it does): it is where the pins stand, not a change.
+    if (change.type === 'appSnapshot') told = heldPins(client)?.revision ?? 0;
+    if (change.type !== 'section' || change.section !== 'config' || change.key !== 'desktop' || client.store.owed) return;
+    const state = heldPins(client);
+    if (!state || state.revision === told) return;
+    told = state.revision;
+    host.ctx.fanOut(host.ctx.activityRailPinsListeners, state);
+  });
+}
 
 const isWindowGone = (error: unknown): boolean => {
   const failure = (error as { detail?: { kind?: unknown; data?: { reason?: unknown; capability?: unknown } } } | null)?.detail;
@@ -102,6 +140,9 @@ const calls: Record<string, NodeCall> = {
     const saved = await request(host, 'config/value/write', { path, value: enabled, announce: 'desktop' });
     return desktopSettingsFromConfig(record(saved).config);
   }),
+  readActivityRailPins: (_params, host) => heldPins(host.client()),
+  // remote-methods.ts:915: a phone's update never initializes; only its first argument reaches the store.
+  updateActivityRailPins: ([pins], host) => updatePins(pins, host),
 
   // ── this PC's window (hostWindowRemoteMethods, :1053-1084) ──
   readHostDisplayPreferences: call((_args, host) => {
@@ -179,9 +220,11 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
       if (announced.name === SETTINGS_CHANGED_EVENT) ctx.fanOut(ctx.settingsChangedListeners, announced.value as SettingsChange);
       else ctx.fanOut(ctx.providerModelsListeners, announced.value as ProviderModelsChange);
     });
+    const offPins = followPins(host, client);
     unwire = () => {
       offStore();
       offEvents();
+      offPins();
     };
   };
   const off = host.onClient?.(wire);
