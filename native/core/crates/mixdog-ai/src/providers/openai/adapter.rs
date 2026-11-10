@@ -423,11 +423,11 @@ impl OpenAiAdapter {
     fn authorize(&self, mut wire: WireRequest, credential: &Credential) -> WireRequest {
         wire.headers
             .insert(0, ("Authorization".into(), format!("Bearer {}", credential.bearer)));
-        if self.codec.route() == Route::Codex
-            && let Some(account) = &credential.account_id
-        {
+        if self.codec.route() == Route::Codex {
             // The WebSocket handshake lists the account right behind the bearer (`openai-ws-pool.mjs:490`), the
-            // HTTP request right behind `originator` (`openai-oauth-http-sse.mjs:76`).
+            // HTTP request right behind `originator` (`openai-oauth-http-sse.mjs:76`); both send it empty for a token
+            // that names no account (`auth.account_id || ''`).
+            let account = credential.account_id.clone().unwrap_or_default();
             let at = if wire.transport == TransportKind::WebSocket {
                 1
             } else {
@@ -436,7 +436,7 @@ impl OpenAiAdapter {
                     .position(|(name, _)| name.eq_ignore_ascii_case("originator"))
                     .map_or(wire.headers.len(), |i| i + 1)
             };
-            wire.headers.insert(at, ("chatgpt-account-id".into(), account.clone()));
+            wire.headers.insert(at, ("chatgpt-account-id".into(), account));
         }
         wire
     }
