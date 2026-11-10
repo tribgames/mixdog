@@ -11,7 +11,6 @@ use mixdog_core_api::domain::repo::RepoOperation;
 
 use crate::engine::Repo;
 use crate::error::ScmFailure;
-use crate::error::scrub_credentials;
 use crate::git::RunOptions;
 use crate::git::nul_records;
 use crate::locks::RepoGuard;
@@ -531,22 +530,6 @@ impl Repo {
         let mut args = vec!["ls-files", "-z"];
         args.extend(extra);
         Ok(nul_records(&self.run(&args).await?).map(str::to_owned).collect())
-    }
-}
-
-pub(crate) fn scm_error(error: mixdog_core_api::domain::repo::ScmError) -> ScmFailure {
-    use mixdog_core_api::domain::repo::ScmError;
-    match error {
-        ScmError::NotARepository => ScmFailure::NotARepository,
-        ScmError::ObjectMissing { id } => ScmFailure::ObjectMissing(id),
-        ScmError::Io { os_code } => ScmFailure::Io {
-            os_code,
-            message: "io error".into(),
-        },
-        // What every caller read before the status path told the fact apart: a git diagnostic, `COMMAND_FAILED`.
-        ScmError::Unavailable { capability } => ScmFailure::git(ScmFailure::Unavailable { capability }.to_string()),
-        ScmError::TimedOut { command, millis } => ScmFailure::git(ScmFailure::TimedOut { command, millis }.to_string()),
-        ScmError::Corrupt { detail } => ScmFailure::git(scrub_credentials(&detail)),
     }
 }
 

@@ -84,9 +84,12 @@ impl WriteHost for ReviewedWriteHost {
     }
 
     async fn note_written(&self, paths: &[PathBuf], session_id: Option<&str>) {
+        // Node's `noteWrittenFiles` loop has no await: every invalidation (and so the review's signal) lands in one task.
+        for path in paths {
+            self.read_state.invalidate(&[read_state_key(path).as_str()]);
+        }
         for path in paths {
             let key = read_state_key(path);
-            self.read_state.invalidate(&[key.as_str()]);
             // Best effort, as Node's: a path that cannot be read has no snapshot to record.
             let Ok(abs) = absolute(path) else { continue };
             let Ok(stat) = self.files.stat(self.io.interactive, abs).await else { continue };
