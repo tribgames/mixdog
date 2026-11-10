@@ -1021,6 +1021,7 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         step_judge: None,
         artifacts: None,
         images: None,
+        failures: None,
     };
     let tool_env = ToolEnv {
         thread_id: thread.clone(),

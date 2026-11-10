@@ -1,4 +1,5 @@
 pub mod artifact;
+pub mod failure_log;
 pub mod guards;
 pub mod hop_host;
 pub mod model_display;

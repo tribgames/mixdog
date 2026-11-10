@@ -196,6 +196,10 @@ impl DispatchSessions for Fake {
         Some(Snapshot { stage: Some("streaming".into()), last_progress_at: since, has_first_semantic: true, ..Snapshot::default() })
     }
 
+    fn last_iteration_index(&self, _id: &str) -> Option<Value> {
+        None
+    }
+
     fn arm_turn_timeout(&self, _id: &str) {}
 
     async fn close(&self, _id: &str, reason: &str) {
@@ -236,6 +240,8 @@ impl DispatchWorld for Fake {
     fn diagnostic(&self, line: &str) {
         self.log().lines.push(line.to_owned());
     }
+
+    fn record_stall_abort(&self, _ctx: Map<String, Value>) {}
 }
 
 /// `sess_...` ids are the dispatch's own; Node's were masked the same way.
