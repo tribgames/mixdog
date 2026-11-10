@@ -257,7 +257,13 @@ async function throughMain(context, { refuseFeeds = [], failFeeds = [] } = {}) {
   let revision = 0;
   const update = (value) => ({ section: 'mediaJobs', key: value.id, revision: ++revision, value });
   const storeListeners = new Set();
-  const store = { section: () => undefined, sections: () => [], subscribe: (listener) => (storeListeners.add(listener), () => storeListeners.delete(listener)) };
+  // `appFeed`: the app subscription's stamp, none here (`subscribeApp` attaches nothing).
+  const store = {
+    section: () => undefined,
+    sections: () => [],
+    appFeed: () => undefined,
+    subscribe: (listener) => (storeListeners.add(listener), () => storeListeners.delete(listener)),
+  };
   const client = {
     store,
     status: { state: 'ready' },
