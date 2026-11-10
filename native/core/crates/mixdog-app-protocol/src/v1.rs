@@ -119,6 +119,48 @@ pub struct ServerCapabilities {
     pub browser: CapabilityState,
     pub computer: CapabilityState,
     pub voice: CapabilityState,
+    /// What a paired phone may use: Node's relay challenge flags (`remote-relay-client-lifecycle.ts:117-151` at b6f10295a).
+    /// Absent from a core that predates it; read that as every flag off.
+    #[serde(default)]
+    pub remote: RemoteCapabilities,
+}
+
+/// The features Node's relay announced to a phone in its challenge, each true when this core serves it. Node offered every flag
+/// but `nativePush` always; `nativePush` only while the relay could deliver a native push (`relayNativePlatforms().length > 0`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteCapabilities {
+    /// The update, trash, browser-page release, deduplicated submit, preview and pull-request calls (`remoteParity`).
+    pub remote_parity: bool,
+    /// `remoteAccess/registerNativePush`: the relay this core's leg is on delivers native pushes.
+    pub native_push: bool,
+    /// The remote browser pane may send the `viewport` control.
+    pub browser_drive: bool,
+    /// A conversation browser's tabs ride its frames and its tab controls are accepted.
+    pub browser_session_tabs: bool,
+    /// Terminal resizes follow the size-owner claim.
+    pub term_size_owner: bool,
+    /// The host folder browser (`projectFs/browseDirs`).
+    pub host_directories: bool,
+    /// The usage ledger's request list.
+    pub usage_requests: bool,
+    /// Project file recovery (`projectFs/recovery`).
+    pub project_recovery: bool,
+    /// `autoEffort` in model selections.
+    pub route_auto_effort: bool,
+    /// The agent visualize panel.
+    pub visualize: bool,
+    /// The host file download lane (`transfer/*`).
+    pub file_downloads: bool,
+    /// A handoff secret typed on the phone (`approval/provideSecret`).
+    pub secret_input: bool,
+    /// The WebRTC live view's version (Node's `REMOTE_WEBRTC_VERSION`); 0 when it is not served.
+    pub browser_webrtc: u32,
+    /// A take-over's fit is honored and frames are marked.
+    pub browser_fit: bool,
+    /// The encrypted HTTP media lane.
+    pub media_e2ee: bool,
 }
 
 /// What the core knows about this connection.
