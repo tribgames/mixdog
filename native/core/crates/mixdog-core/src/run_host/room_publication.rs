@@ -1,6 +1,7 @@
-//! The wiring between the index writer, the app feed and the room service: what makes a room call's reply follow the
-//! publication of the catalog (Node `deps.republishCatalog`, `session-host.ts:357-360`, which `agent-rooms.ts:289,312,333`
-//! await before answering). The daemon's composition calls this; so does the test that proves the order.
+//! The wiring between the index writer, the app feed and the room service: a room call publishes the catalog as Node's
+//! `deps.republishCatalog` does (`session-host.ts:353-356`, called by `agent-rooms.ts:289,312,333,345,388`): inside the call once a
+//! listing has been answered, started and not awaited before that. The daemon's composition calls this; so do the tests that
+//! prove the order.
 
 use std::sync::Arc;
 
@@ -23,8 +24,7 @@ pub struct RoomPublication {
 }
 
 /// The index writer's row writes reach the app feed (`thread/started`, `thread/summary/updated`, `thread/deleted`), and the room
-/// host publishes through the summaries: a room call's publish returns once the rows it wrote are announced, or answers why not.
-/// Fails when the index already has a row sink.
+/// host publishes through the summaries ([`RoomSummaries::republish_catalog`]). Fails when the index already has a row sink.
 pub fn wire<A>(
     thread_list: Arc<ThreadListService>,
     sections: Arc<SectionFeedState>,
@@ -36,14 +36,13 @@ pub fn wire<A>(
 where
     A: TaskWorkspace + AgentCatalog + 'static,
 {
-    let edges = ThreadEdges::start(ThreadEdgePublisher::new(thread_list.clone(), sections.clone(), agents.clone()));
-    index.observe_rows(edges.clone())?;
-    let summaries = RoomSummaries::new(thread_list, sections, directory, edges);
+    index.observe_rows(ThreadEdges::start(ThreadEdgePublisher::new(thread_list.clone(), sections.clone(), agents.clone())))?;
+    let summaries = RoomSummaries::new(thread_list, sections, directory);
     let republish: Republish = {
         let summaries = summaries.clone();
         Arc::new(move || {
             let summaries = summaries.clone();
-            Box::pin(async move { summaries.republish_settled().await.map_err(|error| RoomError::Port(format!("{error:?}"))) })
+            Box::pin(async move { summaries.republish_catalog().await.map_err(|error| RoomError::Port(format!("{error:?}"))) })
         })
     };
     let host = Arc::new(SessionRoomHost::new(agents, sessions, republish));
@@ -56,7 +55,6 @@ mod tests {
 
     use async_trait::async_trait;
     use mixdog_core_api::FeedSource;
-    use mixdog_core_api::DomainService;
     use mixdog_core_api::domain::mock::MockOwnership;
     use mixdog_core_api::ids::ConnectionId;
     use mixdog_core_api::mock::MockConnection;
@@ -73,6 +71,7 @@ mod tests {
     use mixdog_core_rooms::rooms::store::StateRoomStore;
     use mixdog_core_session::session::StoreThreads;
     use mixdog_core_session::session::thread_list::LIST;
+    use mixdog_core_session::session::thread_list::ListFence;
     use mixdog_core_session::session::thread_list::ListOverlay;
     use mixdog_core_session::session::thread_list::RowOverlay;
     use mixdog_core_session::session::thread_state::SessionThreads;
@@ -85,11 +84,17 @@ mod tests {
     use crate::run_host::directory_sessions::DirectorySessions;
     use crate::run_host::room_list::RoomListRows;
 
-    /// The agents the rooms name, and the folder tasks run in.
-    struct Agents;
+    /// The agents the rooms name, and the folder tasks run in; the listing's task workspace lookup fails once `lookup_fails` is set.
+    #[derive(Default)]
+    struct Agents {
+        lookup_fails: std::sync::atomic::AtomicBool,
+    }
     #[async_trait]
     impl TaskWorkspace for Agents {
         async fn path(&self) -> Result<String, String> {
+            if self.lookup_fails.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err("the task workspace could not be resolved".into());
+            }
             Ok("/tasks".into())
         }
     }
@@ -142,14 +147,129 @@ mod tests {
         fn cancel_owed_to(&self, _: &str, _: &[String]) {}
     }
 
-    /// How long the create may take before the test calls it hung (a failure bound, not a wait the test relies on).
+    /// The production fence of the list (the store's projector), with a gate in front of it where a test arms one: the next list
+    /// read stops there, says it arrived, and goes on to the projector's fence when the test opens it.
+    struct Gate {
+        armed: std::sync::Mutex<Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>>,
+        projector: Arc<StoreThreads>,
+    }
+    impl Gate {
+        /// The opener and the arrival signal of the next read.
+        fn arm(&self) -> (tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>) {
+            let (open, held) = tokio::sync::oneshot::channel();
+            let (reached, arrived) = tokio::sync::oneshot::channel();
+            *self.armed.lock().unwrap() = Some((reached, held));
+            (open, arrived)
+        }
+    }
+    impl ListFence for Gate {
+        fn pending(&self) -> Option<futures::future::BoxFuture<'static, ()>> {
+            let Some((reached, held)) = self.armed.lock().unwrap().take() else { return self.projector.pending() };
+            let projector = self.projector.clone();
+            Some(Box::pin(async move {
+                let _ = reached.send(());
+                let _ = held.await;
+                if let Some(wait) = projector.pending() {
+                    wait.await;
+                }
+            }))
+        }
+    }
+
+    /// How long a step may take before the test calls it hung (a failure bound, not a wait the test relies on).
     const DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
 
-    /// Through the wiring the daemon composes (`wire`): when `room/create` answers, a `thread/list` already lists the room and
-    /// the feed has been sent the room's `thread/started` (Node publishes the catalog before `createAgentRoom` answers,
-    /// `agent-rooms.ts:289`, `session-host.ts:1199`).
+    type Service = RoomService<StateRoomStore, SessionRoomHost, Idle>;
+
+    /// The room service over the production wiring (`wire`, as `compose_flip.rs` composes it), the real index, store and room
+    /// records; the list's fence is the test's gate.
+    struct Composed {
+        service: Arc<Service>,
+        list: Arc<ThreadListService>,
+        rooms: Arc<Rooms<StateRoomStore>>,
+        agents: Arc<Agents>,
+        app: MockConnection,
+        gate: Arc<Gate>,
+        _held: (Rig, tempfile::TempDir, tempfile::TempDir),
+    }
+
+    impl Composed {
+        async fn create(&self) -> tokio::task::JoinHandle<Result<Value, mixdog_core_api::CoreError>> {
+            let service = self.service.clone();
+            tokio::spawn(async move { value(&*service, request("room/create", with_op(json!({ "input": { "name": "Release", "members": ["gh", "rel"] } }), 1), Some(1))).await })
+        }
+
+        /// A listing, as a window's first list loads Node's catalog.
+        async fn load_catalog(&self) {
+            value(self.list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)).await.expect("thread/list");
+            assert!(self.list.catalog_loaded());
+        }
+
+        /// The ids of the rows the feed was sent under `method`, in order.
+        fn sent(&self, method: &str) -> Vec<String> {
+            self.app
+                .drain_text()
+                .into_iter()
+                .map(|text| serde_json::from_str::<Value>(&text[text.find('{').expect("json body")..]).unwrap_or_else(|error| panic!("{error}: {text}")))
+                .filter(|frame| frame["method"] == method)
+                .filter_map(|frame| frame["params"]["thread"]["id"].as_str().map(str::to_owned))
+                .collect()
+        }
+    }
+
+    fn log_of(created: &Value) -> String {
+        format!("sess_room_{}", created["roomId"].as_str().expect("room id").trim_start_matches("room_"))
+    }
+
+    /// Node with its catalog loaded publishes it inside `createAgentRoom` before answering (`session-host.ts:353-354`,
+    /// `agent-rooms.ts:289`). Held at the list's fence, the production publish keeps the creation unanswered; opened, the creation
+    /// answers, and by then the feed has been sent the room's row and a `thread/list` lists it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_room_create_answers_when_the_room_is_listed_and_announced() {
+    async fn with_the_catalog_loaded_a_room_create_answers_after_its_publish() {
+        let world = composed().await;
+        world.load_catalog().await;
+        let (open, arrived) = world.gate.arm();
+        let creating = world.create().await;
+        tokio::time::timeout(DEADLINE, arrived).await.expect("the room create never published the catalog").expect("gate");
+        assert!(!creating.is_finished(), "the room create answered while its publish was held");
+        drop(world.sent("thread/summary/updated"));
+        open.send(()).expect("the publish waits at the gate");
+        let created = tokio::time::timeout(DEADLINE, creating).await.expect("room/create answered within the deadline").expect("task").expect("room/create");
+        let room = log_of(&created);
+        assert!(world.sent("thread/summary/updated").contains(&room), "the publish sent the room's row before the reply");
+        let listed = value(world.list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)).await.expect("thread/list");
+        let ids: Vec<&str> = listed["data"].as_array().expect("data").iter().filter_map(|row| row["id"].as_str()).collect();
+        assert!(ids.contains(&room.as_str()), "thread/list at the reply lists the room {room}: {ids:?}");
+    }
+
+    /// Node with its catalog loaded lets a failed publish throw into the call (`agent-rooms.ts:289`): the creation rejects, and the
+    /// room it saved stays saved. The publish here fails at the listing's task workspace lookup.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn with_the_catalog_loaded_a_failed_publish_rejects_the_create_and_keeps_the_room() {
+        let world = composed().await;
+        world.load_catalog().await;
+        world.agents.lookup_fails.store(true, std::sync::atomic::Ordering::SeqCst);
+        let answer = tokio::time::timeout(DEADLINE, world.create().await).await.expect("room/create answered within the deadline").expect("task");
+        assert!(answer.is_err(), "the create answered {answer:?} though its publish failed");
+        assert_eq!(world.rooms.list().await.expect("rooms").len(), 1, "the saved room stays");
+    }
+
+    /// Before any listing (Node's `sessionCatalogLoaded` false) the publish is started and not awaited (`session-host.ts:355`,
+    /// `void this.catalog.publishCatalogs()`): the creation answers while the publish is still held at the list's fence. A
+    /// creation that waited for it would answer only once the list's own bound let the publish go, so it must answer before that
+    /// bound.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn with_the_catalog_not_loaded_a_room_create_answers_without_waiting_for_its_publish() {
+        let world = composed().await;
+        let (_open, _arrived) = world.gate.arm();
+        let created = tokio::time::timeout(mixdog_core_session::session::thread_list::FENCE_BOUND, world.create().await)
+            .await
+            .expect("room/create waited for its publish, held at the list's fence")
+            .expect("task");
+        created.expect("room/create");
+    }
+
+    async fn composed() -> Composed {
         let data = tempfile::tempdir().expect("data dir");
         let tokens = mixdog_rt::testing::tokens();
         let root = data.path().to_path_buf();
@@ -160,13 +280,13 @@ mod tests {
         .await
         .expect("job ran")
         .expect("index");
-        let store = StoreThreads::over_data_dir(data.path(), index.clone(), Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("thread store");
+        let store = Arc::new(StoreThreads::over_data_dir(data.path(), index.clone(), Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("thread store"));
         let rig = Rig::new();
-        let directory = Arc::new(SessionDirectory::new(Arc::new(rig.deps_parts(Arc::new(store)))));
+        let directory = Arc::new(SessionDirectory::new(Arc::new(rig.deps_parts(store.clone()))));
         std::fs::create_dir_all(data.path().join("state")).expect("state dir");
         let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &data.path().join("state").join("core.sqlite")).expect("core state");
         let rooms = Arc::new(Rooms::new(StateRoomStore::new(state)));
-        let agents = Arc::new(Agents);
+        let agents = Arc::new(Agents::default());
         let limits = MockLimits::default();
         let feed = Arc::new(MockFeed::new("app".into(), mixdog_core_api::mock::epoch(1), Arc::new(mixdog_core_api::mock::EchoView), limits));
         let app = MockConnection::new(ConnectionId(1), limits);
@@ -177,27 +297,13 @@ mod tests {
         let sections = Arc::new(SectionFeedState::new(feed));
         let room_rows = Arc::new(RoomListRows::new(rooms.clone(), Arc::new(Idle), agents.clone()));
         let list = Arc::new(ThreadListService::new(Arc::new(index.clone()), Arc::new(Quiet), room_rows, agents.clone()));
+        let gate = Arc::new(Gate { armed: std::sync::Mutex::new(None), projector: store });
+        list.fence(gate.clone());
         let sessions = Arc::new(DirectorySessions::new(directory.clone(), Arc::new(SessionThreads::new(directory.clone()))));
         let publication = wire(list.clone(), sections, agents.clone(), &index, directory, sessions).expect("wired");
         let op_dir = tempfile::tempdir().expect("op dir");
         let scopes = mixdog_core_base::support::testing::scopes(op_dir.path(), "room").await;
-        let service = RoomService::new(rooms, publication.host, Arc::new(Idle), scopes);
-
-        let created = tokio::time::timeout(DEADLINE, value(&service, request("room/create", with_op(json!({ "input": { "name": "Release", "members": ["gh", "rel"] } }), 1), Some(1))))
-            .await
-            .expect("room/create answered within the deadline")
-            .expect("room/create");
-        let room = format!("sess_room_{}", created["roomId"].as_str().expect("room id").trim_start_matches("room_"));
-        let listed = value(list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)).await.expect("thread/list");
-        let ids: Vec<&str> = listed["data"].as_array().expect("data").iter().filter_map(|row| row["id"].as_str()).collect();
-        assert!(ids.contains(&room.as_str()), "thread/list at the reply lists the room {room}: {ids:?}");
-        let started: Vec<String> = app
-            .drain_text()
-            .into_iter()
-            .map(|text| serde_json::from_str::<Value>(&text[text.find('{').expect("json body")..]).unwrap_or_else(|error| panic!("{error}: {text}")))
-            .filter(|frame| frame["method"] == "thread/started")
-            .filter_map(|frame| frame["params"]["thread"]["id"].as_str().map(str::to_owned))
-            .collect();
-        assert!(started.contains(&room), "the feed has been sent the room's thread/started by the reply: {started:?}");
+        let service = Arc::new(RoomService::new(rooms.clone(), publication.host, Arc::new(Idle), scopes));
+        Composed { service, list, rooms, agents, app, gate, _held: (rig, data, op_dir) }
     }
 }

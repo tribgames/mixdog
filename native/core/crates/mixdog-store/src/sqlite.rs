@@ -1490,35 +1490,25 @@ impl SqliteStore {
     /// are the session actor's to check).
     pub async fn thread_op(&self, session: &str, op_id: &str) -> Result<Option<ThreadOp>, DbError> {
         let (session, op_id) = (session.to_owned(), op_id.to_owned());
-        self.read(move |c| {
-            Ok(c.prepare_cached(THREAD_OP_SQL)?
-            .query_row([&session, &op_id], |r| {
-                let state: String = r.get(2)?;
-                Ok(ThreadOp {
-                    method: r.get(0)?,
-                    payload_digest: r.get(1)?,
-                    state: serde_json::from_value(serde_json::Value::String(state)).map_err(|e| {
-                        rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
-                    })?,
-                    pos: FramePos { ordinal: r.get::<_, i64>(3)? as u64, file_no: r.get(4)?, offset: r.get::<_, i64>(5)? as u64 },
-                    frame_len: r.get::<_, i64>(6)? as u64,
-                })
-            })
-            .optional()?)
-        })
-        .await
+        self.read(move |c| thread_op_on(c, &session, &op_id)).await
+    }
+
+    /// `thread_op` inside a job already on the read lane: answered on the job's thread, so the job never waits for a lane slot
+    /// behind itself.
+    pub fn thread_op_on_lane(&self, _lane: &InLane<InteractiveIo>, session: &str, op_id: &str) -> Result<Option<ThreadOp>, DbError> {
+        self.shared.pool.with(|c| thread_op_on(c, session, op_id))
     }
 
     /// The ops of `session` that `op/status{fence}` fenced (P §9.4): an actor refuses them at
     /// load, so a fence survives a reload.
     pub async fn fenced_ops(&self, session: &str) -> Result<Vec<String>, DbError> {
-        let (session, fenced) = (session.to_owned(), serde_name(&crate::schema::record::OpState::Fenced));
-        self.read(move |c| {
-            let mut rows = c.prepare_cached("SELECT op_id FROM thread_ops WHERE session = ?1 AND state = ?2")?;
-            let ids = rows.query_map([&session, &fenced], |r| r.get::<_, String>(0))?;
-            Ok(ids.collect::<Result<Vec<_>, _>>()?)
-        })
-        .await
+        let session = session.to_owned();
+        self.read(move |c| fenced_ops_on(c, &session)).await
+    }
+
+    /// `fenced_ops` inside a job already on the read lane.
+    pub fn fenced_ops_on_lane(&self, _lane: &InLane<InteractiveIo>, session: &str) -> Result<Vec<String>, DbError> {
+        self.shared.pool.with(|c| fenced_ops_on(c, session))
     }
 
     /// The compaction dividers of the display history placed before rows of
@@ -1540,6 +1530,19 @@ impl SqliteStore {
         to: u64,
     ) -> Result<Vec<Divider>, DbError> {
         self.read(move |c| dividers_on(c, &lineage, cut, level, from, to)).await
+    }
+
+    /// `dividers` inside a job already on the read lane.
+    pub fn dividers_on_lane(
+        &self,
+        _lane: &InLane<InteractiveIo>,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+        level: usize,
+        from: u64,
+        to: u64,
+    ) -> Result<Vec<Divider>, DbError> {
+        self.shared.pool.with(|c| dividers_on(c, lineage, cut, level, from, to))
     }
 
     /// The JSON list row of a session; `None` for a session whose log has no readable
@@ -2299,6 +2302,30 @@ fn projected_on(c: &Connection, session: &str) -> Result<Option<FramePos>, DbErr
             Ok(FramePos { ordinal: r.get::<_, i64>(0)? as u64, file_no: r.get(1)?, offset: r.get::<_, i64>(2)? as u64 })
         })
         .optional()?)
+}
+
+fn thread_op_on(c: &Connection, session: &str, op_id: &str) -> Result<Option<ThreadOp>, DbError> {
+    Ok(c.prepare_cached(THREAD_OP_SQL)?
+        .query_row([session, op_id], |r| {
+            let state: String = r.get(2)?;
+            Ok(ThreadOp {
+                method: r.get(0)?,
+                payload_digest: r.get(1)?,
+                state: serde_json::from_value(serde_json::Value::String(state)).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, Box::new(e))
+                })?,
+                pos: FramePos { ordinal: r.get::<_, i64>(3)? as u64, file_no: r.get(4)?, offset: r.get::<_, i64>(5)? as u64 },
+                frame_len: r.get::<_, i64>(6)? as u64,
+            })
+        })
+        .optional()?)
+}
+
+fn fenced_ops_on(c: &Connection, session: &str) -> Result<Vec<String>, DbError> {
+    let fenced = serde_name(&crate::schema::record::OpState::Fenced);
+    let mut rows = c.prepare_cached("SELECT op_id FROM thread_ops WHERE session = ?1 AND state = ?2")?;
+    let ids = rows.query_map([session, fenced.as_str()], |r| r.get::<_, String>(0))?;
+    Ok(ids.collect::<Result<Vec<_>, _>>()?)
 }
 
 pub(crate) fn blob_referenced_on(c: &Connection, digest: &Digest) -> Result<bool, DbError> {

@@ -4402,7 +4402,6 @@ dependencies = [
  "mixdog-workspace",
  "mixdog-workspace-hack",
  "regex",
- "rusqlite",
  "serde",
  "serde_json",
  "sha1",

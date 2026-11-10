@@ -58,8 +58,8 @@ pub trait RoomHost: Send + Sync {
     async fn start_over(&self, session_id: &str) -> Result<Option<String>, RoomError>;
     /// `resetSessionConversation({ fork: false })`: a member's session is emptied, nothing kept.
     async fn reset_member(&self, session_id: &str) -> Result<(), RoomError>;
-    /// `deps.republishCatalog` (`session-host.ts:357-360`): the catalog is published when this returns, so a room call
-    /// answers only after the rooms it changed are listed and announced.
+    /// `deps.republishCatalog` (`session-host.ts:353-356`): with the catalog loaded it is published when this returns and its
+    /// failure is the call's; before that the publish is only started, and this returns at once.
     async fn republish_catalog(&self) -> Result<(), RoomError>;
 }
 
