@@ -111,7 +111,10 @@ async function runScenario(scenario, root, ws, bin) {
     // thread passes the reducer, in feed order).
     let turnCompleted;
     const completed = new Promise((r) => { turnCompleted = r; });
-    client = await lib.connect({
+    // The protocol client has no deadline of its own for `initialize` (client.ts handshake: `this.rpc('initialize', …)` waits for
+    // the answer however long): the whole connect, socket open and handshake, is bounded here. On the deadline the finally below
+    // ends the core's job, which closes the socket under the pending connect.
+    client = await deadline(lib.connect({
       target: { id: 'local' },
       connector: { async open(_t, sink) {
         const socket = new WebSocket(`ws://127.0.0.1:${doc.core.rpc.port}/rpc`, { headers: { Authorization: `Bearer ${doc.endpoints.session.token}` }, perMessageDeflate: false });
@@ -134,7 +137,7 @@ async function runScenario(scenario, root, ws, bin) {
       // The client sleeps only to back off before a reconnect; this replay has none, so a use of the clock is a failure.
       clock: { sleep: (ms) => Promise.reject(new Error(`the client asked to sleep ${ms} ms (a reconnect backoff): the connection was lost`)) },
       random: Math.random,
-    });
+    }), 60_000, 'the protocol connection to the core (WebSocket open and initialize)');
     // The approval answer the scenario scripts, given to every approval request the core holds.
     cleanups.push(client.on((event) => {
       if (event.type !== 'serverRequest' || event.request.method !== 'item/tool/requestApproval') return;
