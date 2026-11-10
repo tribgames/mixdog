@@ -124,6 +124,16 @@ pub struct Authorized {
     pub mime: String,
     pub version: String,
     pub expires_at: i64,
+    /// A folder's zip only: what it left out (Node's `FolderLeftOut`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub left_out: Option<LeftOut>,
+}
+
+/// Node's `FolderLeftOut` of a folder's zip: the ignored files it left out; `secret` is always 0 on this host.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct LeftOut {
+    pub ignored: u64,
+    pub secret: u64,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -708,7 +718,7 @@ impl Transfers {
         }
         drop(gate);
         self.arm_sweeper();
-        Ok(Authorized { grant_id, name, size, mime: mime_type, version, expires_at })
+        Ok(Authorized { grant_id, name, size, mime: mime_type, version, expires_at, left_out: None })
     }
 
     /// The revocation generation of `owner` and `session`, read before the file work of a call that checks it again afterwards.
@@ -1221,6 +1231,8 @@ pub(crate) enum DownloadRequest {
     Link(String),
     /// Node's `attachment`: an attachment id the conversation's transcript names.
     Attachment(String),
+    /// Node's `folder`: a folder the conversation names, zipped.
+    Folder(String),
 }
 
 impl DownloadRequest {
@@ -1234,6 +1246,7 @@ impl DownloadRequest {
                 Ok(Self::Project(rel))
             }
             Some("sessionFile") => Ok(Self::Session(required_text(source.get("path"), "path", 4_096)?)),
+            Some("folder") => Ok(Self::Folder(required_text(source.get("path"), "path", 4_096)?)),
             Some("mediaAsset") => {
                 let asset = required_text(source.get("assetId"), "asset id", 128)?;
                 // `MEDIA_ASSET_ID`: `[A-Za-z0-9_-]{1,128}`.
@@ -1442,21 +1455,115 @@ pub fn open_session_download(path: &str, cwd: &str, project: Option<&Path>, proj
         return Err(not_local());
     }
     refuse_windows_name(path)?;
-    let requested = if is_absolute_path(path) {
-        crate::pathguard::resolve(Path::new(path))
-    } else if is_absolute_path(cwd) {
-        crate::pathguard::resolve(&Path::new(cwd).join(path))
-    } else {
-        return Err(not_local());
-    };
-    let in_project = project.is_some_and(|root| {
-        crate::pathguard::is_within(root, &requested) || project_given.is_some_and(|given| crate::pathguard::is_within(&crate::pathguard::resolve(given), &requested))
-    });
+    let requested = requested_session_path(path, cwd)?;
+    let in_project = lexically_in_project(&requested, project, project_given);
     let (real, file) = open_regular(&requested, between)?;
-    if in_project && !project.is_some_and(|root| crate::pathguard::is_within(root, &real)) {
+    left_project(in_project, project, &real)?;
+    Ok(offered(&requested, real, file))
+}
+
+/// `requestedPath(resolveLinkedPath(path, cwd))`: absolute as written, or relative to the conversation's folder; a network path, or a
+/// relative one with no folder, names nothing on this PC.
+fn requested_session_path(path: &str, cwd: &str) -> WsResult<PathBuf> {
+    if is_network_path(path) {
+        Err(not_local())
+    } else if is_absolute_path(path) {
+        Ok(crate::pathguard::resolve(Path::new(path)))
+    } else if is_absolute_path(cwd) {
+        Ok(crate::pathguard::resolve(&Path::new(cwd).join(path)))
+    } else {
+        Err(not_local())
+    }
+}
+
+/// `lexicalInProject`: the requested path is inside the registered project, or inside the project as the conversation states it.
+fn lexically_in_project(requested: &Path, project: Option<&Path>, project_given: Option<&Path>) -> bool {
+    project.is_some_and(|root| {
+        crate::pathguard::is_within(root, requested) || project_given.is_some_and(|given| crate::pathguard::is_within(&crate::pathguard::resolve(given), requested))
+    })
+}
+
+/// A path inside the project may not leave it through a link.
+fn left_project(in_project: bool, project: Option<&Path>, real: &Path) -> WsResult<()> {
+    if in_project && !project.is_some_and(|root| crate::pathguard::is_within(root, real)) {
         return Err(download("file-download:outside-project", "The link resolves outside the conversation's project."));
     }
-    Ok(offered(&requested, real, file))
+    Ok(())
+}
+
+/// A folder a conversation names (`authorizeFolderZip`, before the zip): absolute, or relative to its folder; it must be a folder, its
+/// real place on this PC, and inside the project it may not leave it. The real folder is what is zipped.
+pub fn phone_folder(path: &str, cwd: &str, project: Option<&Path>, project_given: Option<&Path>) -> WsResult<PathBuf> {
+    let missing = |error: std::io::Error| match error.kind() {
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory => download("file-download:not-found", "The file no longer exists."),
+        _ => WsError::from(error),
+    };
+    let requested = requested_session_path(path, cwd)?;
+    if !std::fs::metadata(&requested).map_err(missing)?.is_dir() {
+        return Err(download("file-download:not-a-file", "Only a folder can be downloaded as a zip."));
+    }
+    let real = canonical(&requested).map_err(missing)?;
+    if is_network_path(&real.to_string_lossy()) {
+        return Err(download("file-download:not-a-file", "Only folders on this PC can be downloaded."));
+    }
+    left_project(lexically_in_project(&requested, project, project_given), project, &real)?;
+    Ok(real)
+}
+
+/// What the zip of a phone's folder refuses with, as Node's `authorizeFolderZip` maps `zipFolder`'s errors: a moved folder is `changed`,
+/// one past a cap `folder-too-large` with Node's `folderTooLargeMessage`.
+pub fn phone_folder_refusal(error: WsError) -> WsError {
+    match error.reason {
+        Reason::Changed => download_changed(),
+        Reason::FolderTooLarge { files, bytes } => download("file-download:folder-too-large", &folder_too_large_message(files, bytes)),
+        _ => error,
+    }
+}
+
+/// `folderTooLargeMessage(files, bytes)` (`shared/file-downloads.ts`): the counts against the caps, `toLocaleString('en-US')` and
+/// `toFixed(1)` megabytes.
+fn folder_too_large_message(files: u64, bytes: u64) -> String {
+    format!(
+        "This folder has {} files ({} MB) after leaving out ignored files, over the limit of {} files and {} MB. Pick a subfolder to download instead.",
+        grouped(files),
+        megabytes(bytes),
+        grouped(ZIP_MAX_FILES as u64),
+        megabytes(ZIP_MAX_BYTES)
+    )
+}
+
+/// `(bytes / 2^20).toFixed(1)`: the nearest tenth, a tie going up (computed exactly from the integer).
+fn megabytes(bytes: u64) -> String {
+    let tenths = (u128::from(bytes) * 10 + (1 << 19)) >> 20;
+    format!("{}.{}", tenths / 10, tenths % 10)
+}
+
+/// `n.toLocaleString('en-US')` of a whole number: thousands grouped with commas.
+fn grouped(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (at, digit) in digits.chars().enumerate() {
+        if at > 0 && (digits.len() - at) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out
+}
+
+/// The zip of a phone's folder staged as the download (`stageTemporaryDownload`): named `<folder>.zip` by its real name, removed when
+/// the download ends.
+pub fn staged_folder_zip(folder: &Path, files: &[crate::zip::FolderFile]) -> WsResult<DownloadFile> {
+    let temp = std::env::temp_dir().join(format!("mixdog-download-{}.zip", new_id()));
+    let staged = Cleanup(temp.clone());
+    {
+        let mut out = File::options().write(true).create_new(true).open(&temp)?;
+        crate::zip::write_archive(&mut out, files, ZIP_MAX_BYTES).map_err(phone_folder_refusal)?;
+        out.flush()?;
+    }
+    let (real, file) = open_regular(&temp, &|_| {})?;
+    let base = folder.file_name().map(|name| name.to_string_lossy().into_owned()).filter(|name| !name.is_empty()).unwrap_or_else(|| "folder".into());
+    Ok(DownloadFile { file, location: real, name: format!("{base}.zip"), mime_type: "application/zip".into(), staged: Some(staged) })
 }
 
 /// A media asset, by the file the host resolved its id to (`authorizeMediaAsset`): an absolute path, opened and proved like any file. The

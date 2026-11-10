@@ -4829,6 +4829,8 @@ pub enum DownloadSource {
         #[serde(rename = "attachmentId")]
         attachment_id: String,
     },
+    /// A folder the conversation names (absolute, or in its folder), served as a zip of its work files.
+    Folder { path: String },
 }
 
 /// Params of `transfer/authorizeRead`: the first stage of a phone's download, a grant that expires.

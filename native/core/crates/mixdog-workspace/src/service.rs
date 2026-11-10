@@ -1055,6 +1055,7 @@ impl WorkspaceService {
                     _ => None,
                 };
                 let given = row.project_path.as_deref().map(PathBuf::from);
+                let mut left_out = None;
                 let opened = match requested {
                     crate::transfer::DownloadRequest::Project(rel) => {
                         let root = project.ok_or_else(|| WsError::new(Reason::Download("file-download:outside-project"), "The file is outside the conversation's project."))?;
@@ -1087,9 +1088,22 @@ impl WorkspaceService {
                         let staged = source.open(&json!({ "sessionId": session, "attachmentId": id }), &cancel).await;
                         run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::open_staged_download(staged)).await?
                     }
+                    crate::transfer::DownloadRequest::Folder(path) => {
+                        // Node's `authorizeFolderZip`: the folder as the conversation names it, zipped as `zipFolder` zips it, staged.
+                        let cwd = row.cwd.clone();
+                        let (root, given) = (project.clone(), given.clone());
+                        let folder = run_fallible(self.lanes.maintenance, &cancel, move || crate::transfer::phone_folder(&path, &cwd, root.as_deref(), given.as_deref())).await?;
+                        let scan = crate::zip::scan_folder(self.tracked.as_ref(), self.lanes, &cancel, &folder, crate::transfer::ZIP_MAX_BYTES, crate::transfer::ZIP_MAX_FILES, None)
+                            .await
+                            .map_err(crate::transfer::phone_folder_refusal)?;
+                        left_out = Some(crate::transfer::LeftOut { ignored: scan.ignored, secret: 0 });
+                        run_fallible(self.lanes.cpu_bulk, &cancel, move || crate::transfer::staged_folder_zip(&folder, &scan.files)).await?
+                    }
                 };
                 let t = self.transfers.clone();
-                value(json!(t.authorize(&owner, &session, mark, opened)?))
+                let mut authorized = t.authorize(&owner, &session, mark, opened)?;
+                authorized.left_out = left_out;
+                value(json!(authorized))
             }
             "transfer/redeemGrant" => {
                 let (owner, t, id) = (self.download_owner(req), self.transfers.clone(), crate::transfer::required_download_id(params.get("grantId"), "grant id")?);

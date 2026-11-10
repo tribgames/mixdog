@@ -174,6 +174,7 @@ fn core_request(reached: &Value) -> (&'static str, Value) {
                 "media" => json!({ "kind": "mediaAsset", "assetId": source["assetId"] }),
                 "link" => json!({ "kind": "link", "itemId": source["itemId"], "href": source["href"] }),
                 "attachment" => json!({ "kind": "attachment", "attachmentId": source["attachmentId"] }),
+                "folder" => json!({ "kind": "folder", "path": source["path"] }),
                 other => panic!("a source of kind {other} has no request"),
             };
             ("transfer/authorizeRead", json!({ "sessionId": args[0]["source"]["sessionId"], "source": source, "purpose": request["purpose"] }))

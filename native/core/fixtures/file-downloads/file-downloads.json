@@ -12504,6 +12504,881 @@
       ]
     },
     {
+      "name": "folders",
+      "note": "a folder the conversation names is served as a zip of its work files, named for its real folder: generated folders left out and counted, entries in name order, each stored when deflating is not smaller; a file, a missing path, a network path, a project folder that leaves through a link and a folder past a cap are refused",
+      "steps": [
+        {
+          "op": "mkdir",
+          "file": "project/docs/sub"
+        },
+        {
+          "op": "mkdir",
+          "file": "project/docs/node_modules"
+        },
+        {
+          "op": "mkdir",
+          "file": "outside/target"
+        },
+        {
+          "op": "mkdir",
+          "file": "outside/empty"
+        },
+        {
+          "op": "mkdir",
+          "file": "outside/big"
+        },
+        {
+          "op": "mkdir",
+          "file": "task/kept"
+        },
+        {
+          "op": "write",
+          "file": "task/kept/k.txt",
+          "text": "kept"
+        },
+        {
+          "op": "write",
+          "file": "project/docs/b.txt",
+          "text": "bravo"
+        },
+        {
+          "op": "write",
+          "file": "project/docs/a.txt",
+          "text": "alpha"
+        },
+        {
+          "op": "write",
+          "file": "project/docs/Zeta.txt",
+          "text": "zeta"
+        },
+        {
+          "op": "write",
+          "file": "project/docs/sub/c.txt",
+          "text": "charlie"
+        },
+        {
+          "op": "write",
+          "file": "project/docs/node_modules/x.js",
+          "text": "x"
+        },
+        {
+          "op": "write",
+          "file": "outside/target/o.txt",
+          "text": "outside"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "folder",
+                "sessionId": "s1",
+                "path": "docs"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "folder",
+                    "sessionId": "s1",
+                    "path": "docs"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 346,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#93>",
+              "name": "docs.zip",
+              "size": 401,
+              "mime": "application/zip",
+              "version": "<version#46>",
+              "expiresAt": 1924992060000,
+              "leftOut": {
+                "ignored": 1,
+                "secret": 0
+              }
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#93>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#93>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 347,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#45>",
+              "name": "docs.zip",
+              "size": 401,
+              "mime": "application/zip",
+              "version": "<version#46>",
+              "expiresAt": 1924993800000,
+              "rangeMaxBytes": 4194304,
+              "media": {
+                "assetId": "<assetId#45>",
+                "variant": "download",
+                "expiresAt": 1924993800000
+              }
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadRange",
+          "params": [
+            "<transferId#45>",
+            0,
+            401,
+            "<version#46>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#45>",
+                0,
+                401,
+                "<version#46>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 348,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#45>",
+              "offset": 0,
+              "length": 401,
+              "data": "UEsDBBQAAAgAAAAAIVATezwaBAAAAAQAAAAIAAAAWmV0YS50eHR6ZXRhUEsDBBQAAAgAAAAAIVBqOeDQBQAAAAUAAAAFAAAAYS50eHRhbHBoYVBLAwQUAAAIAAAAACFQibibCQUAAAAFAAAABQAAAGIudHh0YnJhdm9QSwMEFAAACAAAAAAhUKZF224HAAAABwAAAAkAAABzdWIvYy50eHRjaGFybGllUEsBAhQAFAAACAAAAAAhUBN7PBoEAAAABAAAAAgAAAAAAAAAAAAAAAAAAAAAAFpldGEudHh0UEsBAhQAFAAACAAAAAAhUGo54NAFAAAABQAAAAUAAAAAAAAAAAAAAAAAKgAAAGEudHh0UEsBAhQAFAAACAAAAAAhUIm4mwkFAAAABQAAAAUAAAAAAAAAAAAAAAAAUgAAAGIudHh0UEsBAhQAFAAACAAAAAAhUKZF224HAAAABwAAAAkAAAAAAAAAAAAAAAAAegAAAHN1Yi9jLnR4dFBLBQYAAAAABAAEANMAAACoAAAAAAA=",
+              "version": "<version#46>",
+              "eof": true
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadFinish",
+          "params": [
+            "<transferId#45>"
+          ],
+          "service": [
+            {
+              "method": "finish",
+              "args": [
+                "<transferId#45>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 349,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#45>",
+              "size": 401,
+              "version": "<version#46>"
+            }
+          }
+        },
+        {
+          "op": "handles",
+          "open": 0
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "folder",
+                "sessionId": "s1",
+                "path": "<dir>/project/docs"
+              },
+              "purpose": "share"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "folder",
+                    "sessionId": "s1",
+                    "path": "<dir>/project/docs"
+                  },
+                  "purpose": "share"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 350,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#94>",
+              "name": "docs.zip",
+              "size": 401,
+              "mime": "application/zip",
+              "version": "<version#47>",
+              "expiresAt": 1924992060000,
+              "leftOut": {
+                "ignored": 1,
+                "secret": 0
+              }
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "folder",
+                "sessionId": "s1",
+                "path": "<dir>/project/docs/node_modules"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "folder",
+                    "sessionId": "s1",
+                    "path": "<dir>/project/docs/node_modules"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 351,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#95>",
+              "name": "node_modules.zip",
+              "size": 107,
+              "mime": "application/zip",
+              "version": "<version#48>",
+              "expiresAt": 1924992060000,
+              "leftOut": {
+                "ignored": 0,
+                "secret": 0
+              }
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#95>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#95>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 352,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#46>",
+              "name": "node_modules.zip",
+              "size": 107,
+              "mime": "application/zip",
+              "version": "<version#48>",
+              "expiresAt": 1924993800000,
+              "rangeMaxBytes": 4194304,
+              "media": {
+                "assetId": "<assetId#46>",
+                "variant": "download",
+                "expiresAt": 1924993800000
+              }
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadRange",
+          "params": [
+            "<transferId#46>",
+            0,
+            107,
+            "<version#48>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#46>",
+                0,
+                107,
+                "<version#48>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 353,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#46>",
+              "offset": 0,
+              "length": 107,
+              "data": "UEsDBBQAAAgAAAAAIVCDFtyMAQAAAAEAAAAEAAAAeC5qc3hQSwECFAAUAAAIAAAAACFQgxbcjAEAAAABAAAABAAAAAAAAAAAAAAAAAAAAAAAeC5qc1BLBQYAAAAAAQABADIAAAAjAAAAAAA=",
+              "version": "<version#48>",
+              "eof": true
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAbort",
+          "params": [
+            "<transferId#46>"
+          ],
+          "service": [
+            {
+              "method": "abort",
+              "args": [
+                "<transferId#46>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 354,
+            "ok": true,
+            "value": true
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "folder",
+                "sessionId": "s1",
+                "path": "<dir>/outside/empty"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "folder",
+                    "sessionId": "s1",
+                    "path": "<dir>/outside/empty"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 355,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#96>",
+              "name": "empty.zip",
+              "size": 22,
+              "mime": "application/zip",
+              "version": "<version#49>",
+              "expiresAt": 1924992060000,
+              "leftOut": {
+                "ignored": 0,
+                "secret": 0
+              }
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadBegin",
+          "params": [
+            "<grantId#96>"
+          ],
+          "service": [
+            {
+              "method": "begin",
+              "args": [
+                "<grantId#96>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 356,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#47>",
+              "name": "empty.zip",
+              "size": 22,
+              "mime": "application/zip",
+              "version": "<version#49>",
+              "expiresAt": 1924993800000,
+              "rangeMaxBytes": 4194304,
+              "media": {
+                "assetId": "<assetId#47>",
+                "variant": "download",
+                "expiresAt": 1924993800000
+              }
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadRange",
+          "params": [
+            "<transferId#47>",
+            0,
+            22,
+            "<version#49>"
+          ],
+          "service": [
+            {
+              "method": "readRange",
+              "args": [
+                "<transferId#47>",
+                0,
+                22,
+                "<version#49>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 357,
+            "ok": true,
+            "value": {
+              "transferId": "<transferId#47>",
+              "offset": 0,
+              "length": 22,
+              "data": "UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "version": "<version#49>",
+              "eof": true
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAbort",
+          "params": [
+            "<transferId#47>"
+          ],
+          "service": [
+            {
+              "method": "abort",
+              "args": [
+                "<transferId#47>"
+              ]
+            }
+          ],
+          "frame": {
+            "id": 358,
+            "ok": true,
+            "value": true
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "folder",
+                "sessionId": "s2",
+                "path": "kept"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "folder",
+                    "sessionId": "s2",
+                    "path": "kept"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 359,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#97>",
+              "name": "kept.zip",
+              "size": 112,
+              "mime": "application/zip",
+              "version": "<version#50>",
+              "expiresAt": 1924992060000,
+              "leftOut": {
+                "ignored": 0,
+                "secret": 0
+              }
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "folder",
+                "sessionId": "s1",
+                "path": "<dir>/outside/target"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "folder",
+                    "sessionId": "s1",
+                    "path": "<dir>/outside/target"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 360,
+            "ok": true,
+            "value": {
+              "grantId": "<grantId#98>",
+              "name": "target.zip",
+              "size": 115,
+              "mime": "application/zip",
+              "version": "<version#51>",
+              "expiresAt": 1924992060000,
+              "leftOut": {
+                "ignored": 0,
+                "secret": 0
+              }
+            }
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "folder",
+                "sessionId": "s1",
+                "path": "docs/a.txt"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "folder",
+                    "sessionId": "s1",
+                    "path": "docs/a.txt"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 361,
+            "ok": false,
+            "error": "Only a folder can be downloaded as a zip.",
+            "errorCode": "file-download:not-a-file"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "folder",
+                "sessionId": "s1",
+                "path": "<dir>/outside/missing"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "folder",
+                    "sessionId": "s1",
+                    "path": "<dir>/outside/missing"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 362,
+            "ok": false,
+            "error": "The file no longer exists.",
+            "errorCode": "file-download:not-found"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "folder",
+                "sessionId": "s1",
+                "path": "//server/share/x"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "folder",
+                    "sessionId": "s1",
+                    "path": "//server/share/x"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 363,
+            "ok": false,
+            "error": "Only files on this PC can be downloaded.",
+            "errorCode": "file-download:not-a-file"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "folder",
+                "sessionId": "s9",
+                "path": "docs"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "folder",
+                    "sessionId": "s9",
+                    "path": "docs"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 364,
+            "ok": false,
+            "error": "This conversation is not available.",
+            "errorCode": "file-download:unavailable"
+          }
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "folder",
+                "sessionId": "s1"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [],
+          "frame": {
+            "id": 365,
+            "ok": false,
+            "error": "path must be a string."
+          }
+        },
+        {
+          "op": "junction",
+          "file": "project/linked",
+          "target": "outside/target"
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "folder",
+                "sessionId": "s1",
+                "path": "linked"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "folder",
+                    "sessionId": "s1",
+                    "path": "linked"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 366,
+            "ok": false,
+            "error": "The link resolves outside the conversation's project.",
+            "errorCode": "file-download:outside-project"
+          }
+        },
+        {
+          "op": "write",
+          "file": "outside/big/huge.bin",
+          "text": ""
+        },
+        {
+          "op": "size",
+          "file": "outside/big/huge.bin",
+          "bytes": 67108865
+        },
+        {
+          "op": "call",
+          "device": "phone",
+          "method": "fileDownloadAuthorize",
+          "params": [
+            {
+              "source": {
+                "kind": "folder",
+                "sessionId": "s1",
+                "path": "<dir>/outside/big"
+              },
+              "purpose": "save"
+            }
+          ],
+          "service": [
+            {
+              "method": "authorize",
+              "args": [
+                {
+                  "source": {
+                    "kind": "folder",
+                    "sessionId": "s1",
+                    "path": "<dir>/outside/big"
+                  },
+                  "purpose": "save"
+                }
+              ]
+            }
+          ],
+          "frame": {
+            "id": 367,
+            "ok": false,
+            "error": "This folder has 1 files (64.0 MB) after leaving out ignored files, over the limit of 2,000 files and 64.0 MB. Pick a subfolder to download instead.",
+            "errorCode": "file-download:folder-too-large"
+          }
+        },
+        {
+          "op": "remove",
+          "file": "outside/big/huge.bin"
+        },
+        {
+          "op": "handles",
+          "open": 3
+        }
+      ]
+    },
+    {
       "name": "media assets",
       "note": "a media asset is offered by the store's file name and type (the extension's when the store states none); an unknown asset, one whose bytes are gone and a conversation not in the catalog are refused",
       "steps": [
@@ -12579,14 +13454,14 @@
             }
           ],
           "frame": {
-            "id": 346,
+            "id": 368,
             "ok": true,
             "value": {
-              "grantId": "<grantId#93>",
+              "grantId": "<grantId#99>",
               "name": "a1.png",
               "size": 12,
               "mime": "image/png",
-              "version": "<version#46>",
+              "version": "<version#52>",
               "expiresAt": 1924992060000
             }
           }
@@ -12596,29 +13471,29 @@
           "device": "phone",
           "method": "fileDownloadBegin",
           "params": [
-            "<grantId#93>"
+            "<grantId#99>"
           ],
           "service": [
             {
               "method": "begin",
               "args": [
-                "<grantId#93>"
+                "<grantId#99>"
               ]
             }
           ],
           "frame": {
-            "id": 347,
+            "id": 369,
             "ok": true,
             "value": {
-              "transferId": "<transferId#45>",
+              "transferId": "<transferId#48>",
               "name": "a1.png",
               "size": 12,
               "mime": "image/png",
-              "version": "<version#46>",
+              "version": "<version#52>",
               "expiresAt": 1924993800000,
               "rangeMaxBytes": 4194304,
               "media": {
-                "assetId": "<assetId#45>",
+                "assetId": "<assetId#48>",
                 "variant": "download",
                 "expiresAt": 1924993800000
               }
@@ -12630,31 +13505,31 @@
           "device": "phone",
           "method": "fileDownloadRange",
           "params": [
-            "<transferId#45>",
+            "<transferId#48>",
             0,
             4,
-            "<version#46>"
+            "<version#52>"
           ],
           "service": [
             {
               "method": "readRange",
               "args": [
-                "<transferId#45>",
+                "<transferId#48>",
                 0,
                 4,
-                "<version#46>"
+                "<version#52>"
               ]
             }
           ],
           "frame": {
-            "id": 348,
+            "id": 370,
             "ok": true,
             "value": {
-              "transferId": "<transferId#45>",
+              "transferId": "<transferId#48>",
               "offset": 0,
               "length": 4,
               "data": "YTEucA==",
-              "version": "<version#46>",
+              "version": "<version#52>",
               "eof": false
             }
           }
@@ -12664,23 +13539,23 @@
           "device": "phone",
           "method": "fileDownloadFinish",
           "params": [
-            "<transferId#45>"
+            "<transferId#48>"
           ],
           "service": [
             {
               "method": "finish",
               "args": [
-                "<transferId#45>"
+                "<transferId#48>"
               ]
             }
           ],
           "frame": {
-            "id": 349,
+            "id": 371,
             "ok": true,
             "value": {
-              "transferId": "<transferId#45>",
+              "transferId": "<transferId#48>",
               "size": 12,
-              "version": "<version#46>"
+              "version": "<version#52>"
             }
           }
         },
@@ -12714,14 +13589,14 @@
             }
           ],
           "frame": {
-            "id": 350,
+            "id": 372,
             "ok": true,
             "value": {
-              "grantId": "<grantId#94>",
+              "grantId": "<grantId#100>",
               "name": "a2.png",
               "size": 12,
               "mime": "application/x-custom",
-              "version": "<version#47>",
+              "version": "<version#53>",
               "expiresAt": 1924992060000
             }
           }
@@ -12731,29 +13606,29 @@
           "device": "phone",
           "method": "fileDownloadBegin",
           "params": [
-            "<grantId#94>"
+            "<grantId#100>"
           ],
           "service": [
             {
               "method": "begin",
               "args": [
-                "<grantId#94>"
+                "<grantId#100>"
               ]
             }
           ],
           "frame": {
-            "id": 351,
+            "id": 373,
             "ok": true,
             "value": {
-              "transferId": "<transferId#46>",
+              "transferId": "<transferId#49>",
               "name": "a2.png",
               "size": 12,
               "mime": "application/x-custom",
-              "version": "<version#47>",
+              "version": "<version#53>",
               "expiresAt": 1924993800000,
               "rangeMaxBytes": 4194304,
               "media": {
-                "assetId": "<assetId#46>",
+                "assetId": "<assetId#49>",
                 "variant": "download",
                 "expiresAt": 1924993800000
               }
@@ -12765,31 +13640,31 @@
           "device": "phone",
           "method": "fileDownloadRange",
           "params": [
-            "<transferId#46>",
+            "<transferId#49>",
             0,
             4,
-            "<version#47>"
+            "<version#53>"
           ],
           "service": [
             {
               "method": "readRange",
               "args": [
-                "<transferId#46>",
+                "<transferId#49>",
                 0,
                 4,
-                "<version#47>"
+                "<version#53>"
               ]
             }
           ],
           "frame": {
-            "id": 352,
+            "id": 374,
             "ok": true,
             "value": {
-              "transferId": "<transferId#46>",
+              "transferId": "<transferId#49>",
               "offset": 0,
               "length": 4,
               "data": "YTIucA==",
-              "version": "<version#47>",
+              "version": "<version#53>",
               "eof": false
             }
           }
@@ -12799,23 +13674,23 @@
           "device": "phone",
           "method": "fileDownloadFinish",
           "params": [
-            "<transferId#46>"
+            "<transferId#49>"
           ],
           "service": [
             {
               "method": "finish",
               "args": [
-                "<transferId#46>"
+                "<transferId#49>"
               ]
             }
           ],
           "frame": {
-            "id": 353,
+            "id": 375,
             "ok": true,
             "value": {
-              "transferId": "<transferId#46>",
+              "transferId": "<transferId#49>",
               "size": 12,
-              "version": "<version#47>"
+              "version": "<version#53>"
             }
           }
         },
@@ -12849,14 +13724,14 @@
             }
           ],
           "frame": {
-            "id": 354,
+            "id": 376,
             "ok": true,
             "value": {
-              "grantId": "<grantId#95>",
+              "grantId": "<grantId#101>",
               "name": "a3.png",
               "size": 12,
               "mime": "image/png",
-              "version": "<version#48>",
+              "version": "<version#54>",
               "expiresAt": 1924992060000
             }
           }
@@ -12866,29 +13741,29 @@
           "device": "phone",
           "method": "fileDownloadBegin",
           "params": [
-            "<grantId#95>"
+            "<grantId#101>"
           ],
           "service": [
             {
               "method": "begin",
               "args": [
-                "<grantId#95>"
+                "<grantId#101>"
               ]
             }
           ],
           "frame": {
-            "id": 355,
+            "id": 377,
             "ok": true,
             "value": {
-              "transferId": "<transferId#47>",
+              "transferId": "<transferId#50>",
               "name": "a3.png",
               "size": 12,
               "mime": "image/png",
-              "version": "<version#48>",
+              "version": "<version#54>",
               "expiresAt": 1924993800000,
               "rangeMaxBytes": 4194304,
               "media": {
-                "assetId": "<assetId#47>",
+                "assetId": "<assetId#50>",
                 "variant": "download",
                 "expiresAt": 1924993800000
               }
@@ -12900,31 +13775,31 @@
           "device": "phone",
           "method": "fileDownloadRange",
           "params": [
-            "<transferId#47>",
+            "<transferId#50>",
             0,
             4,
-            "<version#48>"
+            "<version#54>"
           ],
           "service": [
             {
               "method": "readRange",
               "args": [
-                "<transferId#47>",
+                "<transferId#50>",
                 0,
                 4,
-                "<version#48>"
+                "<version#54>"
               ]
             }
           ],
           "frame": {
-            "id": 356,
+            "id": 378,
             "ok": true,
             "value": {
-              "transferId": "<transferId#47>",
+              "transferId": "<transferId#50>",
               "offset": 0,
               "length": 4,
               "data": "YTMucA==",
-              "version": "<version#48>",
+              "version": "<version#54>",
               "eof": false
             }
           }
@@ -12934,23 +13809,23 @@
           "device": "phone",
           "method": "fileDownloadFinish",
           "params": [
-            "<transferId#47>"
+            "<transferId#50>"
           ],
           "service": [
             {
               "method": "finish",
               "args": [
-                "<transferId#47>"
+                "<transferId#50>"
               ]
             }
           ],
           "frame": {
-            "id": 357,
+            "id": 379,
             "ok": true,
             "value": {
-              "transferId": "<transferId#47>",
+              "transferId": "<transferId#50>",
               "size": 12,
-              "version": "<version#48>"
+              "version": "<version#54>"
             }
           }
         },
@@ -12984,14 +13859,14 @@
             }
           ],
           "frame": {
-            "id": 358,
+            "id": 380,
             "ok": true,
             "value": {
-              "grantId": "<grantId#96>",
+              "grantId": "<grantId#102>",
               "name": "a4.zzz",
               "size": 12,
               "mime": "application/octet-stream",
-              "version": "<version#49>",
+              "version": "<version#55>",
               "expiresAt": 1924992060000
             }
           }
@@ -13001,29 +13876,29 @@
           "device": "phone",
           "method": "fileDownloadBegin",
           "params": [
-            "<grantId#96>"
+            "<grantId#102>"
           ],
           "service": [
             {
               "method": "begin",
               "args": [
-                "<grantId#96>"
+                "<grantId#102>"
               ]
             }
           ],
           "frame": {
-            "id": 359,
+            "id": 381,
             "ok": true,
             "value": {
-              "transferId": "<transferId#48>",
+              "transferId": "<transferId#51>",
               "name": "a4.zzz",
               "size": 12,
               "mime": "application/octet-stream",
-              "version": "<version#49>",
+              "version": "<version#55>",
               "expiresAt": 1924993800000,
               "rangeMaxBytes": 4194304,
               "media": {
-                "assetId": "<assetId#48>",
+                "assetId": "<assetId#51>",
                 "variant": "download",
                 "expiresAt": 1924993800000
               }
@@ -13035,31 +13910,31 @@
           "device": "phone",
           "method": "fileDownloadRange",
           "params": [
-            "<transferId#48>",
+            "<transferId#51>",
             0,
             4,
-            "<version#49>"
+            "<version#55>"
           ],
           "service": [
             {
               "method": "readRange",
               "args": [
-                "<transferId#48>",
+                "<transferId#51>",
                 0,
                 4,
-                "<version#49>"
+                "<version#55>"
               ]
             }
           ],
           "frame": {
-            "id": 360,
+            "id": 382,
             "ok": true,
             "value": {
-              "transferId": "<transferId#48>",
+              "transferId": "<transferId#51>",
               "offset": 0,
               "length": 4,
               "data": "YTQueg==",
-              "version": "<version#49>",
+              "version": "<version#55>",
               "eof": false
             }
           }
@@ -13069,23 +13944,23 @@
           "device": "phone",
           "method": "fileDownloadFinish",
           "params": [
-            "<transferId#48>"
+            "<transferId#51>"
           ],
           "service": [
             {
               "method": "finish",
               "args": [
-                "<transferId#48>"
+                "<transferId#51>"
               ]
             }
           ],
           "frame": {
-            "id": 361,
+            "id": 383,
             "ok": true,
             "value": {
-              "transferId": "<transferId#48>",
+              "transferId": "<transferId#51>",
               "size": 12,
-              "version": "<version#49>"
+              "version": "<version#55>"
             }
           }
         },
@@ -13119,14 +13994,14 @@
             }
           ],
           "frame": {
-            "id": 362,
+            "id": 384,
             "ok": true,
             "value": {
-              "grantId": "<grantId#97>",
+              "grantId": "<grantId#103>",
               "name": "A5.PNG",
               "size": 12,
               "mime": "image/png",
-              "version": "<version#50>",
+              "version": "<version#56>",
               "expiresAt": 1924992060000
             }
           }
@@ -13136,29 +14011,29 @@
           "device": "phone",
           "method": "fileDownloadBegin",
           "params": [
-            "<grantId#97>"
+            "<grantId#103>"
           ],
           "service": [
             {
               "method": "begin",
               "args": [
-                "<grantId#97>"
+                "<grantId#103>"
               ]
             }
           ],
           "frame": {
-            "id": 363,
+            "id": 385,
             "ok": true,
             "value": {
-              "transferId": "<transferId#49>",
+              "transferId": "<transferId#52>",
               "name": "A5.PNG",
               "size": 12,
               "mime": "image/png",
-              "version": "<version#50>",
+              "version": "<version#56>",
               "expiresAt": 1924993800000,
               "rangeMaxBytes": 4194304,
               "media": {
-                "assetId": "<assetId#49>",
+                "assetId": "<assetId#52>",
                 "variant": "download",
                 "expiresAt": 1924993800000
               }
@@ -13170,31 +14045,31 @@
           "device": "phone",
           "method": "fileDownloadRange",
           "params": [
-            "<transferId#49>",
+            "<transferId#52>",
             0,
             4,
-            "<version#50>"
+            "<version#56>"
           ],
           "service": [
             {
               "method": "readRange",
               "args": [
-                "<transferId#49>",
+                "<transferId#52>",
                 0,
                 4,
-                "<version#50>"
+                "<version#56>"
               ]
             }
           ],
           "frame": {
-            "id": 364,
+            "id": 386,
             "ok": true,
             "value": {
-              "transferId": "<transferId#49>",
+              "transferId": "<transferId#52>",
               "offset": 0,
               "length": 4,
               "data": "QTUuUA==",
-              "version": "<version#50>",
+              "version": "<version#56>",
               "eof": false
             }
           }
@@ -13204,23 +14079,23 @@
           "device": "phone",
           "method": "fileDownloadFinish",
           "params": [
-            "<transferId#49>"
+            "<transferId#52>"
           ],
           "service": [
             {
               "method": "finish",
               "args": [
-                "<transferId#49>"
+                "<transferId#52>"
               ]
             }
           ],
           "frame": {
-            "id": 365,
+            "id": 387,
             "ok": true,
             "value": {
-              "transferId": "<transferId#49>",
+              "transferId": "<transferId#52>",
               "size": 12,
-              "version": "<version#50>"
+              "version": "<version#56>"
             }
           }
         },
@@ -13254,14 +14129,14 @@
             }
           ],
           "frame": {
-            "id": 366,
+            "id": 388,
             "ok": true,
             "value": {
-              "grantId": "<grantId#98>",
+              "grantId": "<grantId#104>",
               "name": "a6.PDF",
               "size": 12,
               "mime": "application/pdf",
-              "version": "<version#51>",
+              "version": "<version#57>",
               "expiresAt": 1924992060000
             }
           }
@@ -13271,29 +14146,29 @@
           "device": "phone",
           "method": "fileDownloadBegin",
           "params": [
-            "<grantId#98>"
+            "<grantId#104>"
           ],
           "service": [
             {
               "method": "begin",
               "args": [
-                "<grantId#98>"
+                "<grantId#104>"
               ]
             }
           ],
           "frame": {
-            "id": 367,
+            "id": 389,
             "ok": true,
             "value": {
-              "transferId": "<transferId#50>",
+              "transferId": "<transferId#53>",
               "name": "a6.PDF",
               "size": 12,
               "mime": "application/pdf",
-              "version": "<version#51>",
+              "version": "<version#57>",
               "expiresAt": 1924993800000,
               "rangeMaxBytes": 4194304,
               "media": {
-                "assetId": "<assetId#50>",
+                "assetId": "<assetId#53>",
                 "variant": "download",
                 "expiresAt": 1924993800000
               }
@@ -13305,31 +14180,31 @@
           "device": "phone",
           "method": "fileDownloadRange",
           "params": [
-            "<transferId#50>",
+            "<transferId#53>",
             0,
             4,
-            "<version#51>"
+            "<version#57>"
           ],
           "service": [
             {
               "method": "readRange",
               "args": [
-                "<transferId#50>",
+                "<transferId#53>",
                 0,
                 4,
-                "<version#51>"
+                "<version#57>"
               ]
             }
           ],
           "frame": {
-            "id": 368,
+            "id": 390,
             "ok": true,
             "value": {
-              "transferId": "<transferId#50>",
+              "transferId": "<transferId#53>",
               "offset": 0,
               "length": 4,
               "data": "YTYuUA==",
-              "version": "<version#51>",
+              "version": "<version#57>",
               "eof": false
             }
           }
@@ -13339,23 +14214,23 @@
           "device": "phone",
           "method": "fileDownloadFinish",
           "params": [
-            "<transferId#50>"
+            "<transferId#53>"
           ],
           "service": [
             {
               "method": "finish",
               "args": [
-                "<transferId#50>"
+                "<transferId#53>"
               ]
             }
           ],
           "frame": {
-            "id": 369,
+            "id": 391,
             "ok": true,
             "value": {
-              "transferId": "<transferId#50>",
+              "transferId": "<transferId#53>",
               "size": 12,
-              "version": "<version#51>"
+              "version": "<version#57>"
             }
           }
         },
@@ -13389,14 +14264,14 @@
             }
           ],
           "frame": {
-            "id": 370,
+            "id": 392,
             "ok": true,
             "value": {
-              "grantId": "<grantId#99>",
+              "grantId": "<grantId#105>",
               "name": "a1.png",
               "size": 12,
               "mime": "image/png",
-              "version": "<version#46>",
+              "version": "<version#52>",
               "expiresAt": 1924992060000
             }
           }
@@ -13431,7 +14306,7 @@
             }
           ],
           "frame": {
-            "id": 371,
+            "id": 393,
             "ok": false,
             "error": "This conversation is not available.",
             "errorCode": "file-download:unavailable"
@@ -13467,7 +14342,7 @@
             }
           ],
           "frame": {
-            "id": 372,
+            "id": 394,
             "ok": false,
             "error": "This media file is not available.",
             "errorCode": "file-download:not-found"
@@ -13507,7 +14382,7 @@
             }
           ],
           "frame": {
-            "id": 373,
+            "id": 395,
             "ok": false,
             "error": "This media file is not available.",
             "errorCode": "file-download:not-found"
@@ -13529,7 +14404,7 @@
           ],
           "service": [],
           "frame": {
-            "id": 374,
+            "id": 396,
             "ok": false,
             "error": "asset id is invalid."
           }
@@ -13550,7 +14425,7 @@
           ],
           "service": [],
           "frame": {
-            "id": 375,
+            "id": 397,
             "ok": false,
             "error": "asset id is invalid."
           }
@@ -13571,7 +14446,7 @@
           ],
           "service": [],
           "frame": {
-            "id": 376,
+            "id": 398,
             "ok": false,
             "error": "asset id is invalid."
           }
@@ -13613,14 +14488,14 @@
             }
           ],
           "frame": {
-            "id": 377,
+            "id": 399,
             "ok": true,
             "value": {
-              "grantId": "<grantId#100>",
+              "grantId": "<grantId#106>",
               "name": "a7.png",
               "size": 12,
               "mime": "image/png",
-              "version": "<version#52>",
+              "version": "<version#58>",
               "expiresAt": 1924992060000
             }
           }
@@ -13635,18 +14510,18 @@
           "device": "phone",
           "method": "fileDownloadBegin",
           "params": [
-            "<grantId#100>"
+            "<grantId#106>"
           ],
           "service": [
             {
               "method": "begin",
               "args": [
-                "<grantId#100>"
+                "<grantId#106>"
               ]
             }
           ],
           "frame": {
-            "id": 378,
+            "id": 400,
             "ok": false,
             "error": "The file changed on the host.",
             "errorCode": "file-download:changed"
@@ -13686,7 +14561,7 @@
             }
           ],
           "frame": {
-            "id": 379,
+            "id": 401,
             "ok": false,
             "error": "Only files on this PC can be downloaded.",
             "errorCode": "file-download:not-a-file"
@@ -13746,14 +14621,14 @@
             }
           ],
           "frame": {
-            "id": 380,
+            "id": 402,
             "ok": true,
             "value": {
-              "grantId": "<grantId#101>",
+              "grantId": "<grantId#107>",
               "name": "a1.png",
               "size": 12,
               "mime": "image/png",
-              "version": "<version#53>",
+              "version": "<version#59>",
               "expiresAt": 1924992060000
             }
           }
@@ -13773,18 +14648,18 @@
           "device": "phone",
           "method": "fileDownloadBegin",
           "params": [
-            "<grantId#101>"
+            "<grantId#107>"
           ],
           "service": [
             {
               "method": "begin",
               "args": [
-                "<grantId#101>"
+                "<grantId#107>"
               ]
             }
           ],
           "frame": {
-            "id": 381,
+            "id": 403,
             "ok": false,
             "error": "This download is no longer available.",
             "errorCode": "file-download:expired"
@@ -13820,7 +14695,7 @@
             }
           ],
           "frame": {
-            "id": 382,
+            "id": 404,
             "ok": false,
             "error": "This conversation is not available.",
             "errorCode": "file-download:unavailable"
@@ -13856,14 +14731,14 @@
             }
           ],
           "frame": {
-            "id": 383,
+            "id": 405,
             "ok": true,
             "value": {
-              "grantId": "<grantId#102>",
+              "grantId": "<grantId#108>",
               "name": "a1.png",
               "size": 12,
               "mime": "image/png",
-              "version": "<version#53>",
+              "version": "<version#59>",
               "expiresAt": 1924992060000
             }
           }
@@ -13873,29 +14748,29 @@
           "device": "phone",
           "method": "fileDownloadBegin",
           "params": [
-            "<grantId#102>"
+            "<grantId#108>"
           ],
           "service": [
             {
               "method": "begin",
               "args": [
-                "<grantId#102>"
+                "<grantId#108>"
               ]
             }
           ],
           "frame": {
-            "id": 384,
+            "id": 406,
             "ok": true,
             "value": {
-              "transferId": "<transferId#51>",
+              "transferId": "<transferId#54>",
               "name": "a1.png",
               "size": 12,
               "mime": "image/png",
-              "version": "<version#53>",
+              "version": "<version#59>",
               "expiresAt": 1924993800000,
               "rangeMaxBytes": 4194304,
               "media": {
-                "assetId": "<assetId#51>",
+                "assetId": "<assetId#54>",
                 "variant": "download",
                 "expiresAt": 1924993800000
               }
@@ -13943,7 +14818,7 @@
             }
           ],
           "frame": {
-            "id": 385,
+            "id": 407,
             "ok": false,
             "error": "The file no longer exists.",
             "errorCode": "file-download:not-found"
@@ -13979,14 +14854,14 @@
             }
           ],
           "frame": {
-            "id": 386,
+            "id": 408,
             "ok": true,
             "value": {
-              "grantId": "<grantId#103>",
+              "grantId": "<grantId#109>",
               "name": "note.md-$DATA",
               "size": 13,
               "mime": "application/octet-stream",
-              "version": "<version#54>",
+              "version": "<version#60>",
               "expiresAt": 1924992060000
             }
           }
@@ -14021,7 +14896,7 @@
             }
           ],
           "frame": {
-            "id": 387,
+            "id": 409,
             "ok": false,
             "error": "The file no longer exists.",
             "errorCode": "file-download:not-found"
@@ -14057,7 +14932,7 @@
             }
           ],
           "frame": {
-            "id": 388,
+            "id": 410,
             "ok": false,
             "error": "The file no longer exists.",
             "errorCode": "file-download:not-found"
@@ -14093,7 +14968,7 @@
             }
           ],
           "frame": {
-            "id": 389,
+            "id": 411,
             "ok": false,
             "error": "Only files on this PC can be downloaded.",
             "errorCode": "file-download:not-a-file"
@@ -14129,7 +15004,7 @@
             }
           ],
           "frame": {
-            "id": 390,
+            "id": 412,
             "ok": false,
             "error": "The file no longer exists.",
             "errorCode": "file-download:not-found"
@@ -14165,14 +15040,14 @@
             }
           ],
           "frame": {
-            "id": 391,
+            "id": 413,
             "ok": true,
             "value": {
-              "grantId": "<grantId#104>",
+              "grantId": "<grantId#110>",
               "name": "note.md",
               "size": 13,
               "mime": "text/markdown",
-              "version": "<version#54>",
+              "version": "<version#60>",
               "expiresAt": 1924992060000
             }
           }
@@ -14207,14 +15082,14 @@
             }
           ],
           "frame": {
-            "id": 392,
+            "id": 414,
             "ok": true,
             "value": {
-              "grantId": "<grantId#105>",
+              "grantId": "<grantId#111>",
               "name": "NOTE.MD",
               "size": 13,
               "mime": "text/markdown",
-              "version": "<version#54>",
+              "version": "<version#60>",
               "expiresAt": 1924992060000
             }
           }
