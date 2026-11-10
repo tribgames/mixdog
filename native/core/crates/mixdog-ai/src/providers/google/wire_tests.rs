@@ -162,22 +162,25 @@ const STEP: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Every wait of this test has a deadline and says what it was waiting for when it passes.
 async fn within<T>(what: &str, wait: impl std::future::Future<Output = T>) -> T {
-    tokio::time::timeout(STEP, wait).await.unwrap_or_else(|_| panic!("{what}: no answer within {STEP:?}"))
+    answered(what, wait).await.unwrap_or_else(|failure| panic!("{failure}"))
 }
 
-/// A wait nobody answers is still pending just before its deadline and fails at it, naming what it waited for. The
-/// paused clock moves only by the explicit `advance` here.
+/// The wait's answer, or the failure that names it once the deadline has passed.
+async fn answered<T>(what: &str, wait: impl std::future::Future<Output = T>) -> Result<T, String> {
+    tokio::time::timeout(STEP, wait).await.map_err(|_| format!("{what}: no answer within {STEP:?}"))
+}
+
+/// A wait nobody answers is still pending 1 ms before its deadline and has failed at it, naming what it waited for.
+/// The paused clock moves only by the explicit `advance` here, and the wait is polled by hand.
 #[tokio::test(start_paused = true)]
 async fn a_wait_nobody_answers_fails_at_its_deadline_naming_it() {
-    let waiting = tokio::spawn(within("the awaited answer", std::future::pending::<()>()));
-    tokio::task::yield_now().await;
+    let mut waiting = Box::pin(answered("the awaited answer", std::future::pending::<()>()));
+    assert!(futures::poll!(waiting.as_mut()).is_pending());
     tokio::time::advance(STEP - std::time::Duration::from_millis(1)).await;
-    tokio::task::yield_now().await;
-    assert!(!waiting.is_finished(), "failed before its deadline");
+    assert!(futures::poll!(waiting.as_mut()).is_pending(), "failed before its deadline");
     tokio::time::advance(std::time::Duration::from_millis(1)).await;
-    let failure = waiting.await.expect_err("the wait fails at its deadline");
-    let message = failure.into_panic().downcast::<String>().expect("a formatted message");
-    assert!(message.contains("the awaited answer"), "the failure names the wait: {message}");
+    let failure = futures::poll!(waiting.as_mut());
+    assert_eq!(failure, std::task::Poll::Ready(Err(format!("the awaited answer: no answer within {STEP:?}"))));
 }
 
 /// Nothing is fetched: the pricing catalog stays empty, as on a machine that never fetched the price tables (the
