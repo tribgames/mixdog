@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 // The Rust-core replacements of the Node CI steps that K1 removes (see k1-ci-replacements.md). Each lane is one
-// `cargo test` run per filter over tests that already exist in native/core. cargo passes a filter that matches
-// nothing, so each run first lists what the filter selects (`-- --list`) and fails on zero; k1-lanes.test.mjs
-// proves the same for every filter.
+// `cargo test` run per filter over tests in native/core. cargo passes a filter that matches nothing, and libtest skips
+// an ignored test it matched, so each run first lists what the filter selects (`-- --list`, less `-- --list --ignored`)
+// and fails on zero; k1-lanes.slow.test.mjs proves the same for every filter.
 // Usage: node scripts/rust-core/k1-lanes.mjs [--list] [--dry-run] [--runner "cargo test"] [lane...]   (no lane: all;
-// --dry-run prints each lane, filter and command without running cargo)
+// --dry-run prints each lane, filter and command without running cargo). MIXDOG_CARGO, when set, is the command run in
+// place of cargo (a local build gate, e.g. `powershell -NoProfile -File D:\mixdog-build\tools\cargo-gate.ps1`); CI runs
+// plain cargo.
 import { dirname, relative as relativePath, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runTree } from './lib/process-tree.mjs';
@@ -19,7 +21,7 @@ export const LANES = {
   'advisory-lock': { replaces: 'advisory-lock.slow.test.mjs (release-gate runtime-slow)', pkg: 'mixdog-tools', filters: ['the_advisory_lock_waits_for_a_live_holder', 'edit_and_apply_patch_wait_for_the_advisory_lock'] },
   'patch-bytes': { replaces: 'scripts/native-edit-wire-test.mjs, scripts/patch-replay.mjs', pkg: 'mixdog-tools', filters: ['fs::tests'] },
   'provider-contract': { replaces: 'scripts/provider-contract-test.mjs, provider-stream-outcome-test.mjs, cursor-provider-test.mjs, openai-codex-identity.test.mjs, openai-ws-delta-parity.test.mjs', pkg: 'mixdog-ai', filters: [] },
-  'daemon-bootstrap': { replaces: 'scripts/daemon-bootstrap-test.mjs, src/standalone/session-runtime-inline-host.test.mjs', pkg: 'mixdog-app-server-daemon', filters: ['boot_coordinator'] },
+  'daemon-bootstrap': { replaces: 'scripts/daemon-bootstrap-test.mjs, src/standalone/session-runtime-inline-host.test.mjs', pkg: 'mixdog-app-server-daemon', filters: ['boot_coordinator', 'server_ensure::tests::a_run_that_meets_a_live_install_before_its_core_is_published'] },
   'native-assets': { replaces: 'scripts/prepare-native-assets.mjs, scripts/prepare-native-assets-test.mjs (fetch + verify of the native tool binaries)', pkg: 'mixdog-services', filters: ['native_asset::tests'] },
   'compact': { replaces: 'scripts/compact-smoke.mjs', pkg: 'mixdog-agent', filters: ['compact_fresh', 'compact_handoff', 'compact_summary', 'compact_commit'] },
   'turn-contract': { replaces: 'scripts/run-advisory-spec.mjs (runtime-turn-contract-test.mjs)', pkg: 'mixdog-agent', filters: ['run_loop', 'turns::'] },
@@ -41,7 +43,9 @@ const CHILD_ENV = { ...process.env, MIXDOG_SKIP_USER_DATA_BACKUP: '1' };
 
 /** One cargo command of a lane, to its exit, under the deadline; `label` names the lane and the step in a failure. */
 export function runChild(program, args, { label = `${program} ${args.join(' ')}`, cwd = CORE, deadlineMs = DEADLINE_MS, inherit = false } = {}) {
-  return runTree(program, args, { label, cwd, env: CHILD_ENV, deadlineMs, inherit, shell: SHELL && program === 'cargo' });
+  // MIXDOG_CARGO is a command line (a program with its own arguments), which only a shell splits.
+  const gate = program === 'cargo' ? process.env.MIXDOG_CARGO : undefined;
+  return runTree(gate || program, args, { label, cwd, env: CHILD_ENV, deadlineMs, inherit, shell: Boolean(gate) || (SHELL && program === 'cargo') });
 }
 
 /** The test binaries in the output of `cargo test --no-run --message-format=json` (its `compiler-artifact` messages). */
@@ -53,18 +57,22 @@ export function testBinariesOf(buildStdout) {
     .filter((message) => message.reason === 'compiler-artifact' && message.profile?.test && message.executable);
 }
 
-/** The tests in the output of a libtest binary's `--list`, each with the source path of the binary that listed it. */
-export function testsOfList(listStdout, srcPath) {
-  return listStdout
-    .split(/\r?\n/)
-    .filter((line) => line.endsWith(': test'))
-    .map((line) => ({ name: line.slice(0, -': test'.length), srcPath }));
+/**
+ * The tests a libtest binary runs, from its `--list` output and its `--list --ignored` output (the same filter), each with
+ * the source path of the binary that listed them. `--list` names the `#[ignore]`d tests too, which the run skips: they
+ * are left out, so a filter whose only match is ignored selects nothing.
+ */
+export function testsOfList(listStdout, ignoredStdout, srcPath) {
+  const names = (stdout) => stdout.split(/\r?\n/).filter((line) => line.endsWith(': test')).map((line) => line.slice(0, -': test'.length));
+  const ignored = new Set(names(ignoredStdout));
+  return names(listStdout).filter((name) => !ignored.has(name)).map((name) => ({ name, srcPath }));
 }
 /**
- * The tests one lane filter selects, each with the test binary (its source path) that holds it. cargo runs a filter that
- * matches nothing and reports success, so a lane must see at least one test here before it runs. The binaries come from
- * cargo's own build messages and each is listed by libtest's `--list`, so the binary of a test is known, not guessed
- * from its name: a standalone integration-test binary (tests/ticker.rs) names its tests without any file prefix.
+ * The tests one lane filter selects that the run will run, each with the test binary (its source path) that holds it.
+ * cargo runs a filter that matches nothing and reports success, and libtest skips an ignored test it matched, so a lane
+ * must see at least one test here before it runs. The binaries come from cargo's own build messages and each is listed by
+ * libtest's `--list` (and `--list --ignored`, which is left out), so the binary of a test is known, not guessed from its
+ * name: a standalone integration-test binary (tests/ticker.rs) names its tests without any file prefix.
  * @returns {Promise<{ name: string, srcPath: string }[]>}
  */
 export async function selectedTests(lane, filter = null, { pkg = LANES[lane].pkg, ...options } = {}) {
@@ -73,9 +81,12 @@ export async function selectedTests(lane, filter = null, { pkg = LANES[lane].pkg
   if (build.status !== 0) throw new Error(`cargo test --no-run failed for lane ${lane} (filter ${filter ?? '(all)'})\n${build.stderr}`);
   const selected = [];
   for (const binary of testBinariesOf(build.stdout)) {
-    const listed = await runChild(binary.executable, ['--list', ...(filter ? [filter] : [])], { label: `${label} of ${binary.target.name}`, cwd: dirname(binary.manifest_path), ...options });
-    if (listed.status !== 0) throw new Error(`${binary.target.name} --list failed for lane ${lane} (filter ${filter ?? '(all)'})\n${listed.stderr}`);
-    selected.push(...testsOfList(listed.stdout, binary.target.src_path));
+    const list = async (...mode) => {
+      const listed = await runChild(binary.executable, ['--list', ...mode, ...(filter ? [filter] : [])], { label: `${label} of ${binary.target.name}`, cwd: dirname(binary.manifest_path), ...options });
+      if (listed.status !== 0) throw new Error(`${binary.target.name} --list ${mode.join(' ')} failed for lane ${lane} (filter ${filter ?? '(all)'})\n${listed.stderr}`);
+      return listed.stdout;
+    };
+    selected.push(...testsOfList(await list(), await list('--ignored'), binary.target.src_path));
   }
   return selected;
 }
@@ -84,7 +95,7 @@ export async function selectedTests(lane, filter = null, { pkg = LANES[lane].pkg
  * The files of `recorded/` as cargo produces them now, in the form they are stored: the lib test target of mixdog-tools
  * (`cargo test -p mixdog-tools --locked --no-run --message-format=json`, its compiler-artifact message) and what its binary
  * lists for `fs::tests`. Machine-specific paths become repository-relative ones and the executable a placeholder.
- * `recorded/manifest.json` names each file's command; record-lanes-fixtures.mjs writes them, k1-lanes.integration.test.mjs
+ * `recorded/manifest.json` names each file's command; record-lanes-fixtures.mjs writes them, k1-lanes.slow.test.mjs
  * compares them with a fresh run and fails on a difference.
  * @returns {Promise<Record<string, string>>} file name -> content
  */
@@ -181,7 +192,7 @@ async function main(argv) {
       }
       const selectedNames = await selectedTests(name, filter);
       if (selectedNames.length === 0) {
-        console.error(`lane ${name}: filter ${filter ?? '(all)'} selects no test`);
+        console.error(`lane ${name}: filter ${filter ?? '(all)'} selects no test that runs (ignored tests are not counted)`);
         return 1;
       }
       const installers = installersIn(selectedNames);

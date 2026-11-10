@@ -1,7 +1,8 @@
 // The real build-and-list check of the lanes: every lane filter is run through cargo (`cargo test --no-run` for the
 // package, then each test binary's `--list`), which compiles the lane's test binaries (~30 min cold, set CARGO_TARGET_DIR to
-// reuse a build). It is an integration check, not a routine unit test: k1-lanes.test.mjs holds the lane-selection logic on
-// recorded `--list` output. Run by the rust-core-lane-listing job of release-gate.yml (push and manual runs).
+// reuse a build). It is an integration check in the slow lane, not a routine unit test: k1-lanes.test.mjs (default lane)
+// holds the lane-selection logic on recorded `--list` output. Run by the rust-core-lane-listing job of release-gate.yml
+// (push and manual runs) with plain cargo; locally set MIXDOG_CARGO to the build gate (see k1-lanes.mjs).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +24,11 @@ test('every lane filter selects at least one test', { timeout: 3_600_000 }, asyn
 
 test('a filter that matches nothing selects nothing', { timeout: 3_600_000 }, async () => {
   assert.deepEqual(await selectedTests('advisory-lock', 'no_such_test_name_anywhere'), []);
+});
+
+// An `#[ignore]`d test that `--list` names and the run skips (verdict/tag_gates.rs).
+test('a filter whose only match is an ignored test selects nothing', { timeout: 3_600_000 }, async () => {
+  assert.deepEqual(await selectedTests('daemon-bootstrap', 'gate_5_live_1_4_5_heartbeat_is_never_starved_by_booting_cores'), []);
 });
 
 

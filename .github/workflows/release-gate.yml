@@ -926,7 +926,7 @@ jobs:
       - name: Every lane filter selects real tests, and no lane selects a backend installer
         env:
           CARGO_BUILD_JOBS: "3"
-        run: node --test scripts/rust-core/k1-lanes.integration.test.mjs
+        run: node --test scripts/rust-core/k1-lanes.slow.test.mjs
 
   # Node's CI ran the whole default lane (`npm test`, three shards) on macos-15 (job runtime-macos): the shell, exec and
   # spawn behaviour of the shipped CLI on macOS. The same lanes and the real-core tests run there for the Rust core.
@@ -988,6 +988,12 @@ jobs:
         env:
           CARGO_BUILD_JOBS: "3"
         run: node scripts/rust-core/k1-lanes.mjs advisory-lock
+      # suite-shell-direct-exe-test.mjs ran a direct spawn on every platform; the Rust shell tool spawns directly only on a
+      # Windows PowerShell host, so the lane's test that runs one (exec::direct::tests, cfg(windows)) runs here.
+      - name: Direct executable spawns (replaces suite-shell-direct-exe-test.mjs)
+        env:
+          CARGO_BUILD_JOBS: "3"
+        run: node scripts/rust-core/k1-lanes.mjs shell-direct-exe
 
   complete:
     if: always()

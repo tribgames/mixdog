@@ -12,9 +12,8 @@
 // spawns anything: `cargo build --release --manifest-path scripts/rust-core/tree-helper/Cargo.toml` (the rust-core job
 // does it in its own step; MIXDOG_TREE_HELPER names a binary built elsewhere, e.g. under another CARGO_TARGET_DIR).
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
-import { constants, tmpdir } from 'node:os';
+import { existsSync } from 'node:fs';
+import { constants } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -32,49 +31,43 @@ export function helperPath() {
 }
 
 /**
- * What the helper reported besides the exit code (`launch`, `signal`), or null when it wrote nothing. The helper writes the
- * file last and ends it with `"complete":true`: a file without that record is an error, never a success, and so is a
- * record of another run (`run` is the id this invocation passed: a record left at the path by an earlier run is not ours).
+ * What the helper reported besides the exit code (`launch`, `signal`), from all it sent on its record pipe: null when it
+ * sent nothing. The helper ends the record with `"complete":true`: a record without it (cut short by the helper's death) is
+ * an error, never a success.
  */
-const readOutcome = (file, run) => {
-  let text;
-  try {
-    text = readFileSync(file, 'utf8');
-  } catch (error) {
-    if (error.code === 'ENOENT') return null;
-    throw error;
-  }
+export const outcomeOf = (text) => {
+  if (text === '') return null;
   let record;
   try {
     record = JSON.parse(text);
   } catch {
-    throw new Error(`the tree helper's result ${file} is incomplete: ${text.slice(0, 200)}`);
+    throw new Error(`the tree helper's record is incomplete: ${text.slice(0, 200)}`);
   }
-  if (record.complete !== true) throw new Error(`the tree helper's result ${file} has no completion record: ${text.slice(0, 200)}`);
-  if (record.run !== run) throw new Error(`the tree helper's result ${file} is the record of run ${JSON.stringify(record.run)}, not of this run ${run}`);
+  if (record.complete !== true) throw new Error(`the tree helper's record has no completion member: ${text.slice(0, 200)}`);
   return record;
 };
 
 /**
  * `spawn`, but the child's whole tree is owned by a helper that ends it: the returned child is the helper, with the
  * program's stdio and exit code (its 'exit' code is the program's, unchanged). A program that cannot start emits 'error'
- * with the code the helper reports (ENOENT when it is not found), as `spawn` does. `child.treeOutcome()` is what the helper
- * reported besides the exit code (`launch`, `signal`), null when it reported nothing, and throws when the report is
- * incomplete; after 'close' it answers what was read before the file was removed. Index 3 of the stdio is the helper's
- * channel to this process (POSIX), so a caller passes at most three entries.
+ * with the code the helper reports (ENOENT when it is not found), as `spawn` does. The helper sends its record on a pipe
+ * (index 4 of its stdio), never through a file, so nothing of a run is left on disk however this process dies.
+ * `child.treeRecord` settles once the pipe has ended (the helper is gone: only it holds the other end), which is before
+ * 'close'; from then `child.treeOutcome()` is what the helper reported besides the exit code (`launch`, `signal`), null
+ * when it reported nothing, and throws when the report is incomplete. Indexes 3 (the helper's channel to this process,
+ * POSIX) and 4 are the helper's, so a caller passes at most three entries.
  */
 export function spawnTree(program, args, options = {}) {
   // `signal` is not forwarded to `spawn` (that would end only the helper): an abort ends the tree through the helper.
   const { shell, env, stdio = 'pipe', signal, ...rest } = options;
-  const resultFile = join(tmpdir(), `treerun-${randomUUID()}.json`);
-  const run = randomUUID();
   const streams = typeof stdio === 'string' ? [stdio, stdio, stdio] : [...stdio];
   if (streams.length > 3) throw new Error('spawnTree: stdio index 3 is the tree helper\'s channel; pass at most three entries');
   while (streams.length < 3) streams.push('ignore');
-  // POSIX: index 3 is the parent's end of a socket pair; its EOF is how the helper learns this process died.
-  const full = WINDOWS ? streams : [...streams, 'pipe'];
+  // Index 3, POSIX: the parent's end of a socket pair; its EOF is how the helper learns this process died (Windows watches
+  // this process by its handle). Index 4: the record pipe, which this process only reads, so no write of its own can fail it.
+  const full = [...streams, WINDOWS ? 'ignore' : 'pipe', 'pipe'];
   const tail = shell ? ['shell', [program, ...args].join(' ')] : ['args', program, ...args];
-  const child = spawn(helperPath(), [resultFile, run, String(process.pid), ...tail], {
+  const child = spawn(helperPath(), [String(process.pid), ...tail], {
     ...rest,
     env,
     stdio: full,
@@ -84,32 +77,37 @@ export function spawnTree(program, args, options = {}) {
     windowsHide: true,
   });
   child.stdio[3]?.on('error', () => {});
-  if (signal) {
-    const abort = () => endTree(child).catch((error) => child.emit('error', Object.assign(error, { code: 'ETREEHELPER' })));
-    if (signal.aborted) abort();
-    else {
-      signal.addEventListener('abort', abort, { once: true });
-      child.once('close', () => signal.removeEventListener('abort', abort));
-    }
-  }
-  // Read before removed: this listener is registered first, so it runs before any caller's 'close'.
+  const sent = [];
   let settled;
-  child.once('close', () => {
+  let settle;
+  child.treeRecord = new Promise((resolveRecord) => {
+    settle = (result) => {
+      if (settled) return;
+      settled = result;
+      resolveRecord();
+      report();
+    };
+  });
+  child.stdio[4].on('data', (chunk) => sent.push(chunk));
+  child.stdio[4].on('error', (error) => settle({ error: new Error(`the tree helper's record pipe failed: ${error.message}`) }));
+  // 'end' comes before the pipe's 'close', so before the child's own 'close': a caller's 'close' finds the record read.
+  child.stdio[4].once('end', () => {
     try {
-      settled = { value: readOutcome(resultFile, run) };
+      settle({ value: outcomeOf(Buffer.concat(sent).toString('utf8')) });
     } catch (error) {
-      settled = { error };
+      settle({ error });
     }
-    rmSync(resultFile, { force: true });
-    // The helper writes the record beside the result and renames it; one that died between the two leaves this.
-    rmSync(`${resultFile}.tmp`, { force: true });
   });
   child.treeOutcome = () => {
-    if (!settled) return readOutcome(resultFile, run);
+    if (!settled) throw new Error(`the tree helper of pid ${child.pid} has not ended its record yet (await child.treeRecord)`);
     if (settled.error) throw settled.error;
     return settled.value;
   };
-  child.once('exit', () => {
+  // A start the record reports as failed is an 'error', as `spawn` reports it, once the helper has exited and its record
+  // ended (whichever comes second; both come before 'close'), so a handler of the 'error' finds the helper gone.
+  let exited = false;
+  const report = () => {
+    if (!exited || !settled) return;
     let outcome;
     try {
       outcome = child.treeOutcome();
@@ -121,7 +119,19 @@ export function spawnTree(program, args, options = {}) {
       const message = outcome.launch === 'ENOENT' ? `spawn ${program} ENOENT` : `spawn ${program} ${outcome.launch}: ${outcome.message}`;
       child.emit('error', Object.assign(new Error(message), { code: outcome.launch, syscall: `spawn ${program}`, path: program }));
     }
+  };
+  child.once('exit', () => {
+    exited = true;
+    report();
   });
+  if (signal) {
+    const abort = () => endTree(child).catch((error) => child.emit('error', Object.assign(error, { code: 'ETREEHELPER' })));
+    if (signal.aborted) abort();
+    else {
+      signal.addEventListener('abort', abort, { once: true });
+      child.once('close', () => signal.removeEventListener('abort', abort));
+    }
+  }
   return child;
 }
 
@@ -165,22 +175,24 @@ export async function endTree(child, { deadlineMs = KILL_DEADLINE_MS } = {}) {
   if (!child.pid) return { killed: [] };
   const killed = gone(child) ? [] : [child.pid];
   if (killed.length) {
-    let timer;
-    const exited = new Promise((resolveExit, reject) => {
-      child.once('exit', resolveExit);
-      timer = setTimeout(() => reject(new Error(`the tree helper of pid ${child.pid} did not exit within ${deadlineMs}ms after it was told to end the tree`)), deadlineMs);
-    }).finally(() => clearTimeout(timer));
     if (WINDOWS) {
       if (!child.kill()) throw new Error(`could not kill the tree helper of pid ${child.pid}`);
     } else {
       child.stdio[3].end(ASK);
     }
-    try {
-      await exited;
-    } catch (error) {
-      child.kill('SIGKILL');
-      throw new Error(`${error.message}; the helper was killed and the end of its tree cannot be established`);
-    }
+  }
+  // The helper's exit and the end of its record pipe (only the helper holds the other end), under one deadline.
+  let timer;
+  const finished = new Promise((resolveFinished, reject) => {
+    timer = setTimeout(() => reject(new Error(`the tree helper of pid ${child.pid} did not exit within ${deadlineMs}ms${killed.length ? ' after it was told to end the tree' : ''}`)), deadlineMs);
+    Promise.all([gone(child) || new Promise((resolveExit) => child.once('exit', resolveExit)), child.treeRecord]).then(resolveFinished);
+  }).finally(() => clearTimeout(timer));
+  try {
+    await finished;
+  } catch (error) {
+    if (!killed.length) throw error;
+    child.kill('SIGKILL');
+    throw new Error(`${error.message}; the helper was killed and the end of its tree cannot be established`);
   }
   if (!WINDOWS) {
     const why = unestablished(child);

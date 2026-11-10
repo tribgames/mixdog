@@ -5,7 +5,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { endTree, runTree, spawnTree } from './lib/process-tree.mjs';
+import { endTree, outcomeOf, runTree, spawnTree } from './lib/process-tree.mjs';
 import { assertTreeEnded, leakGuard } from './lib/process-probe.mjs';
 
 const PROBE = new URL('./lib/process-probe.mjs', import.meta.url).href;
@@ -50,7 +50,7 @@ const programScript = (dir, after) => `import { spawn } from 'node:child_process
 import { writeFileSync } from 'node:fs';
 import { startTimeOf } from ${JSON.stringify(PROBE)};
 ${leakGuard(dir, LIFE_MS)}
-const gc = spawn(process.execPath, ['-e', ${JSON.stringify(NODE_HOLD(dir, LIFE_MS))}], { stdio: 'ignore', detached: ${WINDOWS} });
+const gc = spawn(process.execPath, ['-e', ${JSON.stringify(NODE_HOLD(dir, LIFE_MS))}], { stdio: 'ignore', detached: ${WINDOWS}, windowsHide: true });
 writeFileSync(${JSON.stringify(join(dir, 'pids.json'))}, JSON.stringify(await Promise.all([process.pid, gc.pid].map(async (pid) => ({ pid, start: await startTimeOf(pid) })))));
 ${after}
 `;
@@ -94,7 +94,7 @@ test('a descendant that left the group, ignores SIGHUP and outlives its starter 
       `import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { startTimeOf } from ${JSON.stringify(PROBE)};
-const escaped = spawn(process.execPath, ['-e', ${JSON.stringify(NODE_HOLD(dir, life, 'process.on("SIGHUP", () => {}); '))}], { stdio: 'ignore', detached: true });
+const escaped = spawn(process.execPath, ['-e', ${JSON.stringify(NODE_HOLD(dir, life, 'process.on("SIGHUP", () => {}); '))}], { stdio: 'ignore', detached: true, windowsHide: true });
 writeFileSync(${JSON.stringify(join(dir, 'pids.json'))}, JSON.stringify(await Promise.all([process.pid, escaped.pid].map(async (pid) => ({ pid, start: await startTimeOf(pid) })))));
 process.exit(0);
 `,
@@ -124,7 +124,7 @@ test('a program that exits leaving eight members in its group: every one is gone
       `import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { startTimeOf } from ${JSON.stringify(PROBE)};
-const kids = Array.from({ length: 8 }, () => spawn(process.execPath, ['-e', ${JSON.stringify(NODE_HOLD(dir, LIFE_MS))}], { stdio: 'ignore', detached: ${WINDOWS} }));
+const kids = Array.from({ length: 8 }, () => spawn(process.execPath, ['-e', ${JSON.stringify(NODE_HOLD(dir, LIFE_MS))}], { stdio: 'ignore', detached: ${WINDOWS}, windowsHide: true }));
 writeFileSync(${JSON.stringify(join(dir, 'pids.json'))}, JSON.stringify(await Promise.all([process.pid, ...kids.map((k) => k.pid)].map(async (pid) => ({ pid, start: await startTimeOf(pid) })))));
 process.exit(0);
 `,
@@ -146,7 +146,7 @@ test('a grandchild started after its parent exited is still in the tree', () =>
       `import { spawn } from 'node:child_process';
 process.stdin.resume();
 process.stdin.on('end', () => {
-  const h = spawn(process.execPath, ['-e', ${hold}], { stdio: 'ignore', detached: ${WINDOWS} });
+  const h = spawn(process.execPath, ['-e', ${hold}], { stdio: 'ignore', detached: ${WINDOWS}, windowsHide: true });
   console.log(JSON.stringify({ g: process.pid, h: h.pid }));
 });
 ${leakGuard(dir, LIFE_MS)}
@@ -156,7 +156,7 @@ ${leakGuard(dir, LIFE_MS)}
     writeFileSync(
       parent,
       `import { spawn } from 'node:child_process';
-spawn(process.execPath, [${JSON.stringify(grandchild)}], { stdio: ['pipe', 'inherit', 'inherit'], detached: ${WINDOWS} });
+spawn(process.execPath, [${JSON.stringify(grandchild)}], { stdio: ['pipe', 'inherit', 'inherit'], detached: ${WINDOWS}, windowsHide: true });
 process.exit(0);
 `,
     );
@@ -166,7 +166,7 @@ process.exit(0);
       `import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { startTimeOf } from ${JSON.stringify(PROBE)};
-const p = spawn(process.execPath, [${JSON.stringify(parent)}], { stdio: ['ignore', 'pipe', 'inherit'], detached: ${WINDOWS} });
+const p = spawn(process.execPath, [${JSON.stringify(parent)}], { stdio: ['ignore', 'pipe', 'inherit'], detached: ${WINDOWS}, windowsHide: true });
 let text = '';
 for await (const chunk of p.stdout) {
   text += chunk;
@@ -240,27 +240,11 @@ test('an NTSTATUS exit arrives as it is, with no signal and no launch failure in
   assert.equal(run.outcome.signal, null);
 });
 
-// What the reader finds at the result path of a helper that published nothing (it is killed here, so the planted file stays):
-// a file cut short, a record without its completion member, and a complete record of another run (what an earlier run killed
-// before it published, or still going, leaves at the same path) are each an error, never this run's outcome.
-const COMPLETE_OTHER_RUN = '{"run":"an-earlier-run","launch":null,"signal":null,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}';
-test('a partial result file, or a complete one of another run, is an error for the reader', async () => {
-  for (const [planted, expected] of [['{"run":"x","launch":null,"sig', /incomplete/], ['{"run":"x","launch":null,"signal":null}', /no completion record/], [COMPLETE_OTHER_RUN, /is the record of run "an-earlier-run", not of this run/]]) {
-    // The program ends itself when its stdin closes: a killed POSIX helper ends nothing.
-    const child = spawnTree(process.execPath, ['-e', 'console.log("started"); process.stdin.resume(); process.stdin.on("end", () => process.exit(0))'], { stdio: ['pipe', 'pipe', 'ignore'] });
-    child.stdin.on('error', () => {});
-    const errors = [];
-    child.on('error', (error) => errors.push(error));
-    const closed = closeOf(child);
-    try {
-      await firstData(child.stdout, 'the program starting');
-      writeFileSync(child.spawnargs[1], planted);
-      child.kill('SIGKILL');
-    } finally {
-      child.stdin.end();
-    }
-    await closed;
-    assert.throws(() => child.treeOutcome(), expected);
-    assert.equal(errors[0]?.code, 'ETREEHELPER');
-  }
+// What the reader makes of what came on the record pipe: nothing is no record; a record cut short (the helper died while it
+// wrote) and one without its completion member are each an error, never an outcome.
+test('a partial record, or one without its completion member, is an error for the reader', () => {
+  assert.equal(outcomeOf(''), null);
+  assert.throws(() => outcomeOf('{"launch":null,"sig'), /incomplete/);
+  assert.throws(() => outcomeOf('{"launch":null,"signal":null}'), /no completion member/);
+  assert.equal(outcomeOf('{"launch":null,"signal":null,"escapes":"checked","escaped_ended":[],"failure":null,"complete":true}').launch, null);
 });

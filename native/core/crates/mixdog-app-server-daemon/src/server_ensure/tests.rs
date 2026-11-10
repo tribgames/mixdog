@@ -60,7 +60,7 @@ fn core(version: &str, build: &str, state: DiscoveryPhase) -> ServerCore {
 }
 
 struct Access {
-    found: Option<ServerCore>,
+    found: RefCell<Option<ServerCore>>,
     running: Vec<RunningWork>,
     boot: RefCell<Option<CoreReport>>,
     calls: RefCell<Vec<String>>,
@@ -70,7 +70,7 @@ struct Access {
 impl Access {
     fn new(found: Option<ServerCore>) -> Self {
         Self {
-            found,
+            found: RefCell::new(found),
             running: Vec::new(),
             boot: RefCell::new(Some(CoreReport::Reached(core("1.4.6", "b6", DiscoveryPhase::Serving)))),
             calls: RefCell::default(),
@@ -84,7 +84,7 @@ impl Access {
 
 impl CoreAccess for Access {
     fn discovery(&self) -> Result<Option<ServerCore>, EnsureError> {
-        Ok(self.found.clone())
+        Ok(self.found.borrow().clone())
     }
     fn hold(&self, _: &ServerCore, on: bool) -> Result<(), EnsureError> {
         self.calls.borrow_mut().push(format!("hold:{on}"));
@@ -335,6 +335,72 @@ fn a_held_install_lock_is_reported_not_stolen() {
     let dead = Host { alive: false, ..env.host() };
     run(&args("1.4.6", "b6"), &dead, &access, &env.exe).unwrap();
     assert!(!paths.lock.exists());
+}
+
+/// A host on which the run holding the install lock finishes while this run waits for it: its first pause is that other
+/// run publishing the core it started and releasing the lock (`other_run_ends`).
+struct LockWaiter<'a> {
+    host: Host,
+    other_run_ends: RefCell<Option<Box<dyn FnOnce() + 'a>>>,
+}
+
+impl EnsureHost for LockWaiter<'_> {
+    fn home(&self) -> PathBuf {
+        self.host.home()
+    }
+    fn uid(&self) -> u32 {
+        self.host.uid()
+    }
+    fn hostname(&self) -> String {
+        self.host.hostname()
+    }
+    fn process_alive(&self, pid: u32) -> bool {
+        self.host.process_alive(pid)
+    }
+    fn process_images(&self) -> Option<Vec<ProcessImage>> {
+        self.host.process_images()
+    }
+    fn now_ms(&self) -> u64 {
+        self.host.now_ms()
+    }
+    fn pause(&self, _: Duration) {
+        if let Some(other_run_ends) = self.other_run_ends.borrow_mut().take() {
+            other_run_ends();
+        }
+    }
+}
+
+/// Node's daemon-bootstrap test (`scripts/daemon-bootstrap-test.mjs`): a client that meets a live owner before that owner
+/// has published discovery waits for the publication and is served by it. Here the owner is the run holding the install
+/// lock (a live pid, a fresh lock) whose core is not in discovery yet: this run waits on the lock with the shipped wait,
+/// and once the other run has published its core and released the lock, attaches to that core. Nothing is launched,
+/// held or stopped.
+#[test]
+fn a_run_that_meets_a_live_install_before_its_core_is_published_waits_and_is_served_by_it() {
+    let env = env();
+    let paths = env.paths();
+    let token = "0123456789abcdef01234567";
+    std::fs::create_dir_all(paths.lock.join(token)).unwrap();
+    std::fs::write(
+        paths.lock.join(token).join("owner.json"),
+        format!(r#"{{"token":"{token}","pid":77,"host":"h","purpose":"install","startedAt":{}}}"#, env.host().now_ms()),
+    )
+    .unwrap();
+    let access = Access::new(None);
+    let host = LockWaiter {
+        host: env.host(),
+        other_run_ends: RefCell::new(Some(Box::new(|| {
+            *access.found.borrow_mut() = Some(core("1.4.6", "b6", DiscoveryPhase::Serving));
+            std::fs::remove_dir_all(&paths.lock).unwrap();
+        }))),
+    };
+    let mut waiting = args("1.4.6", "b6");
+    waiting.lock_wait_ms = None;
+    let report = run(&waiting, &host, &access, &env.exe).unwrap();
+    assert!(host.other_run_ends.borrow().is_none(), "the run did not wait for the lock's holder");
+    assert!(report.healthy && report.core_current && !report.started, "{report:?}");
+    assert_eq!(report.daemon_json.as_deref(), Some(r#"{"pid":900}"#));
+    assert!(access.calls().is_empty(), "attached: nothing launched, held or stopped: {:?}", access.calls());
 }
 
 #[test]
