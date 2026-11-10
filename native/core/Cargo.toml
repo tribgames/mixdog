@@ -14,6 +14,8 @@ members = [
     "crates/mixdog-app-protocol",
     "crates/mixdog-core-api",
     "crates/mixdog-rt",
+    "crates/mixdog-fsio",
+    "crates/mixdog-testkit",
     "crates/mixdog-js",
     "crates/mixdog-trace",
     "crates/mixdog-statefile",
@@ -56,8 +58,8 @@ version = "1.4.5" # == root package.json version; scripts/check-release-version.
 edition = "2024"
 publish = false
 
-# RL §13 bans (WP-RT): the ban list is in clippy.toml. A crate that owns a banned item opts out
-# with a scoped `#[allow(..., reason = "...")]`.
+# RL §13 bans (WP-RT): the ban list is in clippy.toml. A crate that owns a banned item (mixdog-fsio,
+# mixdog-testkit) carries a crate-local clippy.toml; other crates route through mixdog-fsio, no #[allow].
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 unused_must_use = "deny"
@@ -92,6 +94,8 @@ mixdog-protocol = { path = "crates/mixdog-protocol" }
 mixdog-app-protocol = { path = "crates/mixdog-app-protocol" }
 mixdog-core-api = { path = "crates/mixdog-core-api" }
 mixdog-rt = { path = "crates/mixdog-rt" }
+mixdog-fsio = { path = "crates/mixdog-fsio" }
+mixdog-testkit = { path = "crates/mixdog-testkit" }
 mixdog-js = { path = "crates/mixdog-js" }
 mixdog-trace = { path = "crates/mixdog-trace" }
 # The patch engine Node runs, linked as a library (WP-TOOLS-FS apply_patch). Default features off:

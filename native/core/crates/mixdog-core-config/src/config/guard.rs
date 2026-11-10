@@ -173,7 +173,7 @@ impl Guard {
 
     /// `quarantineMalformedConfig(parseErr)`: the damaged file is kept aside as `<file>.corrupt-<ms>`; answers whether it is.
     fn quarantine(&self, lane: &InLane<DurabilityIo>, reason: &str) -> bool {
-        let corrupt = mixdog_statefile::quarantine_path(&self.path);
+        let corrupt = mixdog_statefile::quarantine_path(lane, &self.path);
         let mut kept_aside = false;
         if mixdog_statefile::metadata(lane, &self.path).is_ok() {
             let _ = mixdog_statefile::rename_with_retry(lane, &self.path, &corrupt);
