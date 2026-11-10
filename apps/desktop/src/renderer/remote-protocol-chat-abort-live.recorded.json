@@ -1,0 +1,200 @@
+{
+  "manifest": {
+    "binary": "D:\\mixdog-build\\pool\\w5-target\\debug\\mixdogd.exe",
+    "binarySha256": "38c27d44e76636ccba618add4792688154267fdd57c40a1750fc63b9bc8457ee",
+    "binaryBuilt": "2026-11-10T01:25:59.121Z",
+    "source": "running mixdogd serve, isolated env (real-turn harness env.mjs / stage.mjs / proc.mjs), model endpoint remote-protocol-chat-abort-provider.mjs, driven over the WebSocket JSON-RPC protocol"
+  },
+  "cases": [
+    {
+      "name": "running-no-output",
+      "start": {
+        "threadId": "01a1c317-ac7c-7798-92b3-cd92c689ffe9",
+        "input": {
+          "prompt": "HOLD-EMPTY write the file",
+          "options": {
+            "clientSubmissionId": "sub-running-no-output"
+          }
+        }
+      },
+      "stop": {
+        "threadId": "01a1c317-ac7c-7798-92b3-cd92c689ffe9"
+      },
+      "core": {
+        "reply": {
+          "cancelRequested": true,
+          "turnId": "01a1c317-ad55-7190-930a-1343a01b0451",
+          "restore": {
+            "restoreText": "HOLD-EMPTY write the file",
+            "restoredSubmissionIds": [
+              "sub-running-no-output"
+            ]
+          }
+        },
+        "promptKept": false
+      }
+    },
+    {
+      "name": "running-with-output",
+      "start": {
+        "threadId": "01a1c317-ae53-713c-8b13-dc510c26cdf5",
+        "input": {
+          "prompt": "HOLD-TEXT write the file",
+          "options": {
+            "clientSubmissionId": "sub-running-with-output"
+          }
+        }
+      },
+      "stop": {
+        "threadId": "01a1c317-ae53-713c-8b13-dc510c26cdf5"
+      },
+      "core": {
+        "reply": {
+          "cancelRequested": true,
+          "turnId": "01a1c317-aedf-7736-883f-060c174d9951"
+        },
+        "promptKept": true
+      }
+    },
+    {
+      "name": "running-keep-prompt",
+      "start": {
+        "threadId": "01a1c317-b01b-75be-8920-76996c8802de",
+        "input": {
+          "prompt": "HOLD-EMPTY keep this prompt",
+          "options": {
+            "clientSubmissionId": "sub-running-keep-prompt"
+          }
+        }
+      },
+      "stop": {
+        "threadId": "01a1c317-b01b-75be-8920-76996c8802de",
+        "restorePrompt": false
+      },
+      "core": {
+        "reply": {
+          "cancelRequested": true,
+          "turnId": "01a1c317-b08d-746c-84d7-e61d4020239d"
+        },
+        "promptKept": true
+      }
+    },
+    {
+      "name": "running-steering-queued",
+      "start": {
+        "threadId": "01a1c317-b148-755d-bf41-6fc555458ba5",
+        "input": {
+          "prompt": "HOLD-EMPTY first prompt",
+          "options": {
+            "clientSubmissionId": "sub-running-steering-queued"
+          }
+        }
+      },
+      "second": {
+        "threadId": "01a1c317-b148-755d-bf41-6fc555458ba5",
+        "input": {
+          "prompt": "and also this",
+          "options": {
+            "clientSubmissionId": "sub-running-steering-queued-2"
+          }
+        }
+      },
+      "stop": {
+        "threadId": "01a1c317-b148-755d-bf41-6fc555458ba5"
+      },
+      "core": {
+        "reply": {
+          "cancelRequested": true,
+          "turnId": "01a1c317-b1d1-7336-815d-1b472f27648a"
+        },
+        "promptKept": true
+      }
+    },
+    {
+      "name": "running-pasted-text",
+      "start": {
+        "threadId": "01a1c317-b373-7582-954f-71c609276a52",
+        "input": {
+          "prompt": "HOLD-EMPTY with a paste",
+          "options": {
+            "clientSubmissionId": "sub-running-pasted-text",
+            "pastedTexts": {
+              "1": {
+                "id": 1,
+                "text": "a pasted block"
+              }
+            }
+          }
+        }
+      },
+      "stop": {
+        "threadId": "01a1c317-b373-7582-954f-71c609276a52"
+      },
+      "core": {
+        "reply": {
+          "cancelRequested": true,
+          "turnId": "01a1c317-b3f7-744d-9822-db6e564364f0",
+          "restore": {
+            "restoreText": "HOLD-EMPTY with a paste",
+            "restoredSubmissionIds": [
+              "sub-running-pasted-text"
+            ],
+            "pastedTexts": {
+              "1": {
+                "id": 1,
+                "text": "a pasted block",
+                "attachmentRef": "fd434aeafe30cd343fc401e47a64f1fa60741e1fc8ae9e2e83063caf2cba2ea3",
+                "sizeBytes": 14,
+                "chars": 14
+              }
+            }
+          }
+        },
+        "promptKept": false
+      }
+    },
+    {
+      "name": "running-then-stopped-again",
+      "start": {
+        "threadId": "01a1c317-b4cc-72d0-9cca-4ed91f3deea5",
+        "input": {
+          "prompt": "HOLD-EMPTY stop me twice",
+          "options": {
+            "clientSubmissionId": "sub-running-then-stopped-again"
+          }
+        }
+      },
+      "stop": {
+        "threadId": "01a1c317-b4cc-72d0-9cca-4ed91f3deea5"
+      },
+      "core": {
+        "reply": {
+          "cancelRequested": true,
+          "turnId": "01a1c317-b543-736b-8100-7810f552074a",
+          "restore": {
+            "restoreText": "HOLD-EMPTY stop me twice",
+            "restoredSubmissionIds": [
+              "sub-running-then-stopped-again"
+            ]
+          }
+        },
+        "again": {
+          "request": {
+            "threadId": "01a1c317-b4cc-72d0-9cca-4ed91f3deea5"
+          },
+          "reply": {
+            "error": {
+              "code": -32600,
+              "data": {
+                "reason": "turnNotActive",
+                "threadId": "01a1c317-b4cc-72d0-9cca-4ed91f3deea5"
+              },
+              "message": "turnNotActive"
+            }
+          }
+        },
+        "promptKept": false
+      }
+    }
+  ]
+}

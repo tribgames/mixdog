@@ -1,0 +1,132 @@
+{
+  "manifest": {
+    "exact": true,
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "filesVerified": 20655,
+    "source": "Node daemon + SessionHost from the exact export, run unchanged; model endpoint remote-protocol-chat-abort-provider.mjs"
+  },
+  "cases": [
+    {
+      "name": "running-no-output",
+      "stop": {},
+      "node": {
+        "reply": {
+          "aborted": true,
+          "restoreText": "HOLD-EMPTY write the file",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": [
+            "sub-running-no-output"
+          ]
+        },
+        "promptKept": false
+      }
+    },
+    {
+      "name": "running-with-output",
+      "stop": {},
+      "node": {
+        "reply": {
+          "aborted": true,
+          "restoreText": "",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": []
+        },
+        "promptKept": true
+      }
+    },
+    {
+      "name": "running-keep-prompt",
+      "stop": {
+        "restorePrompt": false
+      },
+      "node": {
+        "reply": {
+          "aborted": true,
+          "restoreText": "",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": []
+        },
+        "promptKept": true
+      }
+    },
+    {
+      "name": "running-steering-queued",
+      "stop": {},
+      "node": {
+        "reply": {
+          "aborted": true,
+          "restoreText": "",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": []
+        },
+        "promptKept": true
+      }
+    },
+    {
+      "name": "running-pasted-text",
+      "stop": {},
+      "node": {
+        "reply": {
+          "aborted": true,
+          "restoreText": "HOLD-EMPTY with a paste",
+          "pastedImages": null,
+          "pastedTexts": {
+            "1": {
+              "id": 1,
+              "attachmentRef": "fd434aeafe30cd343fc401e47a64f1fa60741e1fc8ae9e2e83063caf2cba2ea3",
+              "sizeBytes": 14,
+              "chars": 14,
+              "text": "a pasted block"
+            }
+          },
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": [
+            "sub-running-pasted-text"
+          ]
+        },
+        "promptKept": false
+      }
+    },
+    {
+      "name": "running-then-stopped-again",
+      "stop": {},
+      "again": {},
+      "node": {
+        "reply": {
+          "aborted": true,
+          "restoreText": "HOLD-EMPTY stop me twice",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": [
+            "sub-running-then-stopped-again"
+          ]
+        },
+        "second": {
+          "aborted": false,
+          "restoreText": "",
+          "pastedImages": null,
+          "pastedTexts": null,
+          "discardPastedImages": null,
+          "discardPastedTexts": null,
+          "restoredSubmissionIds": []
+        },
+        "promptKept": false
+      }
+    }
+  ]
+}

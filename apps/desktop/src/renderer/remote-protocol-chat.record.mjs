@@ -101,9 +101,6 @@ await record('markSessionRead-unchanged', 'markSessionRead', [S, 3, false], { li
   return h.markSessionRead(S, 3, false);
 });
 await record('getTaskWorkspace', 'getTaskWorkspace', [], {}, (h) => h.getTaskWorkspace());
-await record('abortSession-restored', 'abortSession', [S, {}], {
-  abort: { ...full(S), aborted: true, restoreText: 'draft', restoredSubmissionIds: ['sub1'] },
-}, (h) => h.abortSession(S, {}));
 await record('abortSession-idle', 'abortSession', [S, {}], { abort: { ...full(S), aborted: false } }, (h) => h.abortSession(S, {}));
 await record('submitToSession-accepted', 'submitToSession', [S, 'hi', { id: 'sub1' }], { submit: { ...full(S), accepted: true } }, (h) =>
   h.submitToSession(S, 'hi', { id: 'sub1' }));
