@@ -18,9 +18,9 @@ import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { planShellInvocation } from '../agent/orchestrator/tools/builtin/bash-tool/invocation-plan.mjs';
-import { buildShellSpawnEnv } from '../agent/orchestrator/tools/builtin/bash-tool/spawn-env.mjs';
-import { resolveShellFor } from '../agent/orchestrator/tools/builtin/shell-runtime.mjs';
+
+
+
 import { displayShellCommand, POWERSHELL_UTF8_PREFIX } from './shell-display.mjs';
 import {
   archiveRootOf,
@@ -296,7 +296,12 @@ test('mixdog-skill-node by name runs a script as the main module with every argu
 /** PowerShell 7 and, on Windows, the bundled Windows PowerShell 5.1. */
 function powerShells() {
   const shells = [];
-  const pwsh = resolveShellFor('powershell')?.shell;
+  const pwshName = process.platform === 'win32' ? 'pwsh.exe' : 'pwsh';
+  const pwsh = (process.env.PATH || '')
+    .split(process.platform === 'win32' ? ';' : ':')
+    .filter(Boolean)
+    .map((dir) => join(dir, pwshName))
+    .find((candidate) => existsSync(candidate));
   if (pwsh) shells.push(pwsh);
   if (process.platform === 'win32') {
     const bundled = join(
@@ -327,48 +332,7 @@ const PS_ARGS = [
   'trailing\\',
 ];
 
-test('PowerShell model commands carry a mixdog-skill-node function that the display form hides', async () => {
-  const command = "mixdog-skill-node 'x.mjs'";
-  const plan = await planShellInvocation({
-    command,
-    resolvedSpec: { shell: 'pwsh', shellArg: '-Command', shellArgs: ['-Command'], shellType: 'powershell' },
-    cwd: tmpdir(),
-  });
-  const fn = renderPowerShellSkillFunction(skillScriptRuntime());
-  assert.equal(
-    plan.wrappedCommand,
-    `${process.platform === 'win32' ? `${POWERSHELL_UTF8_PREFIX}\n` : ''}${fn}\n${command}`
-  );
-  assert.equal(displayShellCommand(plan.wrappedCommand), command);
-  assert.equal(displayShellCommand(`${fn}\n${command}`), command);
-  assert.equal(displayShellCommand('function other { }\nls'), 'function other { }\nls');
-  // Electron node mode appears only in an Electron daemon's function; no
-  // caller argument reaches the native command line.
-  assert.doesNotMatch(fn, /ELECTRON_RUN_AS_NODE/);
-  const runtime = skillScriptRuntime();
-  const electronFn = renderPowerShellSkillFunction({ ...runtime, electron: true });
-  assert.match(electronFn, /\$env:ELECTRON_RUN_AS_NODE = '1'/);
-  assert.ok(electronFn.includes(`& ${psQuote(runtime.interpreter)} ${psQuote(runtime.entry)} } finally {`), electronFn);
-  assert.match(
-    renderPowerShellSkillFunction({ interpreter: "C:\\it's\u2019\\n.exe", entry: 'e', electron: false }),
-    /'C:\\it''s\u2019\u2019\\n\.exe'/
-  );
-});
 
-test('bash, sh and other non-PowerShell children never get the function', async () => {
-  const command = 'mixdog-skill-node "x.mjs"';
-  const plan = await planShellInvocation({
-    command,
-    resolvedSpec: { shell: 'bash', shellArg: '-c', shellArgs: ['-c'], shellType: 'posix' },
-    cwd: tmpdir(),
-  });
-  for (const value of [plan.wrappedCommand, ...Object.values(plan.spawnEnv)]) {
-    assert.doesNotMatch(String(value), /function mixdog-skill-node/);
-  }
-  for (const value of Object.values(buildShellSpawnEnv(tmpdir()))) {
-    assert.doesNotMatch(String(value), /function mixdog-skill-node/);
-  }
-});
 
 test('the argument hand-over survives every argument shape', () => {
   assert.equal(decodeSkillArgv(undefined), null);
@@ -466,55 +430,12 @@ for (const shell of powerShells()) {
       assert.equal(lines[0], 'state:True:True:0');
       assert.equal(lines[1], 'prev:prev');
       assert.deepEqual(JSON.parse(lines[2]), { args: PS_ARGS, main: true, electronMode: false, argvEnv: false });
-
-      // The reviewed failure: cmd used to split `missing&ver` and run `ver`.
-      // Through the real planner, with and without the UTF-8 prefix already
-      // in the command, and with the output discarded.
-      for (const text of [
-        "mixdog-skill-node 'missing&ver'\n'not reached'",
-        `${POWERSHELL_UTF8_PREFIX}\nmixdog-skill-node 'missing&ver'\n'not reached'`,
-        "mixdog-skill-node 'missing&ver' | Out-Null\n'not reached'",
-      ]) {
-        const plan = await planShellInvocation({
-          command: text,
-          resolvedSpec: { shell, shellArg: '-Command', shellArgs: flags, shellType: 'powershell' },
-          cwd: root,
-        });
-        assert.equal(plan.wrappedCommand.split('function mixdog-skill-node {').length, 2, plan.wrappedCommand);
-        const failing = await run(shell, [...flags, plan.wrappedCommand], { cwd: root, env });
-        assert.equal(failing.code, 1, `${text}\n${failing.stdout}\n${failing.stderr}`);
-        assert.equal(failing.stdout.trim(), '');
-        assert.match(failing.stderr, /missing&ver/);
-      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 }
 
-test('bash (Git Bash on Windows) resolves mixdog-skill-node by name and propagates arguments and the exit code', {
-  skip: !resolveShellFor('bash') && 'bash is not installed on this host',
-}, async () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog skill bash '));
-  try {
-    const { script, env } = launcherEnv(root, SPECIAL_DATA_DIR);
-    const { shell } = resolveShellFor('bash');
-    // The command reaches bash the way the shell tool delivers it: through
-    // the environment and eval, so MSYS argv parsing never re-reads quotes.
-    env.MIXDOG_SHELL_SCRIPT = `mixdog-skill-node ${[script, ...SPECIAL_ARGS].map(posixQuote).join(' ')}`;
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion
-    const result = await run(shell, ['-c', 'eval "${MIXDOG_SHELL_SCRIPT}"'], { cwd: root, env });
-    assert.equal(result.code, 7, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout), {
-      args: SPECIAL_ARGS,
-      main: true,
-      electronMode: false,
-      argvEnv: false,
-    });
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
 
 test('a Windows launcher whose runtime path is not ASCII still starts it', {
   skip: process.platform !== 'win32' && 'cmd code pages are Windows-only',

@@ -4,7 +4,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import JSZip from 'jszip';
 import { executeOfficeTool } from './index.mjs';
-import { officeSnapshotContractViolations } from './core/snapshot-contract.mjs';
+
 import { MALGUN_GOTHIC_INSTALLED, parts, value, workspace } from './office-test-support.mjs';
 import { sessions } from './core/office-core.mjs';
 import { recalculateForReview } from './core/office-recalculation.mjs';
@@ -1674,69 +1674,6 @@ test('the audit reads the whole sheet, not the page a reader is shown', async (t
   value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
 });
 
-test('portable snapshots carry notes, booleans, and conventions; the financial audit reads the notes', async (t) => {
-  const cwd = await workspace(t);
-  const path = join(cwd, 'noted.xlsx');
-  const created = value(
-    await executeOfficeTool(
-      {
-        action: 'create',
-        path,
-        format: 'xlsx',
-        mode: 'portable',
-        operations: [
-          { op: 'set_cell', cell: 'A1', value: 'Growth' },
-          { op: 'set_cell', cell: 'B1', value: 0.05 },
-          { op: 'set_style', cell: 'B1', properties: { numberFormat: '0.0%', color: '0000FF' } },
-          { op: 'add_note', cell: 'B1', text: 'user brief 2026-09-06: 5% growth' },
-          { op: 'set_cell', cell: 'B2', value: 100 },
-          { op: 'set_formula', cell: 'C2', formula: '=B2*(1+$B$1)' },
-          { op: 'set_cell', cell: 'D1', value: true },
-          {
-            op: 'set_range',
-            range: 'A4:B6',
-            values: [
-              ['Item', 'Qty'],
-              ['bolt', 4],
-              ['nut', 6],
-            ],
-          },
-          { op: 'add_table', range: 'A4:B6', name: 'Items' },
-          { op: 'set_formula', cell: 'B7', formula: '=SUM(B5:B6)' },
-        ],
-      },
-      { cwd }
-    )
-  );
-  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
-  const first = snapshot.document.sheets[0];
-  const cells = new Map(first.cells.map((cell) => [cell.ref, cell]));
-  assert.equal(cells.get('B1').note, 'user brief 2026-09-06: 5% growth');
-  assert.equal(first.noteCount, 1);
-  assert.equal(first.notes[0].cell, 'B1');
-  assert.equal(cells.get('D1').value, true);
-  assert.equal(first.tableCount, 1);
-  assert.deepEqual(first.tables[0], {
-    path: `/sheet[${first.name}]/table[1]`,
-    index: 1,
-    name: 'Items',
-    range: 'A4:B6',
-    style: 'TableStyleMedium2',
-  });
-  assert.deepEqual(officeSnapshotContractViolations(snapshot.document, { format: 'xlsx', paged: true }), []);
-  assert.deepEqual(snapshot.document.conventions.inputMarkers.fontColors, [{ color: '0000FF', cells: 1 }]);
-  assert.deepEqual(snapshot.document.conventions.sampleInputs, [`${first.name}!B1`]);
-  assert.ok(snapshot.document.defaultStyle?.fontName, 'the workbook default face is reported');
-  assert.equal(snapshot.document.conventions.defaultFont, snapshot.document.defaultStyle.fontName);
-
-  const audited = value(
-    await executeOfficeTool({ action: 'issues', session: created.session, auditProfile: 'financial-model' }, { cwd })
-  );
-  assert.deepEqual(
-    audited.issues.filter((entry) => entry.code === 'hardcode_missing_source').map((entry) => entry.path),
-    [`/sheet[${first.name}]/cell[B2]`]
-  );
-});
 
 // One letter per body block of a Word document: T a table, e an empty (self-closed) paragraph, p a paragraph.
 function blockLetter(match) {

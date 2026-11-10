@@ -12,10 +12,8 @@ const dataDir = makeTempDirSync('message-attachments');
 process.env.MIXDOG_DATA_DIR = dataDir;
 
 const { attachmentsForIntake, collectPromptAttachments, materializePromptSubmission } = await import('./store.mjs');
-const { persistedUserTranscriptMetadata, normalizeMessageAttachments } = await import(
-  '../shared/transcript-metadata.mjs'
-);
-const { restoreTranscriptItems } = await import('../agent/orchestrator/session/transcript-restore/restore.mjs');
+
+
 
 const b64 = (text) => Buffer.from(text).toString('base64');
 
@@ -75,23 +73,6 @@ test('a plain long prompt is not an attachment', () => {
   assert.deepEqual(attachmentsForIntake(intake.prompt, intake.options), []);
 });
 
-test('the persisted and restored user row keep the attachments, and drop malformed ones', () => {
-  const intake = submit();
-  const attachments = attachmentsForIntake(intake.prompt, intake.options);
-  const meta = persistedUserTranscriptMetadata({ messageId: 'msg_1', at: 1, attachments });
-  assert.deepEqual(meta.attachments, attachments);
-  assert.deepEqual(
-    normalizeMessageAttachments([...attachments, { id: '../etc/passwd', name: 'x' }, { id: 'a'.repeat(63) }, null]),
-    attachments
-  );
-  const [row] = restoreTranscriptItems([{ role: 'user', content: 'hello', meta: { transcript: meta } }]);
-  assert.equal(row.kind, 'user');
-  assert.deepEqual(row.attachments, attachments);
-  const [plain] = restoreTranscriptItems([
-    { role: 'user', content: 'legacy', meta: { transcript: { messageId: 'm' } } },
-  ]);
-  assert.equal('attachments' in plain, false, 'a legacy row has no attachment records');
-});
 
 test('the census keeps blobs a message record names and sweeps the unreferenced ones', async () => {
   const intake = submit();

@@ -5,31 +5,18 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { collectSkills } from '../src/runtime/agent/orchestrator/context/collect.mjs';
 import { validateSkillDirectory } from '../src/defaults/skills/skill-creator/scripts/validate-skill.mjs';
 
 const repoRoot = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 const builtinSkillDir = join(repoRoot, 'src', 'defaults', 'skills', 'skill-creator');
 
-test('the bundled skill-creator validates and is collected as a built-in skill', () => {
+// Collecting it as a built-in skill is the core's (mixdog-mcp tests/it/discovery_suite.rs
+// `skills_are_collected_in_precedence_with_folder_rules_and_gating`).
+test('the bundled skill-creator validates', () => {
   const result = validateSkillDirectory(builtinSkillDir);
   assert.deepEqual(result.errors, []);
   assert.equal(result.ok, true);
   assert.equal(result.skill.name, 'skill-creator');
-
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-creator-collect-'));
-  const previousDataDir = process.env.MIXDOG_DATA_DIR;
-  process.env.MIXDOG_DATA_DIR = join(root, 'data');
-  try {
-    const skill = collectSkills(repoRoot).find((candidate) => candidate.name === 'skill-creator');
-    assert.ok(skill);
-    assert.equal(skill.source, 'builtin');
-    assert.equal(skill.filePath, join(builtinSkillDir, 'SKILL.md'));
-  } finally {
-    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
-    else process.env.MIXDOG_DATA_DIR = previousDataDir;
-    rmSync(root, { recursive: true, force: true });
-  }
 });
 
 test('the validator accepts standard multiline frontmatter and existing resources', () => {

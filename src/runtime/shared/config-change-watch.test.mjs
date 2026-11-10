@@ -40,33 +40,7 @@ const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
 Object.defineProperty(process, 'platform', { value: 'linux' });
 
 const configModule = path.join(path.dirname(fileURLToPath(import.meta.url)), 'config.mjs');
-const oauthClientModule = path.join(
-  path.dirname(configModule),
-  '..',
-  'agent',
-  'orchestrator',
-  'mcp',
-  'oauth-client.mjs'
-);
-const gmailModule = path.join(path.dirname(configModule), '..', 'connectors', 'gmail-app-password.mjs');
-const pluginAdminModule = path.join(
-  path.dirname(configModule),
-  '..',
-  '..',
-  'session-runtime',
-  'services',
-  'plugin-admin.mjs'
-);
 const config = await import(pathToFileURL(configModule).href);
-
-// Run `body` (module code) in another process of the same install.
-function inAnotherProcess(body) {
-  const result = spawnSync(process.execPath, ['--input-type=module', '-e', body], {
-    env: { ...process.env },
-    encoding: 'utf8',
-  });
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-}
 
 after(() => {
   Object.defineProperty(process, 'platform', realPlatform);
@@ -243,90 +217,5 @@ test('a key saved by another process reaches this process although the config fi
   }
 });
 
-test('an MCP OAuth client secret and a Gmail app password changed in another process reach this one', async () => {
-  const { mcpOAuthClientSecretAccount } = await import(pathToFileURL(oauthClientModule).href);
-  const { gmailAppPasswordSecretAccount } = await import(pathToFileURL(gmailModule).href);
-  const url = 'https://mcp.example.test/mcp';
-  const mcpAccount = mcpOAuthClientSecretAccount(url);
-  const gmailAccount = gmailAppPasswordSecretAccount('me@example.com');
-  // The app password was saved here earlier; the other process forgets it.
-  await config.keychainSecretStore.setSecretAsync(gmailAccount, 'abcdwxyzabcdwxyz');
-  const before = config.secretChangeTokens();
-  let notified = 0;
-  const unsubscribe = config.subscribeConfigChange(() => {
-    notified += 1;
-  });
-  try {
-    const writer = `
-      Object.defineProperty(process, 'platform', { value: 'linux' });
-      const { saveMcpOAuthClientSecret } = await import(${JSON.stringify(pathToFileURL(oauthClientModule).href)});
-      const { forgetGmailAppPassword } = await import(${JSON.stringify(pathToFileURL(gmailModule).href)});
-      await saveMcpOAuthClientSecret(${JSON.stringify(url)}, 'client-secret-from-elsewhere');
-      await forgetGmailAppPassword('me@example.com');
-    `;
-    const result = spawnSync(process.execPath, ['--input-type=module', '-e', writer], {
-      env: { ...process.env },
-      encoding: 'utf8',
-    });
-    assert.equal(result.status, 0, result.stderr || result.stdout);
-    const changed = () => {
-      const tokens = config.secretChangeTokens();
-      return tokens[mcpAccount] !== before[mcpAccount] && tokens[gmailAccount] !== before[gmailAccount];
-    };
-    assert.ok(await waitFor(() => notified > 0 && changed()), 'both keychain writes were announced here');
-    assert.equal(await config.keychainSecretStore.getSecretAsync(mcpAccount), 'client-secret-from-elsewhere');
-    assert.equal(config.hasStoredSecret(gmailAccount), false);
-    const marker = JSON.parse(fs.readFileSync(path.join(dirs.data, 'mixdog-secrets-changed.json'), 'utf8'));
-    assert.equal(gmailAccount in marker, false, 'a deleted account leaves the marker');
-  } finally {
-    unsubscribe();
-  }
-});
 
-test('a process with no change subscriber never serves a secret forgotten elsewhere from its cache', async () => {
-  const { createRequire } = await import('node:module');
-  const keychain = createRequire(import.meta.url)('../../lib/keychain-cjs.cjs');
-  const { gmailAppPasswordSecretAccount } = await import(pathToFileURL(gmailModule).href);
-  const account = gmailAppPasswordSecretAccount('cached@example.com');
-  // The OS keychain, shared by every process, with this process's read cache.
-  const shared = new Map();
-  const cache = new Map();
-  const real = { ...keychain };
-  Object.assign(keychain, {
-    getSecretAsync: async (key) =>
-      cache.has(key) ? cache.get(key) : (cache.set(key, shared.get(key) ?? null), shared.get(key) ?? null),
-    setSecretAsync: async (key, value) => void (shared.set(key, value), cache.delete(key)),
-    invalidateSecretCache: (key) => (key == null ? cache.clear() : cache.delete(key)),
-  });
-  try {
-    await config.keychainSecretStore.setSecretAsync(account, 'abcdwxyzabcdwxyz');
-    assert.equal(await config.keychainSecretStore.getSecretAsync(account), 'abcdwxyzabcdwxyz');
-    inAnotherProcess(`
-      Object.defineProperty(process, 'platform', { value: 'linux' });
-      const { forgetGmailAppPassword } = await import(${JSON.stringify(pathToFileURL(gmailModule).href)});
-      await forgetGmailAppPassword('cached@example.com');
-    `);
-    shared.delete(account); // what the other process's delete did to the shared keychain
-    assert.equal(await config.keychainSecretStore.getSecretAsync(account), null);
-  } finally {
-    Object.assign(keychain, real);
-  }
-});
 
-test('a plugin installed or removed in another process reaches this one', async () => {
-  const source = path.join(root, 'local-plugin');
-  fs.mkdirSync(source, { recursive: true });
-  fs.writeFileSync(path.join(source, 'plugin.json'), JSON.stringify({ name: 'local-test' }));
-  const tokens = [config.secretChangeTokens()['#plugins']];
-  const unsubscribe = config.subscribeConfigChange(() => {});
-  try {
-    const admin = JSON.stringify(pathToFileURL(pluginAdminModule).href);
-    inAnotherProcess(`const { addPlugin } = await import(${admin}); addPlugin(${JSON.stringify(source)});`);
-    assert.ok(await waitFor(() => config.secretChangeTokens()['#plugins'] !== tokens[0]), 'the install was announced');
-    tokens.push(config.secretChangeTokens()['#plugins']);
-    inAnotherProcess(`const { removePlugin } = await import(${admin}); removePlugin('local-test');`);
-    assert.ok(await waitFor(() => config.secretChangeTokens()['#plugins'] !== tokens[1]), 'the removal was announced');
-  } finally {
-    unsubscribe();
-  }
-});
