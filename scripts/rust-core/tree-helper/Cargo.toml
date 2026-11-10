@@ -15,8 +15,12 @@ windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Thre
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1", default-features = false, features = ["std", "process", "event", "fs"] }
+signal-hook = { version = "0.3", default-features = false, features = ["iterator"] }
 
 [profile.release]
 opt-level = "s"
 lto = true
 panic = "abort"
+
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_JobObjects"] }
