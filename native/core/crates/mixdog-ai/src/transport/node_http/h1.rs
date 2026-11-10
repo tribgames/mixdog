@@ -197,6 +197,7 @@ impl H1Body {
         self.incoming = None;
         self.conn = None;
         self.reuse = None;
+        self.decoder = None;
         Some(Err(fault))
     }
 }
@@ -217,6 +218,20 @@ impl BodyStream for H1Body {
 
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
         loop {
+            // What the decoder can hand on from what it holds comes first, one step at a time; the socket is read
+            // again only when it has nothing left.
+            if let Some(decoder) = self.decoder.as_mut() {
+                match decoder.step() {
+                    Err(e) => return self.fail(fault_from_io(&e, false)),
+                    Ok(Some(step)) => return Some(Ok(Bytes::from(step))),
+                    Ok(None) if self.incoming.is_none() => {
+                        self.decoder = None;
+                        self.release();
+                        return None;
+                    }
+                    Ok(None) => {}
+                }
+            }
             let incoming = self.incoming.as_mut()?;
             let frame = match tokio::time::timeout(BODY_TIMEOUT, incoming.frame()).await {
                 Err(_) => return self.fail(TransportFault::Io { os_code: None }),
@@ -225,30 +240,29 @@ impl BodyStream for H1Body {
             match frame {
                 None => {
                     self.incoming = None;
-                    let tail = match self.decoder.take().map(Decoder::finish) {
-                        Some(Err(e)) => return self.fail(fault_from_io(&e, false)),
-                        Some(Ok(tail)) => tail,
-                        None => Vec::new(),
-                    };
-                    self.release();
-                    return (!tail.is_empty()).then(|| Ok(Bytes::from(tail)));
+                    match self.decoder.as_mut() {
+                        // The stream must end whole: the steps left are taken at the top of the loop.
+                        Some(decoder) => decoder.end(),
+                        None => {
+                            self.release();
+                            return None;
+                        }
+                    }
                 }
                 Some(Err(e)) => return self.fail(fault_from_chain(&e, false)),
                 Some(Ok(frame)) => {
                     let Ok(raw) = frame.into_data() else { continue };
-                    let out = match self.decoder.as_mut() {
-                        Some(decoder) => match decoder.feed(&raw) {
-                            Ok(out) => Bytes::from(out),
-                            Err(e) => return self.fail(fault_from_io(&e, false)),
-                        },
-                        None => raw,
-                    };
-                    if self.incoming.as_ref().is_some_and(Body::is_end_stream) && self.decoder.is_none() {
-                        self.incoming = None;
-                        self.release();
-                    }
-                    if !out.is_empty() {
-                        return Some(Ok(out));
+                    match self.decoder.as_mut() {
+                        Some(decoder) => decoder.feed(&raw),
+                        None => {
+                            if self.incoming.as_ref().is_some_and(Body::is_end_stream) {
+                                self.incoming = None;
+                                self.release();
+                            }
+                            if !raw.is_empty() {
+                                return Some(Ok(raw));
+                            }
+                        }
                     }
                 }
             }

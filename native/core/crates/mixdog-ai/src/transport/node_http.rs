@@ -12,6 +12,9 @@ mod decode;
 mod h1;
 mod pool;
 
+/// The most one part of a decoded body holds.
+pub use decode::STEP as DECODED_STEP;
+
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -650,13 +653,15 @@ impl NodeClient {
             .collect();
         let bodiless = request.method == "HEAD" || matches!(status, 204 | 304);
         let decoder = if bodiless { None } else { Decoder::of(list.iter().find(|(n, _)| n == "content-encoding").map(|(_, v)| v.as_str())) };
-        Ok(HttpResponse { status, headers: list, body: Box::new(H2Body { stream: response.into_body(), decoder, _guard: guard }) })
+        Ok(HttpResponse { status, headers: list, body: Box::new(H2Body { stream: response.into_body(), decoder, ended: false, _guard: guard }) })
     }
 }
 
 struct H2Body {
     stream: h2::RecvStream,
     decoder: Option<Decoder>,
+    /// The stream has ended (or failed in its decoding); only the decoder's steps are left.
+    ended: bool,
     _guard: pool::H2Guard,
 }
 
@@ -664,33 +669,49 @@ struct H2Body {
 impl BodyStream for H2Body {
     async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
         loop {
+            // The decoder's steps first, one at a time; the stream is read again only when it has nothing left.
+            if let Some(decoder) = self.decoder.as_mut() {
+                match decoder.step() {
+                    Err(e) => {
+                        self.decoder = None;
+                        self.ended = true;
+                        return Some(Err(fault_from_io(&e, false)));
+                    }
+                    Ok(Some(step)) => return Some(Ok(Bytes::from(step))),
+                    Ok(None) if self.ended => {
+                        self.decoder = None;
+                        return None;
+                    }
+                    Ok(None) => {}
+                }
+            }
+            if self.ended {
+                return None;
+            }
             let data = match tokio::time::timeout(BODY_TIMEOUT, self.stream.data()).await {
                 Err(_) => return Some(Err(TransportFault::Io { os_code: None })),
                 Ok(data) => data,
             };
             let Some(data) = data else {
                 // The stream ended: a decoder that did not reach the end of its stream is a truncated body.
-                let tail = match self.decoder.take().map(Decoder::finish) {
-                    Some(Err(e)) => return Some(Err(fault_from_io(&e, false))),
-                    Some(Ok(tail)) => tail,
-                    None => Vec::new(),
-                };
-                return (!tail.is_empty()).then(|| Ok(Bytes::from(tail)));
+                self.ended = true;
+                match self.decoder.as_mut() {
+                    Some(decoder) => {
+                        decoder.end();
+                        continue;
+                    }
+                    None => return None,
+                }
             };
             let raw = match data {
                 Ok(raw) => raw,
                 Err(e) => return Some(Err(super::fault::fault_from_chain(&e, false))),
             };
             let _ = self.stream.flow_control().release_capacity(raw.len());
-            let out = match self.decoder.as_mut() {
-                Some(decoder) => match decoder.feed(&raw) {
-                    Ok(out) => Bytes::from(out),
-                    Err(e) => return Some(Err(fault_from_io(&e, false))),
-                },
-                None => raw,
-            };
-            if !out.is_empty() {
-                return Some(Ok(out));
+            match self.decoder.as_mut() {
+                Some(decoder) => decoder.feed(&raw),
+                None if !raw.is_empty() => return Some(Ok(raw)),
+                None => {}
             }
         }
     }
