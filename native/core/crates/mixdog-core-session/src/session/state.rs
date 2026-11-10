@@ -117,6 +117,8 @@ pub(crate) struct SessionState {
     pub queue: Vec<Queued>,
     pub window: VecDeque<WindowItem>,
     pub has_older: bool,
+    /// The newest acked user row that shows no row (a kickoff): its iid and ordinal, so its turn's own rewind finds it.
+    pub hidden_prompt: Option<(String, u64)>,
     pub live: Vec<LiveItem>,
     pub sections: ThreadState,
     pub view_items: usize,
@@ -254,6 +256,11 @@ impl SessionState {
                     self.remerge_prompts();
                 }
                 let mut messages = u32::from(item.model);
+                if item.role.as_ref().is_some_and(|role| role.as_str() == "user") &&(!item.visible || !matches!(display, Display::Items(shown) if shown.iter().any(|shown| matches!(shown, Shown::Item(_))))) {
+                    if let Some(ordinal) = ordinal {
+                        self.hidden_prompt = Some((item.iid.as_str().to_owned(), ordinal));
+                    }
+                }
                 let Display::Items(shown) = display else {
                     if let Some(last) = self.window.back_mut() {
                         last.messages += messages;

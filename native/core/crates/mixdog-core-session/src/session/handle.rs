@@ -251,6 +251,17 @@ impl SessionHandle {
             let claimed = on_lane(self.deps.lanes.durability, &req.ctx.cancel, move |lane| originals.claim(lane, &named)).await.unwrap_or_default();
             super::staged_originals::drop_lost_originals(&mut req.params, &claimed);
         }
+        // `materializePastedTexts` at intake (`attachments/store.mjs:466-499`): an inline pasted text is stored as a blob before it is
+        // queued, so the prompt's stored row lists it among its attachments and every later reader names the same reference.
+        if let Some(texts) = req.params.pointer("/input/options/pastedTexts").filter(|texts| texts.is_object()).cloned() {
+            let store = self.deps.attachments.clone();
+            let texts = on_lane(self.deps.lanes.io, &cancel, move |lane| {
+                let mut texts = texts;
+                super::restore_hydrate::materialize_texts(&store, lane, &mut texts).map(|()| texts)
+            })
+            .await??;
+            req.params["input"]["options"]["pastedTexts"] = texts;
+        }
         // A full inbox must not hold the gate past the caller's cancel.
         // A session whose thread has ended takes nothing (drain-enqueue.mjs:27, admission 	erminal): Node answers a refused submit alse.
         let closed = || mixdog_core_base::support::coded("session", super::actor::SUBMIT_REFUSED, "The session is closed.");

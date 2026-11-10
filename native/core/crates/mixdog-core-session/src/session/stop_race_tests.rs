@@ -103,13 +103,18 @@ async fn a_stopped_runtime_prompt_runs_again() {
     let (count, mut counted) = tokio::sync::watch::channel(0usize);
     let inputs: Arc<std::sync::Mutex<Vec<Value>>> = Arc::default();
     let seen = inputs.clone();
+    let rewinds: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    let rewound = rewinds.clone();
     rig.set_script(Arc::new(move |run| {
-        let (seen, count) = (seen.clone(), count.clone());
+        let (seen, count, rewound) = (seen.clone(), count.clone(), rewound.clone());
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
             seen.lock().unwrap().push(serde_json::to_value(&run.input).expect("input serializes"));
             count.send_modify(|n| *n += 1);
             run.cancel.cancelled().await;
+            // The run host's end of a cancelled turn that produced nothing (run_host/factory.rs): its prompt's row is rewound.
+            let outcome = format!("{:?}", run.port.closing().prompt_rewound(run.input_item.clone()).await);
+            rewound.lock().unwrap().push(outcome);
             RunOutcome::Interrupted
         })
     }));
@@ -129,8 +134,71 @@ async fn a_stopped_runtime_prompt_runs_again() {
     awaiting(|| "the requeued prompt to run as the next turn".to_owned(), counted.wait_for(|n| *n == 2)).await.expect("count");
     let inputs = inputs.lock().unwrap().clone();
     assert_eq!(inputs[1], inputs[0], "the same prompt and submission run again");
+    // The stopped turn's kickoff row shows nothing, and its rewind still takes it (recorded: `running-runtime-turn`'s list row counts
+    // one message while the requeued turn runs).
+    assert_eq!(*rewinds.lock().unwrap(), vec!["Ok(())".to_owned()], "the stopped kickoff's row is rewound");
     let view = handle.cell.view.load_full();
     assert!(!view.items.iter().any(|item| matches!(item.as_ref(), mixdog_protocol::ThreadItem::TurnEnd { .. })), "the stopped turn shows no end: {:?}", view.items);
+    // A kickoff reaches the model only (`submission.mjs:17-20`): neither turn shows a user bubble (recorded: `running-runtime-turn`'s
+    // transcript is empty while the requeued turn runs).
+    assert!(!view.items.iter().any(|item| matches!(item.as_ref(), mixdog_protocol::ThreadItem::UserMessage { .. })), "no user bubble: {:?}", view.items);
+}
+
+/// An inline pasted text is stored at intake (`materializePastedTexts`, attachments/store.mjs:466-499): the turn reads it by its
+/// content reference, so its stored prompt row lists the attachment even when another device's Stop keeps the prompt
+/// (remote-protocol-chat-abort.recorded.json `other-device-with-attachment`).
+#[tokio::test]
+async fn an_inline_pasted_text_is_stored_when_the_prompt_is_taken_in() {
+    let rig = Rig::new();
+    let (seen, mut got) = tokio::sync::watch::channel(None::<Value>);
+    rig.set_script(Arc::new(move |run| {
+        let seen = seen.clone();
+        Box::pin(async move {
+            seen.send_replace(Some(serde_json::to_value(&run.input).expect("input serializes")));
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    handle
+        .request(super::tests::request(
+            "turn/start",
+            json!({ "threadId": handle.id, "opId": "op-1", "input": { "prompt": "with a paste", "options": { "pastedTexts": { "1": { "id": 1, "text": "a pasted block" } } } } }),
+            "op-1",
+        ))
+        .await
+        .expect("started");
+    let input = awaiting(|| "the turn to run".to_owned(), got.wait_for(Option::is_some)).await.expect("input").clone().expect("input");
+    let entry = &input["options"]["pastedTexts"]["1"];
+    let reference = entry["attachmentRef"].as_str().expect("a stored reference").trim_start_matches("sha256:").to_owned();
+    assert_eq!(reference, "fd434aeafe30cd343fc401e47a64f1fa60741e1fc8ae9e2e83063caf2cba2ea3", "Node's reference of the same text");
+    // Node's `materializePastedTexts` keeps the reference in place of the text.
+    assert_eq!((entry["sizeBytes"].clone(), entry["chars"].clone(), entry.get("text")), (json!(14), json!(14), None));
+}
+
+/// A stopped turn's activity stamp (`prepareCloseSnapshot`, ask-turn-state.mjs:256-257) is written before the record that reports the
+/// turn finished (`turn/completed`), so a list read after that notification shows `activityAt` = `updatedAt` as Node's row does
+/// (remote-protocol-chat-abort.recorded.json `running-keep-prompt`).
+#[tokio::test]
+async fn a_stopped_turns_activity_is_stamped_before_it_reports_finished() {
+    use mixdog_store::schema::record::{Record, RunPhase};
+    let rig = Rig::new();
+    rig.set_script(Arc::new(move |run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            run.cancel.cancelled().await;
+            RunOutcome::Interrupted
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    start(&handle).await;
+    awaiting(|| "the Stop's reply".to_owned(), stop(&handle)).await.expect("stop task");
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let records = rig.store.records(&handle.id);
+    let ended = records.iter().position(|(_, r)| matches!(r, Record::Run(run) if run.phase == RunPhase::Interrupted)).expect("run{interrupted}");
+    let stamped = records.iter().position(|(_, r)| matches!(r, Record::Meta(m) if matches!(&m.change, mixdog_store::schema::blob::Slot::Inline(c) if c.set.contains_key("lastUsedAt")))).expect("the activity stamp");
+    assert!(stamped < ended, "the stamp at {stamped} precedes the turn's end at {ended}");
 }
 
 /// A Stop while the person is asked (ask_user's question pending): the question's wait ends with the abort, so the call's card
@@ -176,8 +244,8 @@ async fn a_question_the_stop_ended_reads_the_aborts_error_on_its_card() {
         _ => None,
     });
     let expected = format!("Error: Session \"{}\" closed: runtime abort (reason=user-cancel)", handle.id.as_str());
-    // The error result ends the card as failed (the update's status, not the call's `inProgress`).
-    assert_eq!(result, Some((Some(mixdog_protocol::MaybeBlob::Inline(expected)), Some(true), Some(mixdog_protocol::ItemStatus::Failed))));
+    // The card is ended by the Stop: `interrupted`, which the client finalizes as a cancelled card.
+    assert_eq!(result, Some((Some(mixdog_protocol::MaybeBlob::Inline(expected)), Some(true), Some(mixdog_protocol::ItemStatus::Interrupted))));
 }
 
 /// The Stop decides first and the output commits after: the hand-back stands (Node's "prompt handed back"), and the prompt leaves.

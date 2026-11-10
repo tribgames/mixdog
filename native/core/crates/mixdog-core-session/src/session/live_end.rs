@@ -83,9 +83,11 @@ pub(crate) fn live_form(mut item: mixdog_protocol::ThreadItem, attempt: Option<&
 /// turn's abort ended (`abort_ended`, by call id) reads, live, what that wait settled with and its eager entry noticed to the
 /// card (`Error: <abort reason>`, eager-dispatch/entry.mjs:39-44), where the stored result is the interruption's `Cancelled`.
 pub(crate) fn live_result(mut update: mixdog_protocol::ThreadItem, at: i64, abort_ended: &std::collections::HashMap<String, String>) -> mixdog_protocol::ThreadItem {
-    if let mixdog_protocol::ThreadItem::ToolCall { run, output, .. } = &mut update {
+    if let mixdog_protocol::ThreadItem::ToolCall { run, output, meta, .. } = &mut update {
         run.completed_at = Some(at);
         if let Some(text) = run.call_id.as_deref().and_then(|call| abort_ended.get(call)) {
+            // The card the Stop ended is finalized as cancelled (`finalizeOpenCards(…, { cancelled })`, tool-card-results.mjs:88-97).
+            meta.status = Some(mixdog_protocol::ItemStatus::Interrupted);
             run.result = Some(mixdog_protocol::MaybeBlob::Inline(text.clone()));
             run.is_error = Some(true);
             *output = Some(mixdog_protocol::MaybeBlob::Inline(Value::String(text.clone())));
