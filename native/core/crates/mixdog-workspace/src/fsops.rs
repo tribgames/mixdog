@@ -79,6 +79,17 @@ pub struct BatchFile {
     pub rel_path: String,
     pub content: String,
     pub expected_content: String,
+    /// The client's `content` held an unpaired surrogate, read as U+FFFD (`CallContext::lone_surrogates`).
+    pub unpaired: bool,
+}
+
+/// Node's `encodeProjectText` (project-files.ts:96): a save of content holding a lone surrogate is refused, the file untouched.
+/// The core reads the unit as U+FFFD, so the request says which content held one; it is refused at the point Node encodes.
+fn check_paired(unpaired: bool) -> WsResult<()> {
+    if unpaired {
+        return Err(WsError::invalid("File content contains unpaired Unicode surrogates."));
+    }
+    Ok(())
 }
 
 pub fn parse_encoding(name: &str) -> WsResult<Encoding> {
@@ -232,6 +243,7 @@ impl ProjectFs {
         content: &str,
         expected: &str,
         encoding: Option<Encoding>,
+        unpaired: bool,
     ) -> WsResult<f64> {
         check_content(content, expected)?;
         let file = project_entry_path(root, rel)?;
@@ -239,6 +251,7 @@ impl ProjectFs {
         let _claim = self.identities.lock(vec![opened.id.key()]);
         path_names_file(root, rel, &opened)?;
         let (original, decoded) = expected_text(&mut opened.file, expected, rel)?;
+        check_paired(unpaired)?;
         let bytes = text::encode(
             content,
             encoding.unwrap_or(decoded.encoding),
@@ -282,6 +295,7 @@ impl ProjectFs {
         for (index, (rel, write)) in normalized.iter().enumerate() {
             path_names_file(root, rel, &opened[index])?;
             let (before, decoded) = expected_text(&mut opened[index].file, &write.expected_content, rel)?;
+            check_paired(write.unpaired)?;
             let after = text::encode(&write.content, decoded.encoding, decoded.has_bom);
             staged.push(Staged { rel: rel.clone(), before, after });
         }
@@ -691,9 +705,9 @@ mod tests {
     fn cas_write_keeps_identity_and_refuses_stale_content() {
         let (_d, root, fs_) = fixture();
         let before = path_id(&root.join("utf8.txt")).unwrap();
-        let stale = fs_.write_text(&root, "utf8.txt", "x", "other", None).unwrap_err();
+        let stale = fs_.write_text(&root, "utf8.txt", "x", "other", None, false).unwrap_err();
         assert_eq!(stale.message, "File changed on disk. Reload or keep your edits before saving.");
-        fs_.write_text(&root, "utf8.txt", "rewritten\n", "héllo\nworld\n", None).unwrap();
+        fs_.write_text(&root, "utf8.txt", "rewritten\n", "héllo\nworld\n", None, false).unwrap();
         assert_eq!(fs::read_to_string(root.join("utf8.txt")).unwrap(), "rewritten\n");
         assert_eq!(path_id(&root.join("utf8.txt")).unwrap(), before);
     }
@@ -702,8 +716,32 @@ mod tests {
     fn hard_link_sees_the_in_place_write() {
         let (_d, root, fs_) = fixture();
         fs::hard_link(root.join("utf8.txt"), root.join("link.txt")).unwrap();
-        fs_.write_text(&root, "utf8.txt", "new", "héllo\nworld\n", None).unwrap();
+        fs_.write_text(&root, "utf8.txt", "new", "héllo\nworld\n", None, false).unwrap();
         assert_eq!(fs::read_to_string(root.join("link.txt")).unwrap(), "new");
+    }
+
+    /// Node refuses a save whose content holds a lone surrogate and leaves the file as it was (project-files.ts:96, recorded as
+    /// native/core/fixtures/inbound-lone-surrogate `file-content-lone`, `batch-content-lone`); content holding a real U+FFFD is saved.
+    #[test]
+    fn a_save_of_content_that_held_a_lone_surrogate_is_refused_and_the_file_kept() {
+        let (_d, root, fs_) = fixture();
+        let refused = fs_.write_text(&root, "utf8.txt", "x\u{fffd}", "héllo\nworld\n", None, true).unwrap_err();
+        assert_eq!(refused.message, "File content contains unpaired Unicode surrogates.");
+        assert_eq!(fs::read_to_string(root.join("utf8.txt")).unwrap(), "héllo\nworld\n");
+        let batch = |unpaired| {
+            vec![
+                BatchFile { rel_path: "utf8.txt".into(), content: "A".into(), expected_content: "héllo\nworld\n".into(), unpaired: false },
+                BatchFile { rel_path: "crlf.txt".into(), content: "B\u{fffd}".into(), expected_content: "a\r\nb\r\n".into(), unpaired },
+            ]
+        };
+        let refused = fs_.write_batch(&root, &batch(true), true).unwrap_err();
+        assert_eq!(refused.message, "File content contains unpaired Unicode surrogates.");
+        assert_eq!(fs::read_to_string(root.join("utf8.txt")).unwrap(), "héllo\nworld\n");
+        assert_eq!(fs::read_to_string(root.join("crlf.txt")).unwrap(), "a\r\nb\r\n");
+        fs_.write_batch(&root, &batch(false), true).unwrap();
+        assert_eq!(fs::read_to_string(root.join("crlf.txt")).unwrap(), "B\u{fffd}");
+        fs_.write_text(&root, "utf8.txt", "x\u{fffd}", "A", None, false).unwrap();
+        assert_eq!(fs::read_to_string(root.join("utf8.txt")).unwrap(), "x\u{fffd}");
     }
 
     #[test]
@@ -724,8 +762,8 @@ mod tests {
         let (_d, root, fs_) = fixture();
         let files = |second: &str| {
             vec![
-                BatchFile { rel_path: "utf8.txt".into(), content: "A".into(), expected_content: "héllo\nworld\n".into() },
-                BatchFile { rel_path: "crlf.txt".into(), content: "B".into(), expected_content: second.into() },
+                BatchFile { rel_path: "utf8.txt".into(), content: "A".into(), expected_content: "héllo\nworld\n".into(), unpaired: false },
+                BatchFile { rel_path: "crlf.txt".into(), content: "B".into(), expected_content: second.into(), unpaired: false },
             ]
         };
         let bad = fs_.write_batch(&root, &files("wrong"), true).unwrap_err();

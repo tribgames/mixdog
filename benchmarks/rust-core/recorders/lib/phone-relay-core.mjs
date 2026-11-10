@@ -13,7 +13,7 @@ export async function startRelay({ repoRoot, clients, capabilities }) {
   const E2EE = await import(pathToFileURL(join(repoRoot, 'apps/desktop/src/shared/remote-e2ee.ts')).href);
   const server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
   await new Promise((resolve) => server.once('listening', resolve));
-  const state = { socket: null, caps: capabilities, envelopes: [], phones: new Map(), legs: 0, legWaiters: [], envelopeWaiters: [] };
+  const state = { socket: null, caps: capabilities, envelopes: [], phones: new Map(), closed: new Map(), closeWaiters: new Map(), legs: 0, legWaiters: [], envelopeWaiters: [] };
 
   server.on('connection', (socket) => {
     state.socket = socket;
@@ -24,6 +24,10 @@ export async function startRelay({ repoRoot, clients, capabilities }) {
       const frame = JSON.parse(raw.toString('utf8'));
       if (frame.type === 'list-clients') return socket.send(JSON.stringify({ type: 'clients-list', requestId: frame.requestId, clients }));
       if (frame.type === 'revoke-client') return socket.send(JSON.stringify({ type: 'client-revoked', requestId: frame.requestId, ok: true }));
+      if (frame.type === 'close-client') {
+        state.closed.set(frame.clientId, frame.reason ?? '');
+        for (const waiter of state.closeWaiters.get(frame.clientId)?.splice(0) ?? []) waiter(frame.reason ?? '');
+      }
       if (frame.type === 'frame' || frame.type === 'close-client') return state.phones.get(frame.clientId)?.arrived(frame);
       state.envelopes.push(frame);
       for (const waiter of state.envelopeWaiters.splice(0)) waiter();
@@ -32,23 +36,7 @@ export async function startRelay({ repoRoot, clients, capabilities }) {
 
   /** One phone behind the relay: client-open, challenge, hello, ready; then a `Connector` over the sealed channel. */
   async function openPhone(clientId, credential, pairing) {
-    const inbox = [];
-    const waiting = [];
-    const phone = {
-      arrived(frame) {
-        const next = waiting.shift();
-        if (next) next(frame);
-        else inbox.push(frame);
-      },
-    };
-    const take = () => (inbox.length ? Promise.resolve(inbox.shift()) : new Promise((resolve) => waiting.push(resolve)));
-    state.phones.set(clientId, phone);
-    state.socket.send(JSON.stringify({ type: 'client-open', clientId, browserClientId: credential }));
-    const challenge = JSON.parse((await take()).data);
-    const { hello, channel } = await E2EE.createRelayE2EEClientHandshake(pairing, challenge);
-    state.socket.send(JSON.stringify({ type: 'frame', clientId, data: JSON.stringify(hello) }));
-    const ready = await channel.decryptJson((await take()).data);
-    if (ready?.type !== 'e2ee-ready') throw new Error(`the PC did not answer the hello with e2ee-ready: ${JSON.stringify(ready)}`);
+    const { take, channel } = await handshake(clientId, credential, pairing);
     let sending = Promise.resolve();
     const connector = {
       async open(_target, sink) {
@@ -76,6 +64,42 @@ export async function startRelay({ repoRoot, clients, capabilities }) {
     return connector;
   }
 
+  /** A phone behind the relay that seals what it is given and reads each frame the PC sends it, opened, or the close of the client. */
+  async function openRawPhone(clientId, credential, pairing) {
+    const { take, channel } = await handshake(clientId, credential, pairing);
+    return {
+      async send(value) {
+        state.socket.send(JSON.stringify({ type: 'frame', clientId, data: await channel.encryptJson(value) }));
+      },
+      async next() {
+        const frame = await take();
+        return frame.type === 'close-client' ? { closed: frame.reason ?? '' } : { frame: await channel.decryptJson(frame.data) };
+      },
+    };
+  }
+
+  /** client-open, challenge, hello, ready: the frames of the client in arrival order and its sealed channel. */
+  async function handshake(clientId, credential, pairing) {
+    const inbox = [];
+    const waiting = [];
+    const phone = {
+      arrived(frame) {
+        const next = waiting.shift();
+        if (next) next(frame);
+        else inbox.push(frame);
+      },
+    };
+    const take = () => (inbox.length ? Promise.resolve(inbox.shift()) : new Promise((resolve) => waiting.push(resolve)));
+    state.phones.set(clientId, phone);
+    state.socket.send(JSON.stringify({ type: 'client-open', clientId, browserClientId: credential }));
+    const challenge = JSON.parse((await take()).data);
+    const { hello, channel } = await E2EE.createRelayE2EEClientHandshake(pairing, challenge);
+    state.socket.send(JSON.stringify({ type: 'frame', clientId, data: JSON.stringify(hello) }));
+    const ready = await channel.decryptJson((await take()).data);
+    if (ready?.type !== 'e2ee-ready') throw new Error(`the PC did not answer the hello with e2ee-ready: ${JSON.stringify(ready)}`);
+    return { take, channel };
+  }
+
   return {
     port: server.address().port,
     envelopes: state.envelopes,
@@ -93,6 +117,14 @@ export async function startRelay({ repoRoot, clients, capabilities }) {
     /** The relay sends the PC a frame of its own (a webpush-subscriptions set, for one). */
     send: (frame) => state.socket.send(JSON.stringify(frame)),
     openPhone,
+    openRawPhone,
+    /** The reason the PC gave when it closed client `clientId`, if it did. */
+    closedReason: (clientId) => state.closed.get(clientId),
+    /** Resolves with the reason once the PC closes client `clientId` (at once if it has). */
+    whenClosed: (clientId) =>
+      state.closed.has(clientId)
+        ? Promise.resolve(state.closed.get(clientId))
+        : new Promise((resolve) => state.closeWaiters.set(clientId, [...(state.closeWaiters.get(clientId) ?? []), resolve])),
     close: () => server.close(),
   };
 }

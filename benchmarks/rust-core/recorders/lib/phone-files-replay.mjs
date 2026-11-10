@@ -36,11 +36,11 @@ function differences(a, b, path = '') {
 }
 
 /** The core and the database it started, ended by the process tree of the one pid this replay spawned (a pid already gone is no error). */
-function killTree(child) {
+export function killTree(child) {
   spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore' });
 }
 
-async function startCore(exe, coreRoot, relay, fresh = true) {
+export async function startCore(exe, coreRoot, relay, fresh = true) {
   if (fresh) rmSync(coreRoot, { recursive: true, force: true });
   rmSync(join(coreRoot, 'runtime', 'daemon.json'), { force: true });
   for (const dir of ['runtime', 'data', 'home', 'config']) mkdirSync(join(coreRoot, dir), { recursive: true });

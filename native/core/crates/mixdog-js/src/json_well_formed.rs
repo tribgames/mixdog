@@ -86,9 +86,89 @@ pub fn well_formed_str(text: &str) -> Cow<'_, str> {
     }
 }
 
+/// The JSON pointers (RFC 6901) of the strings in JSON text `text` that hold a lone surrogate
+/// escape, each key as [`well_formed_str`] reads it (a lone surrogate U+FFFD): where a value read
+/// as U+FFFD held a lone code unit in Node, for a caller that must refuse what Node refuses for it
+/// (`toUSVString(value) !== value`). Empty for text that is not JSON or holds none.
+pub fn lone_surrogate_pointers(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    if without_lone_surrogates(text.as_bytes()).1 == 0 {
+        return out;
+    }
+    if let Ok(value) = crate::json_parse::parse(text) {
+        collect_pointers(&value, &mut String::new(), &mut out);
+    }
+    out
+}
+
+/// Parsed text (json_parse.rs) as the core reads it, and whether it held a lone surrogate.
+fn read_parsed(text: &str) -> (String, bool) {
+    let mut out = String::with_capacity(text.len());
+    let mut lone = false;
+    let mut chars = text.char_indices();
+    while let Some((at, c)) = chars.next() {
+        if !crate::json_parse::is_esc(c) {
+            out.push(c);
+            continue;
+        }
+        let rest = &text[at + c.len_utf8()..];
+        let (kept, len) = match crate::json_parse::escape_at(rest) {
+            Some((crate::json_parse::Escape::Surrogate(_), len)) => {
+                lone = true;
+                ('\u{fffd}', len)
+            }
+            Some((crate::json_parse::Escape::Escaped, len)) => (c, len),
+            None => (c, 0),
+        };
+        out.push(kept);
+        let mut skipped = 0;
+        while skipped < len {
+            skipped += chars.next().map_or(len, |(_, c)| c.len_utf8());
+        }
+    }
+    (out, lone)
+}
+
+fn collect_pointers(value: &serde_json::Value, pointer: &mut String, out: &mut Vec<String>) {
+    let len = pointer.len();
+    match value {
+        serde_json::Value::String(text) => {
+            if read_parsed(text).1 {
+                out.push(pointer.clone());
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                pointer.push('/');
+                pointer.push_str(&index.to_string());
+                collect_pointers(item, pointer, out);
+                pointer.truncate(len);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for (key, item) in map {
+                pointer.push('/');
+                pointer.push_str(&read_parsed(key).0.replace('~', "~0").replace('/', "~1"));
+                collect_pointers(item, pointer, out);
+                pointer.truncate(len);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lone_surrogate_pointers_name_the_strings_that_held_one() {
+        let text = r#"{"a":"x\ud83dy","b":"\ud83d\ude00","c":["ok","\udc00"],"d":"\\ud800","\udc00/~":{"e":"\ufffd","f":"\uDE00"},"g":"\u{F0000}"}"#;
+        let text = text.replace("\\u{F0000}", "\u{F0000}\u{F0000}d800");
+        assert_eq!(lone_surrogate_pointers(&text), ["/a", "/c/1", "/\u{fffd}~1~0/f"]);
+        assert!(lone_surrogate_pointers(r#"{"a":"\ud83d\ude00","b":"\ufffd"}"#).is_empty());
+        assert!(lone_surrogate_pointers(r#"{"a":"\ud800"#).is_empty());
+    }
 
     #[test]
     fn lone_surrogates_become_replacement_characters() {

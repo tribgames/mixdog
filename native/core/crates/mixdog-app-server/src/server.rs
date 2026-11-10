@@ -307,7 +307,7 @@ impl Shared {
 
     // ---- requests
 
-    fn on_request(self: &Arc<Self>, conn: &Arc<Connection>, request: JsonRpcRequest) -> Inbound {
+    fn on_request(self: &Arc<Self>, conn: &Arc<Connection>, mut request: JsonRpcRequest) -> Inbound {
         let id = request.id.clone();
         // No origin is no scope to judge the call by: refuse, never assume one.
         let Some(origin) = (self.origin_of)(conn.id) else {
@@ -357,6 +357,7 @@ impl Shared {
         // The owner decodes its own params from the raw value; the table decode below only
         // validates them and yields the scope and op.
         let params = request.params.clone();
+        let lone_surrogates = std::mem::take(&mut request.lone_surrogates);
         let typed = match ClientRequest::from_jsonrpc(request) {
             Ok(typed) => typed,
             Err(error) => {
@@ -373,7 +374,7 @@ impl Shared {
         let params = params.unwrap_or_else(empty_result);
         // What the call keeps until its answer is queued ends right after `finish` queues it, or with the request if it never is.
         let after = AfterAnswer::default();
-        match self.dispatch(conn, &id, origin, typed, params, spec, &after) {
+        match self.dispatch(conn, &id, origin, typed, (params, lone_surrogates), spec, &after) {
             Dispatch::Ready(outcome) => {
                 drop(slot);
                 self.finish(conn, &id, outcome);
@@ -560,7 +561,7 @@ impl Shared {
         id: &RequestId,
         origin: Origin,
         request: ClientRequest,
-        params: Value,
+        (params, lone_surrogates): (Value, Vec<String>),
         spec: &'static MethodSpec,
         after: &AfterAnswer,
     ) -> Dispatch {
@@ -649,7 +650,7 @@ impl Shared {
             }
             _ => {
                 let op = request.op().map(|(_, op)| op.clone());
-                self.route(conn, origin, spec, params, op, after)
+                self.route(conn, origin, spec, (params, lone_surrogates), op, after)
             }
         }
     }
@@ -664,12 +665,13 @@ impl Shared {
         conn: &Connection,
         origin: Origin,
         spec: &'static MethodSpec,
-        params: Value,
+        (params, lone_surrogates): (Value, Vec<String>),
         op: Option<OpId>,
         after: &AfterAnswer,
     ) -> Dispatch {
         let mut ctx = CallContext::connection(conn.id, origin, conn.cancel.clone());
         ctx.after_answer = after.clone();
+        ctx.lone_surrogates = lone_surrogates;
         let namespace = namespace(spec.method);
         let thread = THREAD_NAMESPACES
             .contains(&namespace)

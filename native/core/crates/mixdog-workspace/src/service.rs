@@ -840,16 +840,18 @@ impl WorkspaceService {
                 let (root, rel) = self.file_target(req, params).await?;
                 let (content, expected) = (s(params, "content")?.to_owned(), s(params, "expectedContent")?.to_owned());
                 let encoding = params.get("encoding").and_then(Value::as_str).map(fsops::parse_encoding).transpose()?;
+                let unpaired = req.ctx.lone_surrogates.iter().any(|pointer| pointer == "/content");
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &[&rel])?).await;
                 let fs = self.fs.clone();
                 let (note_root, note_rel) = (root.clone(), rel.clone());
-                let mtime = run_fallible(self.lanes.durability, &cancel, move || fs.write_text(&root, &rel, &content, &expected, encoding)).await?;
+                let mtime =
+                    run_fallible(self.lanes.durability, &cancel, move || fs.write_text(&root, &rel, &content, &expected, encoding, unpaired)).await?;
                 self.note_written(&note_root, &[&note_rel]);
                 value(json!({ "mtimeMs": mtime }))
             }
             "projectFs/writeTextBatch" => {
                 let root = self.root(req.ctx.origin, params).await?;
-                let files = Self::batch_files(params)?;
+                let files = Self::batch_files(params, &req.ctx.lone_surrogates)?;
                 let rels: Vec<&str> = files.iter().map(|f| f.rel_path.as_str()).collect();
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &rels)?).await;
                 let fs = self.fs.clone();
@@ -929,6 +931,8 @@ impl WorkspaceService {
                 let options = params.get("options").unwrap_or(&Value::Null);
                 let query = text_query(options)?;
                 let replacement = s(params, "replacement")?.to_owned();
+                // Every planned write holds the replacement; one that held a lone surrogate is refused (Node: project-files.ts:744).
+                let unpaired = req.ctx.lone_surrogates.iter().any(|pointer| pointer == "/replacement");
                 // An empty list names no file, as in Node: every matching file is replaced.
                 let rel_paths: Option<Vec<String>> = params
                     .get("relPaths")
@@ -947,7 +951,12 @@ impl WorkspaceService {
                 let files: Vec<BatchFile> = plan
                     .writes
                     .iter()
-                    .map(|w| BatchFile { rel_path: w.rel_path.clone(), content: w.content.clone(), expected_content: w.expected_content.clone() })
+                    .map(|w| BatchFile {
+                        rel_path: w.rel_path.clone(),
+                        content: w.content.clone(),
+                        expected_content: w.expected_content.clone(),
+                        unpaired,
+                    })
                     .collect();
                 let rels: Vec<&str> = files.iter().map(|f| f.rel_path.as_str()).collect();
                 let _claim = self.paths.acquire(Self::claim_keys(&root, &rels)?).await;
@@ -1406,17 +1415,20 @@ impl WorkspaceService {
         self.feeds.as_ref()
     }
 
-    fn batch_files(params: &Value) -> WsResult<Vec<BatchFile>> {
+    /// The files of a batch save; `lone_surrogates` (the request's) marks a file whose content held a lone surrogate.
+    fn batch_files(params: &Value, lone_surrogates: &[String]) -> WsResult<Vec<BatchFile>> {
         params
             .get("files")
             .and_then(Value::as_array)
             .ok_or_else(|| WsError::invalid("files is invalid."))?
             .iter()
-            .map(|f| {
+            .enumerate()
+            .map(|(index, f)| {
                 Ok(BatchFile {
                     rel_path: s(f, "relPath").or_else(|_| s(f, "rel"))?.to_owned(),
                     content: s(f, "content")?.to_owned(),
                     expected_content: s(f, "expectedContent")?.to_owned(),
+                    unpaired: lone_surrogates.contains(&format!("/files/{index}/content")),
                 })
             })
             .collect()

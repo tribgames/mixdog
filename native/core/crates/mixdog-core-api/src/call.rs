@@ -42,6 +42,10 @@ pub struct CallContext {
     pub cancel: CancellationToken,
     /// What the service keeps alive until its answer is in the caller's outgoing queue (see [`AfterAnswer`]).
     pub after_answer: AfterAnswer,
+    /// The JSON pointers into the params of the strings that held an unpaired surrogate escape on the
+    /// wire, now U+FFFD (the request's `lone_surrogates`): a service refuses one where Node refuses
+    /// a lone code unit. Empty for an internal producer.
+    pub lone_surrogates: Vec<String>,
 }
 
 /// Guards a service hands the server to keep until the request's answer has been handed to the connection's outgoing queue (written,
@@ -77,6 +81,7 @@ impl CallContext {
             origin,
             cancel,
             after_answer: AfterAnswer::default(),
+            lone_surrogates: Vec::new(),
         }
     }
 
@@ -88,6 +93,7 @@ impl CallContext {
             origin: Origin::Local,
             cancel: CancellationToken::new(),
             after_answer: AfterAnswer::default(),
+            lone_surrogates: Vec::new(),
         }
     }
 }

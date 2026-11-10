@@ -72,6 +72,7 @@ pub(crate) fn request_frame(id: RequestId, method: &str, params: Value) -> Bytes
         method: method.to_owned(),
         params: Some(params),
         trace: None,
+        lone_surrogates: Vec::new(),
     })
 }
 
